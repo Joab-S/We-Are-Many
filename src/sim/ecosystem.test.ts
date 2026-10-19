@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateSurface, type PlanetParams } from '../procgen/surface';
 import { Ecosystem, isLand, isWater } from './ecosystem';
-import { nativeSpecies } from './species';
+import { nativeLifeLevel, nativeSpecies } from './species';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
 const mars: PlanetParams = { id: 'sol-4', name: 'Marte', radiusEarth: 0.4, temperatureK: 210, water: 0.04, life: 0 };
@@ -22,6 +22,13 @@ describe('espécies', () => {
   it('a Terra tem peixes, cervos, lobos e humanos; Marte não tem vida', () => {
     expect(nativeSpecies(earth).map((s) => s.name)).toEqual(['Peixe', 'Cervo', 'Lobo', 'Humano']);
     expect(nativeSpecies(mars)).toEqual([]);
+  });
+  it('vida nativa fora da Terra é rara', () => {
+    let alive = 0;
+    for (let k = 0; k < 2000; k++) if (nativeLifeLevel(`exo-${k}`, 0.8) > 0) alive++;
+    expect(alive).toBeGreaterThan(5);
+    expect(alive).toBeLessThan(50);
+    expect(nativeLifeLevel('sol-3', 0.85)).toBe(0.85);
   });
   it('planetas com vida geram espécies próprias de forma determinística', () => {
     const p = { ...earth, id: 'kepler-x' };

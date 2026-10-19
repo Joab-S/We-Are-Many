@@ -42,7 +42,24 @@ const TEMPLATES: Record<SpeciesKind, Omit<Species, 'id' | 'name' | 'origin' | 'c
   sapient: { kind: 'sapient', tempMin: 255, tempMax: 318, speed: 1.1, maxAge: 60, maturity: 15 },
 };
 
-/** Espécies nativas. A Terra tem as conhecidas; outros planetas com vida recebem espécies geradas. */
+export const EARTH_ID = 'sol-3';
+
+/**
+ * Vida nativa fora da Terra é muito rara: só uma pequena fração dos planetas
+ * com clima favorável chega a ter vida, e menos ainda uma espécie inteligente.
+ * A regra normal é o jogador levar espécies da Terra e terraformar.
+ */
+export const NATIVE_LIFE_CHANCE = 0.01;
+export const SAPIENT_CHANCE = 0.1;
+
+/** Nível de vida que o planeta realmente tem, dado o quanto ele seria favorável (`potential`). */
+export function nativeLifeLevel(planetId: string, potential: number): number {
+  if (planetId === EARTH_ID) return potential;
+  if (potential <= 0) return 0;
+  return mulberry32(seedFor(`${planetId}:native-life`))() < NATIVE_LIFE_CHANCE ? potential : 0;
+}
+
+/** Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas. */
 export function nativeSpecies(planet: PlanetParams): Species[] {
   if (planet.life <= 0) return [];
   const make = (kind: SpeciesKind, name: string, color: [number, number, number]): Species => ({
@@ -52,7 +69,7 @@ export function nativeSpecies(planet: PlanetParams): Species[] {
     origin: planet.id,
     color,
   });
-  if (planet.id === 'sol-3') {
+  if (planet.id === EARTH_ID) {
     return [
       make('fish', 'Peixe', [120, 190, 255]),
       make('herbivore', 'Cervo', [170, 110, 60]),
@@ -64,6 +81,6 @@ export function nativeSpecies(planet: PlanetParams): Species[] {
   const color = (): [number, number, number] => [60 + rnd() * 190, 60 + rnd() * 190, 60 + rnd() * 190].map(Math.round) as [number, number, number];
   const list = [make('fish', alienName(rnd), color()), make('herbivore', alienName(rnd), color())];
   if (planet.life > 0.4) list.push(make('predator', alienName(rnd), color()));
-  if (planet.life > 0.7 && rnd() < 0.5) list.push(make('sapient', alienName(rnd), color()));
+  if (planet.life > 0.7 && rnd() < SAPIENT_CHANCE) list.push(make('sapient', alienName(rnd), color()));
   return list;
 }

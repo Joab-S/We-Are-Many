@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { loadManifest, loadNames } from '../universe/loader';
 import { AdaptiveResolution } from './quality';
-import { planetParams, type PlanetData } from './space/bodies';
+import { nativeSpecies } from '../sim/species';
+import { planetParams, SOL_PLANETS, type PlanetData } from './space/bodies';
 import { SpaceMode } from './space/SpaceMode';
 import type { GameState } from './state';
 import { SurfaceMode } from './surface/SurfaceMode';
@@ -12,14 +13,37 @@ const hud = document.getElementById('hud')!;
 const loading = document.getElementById('loading')!;
 
 // Em telas de alta densidade o antialiasing custa caro e quase não aparece.
-const renderer = new THREE.WebGLRenderer({
-  antialias: window.devicePixelRatio < 1.5,
-  logarithmicDepthBuffer: true,
-  powerPreference: 'high-performance',
-});
+const renderer = createRenderer();
 const resolution = new AdaptiveResolution(renderer);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 app.appendChild(renderer.domElement);
+
+/**
+ * Cria o renderer. Se o navegador não entrega WebGL (aceleração de hardware
+ * desligada, GPU bloqueada ou driver com problema), mostra como resolver em
+ * vez de quebrar com uma tela preta.
+ */
+function createRenderer(): THREE.WebGLRenderer {
+  try {
+    return new THREE.WebGLRenderer({
+      antialias: window.devicePixelRatio < 1.5,
+      logarithmicDepthBuffer: true,
+      powerPreference: 'high-performance',
+    });
+  } catch (err) {
+    loading.classList.add('error');
+    loading.innerHTML = `
+      <h2>Seu navegador não liberou o WebGL</h2>
+      <p>O jogo precisa da placa de vídeo pelo navegador. Normalmente resolve assim:</p>
+      <ol>
+        <li>Ative a <b>aceleração de hardware</b> (Chrome/Edge: Configurações › Sistema › "Usar aceleração gráfica quando disponível") e reinicie o navegador.</li>
+        <li>Atualize o driver da placa de vídeo.</li>
+        <li>Confira em <code>chrome://gpu</code> se "WebGL" aparece como "Hardware accelerated".</li>
+      </ol>
+      <p class="detail">${String((err as Error).message ?? err)}</p>`;
+    throw err;
+  }
+}
 
 type Mode = SpaceMode | SurfaceMode;
 let mode: Mode | null = null;
@@ -56,7 +80,8 @@ async function boot(): Promise<void> {
     surfaces: new Map(),
     orbitPlanetId: null,
     ecosystems: new Map(),
-    knownSpecies: new Map(),
+    // A nave saiu da Terra: as espécies terrestres já estão a bordo para levar a outros planetas.
+    knownSpecies: new Map(nativeSpecies(planetParams(SOL_PLANETS[2])).map((sp) => [sp.id, sp])),
   };
   const m = new THREE.Matrix4().lookAt(state.shipPos, new THREE.Vector3(), new THREE.Vector3(0, 0, 1));
   state.shipQuat.setFromRotationMatrix(m);

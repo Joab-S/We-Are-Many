@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { bvToTemperature, stellarRadius, temperatureToRgb } from '../../core/astro';
 import { mulberry32, seedFor } from '../../core/rng';
 import { EARTH_RADIUS_KM, KM_PER_AU } from '../../core/units';
+import { nativeLifeLevel } from '../../sim/species';
 import { generateSurface, mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '../../procgen/surface';
 
 /**
@@ -53,7 +54,7 @@ export function planetParams(p: PlanetData): PlanetParams {
     radiusEarth: p.radiusKm / EARTH_RADIUS_KM,
     temperatureK: p.temperatureK,
     water: p.water,
-    life: p.life,
+    life: nativeLifeLevel(p.id, p.life),
   };
 }
 
