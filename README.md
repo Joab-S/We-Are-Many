@@ -53,7 +53,7 @@ npm run data
 2. **Escala contínua:** origem flutuante (a câmera fica sempre na origem), depth buffer logarítmico e velocidade adaptativa. O voo vai do espaço interestelar até a órbita da Terra sem tela de carregamento.
 3. **Sistema Solar:** planetas reais em escala visual comprimida, menu orbital e distância mínima de aproximação.
 4. **Superfície estilo WorldBox:** mapa de um pixel por elemento, com tamanho proporcional ao planeta (Terra = 1024×512, até 2048×1024), cilíndrico, gerado num Web Worker, com ferramentas de terraformação e vegetação que se espalha. A cena 3D é descartada ao entrar e reconstruída ao sair.
-5. **Vida na superfície:** peixes, herbívoros, predadores e uma espécie inteligente, cada criatura um ponto no mapa e um sprite em pixel art no zoom. As espécies dependem do clima e do terreno, se reproduzem, caçam e morrem. A espécie inteligente funda aldeias que crescem, mandam colonos e avançam de era (Pedra, Bronze, Ferro...). Espécies conhecidas podem ser levadas a outros planetas.
+5. **Vida na superfície:** peixes, herbívoros, predadores e uma espécie inteligente, cada criatura um ponto no mapa e um sprite em pixel art no zoom. As espécies dependem do clima e do terreno, se reproduzem, caçam e morrem. A espécie inteligente funda assentamentos (aldeia, vila, cidade) com praça, ruas em grade e casas em lotes, cada um com sua área; cidades formam reinos ligados por estradas. As casas mudam de estilo a cada era (Pedra, Bronze, Ferro...). Requisitos completos da vida em [docs/REQUISITOS-VIDA.md](docs/REQUISITOS-VIDA.md). Espécies conhecidas podem ser levadas a outros planetas.
 
 ## Estrutura
 

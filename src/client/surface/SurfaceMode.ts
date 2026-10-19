@@ -5,15 +5,18 @@ import {
   classify,
   paintSurface,
   paintTile,
+  tileHash,
   temperatureAt,
   type PlanetParams,
   type SurfaceMap,
 } from '../../procgen/surface';
-import { Ecosystem, ERAS, YEAR_SECONDS } from '../../sim/ecosystem';
+import { Ecosystem, ERAS, isLand, YEAR_SECONDS } from '../../sim/ecosystem';
+import { TIER_NAMES } from '../../sim/settlement';
 import { nativeSpecies, type Species } from '../../sim/species';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
 import type { GameState } from '../state';
+import { makeDecorCanvas } from './art';
 import { generateSurfaceAsync } from './generateAsync';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 
@@ -73,42 +76,11 @@ const fragmentShader = /* glsl */ `
   uniform vec2 uHover;
   uniform float uBrush;
   uniform float uTime;
+  uniform sampler2D uDecor;
   in vec2 vUv;
   out vec4 outColor;
 
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-
-  vec3 decor(int kind, vec2 f, vec3 base, inout bool hit) {
-    // f: posição no tile em pixels de arte (0..8), y para baixo.
-    vec2 p = floor(f) + 0.5;
-    hit = false;
-    if (kind == 1 || kind == 2) {
-      float r = kind == 2 ? 3.6 : 3.1;
-      vec2 c = vec2(4.0, 3.4);
-      float d = length(p - c);
-      if (p.x > 3.0 && p.x < 5.0 && p.y > 5.5 && p.y < 8.0) { hit = true; return vec3(0.33, 0.2, 0.1); }
-      if (d < r) {
-        hit = true;
-        vec3 leaf = kind == 2 ? base * 1.05 : base * 1.3;
-        if (d > r - 0.9) return base * 0.55;
-        if (p.x + p.y < c.x + c.y - 1.5) return leaf * 1.22;
-        return leaf;
-      }
-    } else if (kind == 3) {
-      float w = (p.y - 0.5) * 0.45;
-      if (p.y < 6.5 && abs(p.x - 4.0) < w + 0.5) { hit = true; return abs(p.x - 4.0) > w - 0.6 ? vec3(0.08, 0.25, 0.12) : vec3(0.14, 0.4, 0.2); }
-      if (p.y >= 6.5 && abs(p.x - 4.0) < 1.0) { hit = true; return vec3(0.33, 0.2, 0.1); }
-    } else if (kind == 4) {
-      if (p.y > 1.5 && p.y < 3.5 && abs(p.x - 4.0) < 3.6) { hit = true; return p.y < 2.5 ? vec3(0.45, 0.55, 0.2) : vec3(0.3, 0.4, 0.12); }
-      if (p.y >= 3.5 && abs(p.x - 4.0) < 1.0) { hit = true; return vec3(0.38, 0.25, 0.12); }
-    } else if (kind == 5) {
-      if ((abs(p.x - 4.0) < 1.0 && p.y > 1.0) || (abs(p.x - 2.0) < 0.6 && p.y > 3.0 && p.y < 5.5) || (abs(p.x - 6.0) < 0.6 && p.y > 2.0 && p.y < 4.5)) { hit = true; return vec3(0.25, 0.55, 0.25); }
-    } else if (kind == 6) {
-      vec2 q = (p - vec2(4.0, 5.0)) / vec2(3.0, 2.0);
-      if (dot(q, q) < 1.0) { hit = true; return q.y < -0.2 ? vec3(0.62) : vec3(0.42); }
-    }
-    return base;
-  }
 
   void main() {
     vec2 tile = uCenter + (vUv * uResolution - uResolution * 0.5) / uZoom;
@@ -124,12 +96,12 @@ const fragmentShader = /* glsl */ `
       if (water) c += 0.035 * step(0.93, sin(float(t.x) * 0.9 + float(t.y) * 1.7 + uTime * 1.6));
     }
     int kind = int(texel.a * 255.0 + 0.5) / 16;
-    if (uZoom >= 5.0 && kind > 0) {
-      vec2 f = vec2(fract(x), 1.0 - fract(tile.y)) * 8.0;
-      bool hit;
-      vec3 d = decor(kind, f, texel.rgb, hit);
-      if (hit) c = d;
-      else if (kind <= 4 && length(floor(f) + 0.5 - vec2(4.2, 7.4)) < 2.0) c *= 0.8;
+    if (uZoom >= 5.0 && kind > 0 && kind <= 6) {
+      // Arte 16x16 do enfeite (art.ts): alfa cheio é cor, alfa parcial é sombra.
+      ivec2 f = ivec2(vec2(fract(x), 1.0 - fract(tile.y)) * 16.0);
+      vec4 d = texelFetch(uDecor, ivec2((kind - 1) * 16 + f.x, f.y), 0);
+      if (d.a > 0.9) c = d.rgb * (0.94 + 0.12 * hash(vec2(t) + 7.0));
+      else if (d.a > 0.2) c *= 0.62;
     }
     vec2 dd = vec2(mod(tile.x - uHover.x + uMapSize.x * 0.5, uMapSize.x) - uMapSize.x * 0.5, tile.y - uHover.y);
     float r = length(dd);
@@ -153,6 +125,8 @@ export class SurfaceMode {
   private pixels!: Uint8Array;
   private texture!: THREE.DataTexture;
   private material!: THREE.ShaderMaterial;
+  private decorCanvas!: HTMLCanvasElement;
+  private decorTexture!: THREE.CanvasTexture;
   private atlas!: SpriteAtlas;
   private sprites!: SpriteLayer;
   private readonly input: Input;
@@ -225,12 +199,19 @@ export class SurfaceMode {
 
     this.pixels = new Uint8Array(map.width * map.height * 4);
     paintSurface(map, this.pixels);
+    for (let i = 0; i < eco.road.length; i++) if (eco.road[i] || eco.built[i]) this.paintSettlement(i);
     this.texture = new THREE.DataTexture(this.pixels, map.width, map.height);
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.minFilter = THREE.NearestFilter;
     this.texture.needsUpdate = true;
     this.center.set(map.width / 2, map.height / 2);
     this.zoom = Math.max(1, window.innerHeight / map.height);
+    this.decorCanvas = makeDecorCanvas();
+    this.decorTexture = new THREE.CanvasTexture(this.decorCanvas);
+    this.decorTexture.flipY = false;
+    this.decorTexture.magFilter = THREE.NearestFilter;
+    this.decorTexture.minFilter = THREE.NearestFilter;
+    this.decorTexture.generateMipmaps = false;
 
     this.material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
@@ -245,6 +226,7 @@ export class SurfaceMode {
         uHover: { value: this.hover },
         uBrush: { value: this.brush },
         uTime: { value: 0 },
+        uDecor: { value: this.decorTexture },
       },
       depthTest: false,
     });
@@ -310,7 +292,7 @@ export class SurfaceMode {
   introduce(sp: Species, x: number, viewY: number): void {
     const s = this.eco.addSpecies(sp);
     const born = this.eco.introduce(s, x, this.toRow(viewY), this.brush, sp.kind === 'sapient' ? 6 : 8);
-    if (!born) this.eco.log.unshift(`${sp.name}: o lugar não é habitável`);
+    if (!born && !this.eco.log[0]?.startsWith('Muito perto')) this.eco.log.unshift(`${sp.name}: o lugar não é habitável`);
   }
 
   /** Impacto de cometa: abre uma cratera que vira lago e umedece os arredores. */
@@ -344,7 +326,31 @@ export class SurfaceMode {
   private repaint(i: number): void {
     this.map.biome[i] = classify(this.map, i);
     paintTile(this.map, this.pixels, i);
+    if (this.eco.road[i] || this.eco.built[i]) this.paintSettlement(i);
     this.textureChanged = true;
+  }
+
+  /** Ruas, praça e terreno das casas por cima do terreno, sem enfeites. */
+  private paintSettlement(i: number): void {
+    if (!isLand(this.map, i)) return;
+    const o = i * 4;
+    const px = this.pixels;
+    const road = this.eco.road[i];
+    const n = tileHash(i) * 0.12 - 0.06;
+    let c: [number, number, number] | null = null;
+    if (road === 1) c = [146, 112, 74];
+    else if (road === 2) c = (i + Math.floor(i / this.map.width)) % 2 ? [150, 150, 158] : [128, 128, 138];
+    else if (road === 3) c = [178, 148, 104];
+    if (c) {
+      px[o] = clamp(c[0] * (1 + n), 0, 255);
+      px[o + 1] = clamp(c[1] * (1 + n), 0, 255);
+      px[o + 2] = clamp(c[2] * (1 + n), 0, 255);
+    } else {
+      // Quintal: o chão sob a casa fica um pouco mais seco.
+      px[o] = clamp(px[o] * 1.05 + 10, 0, 255);
+      px[o + 1] = clamp(px[o + 1] * 0.98, 0, 255);
+    }
+    px[o + 3] = 15;
   }
 
   // Interface ----------------------------------------------------------------
@@ -571,6 +577,23 @@ export class SurfaceMode {
       const dx = (copy * mw + sa - this.center.x) * z + w / 2;
       ctx.drawImage(this.softCanvas, sa, 0, sb - sa, mh, dx, top, (sb - sa) * z, mh * z);
     }
+    if (z >= 5) {
+      // Enfeites (árvores, pedras) com a mesma arte do shader.
+      const r0 = Math.max(0, Math.floor(mh - this.center.y - h / 2 / z));
+      const r1 = Math.min(mh - 1, Math.ceil(mh - this.center.y + h / 2 / z));
+      const c0 = Math.floor(x0);
+      const c1 = Math.ceil(x1);
+      const size = Math.ceil(z);
+      for (let row = r0; row <= r1; row++) {
+        const sy = top + row * z;
+        for (let col = c0; col <= c1; col++) {
+          const i = row * mw + (((col % mw) + mw) % mw);
+          const kind = this.pixels[i * 4 + 3] >> 4;
+          if (kind < 1 || kind > 6) continue;
+          ctx.drawImage(this.decorCanvas, (kind - 1) * 16, 0, 16, 16, Math.floor((col - this.center.x) * z + w / 2), Math.floor(sy), size, size);
+        }
+      }
+    }
     this.drawSprites(w, h, z);
     this.sprites.drawSoft(ctx, h);
     if (this.tool && this.hover.x > -1e5) {
@@ -600,15 +623,19 @@ export class SurfaceMode {
     for (const v of eco.villages) {
       if (v.abandoned) continue;
       const era = Math.floor(v.tech);
-      const sprite: SpriteName = era >= 3 ? 'stoneHouse' : era >= 1 ? 'house' : 'hut';
+      // Uma casa por era; cidades medievais já têm sobrados.
+      const sprite: SpriteName =
+        era >= 4 || (era >= 3 && v.tier >= 2) ? 'townhouse' : era >= 3 ? 'stoneHouse' : era >= 2 ? 'house' : era >= 1 ? 'cottage' : 'hut';
       for (const house of v.houses) {
-        const [sx, sy] = this.toScreen(house.x + 0.5, house.y + 1, z, w, h);
+        const [sx, sy] = this.toScreen(house.x + 1, house.y + 2, z, w, h);
         if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
-        layer.push(sprite, sx, sy, Math.max(3, z * 2.4), v.color);
+        layer.push(sprite, sx, sy, Math.max(3, z * 2), v.color);
       }
       if (!small) {
-        const [fx, fy] = this.toScreen(v.x + 1.5, v.y + 0.5, z, w, h);
-        layer.push('bonfire', fx, fy, z * 1.1, v.color);
+        const [fx, fy] = this.toScreen(v.x, v.y + 1, z, w, h);
+        if (v.tier >= 2) layer.push('keep', fx, fy, z * 2.6, v.color);
+        else if (era >= 1) layer.push('well', fx, fy, z * 1.3, v.color);
+        else layer.push('bonfire', fx, fy, z * 1.1, v.color);
       }
     }
     for (let i = 0; i < eco.count; i++) {
@@ -624,7 +651,7 @@ export class SurfaceMode {
       }
       const name: SpriteName =
         sp.kind === 'fish' ? 'fish' : sp.kind === 'herbivore' ? 'herbivore' : sp.kind === 'predator' ? 'predator' : sp.origin === 'sol-3' ? 'human' : 'alien';
-      const height = sp.kind === 'fish' ? 0.5 : sp.kind === 'sapient' ? 1.3 : 0.9;
+      const height = sp.kind === 'fish' ? 0.5 : sp.kind === 'sapient' ? 1.05 : 0.85;
       layer.push(name, sx, sy - z * 0.5, z * height, tint);
     }
     layer.end();
@@ -654,7 +681,10 @@ export class SurfaceMode {
         this.labels.set(v.id, el);
       }
       el.hidden = false;
-      const text = `${v.name} ${v.population}`;
+      const text =
+        v.kingdom === v.id && this.eco.kingdomSize(v) > 1
+          ? `♛ Reino de ${v.name} · ${v.population}`
+          : `${TIER_NAMES[v.tier]} ${v.name} · ${v.population}`;
       if (el.textContent !== text) el.textContent = text;
       el.style.transform = `translate(${sx}px, ${h - sy}px) translate(-50%, -100%)`;
     }
@@ -736,7 +766,8 @@ export class SurfaceMode {
       const v = this.eco.village[picked] >= 0 ? this.eco.villages[this.eco.village[picked]] : null;
       html = `
         <b>${sp.name}</b>
-        ${v ? `<span>Aldeia ${v.name} · ${ERAS[Math.floor(v.tech)]}</span>` : ''}
+        ${v ? `<span>${TIER_NAMES[v.tier]} ${v.name} · ${ERAS[Math.floor(v.tech)]}</span>` : ''}
+        ${v && v.kingdom !== v.id ? `<span>Reino de ${this.eco.capitalOf(v).name}</span>` : ''}
         <span>Idade ${this.eco.age[picked].toFixed(0)} anos</span>
         <span>Energia ${(this.eco.energy[picked] * 100).toFixed(0)}%</span>`;
     } else {
@@ -758,6 +789,7 @@ export class SurfaceMode {
   private updatePanel(): void {
     const eco = this.eco;
     const live = eco.villages.filter((v) => !v.abandoned);
+    const kingdoms = live.filter((v) => v.kingdom === v.id && eco.kingdomSize(v) > 1).length;
     const era = live.length ? ERAS[Math.floor(Math.max(...live.map((v) => v.tech)))] : 'Sem civilização';
     const rows = eco.species
       .map((sp, s) => `<div class="wb-pop"><i style="background:rgb(${sp.color.join(',')})"></i>${sp.name}<b>${eco.population[s]}</b></div>`)
@@ -768,8 +800,9 @@ export class SurfaceMode {
       <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === this.speed ? 'on' : ''}">${v === 0 ? 'II' : `${v}x`}</button>`).join('')}</div>
       <div class="wb-section">População</div>
       ${rows || '<div class="wb-empty">Nenhuma espécie. Leve uma pela aba Vida.</div>'}
-      <div class="wb-pop">Aldeias<b>${live.length}</b></div>
-      ${live.slice(0, 6).map((v) => `<button class="wb-goto" data-village="${v.id}"><i style="background:rgb(${v.color.join(',')})"></i>${v.name}<b>${v.population}</b></button>`).join('')}
+      <div class="wb-pop">Assentamentos<b>${live.length}</b></div>
+      ${kingdoms ? `<div class="wb-pop">Reinos<b>${kingdoms}</b></div>` : ''}
+      ${[...live].sort((a, b) => b.population - a.population).slice(0, 6).map((v) => `<button class="wb-goto" data-village="${v.id}"><i style="background:rgb(${v.color.join(',')})"></i>${TIER_NAMES[v.tier]} ${v.name}<b>${v.population}</b></button>`).join('')}
       ${eco.log.length ? `<div class="wb-section">Acontecimentos</div>${eco.log.slice(0, 5).map((l) => `<div class="wb-log">${l}</div>`).join('')}` : ''}`;
     if (html !== this.lastPanelHtml) {
       this.lastPanelHtml = html;
@@ -795,6 +828,7 @@ export class SurfaceMode {
       this.scene.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
       this.material.dispose();
       this.texture.dispose();
+      this.decorTexture.dispose();
       this.sprites.dispose();
       this.atlas.dispose();
     }

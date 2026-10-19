@@ -1,5 +1,6 @@
 import { mulberry32 } from '../core/rng';
 import { Biome, temperatureAt, type SurfaceMap } from '../procgen/surface';
+import { lotsFor, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, type Species, type SpeciesKind } from './species';
 
 /**
@@ -20,7 +21,14 @@ export interface Village {
   species: number;
   x: number;
   y: number;
+  /** Casas: canto superior esquerdo de 2x2 tiles. */
   houses: { x: number; y: number }[];
+  /** Nível: 0 aldeia, 1 vila, 2 cidade (TIER_NAMES). */
+  tier: number;
+  /** Id do assentamento capital do reino a que pertence (o próprio, se independente). */
+  kingdom: number;
+  /** Lotes livres ou não, relativos ao centro, do nível atual. */
+  lots: { x: number; y: number }[];
   tech: number;
   population: number;
   /** Cor das roupas dos moradores. */
@@ -73,6 +81,10 @@ export class Ecosystem {
   alive = new Uint8Array(0);
   village = new Int16Array(0);
   readonly villages: Village[] = [];
+  /** Ruas por tile: 0 nenhuma, 1 terra, 2 pedra, 3 praça. */
+  readonly road: Uint8Array;
+  /** Tiles ocupados por casas. */
+  readonly built: Uint8Array;
   readonly population: number[] = [];
   /** Teto de cada espécie neste planeta, proporcional ao habitat. */
   private readonly caps: number[] = [];
@@ -96,6 +108,8 @@ export class Ecosystem {
     seed: number,
   ) {
     this.rnd = mulberry32(seed);
+    this.road = new Uint8Array(map.width * map.height);
+    this.built = new Uint8Array(map.width * map.height);
     this.cols = Math.ceil(map.width / CELL);
     this.rows = Math.ceil(map.height / CELL);
     this.gridHead = new Int32Array(this.cols * this.rows);
@@ -148,8 +162,14 @@ export class Ecosystem {
       if (sp.kind === 'sapient') {
         const villages = Math.max(2, Math.min(6, Math.round(green / 60000)));
         for (let v = 0; v < villages; v++) {
-          const tile = this.findTile(s, Math.floor(this.rnd() * n), 400, true);
-          if (tile >= 0) this.foundVillage(s, tile % map.width, Math.floor(tile / map.width), 8);
+          for (let t = 0; t < 20; t++) {
+            const tile = this.findTile(s, Math.floor(this.rnd() * n), 400, true);
+            const tx = tile % map.width;
+            const ty = Math.floor(tile / map.width);
+            if (tile < 0 || !this.canFound(tx, ty)) continue;
+            this.foundVillage(s, tx, ty, 8);
+            break;
+          }
         }
       }
     });
@@ -414,7 +434,7 @@ export class Ecosystem {
           if (dx > map.width / 2) dx -= map.width;
           else if (dx < -map.width / 2) dx += map.width;
           const dy = v.y - this.y[i];
-          const range = 4 + Math.sqrt(v.houses.length) * 2.5;
+          const range = TIER_RADIUS[v.tier] * 0.8;
           if (dx * dx + dy * dy > range * range) bias = { x: dx, y: dy };
         }
         this.wander(i, sp.speed, bias);
@@ -455,26 +475,186 @@ export class Ecosystem {
     return false;
   }
 
+  // Assentamentos ----------------------------------------------------------
+
+  /** Tile de (x, linha), com volta horizontal; -1 fora do mapa. */
+  private tileAt(x: number, y: number): number {
+    const w = this.map.width;
+    if (y < 0 || y >= this.map.height) return -1;
+    return y * w + (((Math.floor(x) % w) + w) % w);
+  }
+
+  private distance(v: Village, x: number, y: number): number {
+    return Math.hypot(wrapDx(v.x - x, this.map.width), v.y - y);
+  }
+
+  /** Assentamento cuja área contém o ponto, se houver. */
+  settlementAt(x: number, y: number): Village | null {
+    for (const v of this.villages) if (!v.abandoned && this.distance(v, x, y) < TIER_RADIUS[v.tier]) return v;
+    return null;
+  }
+
+  /** Um assentamento novo não pode nascer dentro (nem encostado) da área de outro. */
+  canFound(x: number, y: number): boolean {
+    return this.villages.every((v) => v.abandoned || this.distance(v, x + 0.5, y + 0.5) >= TIER_RADIUS[v.tier] + TIER_RADIUS[0]);
+  }
+
+  /** Capital do reino do assentamento. */
+  capitalOf(v: Village): Village {
+    return this.villages[v.kingdom];
+  }
+
+  /** Quantos assentamentos ativos pertencem ao reino cuja capital é `v`. */
+  kingdomSize(v: Village): number {
+    let n = 0;
+    for (const o of this.villages) if (!o.abandoned && o.kingdom === v.id) n++;
+    return n;
+  }
+
+  private setRoad(i: number, kind: number): void {
+    if (this.road[i] >= kind || this.built[i]) return;
+    this.road[i] = kind;
+    this.onTileChanged(i);
+  }
+
+  /** Praça e ruas do nível atual; ruas de pedra a partir da Era Medieval. */
+  private layStreets(v: Village): void {
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    const kind = v.tech >= 3 ? 2 : 1;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t >= 0 && isLand(this.map, t)) this.setRoad(t, 3);
+      }
+    }
+    for (const st of streetPlan(v.tier)) {
+      for (let step = 0; step <= st.len; step++) {
+        const t = this.tileAt(cx + st.x + st.dx * step, cy + st.y + st.dy * step);
+        if (t < 0 || !isLand(this.map, t)) break;
+        if (this.road[t] === 3) continue;
+        if (kind === 2 && this.road[t] === 1) this.road[t] = 0;
+        this.setRoad(t, kind);
+      }
+    }
+    v.lots = lotsFor(v.tier);
+  }
+
+  /** Constrói uma casa no lote livre mais perto do centro. */
+  private buildHouse(v: Village): boolean {
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    const w = this.map.width;
+    for (const lot of v.lots) {
+      const tiles: number[] = [];
+      for (let dy = 0; dy < 2; dy++) {
+        for (let dx = 0; dx < 2; dx++) {
+          const t = this.tileAt(cx + lot.x + dx, cy + lot.y + dy);
+          if (t < 0 || !isLand(this.map, t) || this.road[t] || this.built[t]) break;
+          tiles.push(t);
+        }
+      }
+      if (tiles.length < 4) continue;
+      for (const t of tiles) {
+        this.built[t] = 1;
+        this.onTileChanged(t);
+      }
+      v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w) });
+      return true;
+    }
+    return false;
+  }
+
+  /** Estrada de terra em linha reta entre dois assentamentos, interrompida na água. */
+  private connect(a: Village, b: Village): void {
+    const dx = wrapDx(b.x - a.x, this.map.width);
+    const dy = b.y - a.y;
+    const n = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)));
+    for (let k = 0; k <= n; k++) {
+      const t = this.tileAt(Math.floor(a.x + (dx * k) / n), Math.floor(a.y + (dy * k) / n));
+      if (t >= 0 && isLand(this.map, t)) this.setRoad(t, 1);
+    }
+  }
+
+  private uniqueName(): string {
+    let name = alienName(this.rnd, 2);
+    for (let t = 0; t < 20 && this.villages.some((v) => v.name === name); t++) name = alienName(this.rnd, 2 + (t > 10 ? 1 : 0));
+    return name;
+  }
+
   foundVillage(s: number, x: number, y: number, settlers: number, from?: Village): Village {
     const sp = this.species[s];
     const rnd = this.rnd;
+    const id = this.villages.length;
     const village: Village = {
-      id: this.villages.length,
-      name: alienName(rnd, 2),
+      id,
+      name: this.uniqueName(),
       species: s,
       x: x + 0.5,
       y: y + 0.5,
-      houses: [{ x, y }],
+      houses: [],
+      tier: 0,
+      kingdom: from ? from.kingdom : id,
+      lots: [],
       tech: from ? from.tech * 0.8 : 0,
       population: 0,
       color: from ? from.color : ([90 + rnd() * 160, 60 + rnd() * 150, 60 + rnd() * 150].map(Math.round) as [number, number, number]),
       abandoned: false,
     };
     this.villages.push(village);
+    this.layStreets(village);
+    this.buildHouse(village);
+    if (from) this.connect(from, village);
     for (let k = 0; k < settlers; k++) {
       this.spawn(s, x + (rnd() - 0.5) * 3, y + (rnd() - 0.5) * 3, village.id, sp.maturity + rnd() * 10);
     }
     return village;
+  }
+
+  private abandon(v: Village): void {
+    v.abandoned = true;
+    // As casas viram ruína e somem; as ruas ficam.
+    for (const h of v.houses) {
+      for (let dy = 0; dy < 2; dy++) {
+        for (let dx = 0; dx < 2; dx++) {
+          const t = this.tileAt(h.x + dx, h.y + dy);
+          if (t >= 0) {
+            this.built[t] = 0;
+            this.onTileChanged(t);
+          }
+        }
+      }
+    }
+    v.houses.length = 0;
+    // Assentamentos do reino de uma capital abandonada ficam independentes.
+    for (const o of this.villages) if (o.kingdom === v.id && o !== v) o.kingdom = o.id;
+    this.log.unshift(`${v.name} foi abandonada`);
+  }
+
+  /** Sobe de nível quando a população permite. Aldeias e vilas não podem conter outro assentamento. */
+  private growTier(v: Village): void {
+    const target = tierFor(v.population);
+    if (target <= v.tier) return;
+    const r = TIER_RADIUS[target];
+    const inside = this.villages.filter((o) => o !== v && !o.abandoned && this.distance(o, v.x, v.y) < r);
+    if (target < 2 && inside.length) return;
+    if (target === 2) {
+      for (const o of inside) {
+        if (o.species !== v.species || o.tier >= 2) continue;
+        const old = o.kingdom;
+        for (const m of this.villages) {
+          if (m.kingdom === old) {
+            m.kingdom = v.kingdom;
+            m.color = v.color;
+          }
+        }
+        this.connect(v, o);
+        this.log.unshift(`${o.name} passou a fazer parte do reino de ${this.capitalOf(v).name}`);
+      }
+    }
+    v.tier = target;
+    this.layStreets(v);
+    this.log.unshift(`${v.name} virou ${TIER_NAMES[target].toLowerCase()}`);
   }
 
   private updateVillages(dt: number): void {
@@ -482,38 +662,29 @@ export class Ecosystem {
     for (const v of this.villages) {
       if (v.abandoned) continue;
       if (v.population <= 0) {
-        v.abandoned = true;
-        this.log.unshift(`${v.name} foi abandonada`);
+        this.abandon(v);
         continue;
       }
       const before = Math.floor(v.tech);
       v.tech = Math.min(ERAS.length - 1, v.tech + dt * 0.0025 * Math.sqrt(v.population));
-      if (Math.floor(v.tech) > before) this.log.unshift(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`);
-      // Constrói casas quando a aldeia cresce.
-      if (v.population > v.houses.length * 3 && this.rnd() < 0.4) {
-        const r = 2 + Math.sqrt(v.houses.length) * 1.6;
-        for (let t = 0; t < 8; t++) {
-          const hx = Math.floor(v.x + (this.rnd() - 0.5) * 2 * r);
-          const hy = Math.floor(v.y + (this.rnd() - 0.5) * 2 * r);
-          if (hy < 1 || hy >= map.height - 1) continue;
-          const tx = ((hx % map.width) + map.width) % map.width;
-          if (!isLand(map, hy * map.width + tx)) continue;
-          if (v.houses.some((h) => Math.abs(h.x - tx) < 2 && Math.abs(h.y - hy) < 2)) continue;
-          v.houses.push({ x: tx, y: hy });
-          break;
-        }
+      if (Math.floor(v.tech) > before) {
+        this.log.unshift(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`);
+        if (Math.floor(v.tech) === 3) this.layStreets(v);
       }
-      // Aldeias cheias enviam colonos para fundar outra.
+      this.growTier(v);
+      // Constrói casas quando o assentamento cresce.
+      if (v.population > v.houses.length * 3 && this.rnd() < 0.4) this.buildHouse(v);
+      // Assentamentos cheios enviam colonos para fundar outro, fora de qualquer área.
       if (v.population > 26 && this.rnd() < 0.04 * dt && this.villages.length < 60) {
         for (let t = 0; t < 12; t++) {
           const a = this.rnd() * Math.PI * 2;
-          const d = 16 + this.rnd() * 22;
+          const d = TIER_RADIUS[v.tier] + TIER_RADIUS[0] + 2 + this.rnd() * 22;
           const nx = Math.floor(v.x + Math.cos(a) * d);
           const ny = Math.floor(v.y + Math.sin(a) * d);
           if (ny < 2 || ny >= map.height - 2) continue;
           const tx = ((nx % map.width) + map.width) % map.width;
           const tile = ny * map.width + tx;
-          if (!this.habitable(v.species, tile) || map.vegetation[tile] < 0.2) continue;
+          if (!this.habitable(v.species, tile) || map.vegetation[tile] < 0.2 || !this.canFound(tx, ny)) continue;
           const nv = this.foundVillage(v.species, tx, ny, 0, v);
           let moved = 0;
           for (let i = 0; i < this.count && moved < 6; i++) {
@@ -541,6 +712,11 @@ export class Ecosystem {
     if (this.species[s].kind === 'sapient') {
       const tile = Math.floor(y) * w + (((Math.floor(x) % w) + w) % w);
       if (!this.habitable(s, tile)) return 0;
+      const other = this.settlementAt(x, y);
+      if (other || !this.canFound(Math.floor(x), Math.floor(y))) {
+        this.log.unshift(`Muito perto de ${other?.name ?? 'outro assentamento'}: escolha um lugar fora da área`);
+        return 0;
+      }
       const v = this.foundVillage(s, ((Math.floor(x) % w) + w) % w, Math.floor(y), Math.max(4, amount));
       this.log.unshift(`${this.species[s].name}s fundaram ${v.name}`);
       return v.population;

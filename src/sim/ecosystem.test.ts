@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateSurface, type PlanetParams } from '../procgen/surface';
 import { Ecosystem, isLand, isWater } from './ecosystem';
+import { lotsFor, streetPlan, TIER_RADIUS } from './settlement';
 import { nativeLifeLevel, nativeLifeTier, nativeSpecies } from './species';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
@@ -98,5 +99,53 @@ describe('ecossistema', () => {
     const before = v.tech;
     eco.teach(v.x, v.y, 3, 1);
     expect(v.tech).toBeGreaterThan(before);
+  });
+});
+
+describe('assentamentos', () => {
+  it('aldeias e vilas nunca contêm outro assentamento, e as casas ficam fora das ruas', () => {
+    const { map, eco } = world({ ...earth, radiusEarth: 1 });
+    // Força o crescimento para ter vilas, cidades e colônias.
+    for (const v of eco.villages) v.tech = 2.5;
+    run(eco, 240);
+    const live = eco.villages.filter((v) => !v.abandoned);
+    expect(live.length).toBeGreaterThan(1);
+    for (const a of live) {
+      if (a.tier >= 2) continue;
+      for (const b of live) {
+        if (a === b) continue;
+        let dx = Math.abs(a.x - b.x);
+        if (dx > map.width / 2) dx = map.width - dx;
+        expect(Math.hypot(dx, a.y - b.y)).toBeGreaterThanOrEqual(TIER_RADIUS[a.tier]);
+      }
+    }
+    let houses = 0;
+    for (const v of live) {
+      houses += v.houses.length;
+      for (const h of v.houses) {
+        for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+          const t = (h.y + dy) * map.width + ((h.x + dx) % map.width);
+          expect(eco.road[t]).toBe(0);
+          expect(eco.built[t]).toBe(1);
+        }
+      }
+    }
+    expect(eco.built.reduce((n, b) => n + b, 0)).toBe(houses * 4);
+    expect(eco.road.some((r) => r > 0)).toBe(true);
+  });
+
+  it('não deixa fundar dentro da área de outro assentamento', () => {
+    const { eco } = world();
+    const v = eco.villages[0];
+    const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
+    const before = eco.villages.length;
+    expect(eco.introduce(s, v.x + 3, v.y, 2, 6)).toBe(0);
+    expect(eco.villages.length).toBe(before);
+  });
+
+  it('a planta cresce com o nível', () => {
+    expect(lotsFor(0).length).toBeLessThan(lotsFor(1).length);
+    expect(lotsFor(1).length).toBeLessThan(lotsFor(2).length);
+    expect(streetPlan(2).length).toBeGreaterThan(streetPlan(0).length);
   });
 });
