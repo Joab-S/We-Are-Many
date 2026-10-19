@@ -196,7 +196,7 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-90 | Níveis de assentamento pela população: **Aldeia** (< 25), **Vila** (25 a 59), **Cidade** (≥ 60). O nível sobe e desce com a população. | Implementado (Fase 0) |
+| RF-VIDA-90 | Níveis de assentamento pela população: **Aldeia** (< 25), **Vila** (25 a 59), **Cidade** (≥ 60). O nível sobe quando a população alcança o limite; descer de nível quando a população cai fica para depois. | Implementado (Fase 0), só sobe |
 | RF-VIDA-91 | **Reino:** uma cidade capital mais os assentamentos subordinados a ela: colônias que ela fundou e aldeias que ficaram dentro da sua área. O reino tem nome, cor e líder; o rótulo da capital mostra o reino. | Implementado (Fase 0), sem líder |
 | RF-VIDA-92 | Quando a capital cai de nível (vira vila) ou é conquistada, o reino pode se desfazer ou mudar de capital para a maior cidade restante. | Fase 6 |
 | RF-VIDA-93 | Impérios (vários reinos sob um) e confederações ficam como evolução do sistema de alianças (seção 12). | Futuro |
@@ -216,11 +216,11 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-100 | Todo assentamento tem uma **praça central** com fogueira (Pedra/Bronze) ou poço (Ferro em diante). | Implementado (Fase 0), fogueira |
+| RF-VIDA-100 | Todo assentamento tem uma **praça central** com fogueira (Pedra) ou poço (Bronze em diante); a praça de uma cidade ganha uma fortaleza com a bandeira do reino. | Implementado (Fase 0) |
 | RF-VIDA-101 | **Ruas em cruz** saem da praça nas quatro direções; o comprimento cresce com o nível (aldeia curta, cidade longa). Ruas são tiles de terra batida pintados no mapa e não passam por água. | Implementado (Fase 0) |
 | RF-VIDA-102 | **Casas em lotes ao longo das ruas**, de frente para elas, com espaçamento regular, ocupando primeiro os lotes mais perto da praça. Casas nunca ficam na água nem sobre a rua. | Implementado (Fase 0) |
 | RF-VIDA-103 | **Estradas de terra** ligam assentamentos do mesmo reino, contornando água quando possível. | Implementado (Fase 0), traçado em linha reta interrompido na água |
-| RF-VIDA-104 | Ruas secundárias paralelas surgem em cidades quando os lotes das ruas principais acabam (malha). | Fase 5 |
+| RF-VIDA-104 | Ruas paralelas formam uma malha: vilas ganham uma rua paralela de cada lado da cruz, cidades duas. Futuro: a malha cresce sob demanda, quando os lotes acabam. | Implementado (Fase 0), malha fixa por nível |
 | RF-VIDA-105 | **Campos cultivados** (seção 11) em volta das casas da periferia, a partir do Bronze. | Fase 5 |
 | RF-VIDA-106 | **Muralhas por era:** paliçada de madeira (Ferro), muralha de pedra com portões nas ruas (Medieval), contornando a área da cidade. | Fase 6 |
 | RF-VIDA-107 | **Edifícios especiais:** castelo/palácio na capital do reino, templo, mercado, quartel, celeiro, ferraria, porto (assentamentos na costa a partir do Medieval), pontes onde estradas cruzam rios estreitos, marcos (estátua, torre) que contam a história. | Fase 6 |
@@ -317,9 +317,9 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 |---|---|---|
 | RF-VIDA-160 | Estilo **16 bits simples e bonito**: elementos grandes (casas ~16×16 px de arte, árvores ~12–16 px) com **contorno escuro**, **3 a 4 tons por material** e **luz vinda de cima à esquerda**. Nada exagerado: cores mais bonitas e objetos bem definidos no zoom próximo. | Implementado (Fase 0) |
 | RF-VIDA-161 | Criaturas pequenas: de longe são 1 pixel na cor da espécie (peixe = 1 pixel), de perto viram sprites; o humano segue a referência do WorldBox (corpo simples, roupa na cor do reino). | Implementado (Fase 0) |
-| RF-VIDA-162 | Casas mudam por era: **cabana de palha** (Pedra), **casa de madeira com telhado** (Bronze), **casa de pedra** (Ferro), **casarões e torres** nas cidades (Medieval em diante). A cor do telhado ou de um detalhe identifica o reino. | Implementado (Fase 0), casarão a partir da Era Medieval nas cidades |
+| RF-VIDA-162 | Casas mudam por era: **cabana de palha** (Pedra), **casa de madeira com telhado de palha** (Bronze), **casa enxaimel com telhado de telha** (Ferro), **casa de pedra com telhado de ardósia** (Medieval) e **sobrado de tijolo** (Industrial, e nas cidades já a partir da Medieval). Futuro: a cor do telhado ou de um detalhe identifica o reino. | Implementado (Fase 0), sem cor de reino nas casas |
 | RF-VIDA-163 | Árvores por bioma (folhosa, floresta tropical, pinheiro, acácia, cacto) e pedras, com o mesmo estilo, desenhadas sobre o tile no zoom alto. | Implementado (Fase 0) |
-| RF-VIDA-164 | Ruas e estradas como tiles de terra batida com borda mais escura; praça com fogueira animada. | Implementado (Fase 0), fogueira estática |
+| RF-VIDA-164 | Ruas e estradas como tiles de terra batida (pedra a partir da Era Medieval), com leve variação por tile; praça com fogueira animada. | Implementado (Fase 0), fogueira estática |
 | RF-VIDA-165 | Futuro: lavouras por estação, muralhas, castelo, templo, porto, barcos, ruínas, exércitos com bandeira na cor do reino, fumaça de fábricas. | Fase 5/6 |
 | RF-VIDA-166 | Paleta da flora alienígena derivada da estrela (RF-ART-04): plantas de estrela vermelha mais escuras/arroxeadas, de estrela azul mais claras. | Fase 5 |
 
