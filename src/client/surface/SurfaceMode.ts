@@ -12,6 +12,7 @@ import {
 import { Ecosystem, ERAS, YEAR_SECONDS } from '../../sim/ecosystem';
 import { nativeSpecies, type Species } from '../../sim/species';
 import { Input } from '../input';
+import { SoftRenderer, type GameRenderer } from '../renderer';
 import type { GameState } from '../state';
 import { generateSurfaceAsync } from './generateAsync';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
@@ -181,7 +182,7 @@ export class SurfaceMode {
   private readonly abort = new AbortController();
 
   constructor(
-    private readonly renderer: THREE.WebGLRenderer,
+    private readonly renderer: GameRenderer,
     private readonly state: GameState,
     private readonly params: PlanetParams,
     hud: HTMLElement,
@@ -502,6 +503,11 @@ export class SurfaceMode {
   private render(now: number): void {
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     const pr = this.renderer.getPixelRatio();
+    if (this.renderer instanceof SoftRenderer) {
+      this.renderSoft(this.renderer.context, size.x, size.y, this.zoom * pr);
+      this.updateLabels();
+      return;
+    }
     const u = this.material.uniforms;
     (u.uResolution.value as THREE.Vector2).copy(size);
     u.uZoom.value = this.zoom * pr;
@@ -514,6 +520,66 @@ export class SurfaceMode {
     this.renderer.render(this.spriteScene, this.camera);
     this.renderer.autoClear = true;
     this.updateLabels();
+  }
+
+  private softCanvas: HTMLCanvasElement | null = null;
+  private softImage: ImageData | null = null;
+  private softVersion = -1;
+
+  /**
+   * Desenho sem WebGL: o mapa vira um canvas de um pixel por tile, ampliado
+   * sem suavização; os sprites são desenhados por cima. Sem os enfeites por
+   * tile nem o brilho da água, que dependem do shader.
+   */
+  private renderSoft(ctx: CanvasRenderingContext2D, w: number, h: number, z: number): void {
+    const map = this.map;
+    const mw = map.width;
+    const mh = map.height;
+    if (!this.softCanvas) {
+      this.softCanvas = document.createElement('canvas');
+      this.softCanvas.width = mw;
+      this.softCanvas.height = mh;
+      this.softImage = new ImageData(mw, mh);
+    }
+    if (this.softVersion !== this.texture.version) {
+      this.softVersion = this.texture.version;
+      const out = this.softImage!.data;
+      const src = this.pixels;
+      for (let i = 0; i < out.length; i += 4) {
+        out[i] = src[i];
+        out[i + 1] = src[i + 1];
+        out[i + 2] = src[i + 2];
+        out[i + 3] = 255;
+      }
+      this.softCanvas.getContext('2d')!.putImageData(this.softImage!, 0, 0);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#05070d';
+    ctx.fillRect(0, 0, w, h);
+    ctx.imageSmoothingEnabled = false;
+    // Canto superior esquerdo do mapa na tela; o mapa se repete na horizontal.
+    const top = h / 2 - (mh - this.center.y) * z;
+    const x0 = this.center.x - w / 2 / z;
+    const x1 = this.center.x + w / 2 / z;
+    for (let copy = Math.floor(x0 / mw); copy * mw < x1; copy++) {
+      const a = Math.max(x0, copy * mw);
+      const b = Math.min(x1, (copy + 1) * mw);
+      const sa = Math.floor(a - copy * mw);
+      const sb = Math.min(mw, Math.ceil(b - copy * mw));
+      if (sb <= sa) continue;
+      const dx = (copy * mw + sa - this.center.x) * z + w / 2;
+      ctx.drawImage(this.softCanvas, sa, 0, sb - sa, mh, dx, top, (sb - sa) * z, mh * z);
+    }
+    this.drawSprites(w, h, z);
+    this.sprites.drawSoft(ctx, h);
+    if (this.tool && this.hover.x > -1e5) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = Math.max(1, z * 0.15);
+      ctx.beginPath();
+      ctx.arc((this.hover.x - this.center.x) * z + w / 2, h / 2 - (this.hover.y - this.center.y) * z, this.brush * z, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 
   /** Converte coordenadas do mapa (x, linha) em pixels do buffer, com volta horizontal. */

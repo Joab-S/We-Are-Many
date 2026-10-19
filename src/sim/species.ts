@@ -45,18 +45,29 @@ const TEMPLATES: Record<SpeciesKind, Omit<Species, 'id' | 'name' | 'origin' | 'c
 export const EARTH_ID = 'sol-3';
 
 /**
- * Vida nativa fora da Terra é muito rara: só uma pequena fração dos planetas
- * com clima favorável chega a ter vida, e menos ainda uma espécie inteligente.
- * A regra normal é o jogador levar espécies da Terra e terraformar.
+ * Vida nativa fora da Terra é rara, em três níveis, sempre entre os planetas
+ * com clima favorável: só vegetação, animais próprios, e raramente uma
+ * espécie inteligente. A regra normal é levar espécies da Terra e terraformar.
  */
-export const NATIVE_LIFE_CHANCE = 0.01;
+export const PLANT_LIFE_CHANCE = 0.25;
+export const ANIMAL_LIFE_CHANCE = 0.08;
 export const SAPIENT_CHANCE = 0.1;
 
-/** Nível de vida que o planeta realmente tem, dado o quanto ele seria favorável (`potential`). */
+export type LifeTier = 'none' | 'plants' | 'animals' | 'sapient';
+
+/** Nível de vida nativa do planeta, dado o quanto o clima é favorável (`potential`). */
+export function nativeLifeTier(planetId: string, potential: number): LifeTier {
+  if (planetId === EARTH_ID) return 'sapient';
+  if (potential <= 0) return 'none';
+  const rnd = mulberry32(seedFor(`${planetId}:native-life`));
+  const r = rnd();
+  if (r < ANIMAL_LIFE_CHANCE) return rnd() < SAPIENT_CHANCE ? 'sapient' : 'animals';
+  return r < ANIMAL_LIFE_CHANCE + PLANT_LIFE_CHANCE ? 'plants' : 'none';
+}
+
+/** Quanto de vida (vegetação) o planeta realmente tem. */
 export function nativeLifeLevel(planetId: string, potential: number): number {
-  if (planetId === EARTH_ID) return potential;
-  if (potential <= 0) return 0;
-  return mulberry32(seedFor(`${planetId}:native-life`))() < NATIVE_LIFE_CHANCE ? potential : 0;
+  return nativeLifeTier(planetId, potential) === 'none' ? 0 : potential;
 }
 
 /** Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas. */
@@ -77,10 +88,12 @@ export function nativeSpecies(planet: PlanetParams): Species[] {
       make('sapient', 'Humano', [230, 70, 60]),
     ];
   }
+  const tier = nativeLifeTier(planet.id, planet.life);
+  if (tier === 'none' || tier === 'plants') return [];
   const rnd = mulberry32(seedFor(`${planet.id}:species`));
   const color = (): [number, number, number] => [60 + rnd() * 190, 60 + rnd() * 190, 60 + rnd() * 190].map(Math.round) as [number, number, number];
   const list = [make('fish', alienName(rnd), color()), make('herbivore', alienName(rnd), color())];
   if (planet.life > 0.4) list.push(make('predator', alienName(rnd), color()));
-  if (planet.life > 0.7 && rnd() < SAPIENT_CHANCE) list.push(make('sapient', alienName(rnd), color()));
+  if (tier === 'sapient') list.push(make('sapient', alienName(rnd), color()));
   return list;
 }

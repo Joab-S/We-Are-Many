@@ -171,6 +171,33 @@ export class SpriteAtlas {
     this.texture.generateMipmaps = false;
   }
 
+  private readonly tintCache = new Map<string, HTMLCanvasElement>();
+
+  /** Sprite já pintado com a cor da instância (para o renderizador por software). */
+  tinted(name: SpriteName, tint: readonly number[]): HTMLCanvasElement {
+    const key = `${name}:${tint[0] | 0},${tint[1] | 0},${tint[2] | 0}`;
+    let c = this.tintCache.get(key);
+    if (!c) {
+      const art = ART[name];
+      c = document.createElement('canvas');
+      c.width = art[0].length;
+      c.height = art.length;
+      const g = c.getContext('2d')!;
+      const full = `rgb(${tint[0] | 0},${tint[1] | 0},${tint[2] | 0})`;
+      const dark = `rgb(${(tint[0] * 0.62) | 0},${(tint[1] * 0.62) | 0},${(tint[2] * 0.62) | 0})`;
+      art.forEach((row, y) => {
+        [...row].forEach((ch, x) => {
+          const color = ch === 'M' ? full : ch === 'm' ? dark : COLORS[ch];
+          if (!color) return;
+          g.fillStyle = color;
+          g.fillRect(x, y, 1, 1);
+        });
+      });
+      this.tintCache.set(key, c);
+    }
+    return c;
+  }
+
   dispose(): void {
     this.texture.dispose();
   }
@@ -217,6 +244,8 @@ export class SpriteLayer {
   private readonly uv: Float32Array;
   private readonly tint: Float32Array;
   private n = 0;
+  private readonly names: SpriteName[] = [];
+  private readonly tints: (readonly number[])[] = [];
 
   constructor(
     readonly atlas: SpriteAtlas,
@@ -264,6 +293,8 @@ export class SpriteLayer {
     if (this.n >= this.max) return;
     const f = this.atlas.frames[name];
     const k = this.n++;
+    this.names[k] = name;
+    this.tints[k] = tint;
     const w = (h * f.w) / f.h;
     this.offset[k * 2] = Math.round(x - w / 2);
     this.offset[k * 2 + 1] = Math.round(y);
@@ -282,6 +313,23 @@ export class SpriteLayer {
       a.clearUpdateRanges();
       a.addUpdateRange(0, this.n * a.itemSize);
       a.needsUpdate = true;
+    }
+  }
+
+  /** Desenha os sprites num Canvas 2D (renderizador por software); `height` é a altura do buffer. */
+  drawSoft(ctx: CanvasRenderingContext2D, height: number): void {
+    ctx.imageSmoothingEnabled = false;
+    for (let k = 0; k < this.n; k++) {
+      const w = this.size[k * 2];
+      const h = this.size[k * 2 + 1];
+      const x = this.offset[k * 2];
+      const y = height - this.offset[k * 2 + 1] - h;
+      const name = this.names[k];
+      if (name === 'dot') {
+        const t = this.tints[k];
+        ctx.fillStyle = `rgb(${t[0] | 0},${t[1] | 0},${t[2] | 0})`;
+        ctx.fillRect(x, y, w, h);
+      } else ctx.drawImage(this.atlas.tinted(name, this.tints[k]), x, y, w, h);
     }
   }
 

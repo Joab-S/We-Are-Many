@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { loadManifest, loadNames } from '../universe/loader';
 import { AdaptiveResolution } from './quality';
+import { SoftRenderer, webglAvailable, type GameRenderer } from './renderer';
 import { nativeSpecies } from '../sim/species';
 import { planetParams, SOL_PLANETS, type PlanetData } from './space/bodies';
 import { SpaceMode } from './space/SpaceMode';
@@ -12,37 +13,38 @@ const app = document.getElementById('app')!;
 const hud = document.getElementById('hud')!;
 const loading = document.getElementById('loading')!;
 
-// Em telas de alta densidade o antialiasing custa caro e quase não aparece.
-const renderer = createRenderer();
-const resolution = new AdaptiveResolution(renderer);
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-app.appendChild(renderer.domElement);
-
-/**
- * Cria o renderer. Se o navegador não entrega WebGL (aceleração de hardware
- * desligada, GPU bloqueada ou driver com problema), mostra como resolver em
- * vez de quebrar com uma tela preta.
- */
-function createRenderer(): THREE.WebGLRenderer {
+// Sem WebGL (aceleração de hardware desligada, GPU bloqueada, driver antigo)
+// o jogo usa o renderizador por software em Canvas 2D. `?soft` força esse modo.
+let soft = new URLSearchParams(location.search).has('soft') || !webglAvailable();
+let webgl: GameRenderer | null = null;
+if (!soft) {
   try {
-    return new THREE.WebGLRenderer({
-      antialias: window.devicePixelRatio < 1.5,
-      logarithmicDepthBuffer: true,
-      powerPreference: 'high-performance',
-    });
+    webgl = createWebGLRenderer();
   } catch (err) {
-    loading.classList.add('error');
-    loading.innerHTML = `
-      <h2>Seu navegador não liberou o WebGL</h2>
-      <p>O jogo precisa da placa de vídeo pelo navegador. Normalmente resolve assim:</p>
-      <ol>
-        <li>Ative a <b>aceleração de hardware</b> (Chrome/Edge: Configurações › Sistema › "Usar aceleração gráfica quando disponível") e reinicie o navegador.</li>
-        <li>Atualize o driver da placa de vídeo.</li>
-        <li>Confira em <code>chrome://gpu</code> se "WebGL" aparece como "Hardware accelerated".</li>
-      </ol>
-      <p class="detail">${String((err as Error).message ?? err)}</p>`;
-    throw err;
+    console.warn('WebGL indisponível, usando o renderizador por software', err);
+    soft = true;
   }
+}
+const renderer: GameRenderer = webgl ?? new SoftRenderer();
+const resolution = new AdaptiveResolution(renderer, soft);
+app.appendChild(renderer.domElement);
+if (soft) {
+  const note = document.createElement('div');
+  note.className = 'soft-note';
+  note.textContent = 'Modo sem aceleração gráfica: visual simplificado. Ative a aceleração de hardware do navegador para o visual completo.';
+  document.body.appendChild(note);
+  setTimeout(() => note.remove(), 9000);
+}
+
+function createWebGLRenderer(): THREE.WebGLRenderer {
+  // Em telas de alta densidade o antialiasing custa caro e quase não aparece.
+  const r = new THREE.WebGLRenderer({
+    antialias: window.devicePixelRatio < 1.5,
+    logarithmicDepthBuffer: true,
+    powerPreference: 'high-performance',
+  });
+  r.outputColorSpace = THREE.SRGBColorSpace;
+  return r;
 }
 
 type Mode = SpaceMode | SurfaceMode;

@@ -3,6 +3,7 @@ import { adaptiveMaxSpeed, formatDistance, formatSpeed } from '../../core/flight
 import { stepSpeedFactor, Turbo, TURBO } from '../../core/shipControl';
 import { AU_PER_PC } from '../../core/units';
 import { Input } from '../input';
+import type { GameRenderer } from '../renderer';
 import type { AdaptiveResolution } from '../quality';
 import type { GameState } from '../state';
 import {
@@ -94,7 +95,7 @@ export class SpaceMode {
   private cameraRoll = 0;
 
   constructor(
-    private readonly renderer: THREE.WebGLRenderer,
+    private readonly renderer: GameRenderer,
     private readonly resolution: AdaptiveResolution,
     private readonly state: GameState,
     hud: HTMLElement,

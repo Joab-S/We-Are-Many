@@ -1,4 +1,4 @@
-import type * as THREE from 'three';
+import type { GameRenderer } from './renderer';
 
 /**
  * Resolução dinâmica: se o jogo cai abaixo de ~40 FPS, a resolução interna
@@ -6,15 +6,19 @@ import type * as THREE from 'three';
  * troca nitidez por fluidez sem o jogador precisar mexer em nada.
  */
 export class AdaptiveResolution {
-  private readonly max = Math.min(window.devicePixelRatio || 1, 1.5);
-  private readonly min = 0.6;
-  private ratio = this.max;
+  private readonly max: number;
+  private readonly min: number;
+  private ratio: number;
   private sum = 0;
   private count = 0;
   private windowStart = performance.now();
   private goodWindows = 0;
 
-  constructor(private readonly renderer: THREE.WebGLRenderer) {
+  /** `soft`: renderizador por software, que começa e pode descer mais baixo. */
+  constructor(private readonly renderer: GameRenderer, soft = false) {
+    this.max = soft ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+    this.min = soft ? 0.4 : 0.6;
+    this.ratio = soft ? 0.75 : this.max;
     renderer.setPixelRatio(this.ratio);
   }
 

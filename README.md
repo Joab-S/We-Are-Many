@@ -14,6 +14,8 @@ npm test           # testes do núcleo (vitest)
 npm run build      # checagem de tipos + build de produção em dist/
 ```
 
+Sem WebGL (aceleração de hardware desligada ou GPU bloqueada), o jogo usa sozinho um renderizador por software em Canvas 2D, com visual simplificado. Para testar esse modo, abra com `?soft` no endereço.
+
 Os chunks de estrelas já estão versionados em `public/universe/v1/`. Para gerá-los de novo a partir do catálogo HYG (só biblioteca padrão do Python):
 
 ```bash
