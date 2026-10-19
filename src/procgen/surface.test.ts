@@ -5,9 +5,9 @@ const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 1, temper
 
 describe('superfície', () => {
   it('tamanho proporcional ao planeta', () => {
-    expect(mapSizeFor(1)).toEqual({ width: 512, height: 256 });
-    expect(mapSizeFor(0.53).width).toBe(272);
-    expect(mapSizeFor(5).width).toBe(1024);
+    expect(mapSizeFor(1)).toEqual({ width: 1024, height: 512 });
+    expect(mapSizeFor(0.53).width).toBe(544);
+    expect(mapSizeFor(5).width).toBe(2048);
   });
   it('é determinística', () => {
     const a = generateSurface(earth);
@@ -31,7 +31,7 @@ describe('textura de baixa resolução', () => {
   it('mostra o mesmo planeta que o mapa completo', () => {
     const full = generateSurface(earth);
     const low = generateSurface(earth, 0.5);
-    expect(low.width).toBe(256);
+    expect(low.width).toBe(512);
     let same = 0;
     for (let y = 0; y < low.height; y++) {
       for (let x = 0; x < low.width; x++) {

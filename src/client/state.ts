@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { SurfaceMap } from '../procgen/surface';
 import type { IndexedManifest } from '../universe/manifest';
+import type { Ecosystem } from '../sim/ecosystem';
+import type { Species } from '../sim/species';
 
 /**
  * Estado lógico que sobrevive às trocas de modo 3D/2D. As cenas são
@@ -18,4 +20,8 @@ export interface GameState {
   surfaces: Map<string, SurfaceMap>;
   /** Planeta em cuja órbita a nave estava ao entrar na superfície. */
   orbitPlanetId: string | null;
+  /** Ecossistemas em andamento, por id do planeta. */
+  ecosystems: Map<string, Ecosystem>;
+  /** Espécies que o jogador já conheceu e pode levar a outros planetas. */
+  knownSpecies: Map<string, Species>;
 }

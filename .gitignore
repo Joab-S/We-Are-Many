@@ -4,3 +4,4 @@ tools/pipeline/.cache/
 __pycache__/
 *.log
 .DS_Store
+.scratch/

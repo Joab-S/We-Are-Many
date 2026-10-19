@@ -55,6 +55,8 @@ async function boot(): Promise<void> {
     time: 0,
     surfaces: new Map(),
     orbitPlanetId: null,
+    ecosystems: new Map(),
+    knownSpecies: new Map(),
   };
   const m = new THREE.Matrix4().lookAt(state.shipPos, new THREE.Vector3(), new THREE.Vector3(0, 0, 1));
   state.shipQuat.setFromRotationMatrix(m);

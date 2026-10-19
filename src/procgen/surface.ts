@@ -90,10 +90,12 @@ export interface SurfaceMap {
   biome: Uint8Array;
 }
 
-/** Tamanho do mapa proporcional ao planeta (RF-SUP-13): Terra = 512x256. */
+const FEATURE_SCALE = 80;
+
+/** Tamanho do mapa proporcional ao planeta (RF-SUP-13): Terra = 1024x512. */
 export function mapSizeFor(radiusEarth: number): { width: number; height: number } {
-  const raw = 512 * radiusEarth;
-  const width = Math.min(1024, Math.max(128, Math.round(raw / 16) * 16));
+  const raw = 1024 * radiusEarth;
+  const width = Math.min(2048, Math.max(192, Math.round(raw / 16) * 16));
   return { width, height: width / 2 };
 }
 
@@ -116,7 +118,8 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
 
   // Amostrar o ruído num cilindro garante que a borda esquerda encaixa na direita.
   // As coordenadas são as do mapa completo, para qualquer resolução mostrar o mesmo planeta.
-  const radius = full.width / (2 * Math.PI) / 48;
+  // Tamanho dos continentes, em pixels do mapa completo.
+  const radius = full.width / (2 * Math.PI) / FEATURE_SCALE;
   const cosA = new Float32Array(width);
   const sinA = new Float32Array(width);
   for (let x = 0; x < width; x++) {
@@ -126,7 +129,7 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   }
   const raw = new Float32Array(n);
   for (let y = 0; y < height; y++) {
-    const cy = (y * step) / 48;
+    const cy = (y * step) / FEATURE_SCALE;
     for (let x = 0; x < width; x++) {
       const cx = cosA[x];
       const cz = sinA[x];
@@ -193,24 +196,74 @@ export function classify(map: SurfaceMap, i: number): Biome {
   return Biome.Grass;
 }
 
-/** Escreve a cor de cada pixel em `out` (RGBA), com sombreamento simples de relevo. */
-export function paintSurface(map: SurfaceMap, out: Uint8Array): void {
-  const { width, height, elevation } = map;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = y * width + x;
-      const [r, g, b] = PALETTE[map.biome[i] as Biome];
-      const left = elevation[y * width + ((x + width - 1) % width)];
-      const up = elevation[Math.max(0, y - 1) * width + x];
-      const e = elevation[i];
-      const slope = e >= 0 ? (e - left + (e - up)) * 6 : 0;
-      const depth = e < 0 ? 1 + e * 0.35 : 1;
-      const shade = Math.min(1.25, Math.max(0.7, 1 + slope)) * depth;
-      const o = i * 4;
-      out[o] = Math.min(255, r * shade);
-      out[o + 1] = Math.min(255, g * shade);
-      out[o + 2] = Math.min(255, b * shade);
-      out[o + 3] = 255;
-    }
+/** Enfeite desenhado dentro do tile quando há zoom (guardado no canal alfa da textura). */
+export enum Decor {
+  None,
+  Tree,
+  JungleTree,
+  Pine,
+  Acacia,
+  Cactus,
+  Boulder,
+}
+
+/** Hash estável de um tile, em [0, 1). */
+export function tileHash(i: number): number {
+  let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+export function decorAt(map: SurfaceMap, i: number): Decor {
+  const h = tileHash(i);
+  const veg = map.vegetation[i];
+  switch (map.biome[i] as Biome) {
+    case Biome.Forest:
+      return h < 0.7 ? Decor.Tree : Decor.None;
+    case Biome.Jungle:
+      return h < 0.85 ? Decor.JungleTree : Decor.None;
+    case Biome.Grass:
+      return veg > 0.3 && h < (veg - 0.3) * 0.5 ? Decor.Tree : Decor.None;
+    case Biome.Savanna:
+      return h < 0.07 ? Decor.Acacia : Decor.None;
+    case Biome.Tundra:
+      return veg > 0.15 && h < 0.3 ? Decor.Pine : Decor.None;
+    case Biome.Desert:
+      return h < 0.012 ? Decor.Cactus : Decor.None;
+    case Biome.Rock:
+    case Biome.Mountain:
+      return h < 0.1 ? Decor.Boulder : Decor.None;
+    default:
+      return Decor.None;
   }
+}
+
+/**
+ * Pinta um tile em `out` (RGBA): cor do bioma com sombreamento de relevo e,
+ * no alfa, o enfeite do tile (Decor * 16 + 15) para o shader desenhar no zoom.
+ */
+export function paintTile(map: SurfaceMap, out: Uint8Array, i: number): void {
+  const { width, elevation } = map;
+  const x = i % width;
+  const y = (i - x) / width;
+  const [r, g, b] = PALETTE[map.biome[i] as Biome];
+  const left = elevation[y * width + ((x + width - 1) % width)];
+  const up = elevation[Math.max(0, y - 1) * width + x];
+  const e = elevation[i];
+  const slope = e >= 0 ? (e - left + (e - up)) * 6 : 0;
+  const depth = e < 0 ? 1 + e * 0.35 : 1;
+  const shade = Math.min(1.25, Math.max(0.7, 1 + slope)) * depth;
+  const o = i * 4;
+  out[o] = Math.min(255, r * shade);
+  out[o + 1] = Math.min(255, g * shade);
+  out[o + 2] = Math.min(255, b * shade);
+  out[o + 3] = decorAt(map, i) * 16 + 15;
+}
+
+/** Pinta o mapa inteiro. */
+export function paintSurface(map: SurfaceMap, out: Uint8Array): void {
+  const n = map.width * map.height;
+  for (let i = 0; i < n; i++) paintTile(map, out, i);
 }

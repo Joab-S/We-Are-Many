@@ -39,7 +39,10 @@ npm run data
 |---|---|
 | Botão esquerdo | Usa a ferramenta selecionada |
 | Botão direito ou meio, WASD | Move o mapa |
-| Roda do mouse | Zoom |
+| Roda do mouse | Zoom (com zoom alto aparecem árvores, casas e criaturas em pixel art) |
+| Abas Terreno / Vida / Civilização | Ferramentas de terraformação, espécies e aldeias |
+| Espaço | Pausa ou retoma o tempo (painel da direita: pausa, 1x, 2x, 5x) |
+| Nome de uma aldeia no painel | Leva a câmera até ela |
 | Esc | Volta à órbita |
 
 ## O que a Fase 0 prova
@@ -47,13 +50,15 @@ npm run data
 1. **Campo de estrelas real:** 109 mil estrelas do HYG, convertidas para coordenadas galácticas e divididas em 116 chunks numa octree, carregados conforme a posição da nave e guardados em cache no IndexedDB.
 2. **Escala contínua:** origem flutuante (a câmera fica sempre na origem), depth buffer logarítmico e velocidade adaptativa. O voo vai do espaço interestelar até a órbita da Terra sem tela de carregamento.
 3. **Sistema Solar:** planetas reais em escala visual comprimida, menu orbital e distância mínima de aproximação.
-4. **Superfície estilo WorldBox:** mapa de um pixel por elemento, com tamanho proporcional ao planeta (Terra = 512×256), cilíndrico, com ferramentas de terraformação e vegetação que se espalha. A cena 3D é descartada ao entrar e reconstruída ao sair.
+4. **Superfície estilo WorldBox:** mapa de um pixel por elemento, com tamanho proporcional ao planeta (Terra = 1024×512, até 2048×1024), cilíndrico, gerado num Web Worker, com ferramentas de terraformação e vegetação que se espalha. A cena 3D é descartada ao entrar e reconstruída ao sair.
+5. **Vida na superfície:** peixes, herbívoros, predadores e uma espécie inteligente, cada criatura um ponto no mapa e um sprite em pixel art no zoom. As espécies dependem do clima e do terreno, se reproduzem, caçam e morrem. A espécie inteligente funda aldeias que crescem, mandam colonos e avançam de era (Pedra, Bronze, Ferro...). Espécies conhecidas podem ser levadas a outros planetas.
 
 ## Estrutura
 
 ```
 src/core/       Núcleo sem three.js: unidades, PRNG determinístico, voo, astrofísica
 src/procgen/    Geração procedural determinística (ruído, superfícies)
+src/sim/        Simulação sem three.js: espécies, ecossistema e aldeias
 src/universe/   Manifesto da octree, seleção e carregamento de chunks
 src/client/     three.js: modo espaço (3D), modo superfície (2D), HUD
 tools/pipeline/ Pipeline Python que gera os chunks a partir do catálogo
