@@ -1,0 +1,24 @@
+{
+  "name": "we-are-many",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "We Are Many: jogo de exploração espacial e terraformação para navegador (three.js).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "data": "python3 tools/pipeline/build_hyg_chunks.py"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  }
+}
