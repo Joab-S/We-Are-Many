@@ -52,3 +52,8 @@ kbd { display: inline-block; min-width: 20px; text-align: center; border: 1px so
 .wb-info { position: absolute; top: 54px; left: 10px; background: rgba(46, 31, 20, 0.88); border: 3px solid #160d07; padding: 8px 12px; font-size: 12px; display: flex; flex-direction: column; gap: 2px; min-width: 190px; }
 .wb-info b { color: #f0c860; }
 .wb-help { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); font-size: 12px; color: #f5e6c8; text-shadow: 1px 1px 0 #000; white-space: nowrap; }
+.turbo { display: flex; align-items: center; }
+.turbo-bar { display: inline-block; width: 110px; height: 8px; border-radius: 4px; background: rgba(120, 160, 255, 0.15); overflow: hidden; }
+.turbo-bar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #3d7bff, #8fd8ff); transition: width 0.1s linear; }
+.turbo-bar i.on { background: linear-gradient(90deg, #8fd8ff, #ffffff); box-shadow: 0 0 8px #8fd8ff; }
+.turbo-bar i.out { background: #a04040; }

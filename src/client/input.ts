@@ -10,10 +10,10 @@ export class Input {
   constructor(private readonly element: HTMLElement, private readonly pointerLock: boolean) {
     const opts = { signal: this.abort.signal };
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
       if (e.repeat) return;
       this.keys.add(e.code);
       this.pressed.add(e.code);
-      if (e.code === 'Space') e.preventDefault();
     }, opts);
     window.addEventListener('keyup', (e) => this.keys.delete(e.code), opts);
     window.addEventListener('blur', () => this.keys.clear(), opts);

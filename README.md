@@ -26,10 +26,11 @@ npm run data
 |---|---|
 | Clique | Captura o mouse para pilotar (Esc solta) |
 | Mouse | Mira a direção da nave |
-| W / S | Frente / ré |
-| A / D | Lados |
+| W / S | Acelera / freia (sem tecla, a nave desliza) |
+| A / D | Curva, inclinando a nave |
 | Espaço / Shift | Sobe / desce |
 | Q / E | Gira a nave |
+| Tab | Turbo (energia limitada, recarrega sozinha) |
 | Roda do mouse | Potência do motor |
 | F | Observar a superfície (em órbita de um planeta rochoso) |
 | 1 / 2 / 3 | Atalhos de teste: Terra, Alfa Centauri, Sirius |

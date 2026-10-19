@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { adaptiveMaxSpeed, formatDistance, formatSpeed } from '../../core/flight';
+import { stepSpeedFactor, Turbo, TURBO } from '../../core/shipControl';
 import { AU_PER_PC } from '../../core/units';
 import { Input } from '../input';
 import type { AdaptiveResolution } from '../quality';
@@ -23,6 +24,12 @@ const SOL_ID = 0;
 const SYSTEM_ENTER_PC = 0.05;
 const SYSTEM_EXIT_PC = 0.06;
 const MOUSE_SENSITIVITY = 0.0022;
+/** Velocidade de curva com A/D, em rad/s. */
+const TURN_RATE = 1.25;
+/** Quão rápido a direção do movimento acompanha o nariz da nave (deriva nas curvas). */
+const GRIP = 2.2;
+const BASE_FOV = 70;
+const STREAKS = 220;
 
 export interface SpaceCallbacks {
   onObserve(planet: PlanetData): void;
@@ -64,6 +71,18 @@ export class SpaceMode {
   private nearestStar: { id: number; pos: THREE.Vector3; absmag: number; ci: number } | null = null;
   private orbitBody: Body | null = null;
   private throttle = 1;
+  /** Fração do teto de velocidade pedida pelo piloto (-0,3..1). */
+  private speedFactor = 0;
+  private readonly turbo = new Turbo();
+  private turboBlend = 0;
+  /** Rotação do mouse ainda não aplicada, suavizada ao longo de alguns frames. */
+  private pendingYaw = 0;
+  private pendingPitch = 0;
+  /** Velocidade angular atual da curva com A/D (rad/s). */
+  private turnRate = 0;
+  private climb = 0;
+  private readonly streaks: THREE.LineSegments;
+  private readonly streakSeeds: Float32Array;
   private lastNearest = 0;
   private lastHud = 0;
   private frames = 0;
@@ -72,6 +91,7 @@ export class SpaceMode {
   private raf = 0;
   private lastTime = performance.now();
   private bank = 0;
+  private cameraRoll = 0;
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
@@ -87,6 +107,14 @@ export class SpaceMode {
     this.input = new Input(renderer.domElement, true);
 
     this.engineGlow = this.buildShip();
+    this.streakSeeds = new Float32Array(STREAKS * 3);
+    for (let i = 0; i < this.streakSeeds.length; i++) this.streakSeeds[i] = Math.random() * 2 - 1;
+    this.streaks = new THREE.LineSegments(
+      new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(STREAKS * 6), 3)),
+      new THREE.LineBasicMaterial({ color: 0x9fc4ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    this.streaks.frustumCulled = false;
+    this.overlay.add(this.streaks);
     this.overlay.add(this.ship, this.overlayLight, new THREE.AmbientLight(0x8899bb, 0.6));
 
     this.hudRoot = document.createElement('div');
@@ -96,6 +124,7 @@ export class SpaceMode {
         <div class="hud-title">WE ARE MANY</div>
         <div><span class="k">Velocidade</span> <b data-h="speed"></b></div>
         <div><span class="k">Potência</span> <b data-h="throttle"></b></div>
+        <div class="turbo"><span class="k">Turbo</span> <span class="turbo-bar"><i data-h="turbo"></i></span></div>
         <div><span class="k">Mais próximo</span> <b data-h="nearest"></b></div>
         <div><span class="k">Distância</span> <b data-h="distance"></b></div>
         <div><span class="k">Posição</span> <b data-h="position"></b></div>
@@ -110,8 +139,8 @@ export class SpaceMode {
       <div class="hud-crosshair"></div>
       <div class="hud-orbit hud-panel" data-h="orbit" hidden></div>
       <div class="hud-help">
-        <b>Clique</b> para pilotar · <b>Mouse</b> mira · <b>W/S</b> frente/ré · <b>A/D</b> lados ·
-        <b>Espaço/Shift</b> sobe/desce · <b>Q/E</b> gira · <b>Roda</b> potência · <b>Esc</b> solta o mouse ·
+        <b>Clique</b> para pilotar · <b>Mouse</b> mira · <b>W/S</b> acelera/freia · <b>A/D</b> curva ·
+        <b>Espaço/Shift</b> sobe/desce · <b>Tab</b> turbo · <b>Q/E</b> gira · <b>Roda</b> potência · <b>Esc</b> solta o mouse ·
         <b>1</b> Terra · <b>2</b> Alfa Centauri · <b>3</b> Sirius
       </div>
       <div class="hud-labels" data-h="labels"></div>
@@ -221,6 +250,9 @@ export class SpaceMode {
     const m = new THREE.Matrix4().lookAt(this.state.shipPos, target, new THREE.Vector3(0, 0, 1));
     this.state.shipQuat.setFromRotationMatrix(m);
     this.velocity.set(0, 0, 0);
+    this.speedFactor = 0;
+    this.pendingYaw = 0;
+    this.pendingPitch = 0;
   }
 
   /** Cria ou descarta o sistema da estrela mais próxima. */
@@ -300,24 +332,44 @@ export class SpaceMode {
   private fly(dt: number): void {
     const input = this.input;
     const q = this.state.shipQuat;
+    const k = (code: string) => (input.down(code) ? 1 : 0);
+
+    // Mira com o mouse, suavizada para o movimento não ficar duro.
     if (input.locked) {
-      const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -input.mouseDx * MOUSE_SENSITIVITY);
-      const pitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -input.mouseDy * MOUSE_SENSITIVITY);
-      q.multiply(yaw).multiply(pitch);
+      this.pendingYaw += -input.mouseDx * MOUSE_SENSITIVITY;
+      this.pendingPitch += -input.mouseDy * MOUSE_SENSITIVITY;
     }
-    const roll = (input.down('KeyQ') ? 1 : 0) - (input.down('KeyE') ? 1 : 0);
-    if (roll) q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), roll * 1.4 * dt));
+    const aim = 1 - Math.exp(-14 * dt);
+    const yawStep = this.pendingYaw * aim;
+    const pitchStep = this.pendingPitch * aim;
+    this.pendingYaw -= yawStep;
+    this.pendingPitch -= pitchStep;
+
+    // A/D fazem a curva com inércia: a curva entra e sai suavemente.
+    const steer = k('KeyA') - k('KeyD');
+    this.turnRate = THREE.MathUtils.lerp(this.turnRate, steer * TURN_RATE, 1 - Math.exp(-4 * dt));
+    const roll = k('KeyQ') - k('KeyE');
+    q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(pitchStep, yawStep + this.turnRate * dt, roll * 1.4 * dt, 'YXZ')));
     q.normalize();
     if (input.wheel) this.throttle = THREE.MathUtils.clamp(this.throttle - input.wheel * 0.1, 0.1, 1);
 
-    const dir = new THREE.Vector3(
-      (input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0),
-      (input.down('Space') ? 1 : 0) - (input.down('ShiftLeft') || input.down('ShiftRight') ? 1 : 0),
-      (input.down('KeyS') ? 1 : 0) - (input.down('KeyW') ? 1 : 0),
-    );
-    const maxSpeed = adaptiveMaxSpeed(this.distanceToNearestSurface().dist);
-    const target = dir.lengthSq() > 0 ? dir.normalize().applyQuaternion(q).multiplyScalar(maxSpeed * this.throttle) : dir;
-    this.velocity.lerp(target, 1 - Math.exp(-2.5 * dt));
+    // Acelerador com arrancada, freio e deslize.
+    this.speedFactor = stepSpeedFactor(this.speedFactor, (k('KeyW') - k('KeyS')) as -1 | 0 | 1, dt);
+    // Tab no lugar de Ctrl: Ctrl+W fecha a aba do navegador e não pode ser bloqueado.
+    this.turbo.step(input.down('Tab') && this.speedFactor > 0.05, dt);
+    this.turboBlend = THREE.MathUtils.lerp(this.turboBlend, this.turbo.active ? 1 : 0, 1 - Math.exp(-(this.turbo.active ? 3 : 1.5) * dt));
+    // O ganho do turbo entra e sai em rampa, sem tranco.
+    const turboMul = 1 + (TURBO.multiplier - 1) * this.turboBlend;
+
+    const maxSpeed = adaptiveMaxSpeed(this.distanceToNearestSurface().dist) * turboMul;
+    this.climb = THREE.MathUtils.lerp(this.climb, k('Space') - (input.down('ShiftLeft') || input.down('ShiftRight') ? 1 : 0), 1 - Math.exp(-5 * dt));
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+    const desired = forward
+      .multiplyScalar(this.speedFactor * maxSpeed * this.throttle)
+      .addScaledVector(up, this.climb * 0.5 * maxSpeed * this.throttle);
+    // O vetor velocidade segue o nariz com atraso: nas curvas a nave desliza um pouco.
+    this.velocity.lerp(desired, 1 - Math.exp(-GRIP * dt));
     // O teto cai imediatamente ao se aproximar de algo, para a nave nunca atravessar um planeta.
     if (this.velocity.length() > maxSpeed) this.velocity.setLength(maxSpeed);
     this.state.shipPos.addScaledVector(this.velocity, dt);
@@ -332,19 +384,84 @@ export class SpaceMode {
         this.state.shipPos.copy(b.pos).addScaledVector(n, minDist);
         const inward = this.velocity.dot(n);
         if (inward < 0) this.velocity.addScaledVector(n, -inward);
+        this.speedFactor *= 0.5;
       }
     }
 
-    this.bank = THREE.MathUtils.lerp(this.bank, (input.locked ? -input.mouseDx * 0.01 : 0) + roll * 0.3, 1 - Math.exp(-6 * dt));
-    this.ship.rotation.set(input.locked ? -input.mouseDy * 0.004 : 0, 0, this.bank);
-    const thrust = this.velocity.length() / Math.max(maxSpeed, 1e-12);
-    this.engineGlow.scale.setScalar(0.25 + thrust * 0.5);
-    (this.engineGlow.material as THREE.SpriteMaterial).opacity = 0.3 + thrust * 0.7;
+    this.animateShip(dt, maxSpeed, yawStep / Math.max(dt, 1e-3), pitchStep / Math.max(dt, 1e-3), roll);
+  }
+
+  /** Inclinação, deslocamento e efeitos visuais da nave e da câmera. */
+  private animateShip(dt: number, maxSpeed: number, mouseYawRate: number, mousePitchRate: number, roll: number): void {
+    const turning = this.turnRate + mouseYawRate * 0.6;
+    const ease = 1 - Math.exp(-5 * dt);
+    // A nave inclina para dentro da curva e escorrega um pouco para fora na tela.
+    this.bank = THREE.MathUtils.lerp(this.bank, THREE.MathUtils.clamp(turning * 0.55, -0.85, 0.85) + roll * 0.35, ease);
+    const nose = THREE.MathUtils.clamp(this.climb * 0.25 + mousePitchRate * 0.08, -0.4, 0.4);
+    this.ship.rotation.x = THREE.MathUtils.lerp(this.ship.rotation.x, nose, ease);
+    this.ship.rotation.y = THREE.MathUtils.lerp(this.ship.rotation.y, turning * 0.18, ease);
+    this.ship.rotation.z = this.bank;
+    const ratio = this.velocity.length() / Math.max(maxSpeed / (1 + (TURBO.multiplier - 1) * this.turboBlend), 1e-12);
+    const shake = this.turboBlend * 0.015;
+    this.ship.position.set(
+      -turning * 0.25 + (Math.random() - 0.5) * shake,
+      -0.7 - this.climb * 0.12 + (Math.random() - 0.5) * shake,
+      -3.4 + this.speedFactor * 0.25 - this.turboBlend * 0.35,
+    );
+
+    // Motor: mais forte acelerando e azul-claro no turbo.
+    const glowMat = this.engineGlow.material as THREE.SpriteMaterial;
+    this.engineGlow.scale.setScalar(0.25 + Math.max(this.speedFactor, 0) * 0.5 + this.turboBlend * 0.9);
+    glowMat.opacity = 0.35 + Math.max(this.speedFactor, 0) * 0.5 + this.turboBlend * 0.3;
+    glowMat.color.setHex(0x66aaff).lerp(new THREE.Color(0xc8f0ff), this.turboBlend);
+
+    // Câmera: campo de visão abre com a velocidade e acompanha um pouco a inclinação.
+    const fov = BASE_FOV + Math.min(ratio, 1) * 6 + this.turboBlend * 14;
+    if (Math.abs(this.camera.fov - fov) > 0.01) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+    this.cameraRoll = this.bank * 0.12;
+
+    this.updateStreaks(dt, Math.min(ratio, 1.5) + this.turboBlend);
+  }
+
+  /** Riscos de poeira passando pela nave: dão noção de velocidade em qualquer escala. */
+  private updateStreaks(dt: number, intensity: number): void {
+    const local = this.velocity.clone().applyQuaternion(this.state.shipQuat.clone().invert());
+    const speedNow = local.length();
+    const pos = this.streaks.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    const dir = speedNow > 0 ? local.divideScalar(speedNow) : new THREE.Vector3(0, 0, -1);
+    const flow = (2 + intensity * 26) * dt;
+    const len = 0.05 + intensity * 0.9;
+    const seeds = this.streakSeeds;
+    for (let i = 0; i < STREAKS; i++) {
+      const o = i * 3;
+      seeds[o] -= dir.x * flow * 0.1;
+      seeds[o + 1] -= dir.y * flow * 0.1;
+      seeds[o + 2] -= dir.z * flow * 0.1;
+      for (let a = 0; a < 3; a++) {
+        if (seeds[o + a] < -1) seeds[o + a] += 2;
+        else if (seeds[o + a] > 1) seeds[o + a] -= 2;
+      }
+      const x = seeds[o] * 6;
+      const y = seeds[o + 1] * 4;
+      const z = seeds[o + 2] * 10 - 6;
+      arr[i * 6] = x;
+      arr[i * 6 + 1] = y;
+      arr[i * 6 + 2] = z;
+      arr[i * 6 + 3] = x + dir.x * len;
+      arr[i * 6 + 4] = y + dir.y * len;
+      arr[i * 6 + 5] = z + dir.z * len;
+    }
+    pos.needsUpdate = true;
+    (this.streaks.material as THREE.LineBasicMaterial).opacity = Math.min(0.55, Math.max(0, intensity - 0.15) * 0.4);
   }
 
   private placeObjects(): void {
     const ship = this.state.shipPos;
-    this.camera.quaternion.copy(this.state.shipQuat);
+    this.camera.quaternion.copy(this.state.shipQuat).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), this.cameraRoll));
     this.camera.position.set(0, 0, 0);
     this.camera.updateMatrixWorld();
     if (!this.system) {
@@ -413,6 +530,9 @@ export class SpaceMode {
     const mem = this.renderer.info.memory;
     this.hudEls.speed.textContent = formatSpeed(this.velocity.length());
     this.hudEls.throttle.textContent = `${Math.round(this.throttle * 100)}%`;
+    this.hudEls.turbo.style.width = `${Math.round(this.turbo.energy * 100)}%`;
+    this.hudEls.turbo.classList.toggle('out', this.turbo.exhausted);
+    this.hudEls.turbo.classList.toggle('on', this.turbo.active);
     this.hudEls.nearest.textContent = nearest.name;
     this.hudEls.distance.textContent = Number.isFinite(nearest.dist) ? formatDistance(Math.max(nearest.dist, 0)) : '—';
     this.hudEls.position.textContent = `${pc.x.toFixed(3)}, ${pc.y.toFixed(3)}, ${pc.z.toFixed(3)} pc`;
