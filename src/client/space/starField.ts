@@ -78,7 +78,7 @@ export class StarField {
       vertexShader,
       fragmentShader,
       uniforms: {
-        uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+        uPixelRatio: { value: 1 },
         uMagLimit: { value: 6.8 },
         uFadeNearPc: { value: 0.001 },
       },
@@ -99,7 +99,8 @@ export class StarField {
   }
 
   /** Atualiza quais chunks ficam carregados e reposiciona os já carregados. */
-  update(shipAu: THREE.Vector3, now: number): void {
+  update(shipAu: THREE.Vector3, now: number, pixelRatio: number): void {
+    this.material.uniforms.uPixelRatio.value = pixelRatio;
     if (now - this.lastSelect > 250) {
       this.lastSelect = now;
       const p: [number, number, number] = [shipAu.x / AU_PER_PC, shipAu.y / AU_PER_PC, shipAu.z / AU_PER_PC];

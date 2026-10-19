@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { bvToTemperature, stellarRadius, temperatureToRgb } from '../../core/astro';
 import { mulberry32, seedFor } from '../../core/rng';
 import { EARTH_RADIUS_KM, KM_PER_AU } from '../../core/units';
-import { generateSurface, paintSurface, type PlanetParams, type SurfaceMap } from '../../procgen/surface';
+import { generateSurface, mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '../../procgen/surface';
 
 /**
  * Corpos desenhados em 3D perto da nave: a estrela local e, no Sistema Solar,
@@ -154,11 +154,10 @@ export function createPlanetBody(p: PlanetData, surfaces: Map<string, SurfaceMap
   const radius = (p.radiusKm / KM_PER_AU) * PLANET_SCALE;
   let map: THREE.Texture;
   if (p.kind === 'rocky') {
-    let surface = surfaces.get(p.id);
-    if (!surface) {
-      surface = generateSurface(planetParams(p));
-      surfaces.set(p.id, surface);
-    }
+    // Planeta já visitado usa o mapa completo (com a terraformação); os outros,
+    // uma versão de 256 pixels de largura, bem mais rápida de gerar.
+    const params = planetParams(p);
+    const surface = surfaces.get(p.id) ?? generateSurface(params, Math.min(1, 256 / mapSizeFor(params.radiusEarth).width));
     map = surfaceTexture(surface);
   } else {
     map = bandTexture(p);

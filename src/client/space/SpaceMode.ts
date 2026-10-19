@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { adaptiveMaxSpeed, formatDistance, formatSpeed } from '../../core/flight';
 import { AU_PER_PC } from '../../core/units';
 import { Input } from '../input';
+import type { AdaptiveResolution } from '../quality';
 import type { GameState } from '../state';
 import {
   createOrbitLine,
@@ -74,6 +75,7 @@ export class SpaceMode {
 
   constructor(
     private readonly renderer: THREE.WebGLRenderer,
+    private readonly resolution: AdaptiveResolution,
     private readonly state: GameState,
     hud: HTMLElement,
     private readonly callbacks: SpaceCallbacks,
@@ -103,6 +105,7 @@ export class SpaceMode {
         <div><span class="k">Chunks</span> <b data-h="chunks"></b></div>
         <div><span class="k">Estrelas carregadas</span> <b data-h="stars"></b></div>
         <div><span class="k">Memória GPU</span> <b data-h="memory"></b></div>
+        <div><span class="k">Resolução</span> <b data-h="resolution"></b></div>
       </div>
       <div class="hud-crosshair"></div>
       <div class="hud-orbit hud-panel" data-h="orbit" hidden></div>
@@ -158,6 +161,7 @@ export class SpaceMode {
 
   private readonly frame = (now: number): void => {
     this.raf = requestAnimationFrame(this.frame);
+    this.resolution.frame(now - this.lastTime, now);
     const dt = Math.min((now - this.lastTime) / 1000, 0.1);
     this.lastTime = now;
     this.state.time += dt;
@@ -172,7 +176,7 @@ export class SpaceMode {
     this.updateSystem();
     this.updateBodies();
     this.fly(dt);
-    this.stars.update(this.state.shipPos, now);
+    this.stars.update(this.state.shipPos, now, this.resolution.pixelRatio);
     if (now - this.lastNearest > 200) {
       this.lastNearest = now;
       this.nearestStar = this.stars.nearest(this.state.shipPos, this.system?.starId);
@@ -416,6 +420,7 @@ export class SpaceMode {
     this.hudEls.chunks.textContent = `${this.stars.loadedCount} / ${this.state.manifest.manifest.nodes.length}`;
     this.hudEls.stars.textContent = this.stars.starCount.toLocaleString('pt-BR');
     this.hudEls.memory.textContent = `${mem.geometries} geometrias, ${mem.textures} texturas`;
+    this.hudEls.resolution.textContent = `${Math.round(this.resolution.pixelRatio * 100)}%`;
     this.hudEls.lock.hidden = this.input.locked;
   }
 

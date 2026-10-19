@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { loadManifest, loadNames } from '../universe/loader';
+import { AdaptiveResolution } from './quality';
 import { planetParams, type PlanetData } from './space/bodies';
 import { SpaceMode } from './space/SpaceMode';
 import type { GameState } from './state';
@@ -10,8 +11,13 @@ const app = document.getElementById('app')!;
 const hud = document.getElementById('hud')!;
 const loading = document.getElementById('loading')!;
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Em telas de alta densidade o antialiasing custa caro e quase não aparece.
+const renderer = new THREE.WebGLRenderer({
+  antialias: window.devicePixelRatio < 1.5,
+  logarithmicDepthBuffer: true,
+  powerPreference: 'high-performance',
+});
+const resolution = new AdaptiveResolution(renderer);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 app.appendChild(renderer.domElement);
 
@@ -31,7 +37,7 @@ function switchTo(create: () => Mode): void {
 }
 
 function enterSpace(state: GameState): void {
-  switchTo(() => new SpaceMode(renderer, state, hud, { onObserve: (p) => enterSurface(state, p) }));
+  switchTo(() => new SpaceMode(renderer, resolution, state, hud, { onObserve: (p) => enterSurface(state, p) }));
 }
 
 function enterSurface(state: GameState, planet: PlanetData): void {

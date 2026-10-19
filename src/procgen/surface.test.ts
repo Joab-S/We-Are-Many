@@ -26,3 +26,20 @@ describe('superfície', () => {
     expect(map.biome.every((b) => b === Biome.Lava)).toBe(true);
   });
 });
+
+describe('textura de baixa resolução', () => {
+  it('mostra o mesmo planeta que o mapa completo', () => {
+    const full = generateSurface(earth);
+    const low = generateSurface(earth, 0.5);
+    expect(low.width).toBe(256);
+    let same = 0;
+    for (let y = 0; y < low.height; y++) {
+      for (let x = 0; x < low.width; x++) {
+        const a = low.elevation[y * low.width + x] >= 0;
+        const b = full.elevation[y * 2 * full.width + x * 2] >= 0;
+        if (a === b) same++;
+      }
+    }
+    expect(same / (low.width * low.height)).toBeGreaterThan(0.95);
+  });
+});

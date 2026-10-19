@@ -94,6 +94,10 @@ export class SurfaceMode {
   private painting = false;
   private dragging: { x: number; y: number } | null = null;
   private dirty = true;
+  private textureChanged = true;
+  private lastView = '';
+  private lastInfo = 0;
+  private lastInfoHtml = '';
   private raf = 0;
   private lastTime = performance.now();
   private lastSim = 0;
@@ -234,13 +238,24 @@ export class SurfaceMode {
       paintSurface(this.map, this.pixels);
       this.texture.needsUpdate = true;
       this.dirty = false;
+      this.textureChanged = true;
     }
 
-    this.material.uniforms.uZoom.value = this.zoom * this.renderer.getPixelRatio();
-    this.material.uniforms.uBrush.value = this.tool ? this.brush : 0;
-    this.renderer.autoClear = true;
-    this.renderer.render(this.scene, this.camera);
-    this.updateInfo();
+    // Só redesenha quando algo mudou: o mapa parado não gasta GPU.
+    const view = `${this.center.x},${this.center.y},${this.zoom},${this.hover.x},${this.hover.y},${this.tool?.id},${this.brush},${this.renderer.getPixelRatio()}`;
+    if (this.textureChanged || view !== this.lastView) {
+      this.lastView = view;
+      this.textureChanged = false;
+      (this.material.uniforms.uResolution.value as THREE.Vector2).copy(this.renderer.getDrawingBufferSize(new THREE.Vector2()));
+      this.material.uniforms.uZoom.value = this.zoom * this.renderer.getPixelRatio();
+      this.material.uniforms.uBrush.value = this.tool ? this.brush : 0;
+      this.renderer.autoClear = true;
+      this.renderer.render(this.scene, this.camera);
+    }
+    if (now - this.lastInfo > 150) {
+      this.lastInfo = now;
+      this.updateInfo();
+    }
     input.endFrame();
   };
 
@@ -318,12 +333,16 @@ export class SurfaceMode {
     }
     this.infoEl.hidden = false;
     const t = temperatureAt(this.map, i);
-    this.infoEl.innerHTML = `
+    const html = `
       <b>${BIOME_NAMES[this.map.biome[i] as keyof typeof BIOME_NAMES]}</b>
       <span>Altitude ${(this.map.elevation[i] * 100).toFixed(0)}</span>
       <span>Temperatura ${(t - 273.15).toFixed(0)} °C</span>
       <span>Umidade ${(this.map.moisture[i] * 100).toFixed(0)}%</span>
       <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>`;
+    if (html !== this.lastInfoHtml) {
+      this.lastInfoHtml = html;
+      this.infoEl.innerHTML = html;
+    }
   }
 
   dispose(): void {

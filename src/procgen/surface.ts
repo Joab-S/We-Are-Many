@@ -97,8 +97,16 @@ export function mapSizeFor(radiusEarth: number): { width: number; height: number
   return { width, height: width / 2 };
 }
 
-export function generateSurface(params: PlanetParams): SurfaceMap {
-  const { width, height } = mapSizeFor(params.radiusEarth);
+/**
+ * Gera a superfície. `scale` < 1 produz uma versão de resolução menor que
+ * amostra a mesma função de ruído (usada como textura do planeta no 3D, que
+ * não precisa do mapa completo).
+ */
+export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
+  const full = mapSizeFor(params.radiusEarth);
+  const width = Math.max(16, Math.round(full.width * scale));
+  const height = width / 2;
+  const step = full.width / width;
   const n = width * height;
   const elevation = new Float32Array(n);
   const moisture = new Float32Array(n);
@@ -107,17 +115,24 @@ export function generateSurface(params: PlanetParams): SurfaceMap {
   const wet = new ValueNoise3(seedFor(`${params.id}:moisture`));
 
   // Amostrar o ruído num cilindro garante que a borda esquerda encaixa na direita.
-  const radius = width / (2 * Math.PI) / 48;
+  // As coordenadas são as do mapa completo, para qualquer resolução mostrar o mesmo planeta.
+  const radius = full.width / (2 * Math.PI) / 48;
+  const cosA = new Float32Array(width);
+  const sinA = new Float32Array(width);
+  for (let x = 0; x < width; x++) {
+    const a = (x / width) * Math.PI * 2;
+    cosA[x] = Math.cos(a) * radius;
+    sinA[x] = Math.sin(a) * radius;
+  }
   const raw = new Float32Array(n);
   for (let y = 0; y < height; y++) {
+    const cy = (y * step) / 48;
     for (let x = 0; x < width; x++) {
-      const a = (x / width) * Math.PI * 2;
-      const cx = Math.cos(a) * radius;
-      const cz = Math.sin(a) * radius;
-      const cy = y / 48;
+      const cx = cosA[x];
+      const cz = sinA[x];
       const i = y * width + x;
-      raw[i] = terrain.fbm(cx + 10, cy, cz, 6) + 0.35 * terrain.fbm(cx * 4, cy * 4, cz * 4 + 50, 3);
-      moisture[i] = 0.5 + 0.8 * wet.fbm(cx * 1.5 + 3, cy * 1.5, cz * 1.5, 4);
+      raw[i] = terrain.fbm(cx + 10, cy, cz, 5) + 0.35 * terrain.fbm(cx * 4, cy * 4, cz * 4 + 50, 2);
+      moisture[i] = 0.5 + 0.8 * wet.fbm(cx * 1.5 + 3, cy * 1.5, cz * 1.5, 3);
     }
   }
 

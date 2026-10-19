@@ -19,12 +19,7 @@ export class ValueNoise3 {
     for (let i = 0; i < 256; i++) this.values[i] = rnd() * 2 - 1;
   }
 
-  private lattice(x: number, y: number, z: number): number {
-    const P = this.perm;
-    return this.values[P[P[P[x & 255] + (y & 255)] + (z & 255)]];
-  }
-
-  /** Ruído em [-1, 1]. */
+  /** Ruído em [-1, 1]. Escrito sem funções auxiliares porque é o laço mais quente da geração. */
   sample(x: number, y: number, z: number): number {
     const xi = Math.floor(x);
     const yi = Math.floor(y);
@@ -35,20 +30,35 @@ export class ValueNoise3 {
     const sx = fx * fx * (3 - 2 * fx);
     const sy = fy * fy * (3 - 2 * fy);
     const sz = fz * fz * (3 - 2 * fz);
-    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-    const c000 = this.lattice(xi, yi, zi);
-    const c100 = this.lattice(xi + 1, yi, zi);
-    const c010 = this.lattice(xi, yi + 1, zi);
-    const c110 = this.lattice(xi + 1, yi + 1, zi);
-    const c001 = this.lattice(xi, yi, zi + 1);
-    const c101 = this.lattice(xi + 1, yi, zi + 1);
-    const c011 = this.lattice(xi, yi + 1, zi + 1);
-    const c111 = this.lattice(xi + 1, yi + 1, zi + 1);
-    return lerp(
-      lerp(lerp(c000, c100, sx), lerp(c010, c110, sx), sy),
-      lerp(lerp(c001, c101, sx), lerp(c011, c111, sx), sy),
-      sz,
-    );
+    const P = this.perm;
+    const V = this.values;
+    const x0 = xi & 255;
+    const x1 = (xi + 1) & 255;
+    const y0 = yi & 255;
+    const y1 = (yi + 1) & 255;
+    const z0 = zi & 255;
+    const z1 = (zi + 1) & 255;
+    const p0 = P[x0];
+    const p1 = P[x1];
+    const p00 = P[p0 + y0];
+    const p01 = P[p0 + y1];
+    const p10 = P[p1 + y0];
+    const p11 = P[p1 + y1];
+    const c000 = V[P[p00 + z0]];
+    const c100 = V[P[p10 + z0]];
+    const c010 = V[P[p01 + z0]];
+    const c110 = V[P[p11 + z0]];
+    const c001 = V[P[p00 + z1]];
+    const c101 = V[P[p10 + z1]];
+    const c011 = V[P[p01 + z1]];
+    const c111 = V[P[p11 + z1]];
+    const a0 = c000 + (c100 - c000) * sx;
+    const a1 = c010 + (c110 - c010) * sx;
+    const a2 = c001 + (c101 - c001) * sx;
+    const a3 = c011 + (c111 - c011) * sx;
+    const b0 = a0 + (a1 - a0) * sy;
+    const b1 = a2 + (a3 - a2) * sy;
+    return b0 + (b1 - b0) * sz;
   }
 
   fbm(x: number, y: number, z: number, octaves = 5, lacunarity = 2, gain = 0.5): number {
