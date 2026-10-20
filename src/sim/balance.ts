@@ -58,6 +58,13 @@ export const ROAD_COST_GROUND = 1;
 export const ROAD_COST_EXISTING = 0.3;
 export const ROAD_COST_BESIDE = 4;
 export const ROAD_COST_GUIDE = 0.25;
+/** Ruas bloco a bloco (RF-VIDA-207): tiles de rua de um assentamento novo, tiles de cada trecho aberto e trechos por ano quando faltam lotes. */
+export const STREET_START = 10;
+export const STREET_BLOCK = 6;
+export const STREET_BLOCK_RATE = 3;
+/** Estrada entre assentamentos só do mesmo reino, até esta distância (tiles), e quando os dois já têm este tanto de moradores. */
+export const ROAD_LINK_RANGE = 40;
+export const ROAD_LINK_POP = 15;
 /** Limite de tiles visitados por busca de estrada. */
 export const ROAD_SEARCH_MAX = 60000;
 

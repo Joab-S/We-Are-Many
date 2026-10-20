@@ -307,3 +307,36 @@ export function lotsFor(tier: number, seed = 0, grow = 0): { x: number; y: numbe
 export function wrapDx(dx: number, width: number): number {
   return dx - Math.round(dx / width) * width;
 }
+
+/**
+ * Tiles da planta de ruas na ordem em que são abertos (ruas bloco a bloco,
+ * RF-VIDA-207): cada rua começa pelo tile mais perto da praça e avança pelas
+ * próprias ruas, e entre ruas diferentes abre primeiro o que está mais perto
+ * do centro. Em qualquer começo da lista, cada pedaço de rua aberto está
+ * ligado ao seu início.
+ */
+export function streetOrder(tier: number, seed = 0, grow = 0): { x: number; y: number }[] {
+  const tiles = new Map<string, { x: number; y: number }>();
+  for (const st of streetPlan(tier, seed, grow)) for (const p of st.pts) tiles.set(`${p.x},${p.y}`, p);
+  const dist = new Map<string, number>();
+  const sorted = [...tiles.entries()].sort((a, b) => Math.hypot(a[1].x, a[1].y) - Math.hypot(b[1].x, b[1].y));
+  for (const [k0, p0] of sorted) {
+    if (dist.has(k0)) continue;
+    // Um pedaço ligado da planta: começa no tile mais perto do centro e anda tile a tile.
+    dist.set(k0, Math.hypot(p0.x, p0.y));
+    const queue = [p0];
+    for (let h = 0; h < queue.length; h++) {
+      const p = queue[h];
+      const d = dist.get(`${p.x},${p.y}`)!;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const k = `${p.x + dx},${p.y + dy}`;
+        const q = tiles.get(k);
+        if (q && !dist.has(k)) {
+          dist.set(k, d + 1);
+          queue.push(q);
+        }
+      }
+    }
+  }
+  return sorted.map(([, p]) => p).sort((a, b) => dist.get(`${a.x},${a.y}`)! - dist.get(`${b.x},${b.y}`)!);
+}
