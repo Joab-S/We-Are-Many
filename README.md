@@ -89,6 +89,16 @@ O `netlify.toml` já traz a configuração (build `npm run build`, pasta `dist`,
 2. Escolha o GitHub e o repositório `Joab-S/We-Are-Many`, branch `main`. Não mude nada e clique em **Deploy**.
 3. O Netlify dá um endereço `https://<nome>.netlify.app`; cada push na `main` publica de novo.
 
+### Fluxo de branches (poupa créditos do Netlify)
+
+Cada publicação na `main` gasta créditos do plano grátis do Netlify (15 por deploy de produção).
+
+1. Toda mudança vai num PR para a branch `development`. PRs e a `development` não compilam no Netlify.
+2. Teste a `development` localmente: `git checkout development && git pull && npm install && npm run dev`.
+3. Quando estiver bom, abra um PR da `development` para a `main`. Só esse merge publica, uma vez, juntando várias mudanças.
+
+Na `main`, um push que só muda documentação (`docs/`, `README.md`) também não compila.
+
 ## Publicar na Vercel
 
 O jogo é um site estático (Vite), e o `vercel.json` já traz a configuração.

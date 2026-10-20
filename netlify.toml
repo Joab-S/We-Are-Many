@@ -1,7 +1,13 @@
 # Netlify: compila com Vite e publica a pasta dist.
+#
+# Para poupar créditos, só a main é publicada: PRs (deploy previews) e outras
+# branches, como a development, não compilam. Na main, um push que só mexe em
+# documentação também é pulado. O Netlify cancela o build quando o comando
+# `ignore` termina com código 0.
 [build]
   command = "npm run build"
   publish = "dist"
+  ignore = "[ \"$BRANCH\" != \"main\" ] || git diff --quiet \"$CACHED_COMMIT_REF\" \"$COMMIT_REF\" -- src public index.html package.json package-lock.json vite.config.ts tsconfig.json netlify.toml"
 
 [build.environment]
   NODE_VERSION = "22"
