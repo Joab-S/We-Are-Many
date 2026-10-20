@@ -868,6 +868,8 @@ export class Ecosystem {
         break;
       }
       case 'sapient': {
+        // Sozinho (solto pelo jogador): procura um assentamento do seu povo ou funda um.
+        const lone = this.village[i] < 0 ? this.loner(i) : undefined;
         const v = this.village[i] >= 0 ? this.villages[this.village[i]] : null;
         const era = Math.floor(v?.tech ?? 0);
         const veg = map.vegetation[tile];
@@ -882,7 +884,7 @@ export class Ecosystem {
         if (v && this.role[i] === CHILD && this.age[i] >= sp.maturity) this.role[i] = pickRole(era, v.tier, this.rnd(), this.roleContext(v));
         const elder = this.age[i] >= elderAge(sp, era);
         const working = this.role[i] !== CHILD && !elder;
-        let bias: { x: number; y: number } | undefined;
+        let bias: { x: number; y: number } | undefined = lone;
         if (v) {
           let dx = v.x - this.x[i];
           if (dx > map.width / 2) dx -= map.width;
@@ -945,10 +947,15 @@ export class Ecosystem {
     // Reprodução (idosos não têm filhos).
     const fertile = this.age[i] >= sp.maturity && (sp.kind !== 'sapient' || this.age[i] < elderAge(sp, era));
     if (fertile && this.energy[i] > 0.65 && this.rnd() < b.birthRate * dt) {
+      // Precisa de um parceiro adulto por perto (do mesmo assentamento, para os inteligentes).
       let crowd = 0;
+      let mates = 0;
       this.forEachNear(this.x[i], this.y[i], CELL, (j) => {
-        if (this.kind[j] === s) crowd++;
+        if (this.kind[j] !== s) return;
+        crowd++;
+        if (j !== i && this.age[j] >= sp.maturity && (sp.kind !== 'sapient' || this.village[j] === v)) mates++;
       });
+      if (!mates || (sp.kind === 'sapient' && v < 0)) return;
       // Casas de eras mais avançadas abrigam mais gente (sobrados, prédios).
       const housed = v < 0 || this.villages[v].population < this.villages[v].houses.length * (4 + era) + this.villages[v].fields * 2 + 4;
       if (crowd < b.crowd && housed) {
@@ -956,6 +963,58 @@ export class Ecosystem {
         if (child >= 0) this.energy[i] -= 0.3;
       }
     }
+  }
+
+  /**
+   * Um inteligente sem assentamento anda até o assentamento mais perto do
+   * seu povo (até 40 tiles) e se junta a ele; sem nenhum por perto, funda um
+   * novo onde está, se o lugar permitir. Devolve a direção para andar
+   * enquanto não chega.
+   */
+  private loner(i: number): { x: number; y: number } | undefined {
+    const s = this.kind[i];
+    let best: Village | null = null;
+    let bd = 40;
+    for (const v of this.villages) {
+      if (v.abandoned || v.species !== s) continue;
+      const d = this.distance(v, this.x[i], this.y[i]);
+      if (d < bd) {
+        bd = d;
+        best = v;
+      }
+    }
+    const name = this.species[s].name.toLowerCase();
+    if (best && bd < TIER_RADIUS[best.tier]) {
+      this.join(i, best);
+      this.note(`Um ${name} solitário se juntou a ${best.name}`, 'povo', best, { key: `join:${best.id}` });
+      return undefined;
+    }
+    if (best) return { x: wrapDx(best.x - this.x[i], this.map.width), y: best.y - this.y[i] };
+    const tx = ((Math.floor(this.x[i]) % this.map.width) + this.map.width) % this.map.width;
+    const ty = Math.floor(this.y[i]);
+    if (this.rnd() < 0.05 && this.canFound(tx, ty)) {
+      const v = this.foundVillage(s, tx, ty, 0);
+      this.join(i, v);
+      this.note(`Um ${name} solitário fundou ${v.name}`, 'povo', v, { major: true });
+    }
+    return undefined;
+  }
+
+  /** Põe a criatura `i` (sem assentamento) no assentamento `v`, com uma profissão. */
+  private join(i: number, v: Village): void {
+    this.village[i] = v.id;
+    v.population++;
+    this.role[i] = this.age[i] < this.species[this.kind[i]].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.rnd(), this.roleContext(v));
+  }
+
+  /**
+   * Solta uma única criatura (ferramenta do jogador). Inteligentes chegam
+   * sozinhos e decidem depois onde viver (ver `loner`). Devolve o índice ou -1.
+   */
+  introduceOne(s: number, x: number, y: number): number {
+    const tile = this.tileAt(x, Math.floor(y));
+    if (tile < 0 || !this.habitable(s, tile)) return -1;
+    return this.spawn(s, x, y, -1, this.species[s].maturity + this.rnd() * 5);
   }
 
   private nearWater(tile: number): boolean {

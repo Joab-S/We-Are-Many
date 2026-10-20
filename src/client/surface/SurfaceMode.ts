@@ -327,10 +327,18 @@ export class SurfaceMode {
   private painting = false;
   private clicked = false;
   private dragging: { x: number; y: number } | null = null;
+  /** Onde começou o arraste da mão vazia, para separar clique de arraste. */
+  private pressAt: { x: number; y: number } | null = null;
+  /** Ficha fixada com um clique da mão vazia: uma criatura (segue ela) ou um lugar. */
+  private pinned: { creature: number } | { x: number; y: number } | null = null;
+  private folded = false;
+  private lastMini = 0;
+  private miniBase: HTMLCanvasElement | null = null;
   private textureChanged = true;
   private lastView = '';
   private lastInfo = 0;
   private lastInfoHtml = '';
+  private lastClockHtml = '';
   private lastPanelHtml = '';
   private raf = 0;
   private lastTime = performance.now();
@@ -451,7 +459,7 @@ export class SurfaceMode {
         label: sp.name,
         icon: `sprite:${spriteOf(sp)}`,
         tint: sp.color,
-        tip: `Solta ${sp.name.toLowerCase()}s aqui. Vive de ${(sp.tempMin - 273).toFixed(0)} a ${(sp.tempMax - 273).toFixed(0)} °C${habitatOf(sp) === 2 ? ', na costa' : habitatOf(sp) === 1 ? ', na água' : ''}.`,
+        tip: `Solta um(a) ${sp.name.toLowerCase()} por clique (para nascerem filhotes, precisa de pelo menos dois). Vive de ${(sp.tempMin - 273).toFixed(0)} a ${(sp.tempMax - 273).toFixed(0)} °C${habitatOf(sp) === 2 ? ', na costa' : habitatOf(sp) === 1 ? ', na água' : ''}.`,
         mode: 'click' as const,
         act: (ctx: SurfaceMode, x: number, y: number) => ctx.introduce(sp, x, y),
       }));
@@ -469,7 +477,7 @@ export class SurfaceMode {
         icon: `sprite:${bodyOf(sp)}:gatherer`,
         tint: [200, 160, 90],
         skin: sp.color,
-        tip: `Leva um grupo de ${sp.name.toLowerCase()}s para fundar um assentamento fora das áreas existentes.`,
+        tip: `Solta um(a) ${sp.name.toLowerCase()} por clique. Sozinho, ele procura um assentamento do seu povo ou funda um novo; para nascerem filhos, precisa de pelo menos dois.`,
         mode: 'click' as const,
         act: (ctx: SurfaceMode, x: number, y: number) => ctx.introduce(sp, x, y),
       }));
@@ -519,9 +527,9 @@ export class SurfaceMode {
 
   introduce(sp: Species, x: number, viewY: number): void {
     const s = this.eco.addSpecies(sp);
-    const born = this.eco.introduce(s, x, this.toRow(viewY), this.brush, sp.kind === 'sapient' ? 6 : 8);
-    if (!born && !this.eco.hint) this.eco.hint = `${sp.name}: o lugar não é habitável`;
-    else if (born && sp.kind !== 'sapient') this.eco.note(`Você soltou ${born} ${sp.name.toLowerCase()}${born > 1 ? 's' : ''}`, 'jogador', { x, y: this.toRow(viewY) }, { key: `spawn:${sp.id}` });
+    const born = this.eco.introduceOne(s, x, this.toRow(viewY));
+    if (born < 0) this.eco.hint = `${sp.name}: o lugar não é habitável`;
+    else this.eco.note(`Você soltou ${sp.name.toLowerCase()}`, 'jogador', { x, y: this.toRow(viewY) }, { key: `spawn:${sp.id}` });
   }
 
   placeOre(x: number, viewY: number, ore: Ore): void {
@@ -636,12 +644,21 @@ export class SurfaceMode {
         <button class="wb-back" data-a="back">⟵ Órbita</button>
         <div class="wb-title">${this.params.name}</div>
         <div class="wb-stats" data-s></div>
+        <div class="wb-clock" data-clock></div>
         <div class="wb-menu">
           ${WINDOWS.map(([id, label]) => `<button class="wb-back" data-w="${id}">${label}</button>`).join('')}
+          <button class="wb-back" data-a="help" title="Controles (H)">?</button>
         </div>
       </div>
       <div class="wb-info" data-i hidden></div>
-      <div class="wb-side" data-p></div>
+      <div class="wb-side" data-side>
+        <div class="wb-side-head">
+          <canvas class="wb-mini" data-mini width="200" height="100" title="Clique ou arraste para levar a câmera"></canvas>
+          <button class="wb-fold" data-fold title="Esconder ou mostrar o painel (P)">▾ Painel</button>
+        </div>
+        <div class="wb-side-body" data-p></div>
+      </div>
+      <div class="wb-cursor" data-cursor hidden></div>
       <div class="wb-window" data-win hidden>
         <div class="wb-win-head"><b data-win-title></b><button class="wb-x" data-close title="Fechar (Esc)">✕</button></div>
         <div class="wb-win-body" data-win-body></div>
@@ -652,9 +669,35 @@ export class SurfaceMode {
         <div class="wb-tabs">${TABS.map(([id, label]) => `<button data-tab="${id}">${label}</button>`).join('')}</div>
         <div class="wb-bar" data-bar></div>
       </div>
-      <div class="wb-help"><b>Esquerdo</b> usa a ferramenta (mão vazia arrasta o mapa) · <b>Direito/meio</b> ou <b>WASD</b> move · <b>Roda</b> zoom · <b>Espaço</b> pausa · <b>1–4</b> velocidade · <b>C R E I</b> janelas</div>`;
+      <div class="wb-help" data-help hidden>
+        <div class="wb-win-head"><b>Controles</b><button class="wb-x" data-a="help" title="Fechar (H)">✕</button></div>
+        <div class="wb-keys">
+          <span><kbd>Esquerdo</kbd> usa a ferramenta; de mão vazia arrasta o mapa e um clique fixa a ficha do que está embaixo</span>
+          <span><kbd>Direito</kbd><kbd>WASD</kbd> movem o mapa · <kbd>Roda</kbd> zoom</span>
+          <span><kbd>Espaço</kbd> pausa · <kbd>1</kbd>–<kbd>4</kbd> velocidade</span>
+          <span><kbd>[</kbd><kbd>]</kbd> tamanho do pincel · <kbd>Esc</kbd> guarda a ferramenta, fecha a janela ou volta à órbita</span>
+          <span><kbd>C</kbd> crônica · <kbd>R</kbd> reinos · <kbd>E</kbd> espécies · <kbd>I</kbd> itens · <kbd>P</kbd> painel · <kbd>H</kbd> esta ajuda</span>
+          <span>No minimapa, clique ou arraste para levar a câmera.</span>
+        </div>
+      </div>`;
     const signal = this.abort.signal;
     this.root.querySelector('[data-a="back"]')!.addEventListener('click', () => this.onExit(), { signal });
+    this.root.querySelectorAll('[data-a="help"]').forEach((b) => b.addEventListener('click', () => this.toggleHelp(), { signal }));
+    this.root.querySelector('[data-fold]')!.addEventListener('click', () => this.fold(), { signal });
+    const mini = this.root.querySelector<HTMLCanvasElement>('[data-mini]')!;
+    const jump = (e: PointerEvent) => {
+      const r = mini.getBoundingClientRect();
+      const x = ((e.clientX - r.left) / r.width) * this.map.width;
+      const row = ((e.clientY - r.top) / r.height) * this.map.height;
+      this.center.set(x, this.map.height - row);
+    };
+    mini.addEventListener('pointerdown', (e) => {
+      mini.setPointerCapture(e.pointerId);
+      jump(e);
+    }, { signal });
+    mini.addEventListener('pointermove', (e) => {
+      if (mini.hasPointerCapture(e.pointerId)) jump(e);
+    }, { signal });
     this.scrollable(this.root.querySelector<HTMLElement>('[data-bar]')!, signal);
     this.root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
       b.addEventListener('click', () => this.selectTab(b.dataset.tab as Tab), { signal });
@@ -700,6 +743,7 @@ export class SurfaceMode {
     };
     this.root.querySelector('[data-p]')!.addEventListener('pointerdown', onPanel, { signal });
     this.root.querySelector('[data-win-body]')!.addEventListener('pointerdown', onPanel, { signal });
+    this.root.querySelector('[data-clock]')!.addEventListener('pointerdown', onPanel, { signal });
     this.selectTab('terrain');
 
     const canvas = this.renderer.domElement;
@@ -708,10 +752,16 @@ export class SurfaceMode {
       if (e.button === 0 && this.tool) {
         this.painting = true;
         this.clicked = true;
-      } else this.dragging = { x: e.clientX, y: e.clientY };
+      } else {
+        this.dragging = { x: e.clientX, y: e.clientY };
+        if (e.button === 0) this.pressAt = { x: e.clientX, y: e.clientY };
+      }
       canvas.setPointerCapture(e.pointerId);
     }, { signal });
-    canvas.addEventListener('pointerup', () => {
+    canvas.addEventListener('pointerup', (e) => {
+      // Clique curto da mão vazia: fixa (ou solta) a ficha do que está embaixo.
+      if (this.pressAt && Math.hypot(e.clientX - this.pressAt.x, e.clientY - this.pressAt.y) < 5) this.pin();
+      this.pressAt = null;
       this.painting = false;
       this.dragging = null;
     }, { signal });
@@ -723,7 +773,84 @@ export class SurfaceMode {
       }
       this.mouse = { x: e.clientX, y: e.clientY };
     }, { signal });
-    canvas.addEventListener('pointerleave', () => (this.mouse = null), { signal });
+    canvas.addEventListener('pointerleave', () => {
+      this.mouse = null;
+      this.root.querySelector<HTMLElement>('[data-cursor]')!.hidden = true;
+    }, { signal });
+  }
+
+  private toggleHelp(): void {
+    const el = this.root.querySelector<HTMLElement>('[data-help]')!;
+    el.hidden = !el.hidden;
+  }
+
+  /** Esconde o painel lateral (o minimapa fica). */
+  private fold(): void {
+    this.folded = !this.folded;
+    this.root.querySelector('[data-side]')!.classList.toggle('folded', this.folded);
+    this.root.querySelector('[data-fold]')!.textContent = this.folded ? '▸ Painel' : '▾ Painel';
+  }
+
+  /** Fixa a ficha do que está sob o mouse; clicar no mesmo vazio de novo solta. */
+  private pin(): void {
+    const row = this.toRow(this.hover.y);
+    const picked = this.eco.pick(this.hover.x, row, Math.max(0.8, 6 / this.zoom));
+    if (picked >= 0) this.pinned = { creature: picked };
+    else if (this.eco.settlementAt(this.hover.x, row)) this.pinned = { x: this.hover.x, y: this.hover.y };
+    else this.pinned = null;
+    this.lastInfoHtml = '';
+    this.updateInfo();
+  }
+
+  /** Minimapa: o mapa inteiro reduzido e o retângulo da vista. */
+  private updateMinimap(now: number): void {
+    const mini = this.root.querySelector<HTMLCanvasElement>('[data-mini]')!;
+    const { width: w, height: h } = this.map;
+    if (!this.miniBase || now - this.lastMini > 1000) {
+      this.lastMini = now;
+      this.miniBase ??= Object.assign(document.createElement('canvas'), { width: w, height: h });
+      const ctx = this.miniBase.getContext('2d')!;
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(this.pixels), w, h), 0, 0);
+    }
+    const ctx = mini.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.miniBase, 0, 0, mini.width, mini.height);
+    const sx = mini.width / w;
+    const sy = mini.height / h;
+    // Assentamentos como pontos na cor do reino.
+    for (const v of this.eco.villages) {
+      if (v.abandoned) continue;
+      ctx.fillStyle = `rgb(${v.color.join(',')})`;
+      const r = 1 + v.tier;
+      ctx.fillRect(v.x * sx - r / 2, v.y * sy - r / 2, r, r);
+    }
+    const vw = window.innerWidth / this.zoom;
+    const vh = window.innerHeight / this.zoom;
+    const x0 = this.center.x - vw / 2;
+    const y0 = h - this.center.y - vh / 2;
+    ctx.strokeStyle = '#f0c860';
+    ctx.lineWidth = 1.5;
+    for (const off of [-w, 0, w]) ctx.strokeRect((x0 + off) * sx, y0 * sy, vw * sx, vh * sy);
+  }
+
+  /** Soltar uma criatura é num ponto só: sem círculo de pincel. */
+  private usesBrush(): boolean {
+    return !!this.tool && !this.tool.id.startsWith('spawn:');
+  }
+
+  /** Ícone da ferramenta na mão, ao lado do cursor. */
+  private updateCursor(): void {
+    const el = this.root.querySelector<HTMLElement>('[data-cursor]')!;
+    if (!this.tool || !this.mouse) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.style.transform = `translate(${this.mouse.x + 14}px, ${this.mouse.y + 14}px)`;
+    if (el.dataset.t !== this.tool.id) {
+      el.dataset.t = this.tool.id;
+      el.innerHTML = this.toolIcon(this.tool);
+    }
   }
 
   private setOption(opt: string): void {
@@ -976,7 +1103,11 @@ export class SurfaceMode {
     const input = this.input;
     if (input.hit('Escape')) {
       if (this.win) this.openWindow(null);
-      else if (this.tool) {
+      else if (!this.root.querySelector<HTMLElement>('[data-help]')!.hidden) this.toggleHelp();
+      else if (this.pinned) {
+        this.pinned = null;
+        this.lastInfoHtml = '';
+      } else if (this.tool) {
         this.tool = null;
         this.updateToolbar();
       } else {
@@ -986,6 +1117,13 @@ export class SurfaceMode {
     }
     if (input.hit('Space')) this.speed = this.speed ? 0 : 1;
     for (let k = 0; k < SPEEDS.length; k++) if (input.hit(`Digit${k + 1}`)) this.speed = k;
+    if (input.hit('KeyH')) this.toggleHelp();
+    if (input.hit('KeyP')) this.fold();
+    for (const [code, step] of [['BracketLeft', -2], ['BracketRight', 2]] as const) {
+      if (!input.hit(code)) continue;
+      this.brush = clamp(this.brush + step, 1, 30);
+      this.root.querySelector<HTMLInputElement>('[data-b]')!.value = String(this.brush);
+    }
     for (const [code, win] of [['KeyC', 'chronicle'], ['KeyR', 'kingdoms'], ['KeyE', 'species'], ['KeyI', 'items']] as const) if (input.hit(code)) this.openWindow(win);
     const pan = 300 / this.zoom;
     this.center.x += ((input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0)) * pan * dt;
@@ -1021,9 +1159,11 @@ export class SurfaceMode {
       this.lastInfo = now;
       this.updateInfo();
       this.updatePanel();
+      this.updateMinimap(now);
       this.updateWindow();
       this.updateToast(now);
     }
+    this.updateCursor();
     input.endFrame();
   };
 
@@ -1048,7 +1188,7 @@ export class SurfaceMode {
     const u = this.material.uniforms;
     (u.uResolution.value as THREE.Vector2).copy(size);
     u.uZoom.value = this.zoom * pr;
-    u.uBrush.value = this.tool ? this.brush : 0;
+    u.uBrush.value = this.usesBrush() ? this.brush : 0;
     u.uTime.value = now / 1000;
     this.renderer.autoClear = true;
     this.renderer.render(this.scene, this.camera);
@@ -1127,7 +1267,7 @@ export class SurfaceMode {
     }
     this.drawSprites(w, h, z);
     this.sprites.drawSoft(ctx, h);
-    if (this.tool && this.hover.x > -1e5) {
+    if (this.usesBrush() && this.hover.x > -1e5) {
       ctx.strokeStyle = 'rgba(255,255,255,0.7)';
       ctx.lineWidth = Math.max(1, z * 0.15);
       ctx.beginPath();
@@ -1421,14 +1561,25 @@ export class SurfaceMode {
 
   private updateInfo(): void {
     const el = this.root.querySelector<HTMLElement>('[data-i]')!;
-    const i = this.tileIndex(this.hover.x, this.hover.y);
+    // Ficha fixada: segue a criatura (enquanto viver) ou fica no lugar clicado.
+    let at = this.hover;
+    let picked = -1;
+    const pin = this.pinned;
+    if (pin && 'creature' in pin) {
+      if (this.eco.alive[pin.creature]) {
+        picked = pin.creature;
+        at = new THREE.Vector2(this.eco.x[picked], this.map.height - this.eco.y[picked]);
+      } else this.pinned = null;
+    } else if (pin) at = new THREE.Vector2(pin.x, pin.y);
+    const i = this.tileIndex(at.x, at.y);
     if (i < 0) {
       el.hidden = true;
       return;
     }
     el.hidden = false;
+    el.classList.toggle('pinned', !!this.pinned);
     let html: string;
-    const picked = this.eco.pick(this.hover.x, this.toRow(this.hover.y), Math.max(0.8, 6 / this.zoom));
+    if (!pin || !('creature' in pin)) picked = this.eco.pick(at.x, this.toRow(at.y), Math.max(0.8, 6 / this.zoom));
     if (picked >= 0) {
       const sp = this.eco.species[this.eco.kind[picked]];
       const v = this.eco.village[picked] >= 0 ? this.eco.villages[this.eco.village[picked]] : null;
@@ -1441,7 +1592,7 @@ export class SurfaceMode {
     } else {
       const t = temperatureAt(this.map, i);
       const place = this.placeAt(i);
-      const v = this.eco.settlementAt(this.hover.x, this.toRow(this.hover.y));
+      const v = this.eco.settlementAt(at.x, this.toRow(at.y));
       html = `
         ${v ? this.settlementInfo(v) : ''}
         <b>${place ?? BIOME_NAMES[this.map.biome[i] as keyof typeof BIOME_NAMES]}</b>
@@ -1450,6 +1601,7 @@ export class SurfaceMode {
         <span>Umidade ${(this.map.moisture[i] * 100).toFixed(0)}%</span>
         <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>`;
     }
+    if (this.pinned) html = `<div class="wb-pin">📌 Fixado · Esc ou clique no vazio solta</div>${html}`;
     if (html !== this.lastInfoHtml) {
       this.lastInfoHtml = html;
       el.innerHTML = html;
@@ -1461,8 +1613,8 @@ export class SurfaceMode {
     if (!live.length) return '';
     const top = Math.max(...live.map((v) => v.tech));
     const era = Math.floor(top);
-    if (era >= ERAS.length - 1) return '<div class="wb-year">Última era conhecida</div>';
-    return `<div class="wb-year">Rumo à ${ERAS[era + 1]}: ${Math.floor((top - era) * 100)}%</div>`;
+    if (era >= ERAS.length - 1) return ' · última era';
+    return ` · rumo à ${ERAS[era + 1]}: ${Math.floor((top - era) * 100)}%`;
   }
 
   /** Painel lateral: ano, era, velocidade, população, povos, guerras e acontecimentos importantes. */
@@ -1478,11 +1630,14 @@ export class SurfaceMode {
       .join('');
     const more = alive.length > 7 ? `<button class="wb-goto" data-open="species">+ ${alive.length - 7} espécies…</button>` : '';
     const events = eco.chronicle.filter((e) => this.showMinor || e.major).slice(0, 6);
+    const clock = `
+      <div class="wb-clock-text"><b>${era}</b><span>Ano ${Math.floor(eco.year)}${this.progressLine(live)}</span></div>
+      <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === this.speed ? 'on' : ''}" title="${v === 0 ? 'Pausa (Espaço)' : `Velocidade ${v}x (${k + 1})`}">${v === 0 ? '❚❚' : `${v}x`}</button>`).join('')}</div>`;
+    if (clock !== this.lastClockHtml) {
+      this.lastClockHtml = clock;
+      this.root.querySelector<HTMLElement>('[data-clock]')!.innerHTML = clock;
+    }
     const html = `
-      <div class="wb-era">${era}</div>
-      ${this.progressLine(live)}
-      <div class="wb-year">Ano ${Math.floor(eco.year)}</div>
-      <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === this.speed ? 'on' : ''}">${v === 0 ? 'II' : `${v}x`}</button>`).join('')}</div>
       <div class="wb-section">População</div>
       ${rows || '<div class="wb-empty">Nenhuma espécie. Leve uma pela aba Vida.</div>'}
       ${more}
