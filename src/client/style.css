@@ -40,6 +40,8 @@ kbd { display: inline-block; min-width: 20px; text-align: center; border: 1px so
 .surface-hud { position: absolute; inset: 0; pointer-events: none; font-family: 'Courier New', monospace; }
 .surface-hud [hidden] { display: none !important; }
 .surface-hud button, .surface-hud input, .surface-hud label { pointer-events: auto; }
+/* Painéis inteiros recebem o mouse: clicar ou arrastar no fundo deles não passa para o mapa. */
+.wb-bar, .wb-tabs, .wb-side { pointer-events: auto; }
 .wb-top { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; align-items: center; gap: 14px; }
 .wb-title { font-size: 20px; font-weight: 700; text-shadow: 2px 2px 0 #000; }
 .wb-stats { font-size: 13px; color: #e8f0d0; text-shadow: 1px 1px 0 #000; }

@@ -316,7 +316,8 @@ export class SurfaceMode {
   private readonly input: Input;
   private readonly root: HTMLDivElement;
   private tools: Tool[] = [...TERRAIN_TOOLS];
-  private tool: Tool | null = TERRAIN_TOOLS[0];
+  /** Ferramenta na mão; null é a mão vazia (só move o mapa e inspeciona). */
+  private tool: Tool | null = null;
   private brush = 6;
   private zoom = 3;
   private speed = 1;
@@ -651,7 +652,7 @@ export class SurfaceMode {
         <div class="wb-tabs">${TABS.map(([id, label]) => `<button data-tab="${id}">${label}</button>`).join('')}</div>
         <div class="wb-bar" data-bar></div>
       </div>
-      <div class="wb-help"><b>Esquerdo</b> usa a ferramenta · <b>Direito/meio</b> ou <b>WASD</b> move · <b>Roda</b> zoom · <b>Espaço</b> pausa · <b>1–4</b> velocidade · <b>C R E I</b> janelas</div>`;
+      <div class="wb-help"><b>Esquerdo</b> usa a ferramenta (mão vazia arrasta o mapa) · <b>Direito/meio</b> ou <b>WASD</b> move · <b>Roda</b> zoom · <b>Espaço</b> pausa · <b>1–4</b> velocidade · <b>C R E I</b> janelas</div>`;
     const signal = this.abort.signal;
     this.root.querySelector('[data-a="back"]')!.addEventListener('click', () => this.onExit(), { signal });
     this.scrollable(this.root.querySelector<HTMLElement>('[data-bar]')!, signal);
@@ -704,7 +705,7 @@ export class SurfaceMode {
     const canvas = this.renderer.domElement;
     canvas.addEventListener('contextmenu', (e) => e.preventDefault(), { signal });
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button === 0) {
+      if (e.button === 0 && this.tool) {
         this.painting = true;
         this.clicked = true;
       } else this.dragging = { x: e.clientX, y: e.clientY };
@@ -741,7 +742,7 @@ export class SurfaceMode {
     this.tab = tab;
     this.root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     const tools = this.tools.filter((t) => t.tab === tab);
-    if (!this.tool || this.tool.tab !== tab) this.tool = tools[0] ?? null;
+    if (this.tool && this.tool.tab !== tab) this.tool = null;
     const bar = this.root.querySelector<HTMLElement>('[data-bar]')!;
     let html = '';
     let group: string | undefined;
@@ -755,12 +756,14 @@ export class SurfaceMode {
     bar.innerHTML = `
       ${html}
       <div class="wb-group"></div>
-      <button class="wb-tool" data-t="inspect" title="Só olhar: passe o mouse para ver detalhes"><span>🔍</span>Inspecionar</button>
+      <button class="wb-tool" data-t="inspect" title="Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes, sem mexer em nada"><span>✋</span>Mão</button>
       <label class="wb-brush">Pincel <input type="range" min="1" max="30" value="${this.brush}" data-b /></label>`;
     const signal = this.abort.signal;
     bar.querySelectorAll<HTMLButtonElement>('[data-t]').forEach((b) => {
       b.addEventListener('click', () => {
-        this.tool = this.tools.find((t) => t.id === b.dataset.t) ?? null;
+        // Clicar de novo na ferramenta da mão a guarda (volta à mão vazia).
+        const t = this.tools.find((it) => it.id === b.dataset.t) ?? null;
+        this.tool = t && t !== this.tool ? t : null;
         this.updateToolbar();
       }, { signal });
     });
@@ -815,7 +818,7 @@ export class SurfaceMode {
       b.classList.toggle('on', (this.tool?.id ?? 'inspect') === b.dataset.t);
     });
     const tip = this.root.querySelector<HTMLElement>('[data-tip]')!;
-    tip.textContent = this.tool ? `${this.tool.label}: ${this.tool.tip}` : 'Inspecionar: passe o mouse sobre o mapa para ver detalhes.';
+    tip.textContent = this.tool ? `${this.tool.label}: ${this.tool.tip} (clique de novo ou Esc para guardar)` : 'Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes. Escolha uma ferramenta para mexer no mundo.';
   }
 
   // Janelas ----------------------------------------------------------------
@@ -973,7 +976,10 @@ export class SurfaceMode {
     const input = this.input;
     if (input.hit('Escape')) {
       if (this.win) this.openWindow(null);
-      else {
+      else if (this.tool) {
+        this.tool = null;
+        this.updateToolbar();
+      } else {
         this.onExit();
         return;
       }
