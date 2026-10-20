@@ -26,7 +26,8 @@ import { generateSurfaceAsync } from './generateAsync';
 import { SoftArt } from './softArt';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 import { animalStage, DEATH_TEXT, familyName, personName } from '../../sim/people';
-import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, houseStyle } from '../../sim/architecture';
+import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, GRAVEL, houseStyle } from '../../sim/architecture';
+import { CURRENCY_NAMES } from '../../sim/trade';
 import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, type CompareKey, type SettlementTab } from './settlementWindow';
 
 /** Raio de escolha de criaturas em pixels de tela, igual em qualquer zoom (RF-VIDA-330). */
@@ -71,6 +72,14 @@ const ORE_ICONS: Record<Ore, string> = { copper: '🟠', tin: '⚪', iron: '🟤
 
 /** Sprite e cor de cada animal de rebanho. */
 const HERD_SPRITES: Record<string, string> = { sheep: 'sheep', cattle: 'cow', goat: 'goat', horse: 'horse', camel: 'camel' };
+/** Toldos das barracas da feira. */
+const STALL_TINTS: [number, number, number][] = [
+  [214, 64, 52],
+  [52, 110, 220],
+  [232, 196, 56],
+  [64, 168, 80],
+  [148, 72, 200],
+];
 const HERD_TINT: Record<string, [number, number, number]> = { sheep: [238, 234, 222], cattle: [150, 96, 62], goat: [196, 176, 146], horse: [128, 82, 48], camel: [204, 164, 104] };
 
 /** Ferramentas de terraformação e clima (RF-SUP-06). */
@@ -459,6 +468,7 @@ export class SurfaceMode {
     if (road === 1) c = era === 0 ? [164, 130, 88] : era >= 2 && main ? [170, 162, 146] : [140, 104, 66];
     else if (road === 2) c = era >= 4 ? [124, 122, 130] : [146, 144, 150];
     else if (road === AVENUE) c = [108, 108, 118];
+    else if (road === GRAVEL) c = [158, 148, 128];
     else if (road === 3) c = [184, 160, 120];
     else if (road === 4) c = [196, 160, 78];
     else if (road === 5) c = [118, 168, 74];
@@ -473,7 +483,7 @@ export class SurfaceMode {
     }
     // Plantação leva o enfeite de trigo (7); terra batida, pedra e praça, os
     // enfeites 8, 9 e 10 (desenhados em softArt.ts); casas, o 15 (nem enfeite nem grama).
-    const kind = road === 4 ? 7 : road === 1 ? 8 : road === 2 || road === AVENUE ? 9 : road === 3 ? 10 : 15;
+    const kind = road === 4 ? 7 : road === 1 || road === GRAVEL ? 8 : road === 2 || road === AVENUE ? 9 : road === 3 ? 10 : 15;
     px[o + 3] = kind * 16 + 15;
   }
 
@@ -1184,12 +1194,21 @@ export class SurfaceMode {
           })
           .join('');
         const wonder = k.houses.some((h) => h.kind === 'wonder') ? ` · 🏛 ${WONDER_NAMES[c.value]}` : '';
+        // Acordos comerciais com os assentamentos do reino (RF-VIDA-232) e a moeda (RF-VIDA-291).
+        const ids = new Set(members.map((v) => v.id));
+        const deals = eco.agreements
+          .filter((g) => ids.has(g.a) || ids.has(g.b))
+          .map((g) => `${eco.villages[g.a].name} ↔ ${eco.villages[g.b].name}: ${eco.goodName(g.goods[0])} por ${eco.goodName(g.goods[1])}`)
+          .join(' · ');
+        const tolls = [...eco.tolls.values()].filter((o) => ids.has(o)).length;
         return `
           <div class="wb-card">
             <button class="wb-card-head" data-village="${k.id}">${this.crest(k)}<b>${members.length > 1 || k.tier >= 2 ? 'Reino de ' : ''}${k.name}</b><em>📍</em></button>
             <div>Povo ${c.name} · ${eco.species[k.species].name} · valoriza ${c.value} · crê em ${c.belief}${wonder}</div>
             <div>${members.length} assentamento${members.length > 1 ? 's' : ''} · ${pop} habitantes · ${ERAS[Math.floor(Math.max(...members.map((v) => v.tech)))]}</div>
             ${stock ? `<div class="wb-dim">${stock}</div>` : ''}
+            <div class="wb-dim">Moeda: ${CURRENCY_NAMES[eco.currencyName(k)]}${tolls ? ` · ${tolls} posto${tolls > 1 ? 's' : ''} de pedágio` : ''}</div>
+            ${deals ? `<div class="wb-dim">🤝 Acordos: ${deals}</div>` : ''}
             ${rels ? `<div class="wb-rels">${rels}</div>` : ''}
           </div>`;
       })
@@ -1431,6 +1450,25 @@ export class SurfaceMode {
     ctx.lineWidth = 2;
     ctx.strokeStyle = `rgba(255,240,180,${(0.5 + 0.4 * pulse).toFixed(2)})`;
     ctx.stroke();
+    // Rotas das caravanas ligadas ao assentamento (RF-VIDA-348).
+    ctx.setLineDash([Math.max(3, z * 0.6), Math.max(2, z * 0.4)]);
+    ctx.lineWidth = Math.max(1.5, z * 0.12);
+    ctx.strokeStyle = 'rgba(255,240,180,0.7)';
+    const mw = this.map.width;
+    for (const c of this.eco.caravans) {
+      if (c.home !== v.id && c.target !== v.id) continue;
+      ctx.beginPath();
+      let last = NaN;
+      for (const t of c.path) {
+        const [px, py] = this.screenOf((t % mw) + 0.5, Math.floor(t / mw) + 0.5, w, h);
+        // Na volta do mapa (borda leste-oeste) a linha recomeça do outro lado.
+        if (Math.abs(px - last) < w / 2) ctx.lineTo(px, py);
+        else ctx.moveTo(px, py);
+        last = px;
+      }
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
     if (z < 3) return;
     ctx.lineWidth = Math.max(1, z * 0.12);
     ctx.strokeStyle = 'rgba(255,240,180,0.85)';
@@ -1698,7 +1736,8 @@ export class SurfaceMode {
       // Cercados de pasto e o rebanho pastando dentro deles (RF-VIDA-215 e 216).
       if (!small && v.pens) {
         const animal = v.herd ? HERD_SPRITES[v.herd.kind] : '';
-        let left = v.herd?.head ?? 0;
+        // Parte do rebanho pode estar no pasto alto (RF-VIDA-293).
+        let left = (v.herd?.head ?? 0) - (v.herd?.away ?? 0);
         const now = performance.now() / 1000;
         for (const pen of v.pens) {
           const [px, py] = this.toScreen(pen.x + 1, pen.y + 2, z, w, h);
@@ -1730,6 +1769,13 @@ export class SurfaceMode {
         } else buildings.push({ sprite: 'well', sx: fx, sy: fy, h: z * 1.3, tint: v.color });
         this.pushDefense(v, era, buildings, z, w, h, margin);
         if (era >= 4 && z >= 6) this.pushLamps(v, buildings, z, w, h, margin);
+        // Feira anual no verão: barracas em volta da praça (RF-VIDA-234).
+        if (v.fair === Math.floor(eco.year) && eco.season() === 1) {
+          for (const [ox, oy] of [[-2.6, -0.2], [2.6, -0.2], [-0.9, -2.3], [1.4, 2.4]]) {
+            const [bx, by] = this.toScreen(v.x + ox, v.y + oy + 1, z, w, h);
+            buildings.push({ sprite: 'stall', sx: bx, sy: by, h: z * 0.8, tint: STALL_TINTS[(Math.abs(Math.round(ox * 3 + oy)) + v.id) % STALL_TINTS.length] });
+          }
+        }
       }
     }
     // Jazidas: caverna, veio ou mina, com pontos na cor do minério.
@@ -1751,6 +1797,16 @@ export class SurfaceMode {
         buildings.push({ sprite: 'ruin', sx, sy, h: z * 1.25, tint: [150, 150, 150] });
       }
     }
+    // Postos de pedágio nos passos de montanha (RF-VIDA-286).
+    if (!small) {
+      for (const [t, owner] of eco.tolls) {
+        const o = eco.villages[owner];
+        if (!o || o.abandoned) continue;
+        const [sx, sy] = this.toScreen((t % this.map.width) + 0.5, Math.floor(t / this.map.width) + 1, z, w, h);
+        if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+        buildings.push({ sprite: 'toll', sx, sy, h: z * 0.9, tint: eco.villages[o.kingdom].color });
+      }
+    }
     // De cima para baixo, para as construções da frente cobrirem as de trás.
     buildings.sort((a, b) => b.sy - a.sy);
     for (const b of buildings) layer.push(b.sprite, b.sx, b.sy, b.h, b.tint);
@@ -1768,12 +1824,15 @@ export class SurfaceMode {
       const rows = { wreck: 4, canoe: 7, rowboat: 8, sailboat: 15, caravel: 17, steamship: 14 }[name] ?? 8;
       const bob = Math.sin((performance.now() / 1000) * 2 + b.x) * px * 0.6;
       layer.push(b.sunk < 0 && b.facing < 0 ? `${name}:l` : name, sx, sy - z * 0.4 + bob, rows * px, tint, tint);
+      // Barco mercante leva caixotes no convés (RF-VIDA-235).
+      if (b.sunk < 0 && b.purpose === 'trade') layer.push('crates', sx - b.facing * z * 0.2, sy - z * 0.4 + bob + px * 3, z * 0.35, tint);
       // Bandeira do reino no mastro (RF-VIDA-288).
       if (b.sunk < 0 && z >= 4) {
         const king = eco.villages[eco.villages[b.village].kingdom];
         layer.push(`flag:${king.vocation ?? 'none'}`, sx + z * 0.1, sy - z * 0.4 + bob + rows * px, z * 0.55, king.color);
       }
     }
+    this.pushCaravans(layer, z, w, h, margin, small);
     for (let i = 0; i < eco.count; i++) {
       if (!eco.alive[i]) continue;
       const [sx, sy] = this.toScreen(eco.x[i], eco.y[i], z, w, h);
@@ -1830,6 +1889,52 @@ export class SurfaceMode {
       const street = eco.road[t] === 1 || eco.road[t] === 2 || eco.road[t] === AVENUE;
       if (street && !stone) continue;
       out.push({ sprite: street ? 'gate' : stone ? 'wall' : 'palisade', sx, sy, h: z * (stone ? 0.9 : era === 1 ? 0.55 : 0.8), tint: v.color });
+    }
+  }
+
+  /**
+   * Caravanas (RF-VIDA-230): o comerciante na frente, os animais de carga
+   * atrás, com fardos no lombo na Idade da Pedra, carroça do Bronze ao Ferro
+   * e carroção coberto depois. Na transumância, o pastor e o rebanho.
+   */
+  private pushCaravans(layer: SpriteLayer, z: number, w: number, h: number, margin: number, small: boolean): void {
+    const eco = this.eco;
+    for (const c of eco.caravans) {
+      const home = eco.villages[c.home];
+      const [sx, sy] = this.toScreen(c.x, c.y, z, w, h);
+      if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+      if (small) {
+        layer.push('dot', sx, sy, Math.max(2, z), home.color);
+        continue;
+      }
+      const left = c.facing < 0;
+      const behind = (k: number): [number, number] => this.toScreen(c.x - c.facing * k, c.y + 0.05 * (k % 2), z, w, h);
+      const sp = eco.species[home.species];
+      if (c.kind === 'flock') {
+        const name = HERD_SPRITES[c.animal] ?? 'sheep';
+        const shown = Math.min(5, c.animals);
+        for (let k = shown; k >= 1; k--) {
+          const [ax, ay] = this.toScreen(c.x - c.facing * (0.7 + 0.55 * k), c.y + 0.35 * ((k * 7) % 3 - 1), z, w, h);
+          layer.push(left && SPRITES[`${name}:l`] ? `${name}:l` : name, ax, ay - z * 0.5, z * 0.62, HERD_TINT[c.animal] ?? [220, 220, 220]);
+        }
+        layer.push(`${bodyOf(sp)}:shepherd`, sx, sy - z * 0.5, z * 1.05 * (11 / 9), home.color, sp.color);
+        continue;
+      }
+      const animal = c.animal === 'donkey' ? 'donkey' : c.animal;
+      const tint = c.animal === 'donkey' ? [132, 122, 112] : (HERD_TINT[c.animal] ?? [140, 100, 70]);
+      const n = Math.max(1, Math.min(3, c.animals));
+      // De trás para a frente: carroça, animais, comerciante.
+      if (c.cart > 0) {
+        const cart = c.cart >= 2 ? 'wagon' : 'cart';
+        const [cx, cy] = behind(0.8 + n * 0.85);
+        layer.push(left ? `${cart}:l` : cart, cx, cy - z * 0.5, z * (c.cart >= 2 ? 0.95 : 0.7), home.color);
+      }
+      for (let k = n; k >= 1; k--) {
+        const [ax, ay] = behind(0.15 + k * 0.85);
+        layer.push(left ? `${animal}:l` : animal, ax, ay - z * 0.5, z * 0.72, tint);
+        if (c.cart === 0) layer.push(left ? 'packs:l' : 'packs', ax - c.facing * z * 0.05, ay - z * 0.5 + z * 0.42, z * 0.32, tint);
+      }
+      layer.push(`${bodyOf(sp)}:merchant`, sx, sy - z * 0.5, z * 1.05 * (11 / 9), home.color, sp.color);
     }
   }
 

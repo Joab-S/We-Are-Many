@@ -13,6 +13,7 @@ import {
   makeCulture,
   GOODS,
   ORE_NAMES,
+  STOCK_NAMES,
   type Culture,
   type Deposit,
   type Good,
@@ -24,7 +25,24 @@ import { yearlyEvents } from './events';
 import { pickItem, pickPrimitive, TIER_MATERIAL, type Category, type Material } from './items';
 import { CHILD, pickRole, ROLE, ROLES, type RoleContext } from './roles';
 import { completeness, missingText, planItems, type PlanItem } from './plan';
-import { AVENUE, isStreet, mainStreets, pickMaterial, type BuildMaterial } from './architecture';
+import { AVENUE, GRAVEL, isStreet, mainStreets, pickMaterial, type BuildMaterial } from './architecture';
+import {
+  CURRENCY_EFFICIENCY,
+  LUXURIES,
+  LUXURY_ERA,
+  caravanCap,
+  cartOf,
+  currencyOf,
+  packAnimal,
+  pickLuxury,
+  price,
+  tradable,
+  type Agreement,
+  type Caravan,
+  type Cargo,
+  type Crew,
+  type Luxury,
+} from './trade';
 import { emptyVital, HISTORY_YEARS, type DeathCause, type Exit, type Sample, type Vital } from './people';
 import {
   foodCap,
@@ -143,8 +161,8 @@ export interface Boat {
   village: number;
   /** Índice em BOATS (a era de quem construiu). */
   kind: number;
-  /** Pesca, colonos, soldados de uma invasão ou exploradores. */
-  purpose: 'fish' | 'colonize' | 'invade' | 'explore';
+  /** Pesca, colonos, soldados de uma invasão, exploradores ou carga de um barco mercante (RF-VIDA-235). */
+  purpose: 'fish' | 'colonize' | 'invade' | 'explore' | 'trade';
   x: number;
   y: number;
   /** Direção para onde a proa aponta: 1 leste, -1 oeste. */
@@ -162,6 +180,8 @@ export interface Boat {
   adrift: number;
   /** Segundos desde o naufrágio; -1 enquanto navega. */
   sunk: number;
+  /** Barco mercante: porto de destino, carga, ouro a bordo e se já está voltando. */
+  trade?: { target: number; cargo: Cargo[]; purse: number; back: boolean };
 }
 
 /** Cores vivas dos reinos (telhados e roupas), como nos jogos de deus em pixel art. */
@@ -397,6 +417,17 @@ export interface Village {
   vitalNow?: Vital;
   /** Uma amostra por ano de população e estoque, para os gráficos (RF-VIDA-347). */
   history?: Sample[];
+  /** Bem de luxo da região (RF-VIDA-282); null quando a região não dá nenhum. */
+  luxury?: Luxury | null;
+  /** Os ricos consumiram luxo no ano passado (estabilidade a mais). */
+  luxuryJoy?: boolean;
+  /** Ano da última feira anual (RF-VIDA-234). */
+  fair?: number;
+  /** Pedido da capital ainda aberto e quantos pedidos a colônia já recusou (RF-VIDA-289). */
+  request?: { good: Good | 'food'; amount: number; until: number };
+  refused?: number;
+  /** A capital cunha moeda própria (RF-VIDA-291). */
+  mint?: boolean;
 }
 
 /** Quem a pessoa é, guardado quando ela embarca e devolvido quando desembarca. */
@@ -431,6 +462,8 @@ export interface Herd {
   head: number;
   /** Ano até o qual o rebanho está com praga. */
   plague?: number;
+  /** Parte do rebanho está no pasto alto com os pastores (RF-VIDA-293). */
+  away?: number;
 }
 
 /** Anos entre cada etapa do sumiço das ruínas (plantações, depois ruas, depois a praça). */
@@ -513,6 +546,23 @@ export class Ecosystem {
   readonly deaths: Death[] = [];
   readonly villages: Village[] = [];
   readonly boats: Boat[] = [];
+  /** Caravanas, tributos e rebanhos na estrada (RF-VIDA-230 e 293). */
+  readonly caravans: Caravan[] = [];
+  private nextCaravan = 0;
+  /** Acordos comerciais em vigor (RF-VIDA-232). */
+  readonly agreements: Agreement[] = [];
+  /** Viagens de ida e volta entre cada par de assentamentos (chave "a:b"), para firmar acordos. */
+  private readonly trips = new Map<string, number>();
+  /** Pares de reinos que trocaram por caravana neste ano: a troca invisível fica só como reserva. */
+  private readonly caravanPairs = new Set<string>();
+  /** Uso das estradas por tile e a maior era de quem passou (RF-VIDA-233). */
+  readonly traffic: Uint16Array;
+  private readonly trafficEra: Uint8Array;
+  private readonly trafficTiles = new Set<number>();
+  /** Tiles de estrada que nasceram do uso. */
+  routeTiles = 0;
+  /** Postos de pedágio: tile do passo e o assentamento que cobra (RF-VIDA-286). */
+  readonly tolls = new Map<number, number>();
   /** Jazidas de minério do planeta, e o índice delas por tile. */
   readonly deposits: Deposit[];
   readonly depositAt: Int32Array;
@@ -608,6 +658,8 @@ export class Ecosystem {
     this.worldRnd = rng.mundo;
     this.climateRnd = rng.clima;
     this.road = new Uint8Array(map.width * map.height);
+    this.traffic = new Uint16Array(map.width * map.height);
+    this.trafficEra = new Uint8Array(map.width * map.height);
     this.mainStreet = new Uint8Array(map.width * map.height);
     this.built = new Uint8Array(map.width * map.height);
     this.cols = Math.ceil(map.width / CELL);
@@ -957,6 +1009,7 @@ export class Ecosystem {
       }
     }
     this.updateBoats(dt);
+    this.updateCaravans(dt);
     this.growVegetation(dt);
     for (let k = this.effects.length - 1; k >= 0; k--) {
       const fx = this.effects[k];
@@ -1072,6 +1125,7 @@ export class Ecosystem {
       this.updateHerd(v);
       this.updateSoil(v);
       this.neglect(v);
+      this.luxuryYear(v);
       this.clampStock(v);
       v.ledger = v.ledgerNow ?? {};
       v.ledgerNow = {};
@@ -1082,6 +1136,7 @@ export class Ecosystem {
       if (history.length > HISTORY_YEARS) history.shift();
     }
     this.haul();
+    this.tradeYear();
     this.revolts();
   }
 
@@ -1115,6 +1170,7 @@ export class Ecosystem {
     const war = this.warOf(v.kingdom);
     let target = 0.3 + 0.6 * welfare(v.needs ?? fullNeeds());
     if (this.has(v, 'temple')) target += 0.08;
+    if (v.luxuryJoy) target += B.LUXURY_STABILITY;
     if (war) target -= war.years > 10 ? 0.25 : 0.12;
     if (capital !== v) {
       target -= Math.min(0.2, this.distance(capital, v.x, v.y) / 300);
@@ -1282,7 +1338,7 @@ export class Ecosystem {
     const maxPens = 1 + v.tier * 2 + (v.vocation === 'gado' || v.vocation === 'ovelhas' || v.vocation === 'cavalos' ? 2 : 0);
     if (h.head > cap * 0.8 && pens < maxPens && happens(this.civRnd, B.PEN_RATE, 1)) this.addPen(v);
     // Sobrepastoreio: o verde em volta dos cercados cheios diminui.
-    if (h.head > cap * 0.7) {
+    if (h.head > cap * 0.7 && !h.away) {
       for (const p of v.pens ?? []) {
         const t = this.tileAt(p.x + Math.floor(this.civRnd() * 4) - 1, p.y + Math.floor(this.civRnd() * 4) - 1);
         if (t >= 0 && this.map.vegetation[t] > 0.1 && !this.road[t] && !this.built[t]) {
@@ -1424,7 +1480,9 @@ export class Ecosystem {
             const ore = g === 'copper' || g === 'tin' || g === 'iron' || g === 'coal';
             const forge = ore && this.has(b, 'smithy') && !this.has(a, 'smithy');
             if (!forge && (have < capA * B.HAUL_HIGH || want > capB * B.HAUL_LOW)) continue;
-            const load = forge ? Math.min(B.HAUL_LOAD, have, capB - want) : Math.min(B.HAUL_LOAD, have - capA * B.HAUL_HIGH, capB * B.HAUL_LOW - want);
+            // Reino que cunha moeda troca mais dentro de si (RF-VIDA-291).
+            const most = B.HAUL_LOAD * (this.villages[a.kingdom].mint ? B.MINT_HAUL : 1);
+            const load = forge ? Math.min(most, have, capB - want) : Math.min(most, have - capA * B.HAUL_HIGH, capB * B.HAUL_LOW - want);
             if (load < 1) continue;
             if (!moved && !this.landPath(a.x, a.y, b.x, b.y)) break;
             moved = true;
@@ -2221,7 +2279,8 @@ export class Ecosystem {
       this.mainStreet[t] = main.has(t) || this.road[t] === AVENUE ? 1 : 0;
       if (repaint) this.onTileChanged(t);
       if (this.road[t] === AVENUE) continue;
-      const want = era >= 4 || (paveMain && main.has(t)) ? 2 : 1;
+      // Rua muito usada pelas caravanas ganha pedra antes das outras (RF-VIDA-233).
+      const want = era >= 4 || (paveMain && main.has(t)) || (era >= 2 && this.traffic[t] >= B.STONE_USE) ? 2 : 1;
       if (this.road[t] !== want) {
         this.road[t] = want;
         this.onTileChanged(t);
@@ -2984,6 +3043,8 @@ export class Ecosystem {
       // Exploradores por mar a partir do Bronze; povos comerciantes e sábios exploram mais.
       const curious = v.culture.value === 'comércio' || v.culture.value === 'conhecimento' ? 2 : 1;
       if (v.port >= 0 && v.tech >= 1 && happens(this.civRnd, B.EXPLORE_RATE * curious, dt / YEAR_SECONDS)) this.explore(v);
+      // Caravanas, tributo pedido pela capital e rebanho rumo ao pasto alto (19.6).
+      this.sendCaravan(v, yr);
       // Colonos (RF-VIDA-204): mais em eras avançadas, bem menos com a planta incompleta, e mais quando falta espaço de verdade.
       const crowded = v.population >= 8 && squeezed && !planLeft && !this.reformable(v) && (v.growth ?? 0) >= 1;
       const ready = B.COLONY_MIN_FACTOR + (1 - B.COLONY_MIN_FACTOR) * v.completeness ** 2;
@@ -3121,7 +3182,10 @@ export class Ecosystem {
     // Rebanho come grão no inverno.
     if (v.herd && season === 3) this.spend(v, 'food', v.herd.head * 0.1 * yr * 4);
     const granary = this.has(v, 'granary');
-    this.spend(v, 'food', v.food * (granary ? B.SPOIL_GRAIN : B.SPOIL_MEAT) * yr);
+    // Sal conserva carne e peixe (RF-VIDA-282 e 219a).
+    const salted = !granary && st.salt >= 0.1;
+    if (salted) this.spend(v, 'salt', v.population * B.SALT_USE * yr);
+    this.spend(v, 'food', v.food * (granary ? B.SPOIL_GRAIN : salted ? B.SPOIL_SALTED : B.SPOIL_MEAT) * yr);
     this.spend(v, 'wood', st.wood * B.SPOIL_WOOD * yr);
     this.spend(v, 'tools', st.tools * 0.02 * yr);
     const goldCap = this.capOf(v, 'gold');
@@ -3671,7 +3735,8 @@ export class Ecosystem {
         // Comércio: por terra entre vizinhos com mercado; por mar entre contatos com mercado e porto.
         // Sem mercado, vizinhos amigos ainda fazem escambo.
         const market = (has(a.id, 'market') && has(b.id, 'market') && (border || (port(a.id) && port(b.id)))) || (border && rel > 20);
-        if (!atWar && market && this.trade(a, b)) rel += 3 * (a.culture.value === 'comércio' || b.culture.value === 'comércio' ? 2 : 1);
+        // Com caravanas entre os dois neste ano, a troca invisível não acontece (fica como reserva, 19.6).
+        if (!atWar && market && !this.caravanPairs.has(key) && this.trade(a, b)) rel += 3 * (a.culture.value === 'comércio' || b.culture.value === 'comércio' ? 2 : 1);
         if (!atWar && this.polRnd() < 0.03) rel += this.incident(a, b, border);
         rel = Math.max(-100, Math.min(100, rel));
         this.relations.set(key, rel);
@@ -3704,6 +3769,7 @@ export class Ecosystem {
     }
     this.vassals(members);
     this.rebuildEnemies();
+    this.caravanPairs.clear();
   }
 
   /** Declara guerra se houver caminho por terra ou, sem ele, por mar. Retorna se começou. */
@@ -3715,6 +3781,7 @@ export class Ecosystem {
       naval = true;
     }
     this.wars.push({ a: att.id, b: def.id, target: target.id, losses: [0, 0], years: 0, naval });
+    this.breakAgreements(att.id, def.id);
     this.note(`Guerra! ${att.name} atacou ${def.name}${target !== def ? ` em ${target.name}` : ''}${naval ? ', pelo mar' : ''}`, 'guerra', target, { major: true });
     this.effect('swords', target.x, target.y - 3, 30, 1);
     return true;
@@ -3863,7 +3930,9 @@ export class Ecosystem {
       const far = this.distance(capital, v.x, v.y);
       // Reinos grandes são difíceis de manter unidos.
       const size = Math.min(2, 1 + (this.kingdomSize(capital) - 4) * 0.1);
-      if (far < 40 || this.polRnd() > 0.005 * (far / 40) * size * (capital.culture.tolerance < 0.3 ? 2 : 1)) continue;
+      // Colônia que recusa os pedidos da capital pensa mais em se separar (RF-VIDA-289).
+      const refused = 1 + B.REFUSAL_INDEPENDENCE * (v.refused ?? 0);
+      if (far < 40 || this.polRnd() > 0.005 * (far / 40) * size * refused * (capital.culture.tolerance < 0.3 ? 2 : 1)) continue;
       const old = v.kingdom;
       for (const o of this.villages) if (!o.abandoned && o.kingdom === old && this.distance(v, o.x, o.y) < 30) o.kingdom = v.id;
       this.newKingdom(v, capital);
@@ -4156,7 +4225,7 @@ export class Ecosystem {
     if (this.civRnd() > 0.35 * (1 - b.kind * 0.2)) return;
     const v = this.villages[b.village];
     const type = BOATS[b.kind];
-    const crew = { fish: '', colonize: ' de colonos', invade: ' de soldados', explore: ' de exploradores' }[b.purpose];
+    const crew = { fish: '', colonize: ' de colonos', invade: ' de soldados', explore: ' de exploradores', trade: ' mercante' }[b.purpose];
     const what = b.purpose === 'fish' ? `um barco de pesca de ${v.name}` : `${type.the}${crew} de ${v.name}`;
     if (b.kind <= 1 && this.civRnd() < 0.5) {
       this.sink(b, `${predator}s afundaram ${b.purpose === 'fish' ? 'barcos de pesca' : what}`, b.purpose === 'fish' ? 'shark-fish' : undefined);
@@ -4270,6 +4339,11 @@ export class Ecosystem {
       if (b.purpose !== 'fish' && d < 0.35) {
         b.step++;
         if (b.step >= b.path.length) {
+          if (b.purpose === 'trade') {
+            if (!this.tradeBoatArrived(b)) continue;
+            this.boats.splice(k, 1);
+            continue;
+          }
           if (b.purpose === 'invade') this.landSoldiers(b);
           else if (b.purpose === 'explore') this.explored(b);
           else this.landColonists(b);
@@ -4403,6 +4477,766 @@ export class Ecosystem {
       }
     }
   }
+
+  // Comércio vivo (seção 19.6) ------------------------------------------------
+
+  /** Nome de um bem em minúsculas, para a crônica. */
+  goodName(g: Good | 'food'): string {
+    return g === 'food' ? 'comida' : (STOCK_NAMES.find(([k]) => k === g)?.[1] ?? g).toLowerCase();
+  }
+
+  private amountOf(v: Village, g: Good | 'food'): number {
+    return g === 'food' ? v.food : v.stock[g];
+  }
+
+  private addTo(v: Village, g: Good | 'food', n: number): void {
+    if (g === 'food') v.food += n;
+    else v.stock[g] += n;
+  }
+
+  /** Preço local de um bem (RF-VIDA-231). */
+  priceAt(v: Village, g: Good | 'food'): number {
+    const rich = v.needs ? welfare(v.needs) >= 0.75 : false;
+    return price(g, this.amountOf(v, g), this.capOf(v, g), v.needs, rich);
+  }
+
+  /** Caravanas e barcos mercantes de um assentamento na estrada ou no mar (rebanhos não contam). */
+  caravansOf(v: Village): number {
+    let n = 0;
+    for (const c of this.caravans) if (c.home === v.id && c.kind !== 'flock') n++;
+    for (const b of this.boats) if (b.village === v.id && b.purpose === 'trade' && b.sunk < 0) n++;
+    return n;
+  }
+
+  /** Comércio no mundo todo (para o limite CARAVANS_MAX). */
+  private tradeInMotion(): number {
+    let n = 0;
+    for (const c of this.caravans) if (c.kind !== 'flock') n++;
+    for (const b of this.boats) if (b.purpose === 'trade' && b.sunk < 0) n++;
+    return n;
+  }
+
+  /** Neve no caminho: no inverno, as caravanas param nas terras frias (RF-VIDA-290). */
+  private snowed(x: number, y: number): boolean {
+    return this.season() === 3 && temperatureAt(this.map, this.tileAt(x, Math.floor(y))) < B.COLD_K;
+  }
+
+  /** Acordo em vigor entre dois assentamentos, se houver. */
+  agreementOf(a: number, b: number): Agreement | undefined {
+    return this.agreements.find((g) => (g.a === a && g.b === b) || (g.a === b && g.b === a));
+  }
+
+  /** Algum acordo entre assentamentos dos dois reinos. */
+  private agreedKingdoms(ka: number, kb: number): boolean {
+    return this.agreements.some((g) => {
+      const x = this.villages[g.a].kingdom;
+      const y = this.villages[g.b].kingdom;
+      return (x === ka && y === kb) || (x === kb && y === ka);
+    });
+  }
+
+  /** Dois assentamentos podem comerciar: mesmo reino, ou reinos que se conhecem, em paz e sem ódio. */
+  private canTrade(v: Village, o: Village): boolean {
+    if (v.kingdom === o.kingdom) return true;
+    const key = this.key(v.kingdom, o.kingdom);
+    if (!this.relations.has(key) && !this.contacts.has(key)) return false;
+    return !this.warBetween(v.kingdom, o.kingdom) && this.relation(v.kingdom, o.kingdom) >= -20;
+  }
+
+  /** O que dá lucro levar de `v` para `o` (até `load` unidades, no máximo dois bens) e o lucro esperado. */
+  private offer(v: Village, o: Village, load: number, skip: (Good | 'food')[] = []): { cargo: Cargo[]; profit: number } {
+    const rows: { good: Good | 'food'; amount: number; per: number }[] = [];
+    for (const g of [...GOODS, 'food'] as (Good | 'food')[]) {
+      if (!tradable(g) || skip.includes(g)) continue;
+      const have = this.amountOf(v, g);
+      let spare = have - this.capOf(v, g) * B.CARAVAN_KEEP;
+      if (g === 'food') spare = Math.min(spare, v.food - v.population * B.CONSUME_FOOD * 0.5);
+      if (spare < 2) continue;
+      const room = this.capOf(o, g) - this.amountOf(o, g);
+      if (room < 2) continue;
+      const per = this.priceAt(o, g) - this.priceAt(v, g);
+      if (per <= 0.1) continue;
+      rows.push({ good: g, amount: Math.min(spare, room), per });
+    }
+    rows.sort((p, q) => q.per - p.per);
+    const cargo: Cargo[] = [];
+    let profit = 0;
+    let left = load;
+    for (const r of rows.slice(0, 2)) {
+      const amount = Math.floor(Math.min(r.amount, left));
+      if (amount < 1) continue;
+      cargo.push({ good: r.good, amount });
+      profit += amount * r.per;
+      left -= amount;
+    }
+    return { cargo, profit };
+  }
+
+  /** Um adulto para viajar: de preferência comerciante (ou pastor, no rebanho), nunca o líder. */
+  private traveler(v: Village, role: number): number {
+    let pick = -1;
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD) continue;
+      if (this.age[i] >= elderAge(this.species[v.species], Math.floor(v.tech))) continue;
+      if (this.role[i] === role) return i;
+      if (pick < 0) pick = i;
+    }
+    return pick;
+  }
+
+  /** Tira o viajante do mapa (ele vai junto com a caravana) e guarda quem ele é. */
+  private embark(i: number): Crew {
+    const crew: Crew = { age: this.age[i], role: this.role[i], who: this.identity(i) };
+    this.kill(i, true, 'partiu');
+    return crew;
+  }
+
+  /** O viajante volta para casa. */
+  private disembark(v: Village, crew: Crew, x: number, y: number): void {
+    if (v.abandoned) return;
+    const c = this.spawn(v.species, x, y, v.id, crew.age);
+    if (c < 0) return;
+    this.role[c] = crew.role;
+    this.restore(c, crew.who, true);
+  }
+
+  /** O viajante morreu no caminho: a saída vira morte, com a causa. */
+  private lostCrew(v: Village, crew: Crew, cause: DeathCause, x: number, y: number): void {
+    const vital = (v.vitalNow ??= emptyVital());
+    vital.left = Math.max(0, vital.left - 1);
+    vital.deaths[cause] = (vital.deaths[cause] ?? 0) + 1;
+    if (crew.who) {
+      this.deaths.unshift({ uid: crew.who.uid, cause, age: crew.age, x, y });
+      if (this.deaths.length > 64) this.deaths.pop();
+    }
+  }
+
+  /**
+   * Saída de caravanas (RF-VIDA-230 e 236): o tributo pedido pela capital
+   * vai primeiro; depois, de vez em quando, uma caravana de comércio para o
+   * destino com mais lucro; no verão, o rebanho sobe para o pasto alto.
+   */
+  private sendCaravan(v: Village, yr: number): void {
+    if (v.herd && !v.herd.away && v.herd.head >= B.TRANSHUMANCE_HEAD && this.season() === 1 && v.herd.kind !== 'horse' && v.herd.kind !== 'camel' && happens(this.civRnd, 3, yr)) this.sendFlock(v);
+    if (v.tech < 0.5 || v.population < 8) return;
+    const merc = v.vocation === 'mercantil';
+    const market = this.has(v, 'market');
+    if ((v.tier < 1 && !merc && !market && !v.request) || this.snowed(v.x, v.y)) return;
+    if (this.tradeInMotion() >= B.CARAVANS_MAX || this.caravansOf(v) >= caravanCap(v.tier, merc)) return;
+    if (v.request && happens(this.civRnd, 2, yr)) {
+      this.sendTribute(v);
+      return;
+    }
+    if (v.tier < 1 && !merc && !market) return;
+    if (!happens(this.civRnd, B.CARAVAN_RATE * (merc ? 2 : 1) * (market ? 1.5 : 1), yr)) return;
+    const era = Math.floor(v.tech);
+    const load = B.CARAVAN_LOAD * (2 + Math.min(2, v.tier));
+    const year = Math.floor(this.year);
+    const boat = BOATS[Math.min(BOATS.length - 1, era)];
+    let best: { o: Village; cargo: Cargo[]; d: number } | null = null;
+    let top = 0;
+    for (const o of this.villages) {
+      if (o === v || o.abandoned || o.population < 3) continue;
+      const fair = o.fair === year;
+      const d = this.distance(o, v.x, v.y);
+      const byLand = d <= B.CARAVAN_RANGE * (fair ? 1.5 : 1);
+      const bySea = v.port >= 0 && o.port >= 0 && era >= 1 && d <= boat.range;
+      if ((!byLand && !bySea) || !this.canTrade(v, o)) continue;
+      const deal = this.offer(v, o, load);
+      if (!deal.cargo.length) continue;
+      let score = deal.profit - d * B.CARAVAN_TRIP_COST;
+      if (this.agreementOf(v.id, o.id)) score *= B.AGREEMENT_PREFERENCE;
+      if (fair) score *= B.FAIR_PREFERENCE;
+      if (v.kingdom === o.kingdom && this.villages[v.kingdom].mint) score *= B.MINT_PREFERENCE;
+      if (score > top) {
+        top = score;
+        best = { o, cargo: deal.cargo, d };
+      }
+    }
+    if (!best) return;
+    const { o, cargo, d } = best;
+    const path = d <= B.CARAVAN_RANGE * 1.5 && this.landPath(v.x, v.y, o.x, o.y) ? this.roadPath(v.x, v.y, o.x, o.y) : null;
+    if (path && path.length > 1) this.launchCaravan(v, o, 'trade', path, cargo);
+    else if (v.port >= 0 && o.port >= 0 && era >= 1) this.launchTradeBoat(v, o, cargo);
+  }
+
+  /** Põe a caravana na estrada, com a carga tirada do estoque e um pouco de ouro para comprar na volta. */
+  private launchCaravan(v: Village, o: Village, kind: 'trade' | 'tribute', path: number[], cargo: Cargo[]): boolean {
+    const i = this.traveler(v, ROLE.merchant);
+    if (i < 0) return false;
+    for (const c of cargo) {
+      c.amount = Math.min(c.amount, this.amountOf(v, c.good));
+      this.addTo(v, c.good, -c.amount);
+      this.book(v, 'saiu', 0, c.amount);
+    }
+    const purse = kind === 'trade' ? Math.min(v.stock.gold, 3 + v.tier * 2) : 0;
+    v.stock.gold -= purse;
+    const era = Math.floor(v.tech);
+    const animal = packAnimal(v.material === 'adobe' || v.herd?.kind === 'camel', v.stock.horses);
+    const w = this.map.width;
+    this.caravans.push({
+      id: this.nextCaravan++,
+      kind,
+      home: v.id,
+      target: o.id,
+      path,
+      step: 0,
+      x: (path[0] % w) + 0.5,
+      y: Math.floor(path[0] / w) + 0.5,
+      facing: 1,
+      back: false,
+      animal,
+      animals: 1 + Math.min(2, v.tier),
+      cart: cartOf(era),
+      cargo: cargo.filter((c) => c.amount >= 1),
+      purse,
+      crew: this.embark(i),
+      speed: B.CARAVAN_SPEED * (animal === 'horse' ? B.HORSE_SPEED : 1),
+      wait: 0,
+      tolls: [],
+      era,
+    });
+    return true;
+  }
+
+  /** Barco mercante (RF-VIDA-235): de porto a porto, com os perigos do mar. */
+  private launchTradeBoat(v: Village, o: Village, cargo: Cargo[]): boolean {
+    const type = BOATS[Math.min(BOATS.length - 1, Math.floor(v.tech))];
+    let found = false;
+    this.searchSea(v.port, 400000, type.range, (t) => (found = t === o.port));
+    if (!found) return false;
+    const path: number[] = [];
+    for (let t = o.port; t >= 0; t = this.searchParent[t]) path.push(t);
+    path.reverse();
+    const i = this.traveler(v, ROLE.merchant);
+    if (i < 0) return false;
+    let room = B.TRADE_BOAT_LOAD;
+    for (const c of cargo) {
+      c.amount = Math.min(c.amount, this.amountOf(v, c.good), room);
+      room -= c.amount;
+      this.addTo(v, c.good, -c.amount);
+      this.book(v, 'saiu', 0, c.amount);
+    }
+    const purse = Math.min(v.stock.gold, 3 + v.tier * 2);
+    v.stock.gold -= purse;
+    const boat = this.launch(v, 'trade', path, -1, [this.embark(i)]);
+    boat.trade = { target: o.id, cargo: cargo.filter((c) => c.amount >= 1), purse, back: false };
+    return true;
+  }
+
+  /** O barco mercante chegou: vende e volta, ou entrega em casa. Retorna se acabou a viagem. */
+  private tradeBoatArrived(b: Boat): boolean {
+    const t = b.trade!;
+    const home = this.villages[b.village];
+    const o = this.villages[t.target];
+    if (!t.back) {
+      if (!o.abandoned) this.sell(home, o, t, 'trade', true);
+      t.back = true;
+      b.path.reverse();
+      b.step = 0;
+      return false;
+    }
+    this.unload(home, t.cargo, t.purse);
+    const w = this.map.width;
+    for (const p of b.passengers) this.disembark(home, p, (home.port % w) + this.civRnd(), Math.floor(home.port / w) + this.civRnd());
+    return true;
+  }
+
+  /**
+   * Chegada ao destino: entrega a carga (até o teto), recebe pelo valor na
+   * moeda da era (no escambo, só em bens, RF-VIDA-291), compra a carga da
+   * volta e soma relação, conhecimento e o acordo (RF-VIDA-231, 232 e 74).
+   */
+  private sell(v: Village, o: Village, t: { cargo: Cargo[]; purse: number }, kind: Caravan['kind'], sea = false): void {
+    const era = Math.min(Math.floor(v.tech), Math.floor(o.tech));
+    const minted = !!this.villages[o.kingdom].mint && v.kingdom === o.kingdom;
+    const eff = CURRENCY_EFFICIENCY[currencyOf(era, minted || !!this.villages[o.kingdom].mint)];
+    let value = 0;
+    const sold = t.cargo[0]?.good;
+    for (const c of t.cargo) {
+      const put = Math.max(0, Math.min(c.amount, this.capOf(o, c.good) - this.amountOf(o, c.good)));
+      value += put * this.priceAt(o, c.good);
+      this.addTo(o, c.good, put);
+      this.book(o, 'chegou', put, 0);
+      c.amount -= put;
+    }
+    t.cargo = t.cargo.filter((c) => c.amount >= 1);
+    if (kind === 'tribute') {
+      v.stability = Math.min(1, (v.stability ?? 0.5) + B.REQUEST_STABILITY);
+      v.refused = Math.max(0, (v.refused ?? 0) - 1);
+      this.note(`${v.name} atendeu o pedido da capital ${o.name}`, 'economia', o, { key: `tribute-${v.id}` });
+      return;
+    }
+    // Pagamento: ouro na moeda da era, ou bens de igual valor no escambo.
+    let budget: number;
+    if (eff <= 0) budget = value;
+    else {
+      const gold = Math.min(o.stock.gold, (value * eff) / B.GOLD_VALUE);
+      o.stock.gold -= gold;
+      t.purse += gold;
+      budget = t.purse * B.GOLD_VALUE;
+    }
+    const load = (sea ? B.TRADE_BOAT_LOAD : B.CARAVAN_LOAD * (2 + Math.min(2, v.tier))) - t.cargo.reduce((n, c) => n + c.amount, 0);
+    // A volta traz outro bem (ninguém leva ferramentas para trazer ferramentas).
+    const back = this.offer(o, v, load, t.cargo.map((c) => c.good).concat(sold ? [sold] : []));
+    let bought: Good | 'food' | undefined;
+    for (const c of back.cargo) {
+      const each = this.priceAt(o, c.good);
+      const n = Math.floor(Math.min(c.amount, budget / Math.max(0.1, each)));
+      if (n < 1) continue;
+      budget -= n * each;
+      if (eff > 0) {
+        const pay = Math.min(t.purse, (n * each) / B.GOLD_VALUE);
+        t.purse -= pay;
+        o.stock.gold = Math.min(this.capOf(o, 'gold'), o.stock.gold + pay);
+      }
+      this.addTo(o, c.good, -n);
+      this.book(o, 'saiu', 0, n);
+      t.cargo.push({ good: c.good, amount: n });
+      bought ??= c.good;
+    }
+    // Relação, conhecimento e acordo.
+    const fair = o.fair === Math.floor(this.year);
+    if (v.kingdom !== o.kingdom) {
+      const key = this.key(v.kingdom, o.kingdom);
+      const merchants = v.culture.value === 'comércio' || o.culture.value === 'comércio' ? 2 : 1;
+      this.relations.set(key, Math.min(100, this.relation(v.kingdom, o.kingdom) + B.CARAVAN_RELATION * merchants + (fair ? B.FAIR_RELATION : 0)));
+      this.contacts.add(key);
+      this.caravanPairs.add(key);
+      this.note(`Uma caravana de ${v.name} levou ${sold ? this.goodName(sold) : 'mercadorias'} até ${o.name}${sea ? ' pelo mar' : ''}`, 'economia', o, { key: `caravan:${key}` });
+    }
+    const teach = B.TRADE_TEACH * (fair ? 3 : 1);
+    if (o.tech > v.tech) this.advance(v, (o.tech - v.tech) * teach);
+    else if (v.tech > o.tech) this.advance(o, (v.tech - o.tech) * teach);
+    const pair = this.key(v.id, o.id);
+    const ag = this.agreementOf(v.id, o.id);
+    if (ag) {
+      ag.last = this.year;
+      ag.kept++;
+      if (v.kingdom !== o.kingdom) {
+        const key = this.key(v.kingdom, o.kingdom);
+        this.relations.set(key, Math.min(100, this.relation(v.kingdom, o.kingdom) + B.AGREEMENT_KEPT));
+      }
+    } else if (sold && bought) {
+      const n = (this.trips.get(pair) ?? 0) + 1;
+      this.trips.set(pair, n);
+      if (n >= B.AGREEMENT_TRIPS && (v.kingdom === o.kingdom || this.relation(v.kingdom, o.kingdom) >= B.AGREEMENT_RELATION)) {
+        const every = v.vocation === 'mercantil' || o.vocation === 'mercantil' ? 1 : 2;
+        this.agreements.push({ a: v.id, b: o.id, goods: [sold, bought], since: this.year, until: this.year + B.AGREEMENT_YEARS, every, last: this.year, kept: 0 });
+        this.trips.delete(pair);
+        this.note(`${v.name} e ${o.name} firmaram um acordo: ${this.goodName(sold)} por ${this.goodName(bought)}, ${every === 1 ? 'todo ano' : `a cada ${every} anos`}`, 'economia', o, { major: v.kingdom !== o.kingdom });
+      }
+    }
+  }
+
+  /** Descarrega em casa a carga e o ouro que voltaram (o que não cabe se perde). */
+  private unload(v: Village, cargo: Cargo[], purse: number): void {
+    if (v.abandoned) return;
+    for (const c of cargo) {
+      const put = Math.max(0, Math.min(c.amount, this.capOf(v, c.good) - this.amountOf(v, c.good)));
+      this.addTo(v, c.good, put);
+      this.book(v, 'chegou', put, 0);
+    }
+    v.stock.gold = Math.min(this.capOf(v, 'gold'), v.stock.gold + purse);
+  }
+
+  /** Movimento das caravanas e rebanhos, pedágios, neve e os perigos do caminho. */
+  private updateCaravans(dt: number): void {
+    const w = this.map.width;
+    for (let k = this.caravans.length - 1; k >= 0; k--) {
+      const c = this.caravans[k];
+      const home = this.villages[c.home];
+      if (c.wait > 0) {
+        c.wait -= dt;
+        continue;
+      }
+      const t = c.path[Math.min(c.step, c.path.length - 1)];
+      // Inverno nas terras frias: a caravana espera a neve passar (RF-VIDA-290).
+      if (c.kind !== 'flock' && this.snowed(c.x, c.y)) continue;
+      const tx = (t % w) + 0.5;
+      const ty = Math.floor(t / w) + 0.5;
+      const dx = wrapDx(tx - c.x, w);
+      const dy = ty - c.y;
+      const d = Math.hypot(dx, dy);
+      const move = Math.min(d, c.speed * dt);
+      if (d > 0.01) {
+        c.x = (((c.x + (dx / d) * move) % w) + w) % w;
+        c.y += (dy / d) * move;
+        if (Math.abs(dx) > 0.05) c.facing = dx > 0 ? 1 : -1;
+      }
+      if (d - move < 0.05) {
+        if (this.traffic[t] < 65535) this.traffic[t]++;
+        if (this.trafficEra[t] < c.era) this.trafficEra[t] = c.era;
+        this.trafficTiles.add(t);
+        if (c.kind === 'trade') this.tollAt(c, t);
+        if (this.raided(c, t)) {
+          this.caravans.splice(k, 1);
+          continue;
+        }
+        c.step++;
+        if (c.step >= c.path.length && this.arrived(c)) {
+          this.caravans.splice(k, 1);
+          continue;
+        }
+      }
+      // Predadores atacam animais de carga e rebanhos.
+      let predators = 0;
+      this.forEachNear(c.x, c.y, 3, (j) => {
+        if (this.species[this.kind[j]].kind === 'predator') predators++;
+      });
+      if (predators && happens(this.civRnd, B.CARAVAN_PREDATOR * predators, dt / YEAR_SECONDS)) {
+        if (c.kind === 'flock') {
+          c.animals = Math.max(0, c.animals - 1);
+          if (home.herd) home.herd.head = Math.max(0, home.herd.head - 1);
+          this.note(`Predadores atacaram o rebanho de ${home.name} no caminho do pasto`, 'natureza', c, { key: `flock-pred-${home.id}` });
+          continue;
+        }
+        c.animals--;
+        for (const g of c.cargo) g.amount = Math.floor(g.amount * 0.6);
+        if (c.animals <= 0 || this.civRnd() < 0.25) {
+          this.lostCrew(home, c.crew, 'predador', c.x, c.y);
+          this.note(`Predadores atacaram uma caravana de ${home.name}: o comerciante morreu`, 'natureza', c, { key: `caravan-pred-${home.id}` });
+          this.caravans.splice(k, 1);
+        }
+      }
+    }
+  }
+
+  /** Inimigos em guerra roubam a caravana que passa perto deles. Retorna se ela se perdeu. */
+  private raided(c: Caravan, t: number): boolean {
+    const home = this.villages[c.home];
+    const foes = this.enemies.get(home.kingdom);
+    if (!foes?.size || c.kind === 'flock') return false;
+    const w = this.map.width;
+    const x = (t % w) + 0.5;
+    const y = Math.floor(t / w) + 0.5;
+    for (const o of this.villages) {
+      if (o.abandoned || !foes.has(o.kingdom) || this.distance(o, x, y) > this.radius(o) + 8) continue;
+      if (this.civRnd() > B.CARAVAN_RAID) return false;
+      for (const g of c.cargo) {
+        const put = Math.max(0, Math.min(g.amount, this.capOf(o, g.good) - this.amountOf(o, g.good)));
+        this.addTo(o, g.good, put);
+      }
+      o.stock.gold = Math.min(this.capOf(o, 'gold'), o.stock.gold + c.purse);
+      this.lostCrew(home, c.crew, 'guerra', x, y);
+      this.note(`Soldados de ${o.name} saquearam uma caravana de ${home.name}`, 'guerra', { x, y }, { key: `raid-${home.id}-${o.kingdom}` });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Pedágio (RF-VIDA-286): no passo de montanha perto de outro reino, a
+   * caravana paga uma vez por viagem, a não ser que os reinos tenham acordo.
+   */
+  private tollAt(c: Caravan, t: number): void {
+    const map = this.map;
+    if (!(map.biome[t] === Biome.Mountain || map.elevation[t] > 0.45)) return;
+    const home = this.villages[c.home];
+    const w = map.width;
+    const x = (t % w) + 0.5;
+    const y = Math.floor(t / w) + 0.5;
+    let owner: Village | null = null;
+    let bd: number = B.TOLL_RANGE;
+    for (const o of this.villages) {
+      if (o.abandoned || o.kingdom === home.kingdom || o.tech < 1) continue;
+      const d = this.distance(o, x, y);
+      if (d < bd) {
+        bd = d;
+        owner = o;
+      }
+    }
+    if (!owner || c.tolls.includes(owner.kingdom) || this.agreedKingdoms(home.kingdom, owner.kingdom)) return;
+    c.tolls.push(owner.kingdom);
+    const due = B.TOLL_GOLD * (1 + Math.floor(owner.tech) * 0.5);
+    const paid = Math.min(c.purse, due);
+    c.purse -= paid;
+    if (paid < due && c.cargo.length) c.cargo[0].amount = Math.max(0, c.cargo[0].amount - 1);
+    owner.stock.gold = Math.min(this.capOf(owner, 'gold'), owner.stock.gold + paid);
+    const key = this.key(home.kingdom, owner.kingdom);
+    this.relations.set(key, Math.max(-100, this.relation(home.kingdom, owner.kingdom) - B.TOLL_TENSION));
+    let post = false;
+    for (const [p, by] of this.tolls) {
+      if (by === owner.id && Math.hypot(wrapDx((p % w) + 0.5 - x, w), Math.floor(p / w) + 0.5 - y) < 6) post = true;
+    }
+    if (!post) {
+      this.tolls.set(t, owner.id);
+      this.note(`${owner.name} passou a cobrar pedágio no passo da montanha`, 'economia', { x, y }, { key: `toll-${owner.id}` });
+    }
+  }
+
+  /** A caravana chegou ao fim do caminho. Retorna se a viagem acabou. */
+  private arrived(c: Caravan): boolean {
+    const home = this.villages[c.home];
+    if (c.kind === 'flock') {
+      if (!c.back) {
+        // No pasto alto até o outono.
+        const phase = this.yearClock / YEAR_SECONDS;
+        c.wait = Math.max(0.5, (0.5 - phase) * YEAR_SECONDS);
+        c.back = true;
+        c.path.reverse();
+        c.step = 0;
+        return false;
+      }
+      if (home.herd && !home.abandoned) {
+        home.herd.head += binomial(this.civRnd, c.animals, B.TRANSHUMANCE_GROWTH);
+        home.herd.away = undefined;
+      }
+      this.disembark(home, c.crew, c.x, c.y);
+      return true;
+    }
+    if (!c.back) {
+      const o = this.villages[c.target];
+      if (!o.abandoned) this.sell(home, o, c, c.kind);
+      c.back = true;
+      c.path.reverse();
+      c.step = 0;
+      c.tolls = [];
+      // Um tempo no mercado (mais na feira).
+      c.wait = o.fair === Math.floor(this.year) ? 3 : 1;
+      return false;
+    }
+    this.unload(home, c.cargo, c.purse);
+    this.disembark(home, c.crew, c.x, c.y);
+    return true;
+  }
+
+  /** A colônia manda à capital o que ela pediu (RF-VIDA-289). */
+  private sendTribute(v: Village): void {
+    const r = v.request!;
+    const capital = this.villages[v.kingdom];
+    const amount = Math.floor(Math.min(r.amount, this.amountOf(v, r.good) - this.capOf(v, r.good) * 0.2));
+    if (capital === v || capital.abandoned || amount < 1) return;
+    const path = this.roadPath(v.x, v.y, capital.x, capital.y);
+    if (!path || path.length < 2) return;
+    if (this.launchCaravan(v, capital, 'tribute', path, [{ good: r.good, amount }])) v.request = undefined;
+  }
+
+  /** Transumância (RF-VIDA-293): pastores levam parte do rebanho a um pasto alto no verão. */
+  private sendFlock(v: Village): void {
+    const h = v.herd!;
+    const map = this.map;
+    const home = map.elevation[this.tileAt(v.x, Math.floor(v.y))] ?? 0;
+    let goal = -1;
+    for (let k = 0; k < 30 && goal < 0; k++) {
+      const a = this.civRnd() * Math.PI * 2;
+      const d = this.radius(v) + 8 + this.civRnd() * (B.TRANSHUMANCE_RANGE - 8);
+      const t = this.tileAt(v.x + Math.cos(a) * d, Math.floor(v.y + Math.sin(a) * d));
+      if (t < 0 || !isLand(map, t) || this.built[t] || this.road[t]) continue;
+      if (map.elevation[t] < Math.max(0.3, home + 0.12) || map.vegetation[t] < 0.3) continue;
+      goal = t;
+    }
+    if (goal < 0) return;
+    const w = map.width;
+    const path = this.roadPath(v.x, v.y, (goal % w) + 0.5, Math.floor(goal / w) + 0.5);
+    if (!path || path.length < 4) return;
+    const i = this.traveler(v, ROLE.shepherd);
+    if (i < 0) return;
+    const animals = Math.max(2, Math.floor(h.head / 2));
+    h.away = animals;
+    // Cruzar terra de outro reino sem acordo gera briga.
+    const crossed = new Set<number>();
+    for (let s = 0; s < path.length; s += 4) {
+      const px = (path[s] % w) + 0.5;
+      const py = Math.floor(path[s] / w) + 0.5;
+      for (const o of this.villages) {
+        if (!o.abandoned && o.kingdom !== v.kingdom && this.distance(o, px, py) < this.radius(o) + 6) crossed.add(o.kingdom);
+      }
+    }
+    for (const k of crossed) {
+      if (this.agreedKingdoms(v.kingdom, k)) continue;
+      const key = this.key(v.kingdom, k);
+      this.relations.set(key, Math.max(-100, this.relation(v.kingdom, k) - B.TRANSHUMANCE_TENSION));
+      this.note(`Pastores de ${v.name} levaram o rebanho pelas terras de ${this.villages[k].name}`, 'povo', v, { key: `cross-${v.id}-${k}` });
+    }
+    this.caravans.push({
+      id: this.nextCaravan++,
+      kind: 'flock',
+      home: v.id,
+      target: -1,
+      path,
+      step: 0,
+      x: (path[0] % w) + 0.5,
+      y: Math.floor(path[0] / w) + 0.5,
+      facing: 1,
+      back: false,
+      animal: h.kind,
+      animals,
+      cart: 0,
+      cargo: [],
+      purse: 0,
+      crew: this.embark(i),
+      speed: B.FLOCK_SPEED,
+      wait: 0,
+      tolls: [],
+      era: Math.floor(v.tech),
+    });
+  }
+
+  /** Luxo da região: produção, o gosto dos ricos e o sal (RF-VIDA-282). */
+  private luxuryYear(v: Village): void {
+    if (v.luxury === undefined) v.luxury = this.luxuryOf(v);
+    const era = Math.floor(v.tech);
+    if (v.luxury && era >= LUXURY_ERA[v.luxury]) this.gain(v, v.luxury, B.LUXURY_MAKE * (1 + v.tier) * (v.vocation === 'mercantil' ? 1.4 : 1));
+    v.luxuryJoy = false;
+    if (!v.needs || welfare(v.needs) < 0.75) return;
+    for (const l of LUXURIES) {
+      if (l === 'salt' || v.stock[l] < 0.5) continue;
+      this.spend(v, l, Math.min(v.stock[l], Math.max(0.5, v.population * B.LUXURY_USE)));
+      v.luxuryJoy = true;
+    }
+  }
+
+  /** Luxo que a região em volta dá, sem sorteio. */
+  private luxuryOf(v: Village): Luxury | null {
+    const r = this.radius(v) + 6;
+    let n = 0;
+    let jungle = 0;
+    let savanna = 0;
+    let forest = 0;
+    let fertile = 0;
+    let dry = 0;
+    let temp = 0;
+    for (let dy = -r; dy <= r; dy += 2) {
+      for (let dx = -r; dx <= r; dx += 2) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const t = this.tileAt(v.x + dx, Math.floor(v.y + dy));
+        if (t < 0 || !isLand(this.map, t)) continue;
+        n++;
+        const b = this.map.biome[t] as Biome;
+        if (b === Biome.Jungle) jungle++;
+        if (b === Biome.Savanna) savanna++;
+        if (b === Biome.Forest || b === Biome.Jungle) forest++;
+        if (b === Biome.Desert || b === Biome.Beach || b === Biome.Barren) dry++;
+        if (this.map.vegetation[t] > 0.45) fertile++;
+        temp += temperatureAt(this.map, t);
+      }
+    }
+    n = Math.max(1, n);
+    return pickLuxury({ jungle: jungle / n, savanna: savanna / n, forest: forest / n, fertile: fertile / n, dry: dry / n, temp: temp / n, coast: this.coastal(v) });
+  }
+
+  /**
+   * Uma vez por ano: feiras, pedidos da capital, moeda cunhada, acordos que
+   * vencem ou caducam e as estradas que nascem e melhoram pelo uso.
+   */
+  private tradeYear(): void {
+    const year = Math.floor(this.year + 0.01);
+    for (const v of this.villages) {
+      if (v.abandoned) continue;
+      // Feira anual (RF-VIDA-234): no verão, nas vilas e cidades mercantis.
+      if (v.vocation === 'mercantil' && v.tier >= 1 && v.population >= 20) {
+        v.fair = year;
+        this.note(`Feira anual em ${v.name}`, 'economia', v, { key: `fair-${v.id}` });
+      }
+      // Moeda cunhada pelo reino (RF-VIDA-291).
+      if (v.kingdom === v.id && !v.mint && Math.floor(v.tech) >= 3 && this.has(v, 'market')) {
+        v.mint = true;
+        this.note(`O reino de ${v.name} passou a cunhar moeda própria`, 'economia', v, { major: true });
+      }
+      // Pedido que venceu sem resposta conta como recusa.
+      if (v.request && year > v.request.until) {
+        v.request = undefined;
+        v.refused = (v.refused ?? 0) + 1;
+        v.stability = Math.max(0, (v.stability ?? 0.5) - 0.05);
+        this.note(`${v.name} não atendeu o pedido da capital ${this.villages[v.kingdom].name}`, 'povo', v, { key: `refuse-${v.id}` });
+      }
+    }
+    this.capitalRequests(year);
+    for (let k = this.agreements.length - 1; k >= 0; k--) {
+      const g = this.agreements[k];
+      const a = this.villages[g.a];
+      const b = this.villages[g.b];
+      if (a.abandoned || b.abandoned || this.year > g.until) {
+        this.agreements.splice(k, 1);
+        continue;
+      }
+      // Sem viagens no prazo, o acordo caduca e a relação piora um pouco.
+      if (this.year - g.last > g.every * 2 + 1) {
+        this.agreements.splice(k, 1);
+        if (a.kingdom !== b.kingdom) {
+          const key = this.key(a.kingdom, b.kingdom);
+          this.relations.set(key, Math.max(-100, this.relation(a.kingdom, b.kingdom) - B.AGREEMENT_BROKEN / 2));
+        }
+        this.note(`O acordo entre ${a.name} e ${b.name} caducou`, 'economia', a, { key: `ag-end-${g.a}-${g.b}` });
+      }
+    }
+    this.trafficYear();
+  }
+
+  /** A capital pede às colônias o que falta a ela (RF-VIDA-289). */
+  private capitalRequests(year: number): void {
+    for (const capital of this.villages) {
+      if (capital.abandoned || capital.kingdom !== capital.id || !happens(this.polRnd, B.REQUEST_RATE, 1)) continue;
+      let best: { c: Village; g: Good | 'food'; spare: number } | null = null;
+      for (const g of ['food', 'wood', 'stone', 'cloth', 'tools', ...LUXURIES] as (Good | 'food')[]) {
+        if (this.amountOf(capital, g) > this.capOf(capital, g) * 0.15) continue;
+        if (LUXURIES.includes(g as Luxury) && (!capital.needs || welfare(capital.needs) < 0.75)) continue;
+        for (const c of this.villages) {
+          if (c === capital || c.abandoned || c.kingdom !== capital.id || c.request) continue;
+          if (this.distance(c, capital.x, capital.y) > B.CARAVAN_RANGE * 1.5 || !this.landPath(c.x, c.y, capital.x, capital.y)) continue;
+          const spare = this.amountOf(c, g) - this.capOf(c, g) * 0.5;
+          if (spare >= 2 && (!best || spare > best.spare)) best = { c, g, spare };
+        }
+      }
+      if (!best) continue;
+      best.c.request = { good: best.g, amount: Math.min(B.REQUEST_LOAD, Math.floor(best.spare)), until: year + B.REQUEST_YEARS };
+      this.note(`A capital ${capital.name} pediu ${this.goodName(best.g)} a ${best.c.name}`, 'povo', best.c, { key: `ask-${capital.id}` });
+    }
+  }
+
+  /** Guerra entre dois reinos quebra os acordos entre eles (RF-VIDA-232). */
+  private breakAgreements(ka: number, kb: number): void {
+    for (let k = this.agreements.length - 1; k >= 0; k--) {
+      const g = this.agreements[k];
+      const x = this.villages[g.a].kingdom;
+      const y = this.villages[g.b].kingdom;
+      if (!((x === ka && y === kb) || (x === kb && y === ka))) continue;
+      this.agreements.splice(k, 1);
+      this.relations.set(this.key(ka, kb), Math.max(-100, this.relation(ka, kb) - B.AGREEMENT_BROKEN));
+      this.note(`A guerra rompeu o acordo entre ${this.villages[g.a].name} e ${this.villages[g.b].name}`, 'economia', this.villages[g.a], { key: `ag-war-${g.a}-${g.b}` });
+    }
+  }
+
+  /**
+   * Estrada pelo uso (RF-VIDA-233): onde as caravanas passam muito nasce uma
+   * estrada de terra; fora das cidades ela vira cascalho e, com uso e
+   * técnica (Idade do Ferro), pedra. O uso cai aos poucos sem movimento.
+   */
+  private trafficYear(): void {
+    const map = this.map;
+    const w = map.width;
+    const fresh: number[] = [];
+    for (const t of this.trafficTiles) {
+      const n = this.traffic[t];
+      const x = (t % w) + 0.5;
+      const y = Math.floor(t / w) + 0.5;
+      if (n >= B.ROUTE_USE && this.road[t] === 0 && !this.built[t] && isLand(map, t) && this.depositAt[t] < 0) {
+        this.setRoad(t, 1);
+        fresh.push(t);
+        this.routeTiles++;
+      } else if (this.road[t] === 1 && n >= B.GRAVEL_USE && !this.settlementAt(x, y)) {
+        this.road[t] = GRAVEL;
+        this.onTileChanged(t);
+      } else if (this.road[t] === GRAVEL && n >= B.STONE_USE && this.trafficEra[t] >= 2) {
+        this.road[t] = 2;
+        this.onTileChanged(t);
+      }
+      const next = Math.floor(n * (1 - B.TRAFFIC_DECAY));
+      this.traffic[t] = next;
+      if (!next) {
+        this.trafficTiles.delete(t);
+        this.trafficEra[t] = 0;
+      }
+    }
+    if (fresh.length) this.pruneRoads(fresh);
+  }
+
+  /** Moeda de um assentamento hoje (RF-VIDA-291), pelo nome. */
+  currencyName(v: Village): number {
+    return currencyOf(Math.floor(v.tech), !!this.villages[v.kingdom].mint);
+  }
+
 
   // Mudanças no mundo (eventos e ferramentas) -------------------------------
 

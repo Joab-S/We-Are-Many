@@ -122,7 +122,10 @@ export const CREST_EMBLEMS: Record<Vocation, string[]> = {
 /** Tipo de chão da avenida (em `Ecosystem.road`): rua larga e calçada, fora da regra dos blocos 2x2. */
 export const AVENUE = 6;
 
-/** Rua de qualquer tipo: terra (1), pedra (2), praça (3) ou avenida (6). */
+/** Estrada de cascalho, fora das cidades, que nasce do uso das caravanas (RF-VIDA-233). */
+export const GRAVEL = 7;
+
+/** Rua de qualquer tipo: terra (1), pedra (2), praça (3), avenida (6) ou cascalho (7). */
 export function isStreet(road: number): boolean {
-  return (road >= 1 && road <= 3) || road === AVENUE;
+  return (road >= 1 && road <= 3) || road === AVENUE || road === GRAVEL;
 }
