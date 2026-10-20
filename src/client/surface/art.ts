@@ -1,3 +1,4 @@
+import { CREST_EMBLEMS } from '../../sim/architecture';
 import { ROLES, type Role } from '../../sim/roles';
 import { CREATURE_ART, EFFECT_ART, EXTRA_COLORS, ITEM_ICONS, SAPIENT_BODIES, SAPIENT_CHILDREN } from './art-extra';
 
@@ -699,6 +700,72 @@ export const ART = {
     'qPPPPPPPPPPPPPPq',
     'qKq..qKq..qKq..q',
   ],
+  // Tábuas pregadas nas janelas e na porta de uma casa vazia (RF-VIDA-254), por cima da casa.
+  boards: [
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '..KKKKK.........',
+    '.KpPPPpK..KKKK..',
+    '..KKKKK..KpPPpK.',
+    '.KPPPpK...KKKK..',
+    '..KKKKK..KPPpK..',
+    '..........KKKK..',
+    '................',
+    '................',
+  ],
+  // Canteiro de flores ao lado da casa de um assentamento próspero (RF-VIDA-254).
+  garden: [
+    '.F.f.F..',
+    'fkFkfkF.',
+    'kJkJkJk.',
+    'KqqqqqqK',
+    '.KKKKKK.',
+  ],
+  // Defesa por era (19.8): estacas e paliçada de madeira, muralha de pedra e portão.
+  palisade: [
+    '.K.K.K.K',
+    'KPKPKPKP',
+    'KPKPKPKP',
+    'KpKpKpKp',
+    'KpKpKpKp',
+    'KqKqKqKq',
+    'KKKKKKKK',
+  ],
+  wall: [
+    'KK.KK.KK',
+    'KGKKGKKG',
+    'KGGgGGgK',
+    'KgGGgGGK',
+    'KGGgGGgK',
+    'KgnggngK',
+    'KKKKKKKK',
+  ],
+  gate: [
+    'KK.KK.KK',
+    'KGKKKKgK',
+    'KGKddKgK',
+    'KgKddKnK',
+    'KGKddKgK',
+    'KnKddKnK',
+    'KKKKKKKK',
+  ],
+  // Lampião das ruas calçadas da Era Industrial.
+  lamp: [
+    '.K.',
+    'KFK',
+    'KfK',
+    '.K.',
+    '.n.',
+    '.n.',
+    '.n.',
+    'KnK',
+  ],
   smoke: [
     '..?.',
     '.?=?',
@@ -999,5 +1066,48 @@ for (const [name, walls] of Object.entries(WALLS)) {
   SPRITES[`${name}:2`] = swap(base, walls);
   SPRITES[`${name}:3`] = flip(swap(base, walls));
 }
+
+/**
+ * Material da região (RF-VIDA-252): cada estilo de casa em madeira, pedra,
+ * tijolo, adobe e com telhado de neve (`estilo:material` e a versão
+ * espelhada `estilo:material:1`). O material comum usa as variações de antes.
+ */
+const MATERIAL_SWAPS: Record<string, Record<string, Record<string, string>>> = {
+  wood: { hut: { A: 'P', a: 'p' }, cottage: {}, house: { W: 'P', w: 'p' }, stoneHouse: { G: 'P', g: 'p', n: 'q' }, townhouse: { X: 'P', x: 'p' } },
+  stone: { hut: { A: 'G', a: 'g' }, cottage: { P: 'G', p: 'g', q: 'n' }, house: { W: 'G', w: 'g' }, stoneHouse: {}, townhouse: { X: 'G', x: 'g' } },
+  brick: { hut: { A: 'X', a: 'x' }, cottage: { P: 'X', p: 'x', q: 'x' }, house: { W: 'X', w: 'x' }, stoneHouse: { G: 'X', g: 'x', n: 'x' }, townhouse: {} },
+  adobe: { hut: {}, cottage: { P: 'A', p: 'a', q: 'a' }, house: { W: 'A', w: 'a', q: 'a' }, stoneHouse: { G: 'A', g: 'a', n: 'a' }, townhouse: { X: 'A', x: 'a' } },
+  snow: { hut: { Y: 'W', y: 'w', u: 'w' }, cottage: { Y: 'W', y: 'w', u: 'w' }, house: { '+': 'W', M: 'W', m: 'w' }, stoneHouse: { '+': 'W', M: 'W', m: 'w' }, townhouse: { '+': 'W', M: 'W', m: 'w' } },
+};
+for (const [mat, styles] of Object.entries(MATERIAL_SWAPS)) {
+  for (const [style, map] of Object.entries(styles)) {
+    const rows = swap(ART[style as keyof typeof ART], map);
+    SPRITES[`${style}:${mat}`] = rows;
+    SPRITES[`${style}:${mat}:1`] = flip(rows);
+  }
+}
+
+/**
+ * Bandeira do reino (RF-VIDA-288): pano na cor do reino com o emblema da
+ * vocação da capital em claro, uma por vocação (`flag:vocação`).
+ */
+export function flagArt(emblem: string[]): string[] {
+  const rows: string[] = [];
+  for (let y = 0; y < 12; y++) {
+    let row = y === 0 ? 'KK' : 'Kn';
+    for (let x = 0; x < 9; x++) {
+      if (y > 7) row += '.';
+      else if (y === 0 || y === 7 || x === 8) row += 'K';
+      else {
+        const e = emblem[y - 1]?.[x - 2];
+        row += e === '#' ? 'W' : x >= 6 ? 'm' : 'M';
+      }
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+for (const [voc, emblem] of Object.entries(CREST_EMBLEMS)) SPRITES[`flag:${voc}`] = flagArt(emblem);
+SPRITES['flag:none'] = flagArt([]);
 
 export type SpriteName = string;

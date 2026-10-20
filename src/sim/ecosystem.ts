@@ -24,6 +24,7 @@ import { yearlyEvents } from './events';
 import { pickItem, pickPrimitive, TIER_MATERIAL, type Category, type Material } from './items';
 import { CHILD, pickRole, ROLE, ROLES, type RoleContext } from './roles';
 import { completeness, missingText, planItems, type PlanItem } from './plan';
+import { AVENUE, isStreet, mainStreets, pickMaterial, type BuildMaterial } from './architecture';
 import { emptyVital, HISTORY_YEARS, type DeathCause, type Exit, type Sample, type Vital } from './people';
 import {
   foodCap,
@@ -306,6 +307,10 @@ export interface Building {
   level?: number;
   /** Ano até o qual a obra continua, com andaime. */
   workUntil?: number;
+  /** Era do estilo da casa: a da construção ou da última reforma (transição gradual, RF-VIDA-251). */
+  era?: number;
+  /** Casa vazia num assentamento em crise (RF-VIDA-254). */
+  empty?: boolean;
 }
 
 export interface Village {
@@ -383,6 +388,10 @@ export interface Village {
   goldRush?: number;
   /** Tem água por perto (barro e poço). */
   wet?: boolean;
+  /** Material das casas, pelo que há em volta (RF-VIDA-252). */
+  material?: BuildMaterial;
+  /** Era do último calçamento das ruas. */
+  paveEra?: number;
   /** Nascimentos, mortes, chegadas e partidas do ano passado e do ano corrente (RF-VIDA-343). */
   vital?: Vital;
   vitalNow?: Vital;
@@ -548,6 +557,8 @@ export class Ecosystem {
   private readonly cooling: { i: number; heat: number }[] = [];
   /** Ruas por tile: 0 nenhuma, 1 terra, 2 pedra, 3 praça. */
   readonly road: Uint8Array;
+  /** Rua principal (1) ou viela (0), refeito a cada traçado das ruas (RF-VIDA-253). */
+  readonly mainStreet: Uint8Array;
   /** Tiles ocupados por casas. */
   readonly built: Uint8Array;
   readonly population: number[] = [];
@@ -597,6 +608,7 @@ export class Ecosystem {
     this.worldRnd = rng.mundo;
     this.climateRnd = rng.clima;
     this.road = new Uint8Array(map.width * map.height);
+    this.mainStreet = new Uint8Array(map.width * map.height);
     this.built = new Uint8Array(map.width * map.height);
     this.cols = Math.ceil(map.width / CELL);
     this.rows = Math.ceil(map.height / CELL);
@@ -1059,6 +1071,7 @@ export class Ecosystem {
       this.updateVocation(v);
       this.updateHerd(v);
       this.updateSoil(v);
+      this.neglect(v);
       this.clampStock(v);
       v.ledger = v.ledgerNow ?? {};
       v.ledgerNow = {};
@@ -2040,7 +2053,7 @@ export class Ecosystem {
   housing(v: Village): number {
     const era = Math.floor(v.tech);
     let n = 4 + v.fields * 2;
-    for (const h of v.houses) n += h.kind === 'house' ? 4 + era + (h.level ?? 0) * B.LEVEL_HOUSING : h.kind === 'port' ? 0 : 2;
+    for (const h of v.houses) n += h.kind === 'house' ? (h.empty ? 0 : 4 + era + (h.level ?? 0) * B.LEVEL_HOUSING) : h.kind === 'port' ? 0 : 2;
     return n;
   }
 
@@ -2132,11 +2145,15 @@ export class Ecosystem {
   /** Ruas pintadas desde a última limpeza anual (RF-VIDA-195). */
   private roadDirty: number[] = [];
 
-  /** Praça e ruas do nível atual; ruas de pedra a partir da Era Medieval. */
+  /**
+   * Praça e ruas do nível atual, com hierarquia (RF-VIDA-253): as ruas
+   * principais ganham pedra na Era Medieval (antes, se o assentamento é
+   * rico), as vielas só na Industrial; cidades têm uma avenida larga.
+   */
   private layStreets(v: Village): void {
     const cx = Math.floor(v.x);
     const cy = Math.floor(v.y);
-    const kind = v.tech >= 3 ? 2 : 1;
+    const kind = v.tech >= 4 ? 2 : 1;
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         const t = this.tileAt(cx + dx, cy + dy);
@@ -2158,7 +2175,177 @@ export class Ecosystem {
       laid.push(t);
     }
     this.pruneRoads(laid);
+    this.rankStreets(v);
     v.lots = lotsFor(v.tier, seed, v.growth ?? 0);
+  }
+
+  /** Assentamento rico: calçamento uma era antes (RF-VIDA-253). */
+  rich(v: Village): boolean {
+    return v.stock.gold >= this.capOf(v, 'gold') * 0.5 && (v.needs ? welfare(v.needs) : 1) >= 0.85;
+  }
+
+  /**
+   * Marca ruas principais e vielas, calça as principais pela era e pela
+   * riqueza e, de cidade em diante, abre a avenida: o trecho reto mais longo
+   * de rua principal saindo da praça, com 2 tiles de largura (a única rua
+   * larga, marcada como tal, RF-VIDA-191 e 253).
+   */
+  private rankStreets(v: Village): void {
+    const w = this.map.width;
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    // Todas as ruas dentro da área, inclusive as de níveis e traçados anteriores.
+    const streets = new Set<number>();
+    const r = Math.ceil(this.radius(v));
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t >= 0 && (this.road[t] === 1 || this.road[t] === 2 || this.road[t] === AVENUE)) streets.add(t);
+      }
+    }
+    const square: number[] = [];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) square.push(this.tileAt(cx + dx, cy + dy));
+    const next = (t: number) => {
+      const x = t % w;
+      const y = (t - x) / w;
+      return [this.tileAt(x + 1, y), this.tileAt(x - 1, y), this.tileAt(x, y + 1), this.tileAt(x, y - 1)];
+    };
+    const main = mainStreets(streets, square.filter((t) => t >= 0), next, B.MAIN_STREET_SHARE);
+    const era = Math.floor(v.tech);
+    const paveMain = era >= 3 || (era >= 2 && this.rich(v));
+    // A cor da terra batida e do cascalho muda com a era: repinta tudo na troca.
+    const repaint = v.paveEra !== era;
+    v.paveEra = era;
+    for (const t of streets) {
+      this.mainStreet[t] = main.has(t) || this.road[t] === AVENUE ? 1 : 0;
+      if (repaint) this.onTileChanged(t);
+      if (this.road[t] === AVENUE) continue;
+      const want = era >= 4 || (paveMain && main.has(t)) ? 2 : 1;
+      if (this.road[t] !== want) {
+        this.road[t] = want;
+        this.onTileChanged(t);
+      }
+    }
+    if (v.tier < 2) return;
+    // Avenida: o trecho reto mais longo de rua principal (ou da avenida que já existe).
+    const isMain = (t: number) => t >= 0 && (main.has(t) || this.road[t] === AVENUE);
+    let best: number[] = [];
+    let side: [number, number] = [0, 0];
+    for (const t of [...main, ...streets]) {
+      if (!isMain(t)) continue;
+      const x = t % w;
+      const y = (t - x) / w;
+      for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+        if (isMain(this.tileAt(x - dx, y - dy))) continue;
+        const run: number[] = [];
+        for (let k = 0; k < 40; k++) {
+          const u = this.tileAt(x + dx * k, y + dy * k);
+          if (!isMain(u)) break;
+          run.push(u);
+        }
+        if (run.length > best.length) {
+          best = run;
+          side = [dy, dx];
+        }
+      }
+    }
+    if (best.length < B.AVENUE_MIN) return;
+    for (const t of best) {
+      const x = t % w;
+      const y = (t - x) / w;
+      this.road[t] = AVENUE;
+      this.mainStreet[t] = 1;
+      this.onTileChanged(t);
+      const n = this.tileAt(x + side[0], y + side[1]);
+      if (n >= 0 && isLand(this.map, n) && !this.built[n] && this.depositAt[n] < 0 && (this.road[n] === 0 || this.road[n] === 1 || this.road[n] === 2)) {
+        this.road[n] = AVENUE;
+        this.mainStreet[n] = 1;
+        this.onTileChanged(n);
+      }
+    }
+  }
+
+  /** Material das casas pelo entorno, sem sorteio (RF-VIDA-252); guardado no assentamento. */
+  materialOf(v: Village): BuildMaterial {
+    if (v.material) return v.material;
+    const r = this.radius(v) + 4;
+    let n = 0;
+    let rock = 0;
+    let forest = 0;
+    let desert = 0;
+    let cold = 0;
+    for (let dy = -r; dy <= r; dy += 2) {
+      for (let dx = -r; dx <= r; dx += 2) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const t = this.tileAt(v.x + dx, Math.floor(v.y + dy));
+        if (t < 0 || !isLand(this.map, t)) continue;
+        n++;
+        const b = this.map.biome[t] as Biome;
+        if (b === Biome.Rock || b === Biome.Mountain || this.map.elevation[t] > 0.45) rock++;
+        if (b === Biome.Forest || b === Biome.Jungle) forest++;
+        if (b === Biome.Desert) desert++;
+        if (b === Biome.Snow || b === Biome.Tundra || temperatureAt(this.map, t) < 268) cold++;
+      }
+    }
+    n = Math.max(1, n);
+    v.material = pickMaterial({ rock: rock / n, forest: forest / n, desert: desert / n, cold: cold / n, wet: this.nearWater(this.tileAt(v.x, Math.floor(v.y))) || this.coastal(v) });
+    return v.material;
+  }
+
+  /** Casa ainda no estilo de uma era passada, a mais perto do centro (RF-VIDA-251). */
+  private outdated(v: Village): Building | null {
+    const era = Math.floor(v.tech);
+    let best: Building | null = null;
+    let bd = Infinity;
+    for (const h of v.houses) {
+      if (h.kind !== 'house' || (h.era ?? era) >= era || (h.workUntil ?? 0) > this.year) continue;
+      const d = Math.hypot(wrapDx(h.x + 1 - v.x, this.map.width), h.y + 1 - v.y);
+      if (d < bd) {
+        bd = d;
+        best = h;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Reforma para o estilo da era nova, uma casa por vez, do centro para fora
+   * (RF-VIDA-251): por um tempo a cidade mistura estilos.
+   */
+  private restyle(v: Village): boolean {
+    const h = this.outdated(v);
+    if (!h || !this.pay(v, 'reform')) return false;
+    h.era = Math.floor(v.tech);
+    h.workUntil = this.year + B.WORK_YEARS;
+    this.note(`${v.name} está trocando as casas pelo estilo da ${ERAS[h.era]}`, 'povo', v, { key: `restyle-${v.id}-${h.era}` });
+    return true;
+  }
+
+  /** Casas vazias na crise e ocupadas de novo na melhora (RF-VIDA-254). */
+  private neglect(v: Village): void {
+    const w = v.needs ? welfare(v.needs) : 1;
+    const homes = v.houses.filter((h) => h.kind === 'house');
+    if (w < 0.5 && homes.length > 3 && happens(this.civRnd, B.CRISIS_EMPTY_RATE, 1)) {
+      // A casa mais longe do centro fica vazia primeiro.
+      let far: Building | null = null;
+      let fd = -1;
+      for (const h of homes) {
+        if (h.empty) continue;
+        const d = Math.hypot(wrapDx(h.x + 1 - v.x, this.map.width), h.y + 1 - v.y);
+        if (d > fd) {
+          fd = d;
+          far = h;
+        }
+      }
+      if (far && homes.filter((h) => h.empty).length < homes.length / 3) {
+        far.empty = true;
+        this.note(`Casas ficaram vazias em ${v.name}`, 'economia', v, { key: `empty-${v.id}` });
+      }
+    } else if (w >= 0.7 && happens(this.civRnd, B.CRISIS_REFILL_RATE, 1)) {
+      const h = homes.find((o) => o.empty);
+      if (h) h.empty = false;
+    }
   }
 
   /** Lote 2x2 com canto em (x, y) tem rua a até 2 tiles (casa sempre na beira da rua, RF-VIDA-102). */
@@ -2166,7 +2353,7 @@ export class Ecosystem {
     for (let dy = -2; dy <= 3; dy++) {
       for (let dx = -2; dx <= 3; dx++) {
         const t = this.tileAt(x + dx, y + dy);
-        if (t >= 0 && this.road[t] >= 1 && this.road[t] <= 3) return true;
+        if (t >= 0 && isStreet(this.road[t])) return true;
       }
     }
     return false;
@@ -2201,7 +2388,7 @@ export class Ecosystem {
       this.built[t] = 1;
       this.onTileChanged(t);
     }
-    v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.civRnd() * 4), workUntil: this.year + B.WORK_YEARS / 2 });
+    v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.civRnd() * 4), workUntil: this.year + B.WORK_YEARS / 2, era: Math.floor(v.tech) });
     if (kind === 'wonder') this.note(`${v.name} ergueu a ${WONDER_NAMES[v.culture.value]}, orgulho do povo ${v.culture.name}`, 'povo', v, { major: true });
     else if (kind === 'statue') this.note(`${v.name} ergueu uma estátua do seu líder`, 'povo', v);
     else if (kind !== 'house') this.note(`${v.name} construiu ${kind === 'smithy' || kind === 'factory' ? 'uma' : 'um'} ${BUILDING_NAMES[kind].toLowerCase()}`, 'economia', v);
@@ -2403,7 +2590,7 @@ export class Ecosystem {
       }
       queue = next;
     }
-    const isRoad = (t: number) => t >= 0 && this.road[t] >= 1 && this.road[t] <= 3;
+    const isRoad = (t: number) => t >= 0 && isStreet(this.road[t]);
     const cost = (k: number): number => {
       const t = tileOf(k);
       if (t < 0 || !isLand(map, t)) return Infinity;
@@ -2519,7 +2706,7 @@ export class Ecosystem {
       },
       (x, y) => {
         const t = at(x, y);
-        return t >= 0 && this.road[t] >= 1 && this.road[t] <= 3;
+        return t >= 0 && isStreet(this.road[t]);
       },
       (x, y) => {
         const t = at(x, y);
@@ -2586,6 +2773,7 @@ export class Ecosystem {
     this.layStreets(village);
     this.buildHouse(village, 'house', true);
     this.chooseVocation(village, from);
+    this.materialOf(village);
     // Colonos levam o enxoval: parte da madeira e da comida da origem (RF-VIDA-212).
     if (from) {
       const wood = Math.min(30, from.stock.wood * 0.25);
@@ -2650,7 +2838,7 @@ export class Ecosystem {
         if (dx * dx + dy * dy > r * r) continue;
         const t = this.tileAt(cx + dx, cy + dy);
         if (t < 0 || !this.road[t] || this.built[t]) continue;
-        const gone = this.road[t] >= 4 || stage >= 3 || (Math.imul(t, 2654435761) >>> 0) % 3 < stage;
+        const gone = this.road[t] === 4 || this.road[t] === 5 || stage >= 3 || (Math.imul(t, 2654435761) >>> 0) % 3 < stage;
         if (!gone || this.settlementAt(cx + dx + 0.5, cy + dy + 0.5)) continue;
         this.road[t] = 0;
         this.onTileChanged(t);
@@ -2733,7 +2921,8 @@ export class Ecosystem {
       }
       if (Math.floor(v.tech) > before) {
         this.note(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`, 'era', v, { major: true });
-        if (Math.floor(v.tech) === 3) this.layStreets(v);
+        // Cada era nova refaz o calçamento (RF-VIDA-253; antes só a Era Medieval, quando todas as ruas viravam pedra).
+        if (Math.floor(v.tech) >= 2) this.layStreets(v);
       }
       this.growTier(v);
       this.updateLeader(v, adults[v.id] ?? []);
@@ -2756,7 +2945,10 @@ export class Ecosystem {
       // Reformas: casa que ganha um andar (sobrado), mais depressa quando falta lote e sobra gente.
       const builders = workers[v.id]?.[ROLE.builder] ?? 0;
       const squeezed = needRoom && !lot;
-      if (happens(this.civRnd, B.REFORM_RATE * Math.max(1, builders) * (squeezed ? 3 : 1), yr)) this.reform(v);
+      const rich = v.needs && welfare(v.needs) >= 0.88 ? B.RICH_REFORM : 1;
+      if (happens(this.civRnd, B.REFORM_RATE * Math.max(1, builders) * (squeezed ? 3 : 1) * rich, yr)) this.reform(v);
+      // Era nova: as casas antigas vão sendo trocadas pelo estilo novo, uma a uma.
+      if (this.outdated(v) && happens(this.civRnd, B.RESTYLE_RATE * Math.max(1, builders), yr)) this.restyle(v);
       // Ruas sob demanda (RF-VIDA-207): sem lote, abre mais um trecho da planta; com a planta toda aberta e
       // sem casa para reformar, a planta cresce rumo ao nível seguinte.
       const planLeft = (v.streetLen ?? 0) < (v.streetPlan ?? 0);

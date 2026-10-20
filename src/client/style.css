@@ -275,3 +275,5 @@ kbd { display: inline-block; min-width: 20px; text-align: center; border: 1px so
 .wb-boxsel { position: fixed; z-index: 4; border: 1px dashed #f0c860; background: rgba(240, 200, 96, 0.08); pointer-events: none; }
 @media (max-width: 1100px) { .wb-vwin { right: 12px; left: 12px; width: auto; } }
 .wb-goto.wb-pop { padding-left: 0; width: 100%; }
+.wb-crest { image-rendering: pixelated; width: 22px; height: 26px; flex: none; }
+.wb-vwin .wb-win-head b { display: flex; align-items: center; gap: 6px; }
