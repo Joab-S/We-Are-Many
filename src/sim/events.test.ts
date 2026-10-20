@@ -104,7 +104,7 @@ describe('soltar uma criatura', () => {
     const i = eco.introduceOne(s, x, y);
     expect(i).toBeGreaterThanOrEqual(0);
     expect(eco.village[i]).toBe(-1);
-    years(eco, 3);
+    years(eco, 8);
     expect(eco.villages.length).toBe(villages + 1);
     const v = eco.villages[villages];
     expect(eco.village[i]).toBe(v.id);
@@ -129,5 +129,59 @@ describe('soltar uma criatura', () => {
     eco.introduceOne(s, x, y);
     years(eco, 6);
     expect(eco.population[s]).toBeLessThanOrEqual(1);
+  });
+  it('o fundador sozinho escolhe um lugar onde consegue viver e não morre de fome', () => {
+    const { map, eco } = world();
+    const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
+    const { x, y } = landFar(eco, map, s);
+    const villages = eco.villages.length;
+    const i = eco.introduceOne(s, x, y);
+    years(eco, 15);
+    const v = eco.villages[villages];
+    expect(v).toBeDefined();
+    expect(v.abandoned).toBe(false);
+    expect(eco.alive[i]).toBe(1);
+    expect(eco.village[i]).toBe(v.id);
+  });
+});
+
+describe('ruínas', () => {
+  /** Esvazia todos os assentamentos do povo do primeiro (ninguém por perto para se juntar) e devolve o primeiro. */
+  const emptied = (eco: Ecosystem) => {
+    const v = eco.villages[0];
+    for (let i = 0; i < eco.count; i++) if (eco.alive[i] && eco.kind[i] === v.species) eco.kill(i, true);
+    years(eco, 0.5);
+    expect(v.abandoned).toBe(true);
+    return v;
+  };
+  const roadsAround = (eco: Ecosystem, map: ReturnType<typeof generateSurface>, v: { x: number; y: number }) => {
+    let n = 0;
+    for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) n += eco.road[(Math.floor(v.y) + dy) * map.width + ((Math.floor(v.x) + dx + map.width) % map.width)] ? 1 : 0;
+    return n;
+  };
+
+  it('as ruas de um assentamento abandonado somem com o tempo', () => {
+    const { map, eco } = world();
+    const v = emptied(eco);
+    expect(roadsAround(eco, map, v)).toBeGreaterThan(0);
+    v.abandonedAt = eco.year - 100;
+    years(eco, 1);
+    expect(v.decay).toBe(3);
+    expect(roadsAround(eco, map, v)).toBe(0);
+    expect(eco.chronicle.some((e) => e.text === `As últimas ruínas de ${v.name} sumiram`)).toBe(true);
+  });
+
+  it('quem chega perto das ruínas recomeça na antiga praça', () => {
+    const { eco } = world();
+    const old = emptied(eco);
+    const i = eco.introduceOne(old.species, old.x + 8, old.y);
+    expect(i).toBeGreaterThanOrEqual(0);
+    years(eco, 2);
+    const v = eco.villages.find((o) => o.ruinOf === old.id)!;
+    expect(v).toBeDefined();
+    expect(v.x).toBe(old.x);
+    expect(v.y).toBe(old.y);
+    expect(eco.village[i]).toBe(v.id);
+    expect(old.decay).toBe(3);
   });
 });

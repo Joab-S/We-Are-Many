@@ -257,7 +257,18 @@ export interface Village {
   /** Cor das roupas dos moradores. */
   color: [number, number, number];
   abandoned: boolean;
+  /** Ano em que foi abandonado. */
+  abandonedAt?: number;
+  /** Quanto das ruínas já sumiu: 0 tudo de pé, 3 limpo (ou reocupado por outro assentamento). */
+  decay?: number;
+  /** Como morreu o último morador, para a crônica ("de fome", "de velhice"). */
+  lastCause?: string;
+  /** Id das ruínas que este assentamento reocupou, se for o caso. */
+  ruinOf?: number;
 }
+
+/** Anos entre cada etapa do sumiço das ruínas (plantações, depois ruas, depois a praça). */
+const RUIN_YEARS = 12;
 
 interface Behaviour {
   /** Energia gasta por segundo. */
@@ -958,6 +969,7 @@ export class Ecosystem {
     const life = lifespan(sp, era);
     const old = this.age[i] > life * (0.85 + 0.3 * ((i * 2654435761) % 1000) / 1000);
     if (this.energy[i] <= 0 || old) {
+      if (v >= 0 && this.villages[v].population === 1) this.villages[v].lastCause = this.energy[i] <= 0 ? 'de fome' : 'de velhice';
       this.kill(i);
       return;
     }
@@ -984,12 +996,15 @@ export class Ecosystem {
 
   /**
    * Um inteligente sem assentamento anda até o assentamento mais perto do
-   * seu povo (até 40 tiles) e se junta a ele; sem nenhum por perto, funda um
-   * novo onde está, se o lugar permitir. Devolve a direção para andar
+   * seu povo (até 40 tiles) e se junta a ele. Sem nenhum por perto, prefere
+   * reocupar ruínas próximas; senão funda um novo, mas só num lugar onde dá
+   * para viver sozinho (verde ou com água, e no clima da espécie), andando
+   * até um lugar assim se onde está não serve. Devolve a direção para andar
    * enquanto não chega.
    */
   private loner(i: number): { x: number; y: number } | undefined {
     const s = this.kind[i];
+    const w = this.map.width;
     let best: Village | null = null;
     let bd = 40;
     for (const v of this.villages) {
@@ -1006,20 +1021,85 @@ export class Ecosystem {
       this.note(`Um ${name} solitário se juntou a ${best.name}`, 'povo', best, { key: `join:${best.id}` });
       return undefined;
     }
-    if (best) return { x: wrapDx(best.x - this.x[i], this.map.width), y: best.y - this.y[i] };
-    const tx = ((Math.floor(this.x[i]) % this.map.width) + this.map.width) % this.map.width;
-    const ty = Math.floor(this.y[i]);
-    if (this.rnd() < 0.05 && this.canFound(tx, ty)) {
+    if (best) return { x: wrapDx(best.x - this.x[i], w), y: best.y - this.y[i] };
+    const found = (tx: number, ty: number) => {
       const v = this.foundVillage(s, tx, ty, 0);
       this.join(i, v);
-      this.note(`Um ${name} solitário fundou ${v.name}`, 'povo', v, { major: true });
+      const ruin = v.ruinOf !== undefined ? this.villages[v.ruinOf] : null;
+      this.note(ruin ? `Um ${name} solitário fundou ${v.name} sobre as ruínas de ${ruin.name}` : `Um ${name} solitário fundou ${v.name}`, 'povo', v, { major: true });
+    };
+    // Ruínas por perto: vai até a antiga praça e recomeça ali.
+    const ruin = this.ruinNear(this.x[i], this.y[i], 30, s);
+    if (ruin) {
+      const dx = wrapDx(ruin.x - this.x[i], w);
+      const dy = ruin.y - this.y[i];
+      if (dx * dx + dy * dy > 4) return { x: dx, y: dy };
+      found(Math.floor(ruin.x), Math.floor(ruin.y));
+      return undefined;
     }
-    return undefined;
+    const tx = ((Math.floor(this.x[i]) % w) + w) % w;
+    const ty = Math.floor(this.y[i]);
+    const tile = this.tileAt(tx, ty);
+    if (tile >= 0 && this.goodSite(s, tile)) {
+      if (this.rnd() < 0.05 && this.canFound(tx, ty)) found(tx, ty);
+      return undefined;
+    }
+    return this.betterSite(i);
+  }
+
+  /** Lugar onde um inteligente sozinho consegue viver: verde ou na beira da água, e no clima da espécie. */
+  private goodSite(s: number, tile: number): boolean {
+    const sp = this.species[s];
+    const temp = temperatureAt(this.map, tile);
+    if (!this.habitable(s, tile) || temp < sp.tempMin + 2 || temp > sp.tempMax - 2) return false;
+    return this.map.vegetation[tile] >= 0.3 || (this.map.vegetation[tile] > 0.1 && this.nearWater(tile));
+  }
+
+  /**
+   * Direção do melhor lugar para fundar a até 25 tiles. A amostra só muda
+   * quando a criatura troca de região, para ela não ficar indo e voltando.
+   */
+  private betterSite(i: number): { x: number; y: number } | undefined {
+    const s = this.kind[i];
+    const r = mulberry32((plotSeed(Math.floor(this.x[i] / 6), Math.floor(this.y[i] / 6)) ^ (i * 2654435761)) >>> 0);
+    let best: { x: number; y: number } | undefined;
+    let bv = -1;
+    for (let k = 0; k < 20; k++) {
+      const a = r() * Math.PI * 2;
+      const d = 3 + r() * 22;
+      const x = this.x[i] + Math.cos(a) * d;
+      const y = this.y[i] + Math.sin(a) * d;
+      const t = this.tileAt(x, Math.floor(y));
+      if (t < 0 || !this.goodSite(s, t)) continue;
+      const value = this.map.vegetation[t] + (this.nearWater(t) ? 0.3 : 0);
+      if (value > bv) {
+        bv = value;
+        best = { x: x - this.x[i], y: y - this.y[i] };
+      }
+    }
+    return best;
+  }
+
+  /** Ruínas (assentamento abandonado ainda não limpo) mais perto, a até `range` tiles e onde dá para recomeçar. */
+  ruinNear(x: number, y: number, range: number, s: number): Village | null {
+    let best: Village | null = null;
+    let bd = range;
+    for (const v of this.villages) {
+      if (!v.abandoned || (v.decay ?? 0) >= 3) continue;
+      const d = this.distance(v, x, y);
+      if (d >= bd) continue;
+      const tile = this.tileAt(v.x, Math.floor(v.y));
+      if (tile < 0 || !this.habitable(s, tile) || !this.canFound(Math.floor(v.x), Math.floor(v.y))) continue;
+      bd = d;
+      best = v;
+    }
+    return best;
   }
 
   /** Põe a criatura `i` (sem assentamento) no assentamento `v`, com uma profissão. */
   private join(i: number, v: Village): void {
     this.village[i] = v.id;
+    v.lastCause = undefined;
     v.population++;
     this.role[i] = this.age[i] < this.species[this.kind[i]].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.rnd(), this.roleContext(v));
   }
@@ -1237,6 +1317,12 @@ export class Ecosystem {
   foundVillage(s: number, x: number, y: number, settlers: number, from?: Village): Village {
     const sp = this.species[s];
     const rnd = this.rnd;
+    // Ruínas logo ali: o assentamento novo ocupa a antiga praça e aproveita as ruas e plantações que sobraram.
+    const ruin = this.ruinNear(x + 0.5, y + 0.5, TIER_RADIUS[0] + 2, s);
+    if (ruin) {
+      x = Math.floor(ruin.x);
+      y = Math.floor(ruin.y);
+    }
     const id = this.villages.length;
     const village: Village = {
       id,
@@ -1265,6 +1351,11 @@ export class Ecosystem {
       abandoned: false,
     };
     if (!from) village.culture = makeCulture(village.culture.id, village.name, rnd);
+    if (ruin) {
+      village.ruinOf = ruin.id;
+      if (!ruin.decay) village.fields = ruin.fields;
+      ruin.decay = 3;
+    }
     this.villages.push(village);
     this.layStreets(village);
     this.buildHouse(village, 'house', true);
@@ -1285,7 +1376,9 @@ export class Ecosystem {
 
   private abandon(v: Village): void {
     v.abandoned = true;
-    // As casas viram ruína e somem; as ruas ficam.
+    v.abandonedAt = this.year;
+    v.decay = 0;
+    // As casas viram ruína e somem; as ruas e plantações ficam e vão sumindo com o tempo (clearRuins).
     for (const h of v.houses) {
       const size = h.kind === 'port' ? 1 : 2;
       for (let dy = 0; dy < size; dy++) {
@@ -1304,7 +1397,32 @@ export class Ecosystem {
     v.mines.length = 0;
     // Assentamentos do reino de uma capital abandonada ficam independentes.
     for (const o of this.villages) if (o.kingdom === v.id && o !== v) o.kingdom = o.id;
-    this.note(`${v.name} foi abandonada`, 'povo', v, { major: v.tier >= 1 });
+    const cause = v.lastCause ? `: o último morador morreu ${v.lastCause}` : '';
+    this.note(`${v.name} foi abandonada${cause}`, 'povo', v, { major: v.tier >= 1 });
+  }
+
+  /**
+   * Uma etapa do sumiço das ruínas: na 1ª somem as plantações e um terço das
+   * ruas, na 2ª outro terço, na 3ª o resto, praça incluída. Não mexe no que
+   * estiver dentro de um assentamento vivo.
+   */
+  private clearRuins(v: Village, stage: number): void {
+    const r = TIER_RADIUS[v.tier] + 1;
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t < 0 || !this.road[t] || this.built[t]) continue;
+        const gone = this.road[t] === 4 || stage >= 3 || (Math.imul(t, 2654435761) >>> 0) % 3 < stage;
+        if (!gone || this.settlementAt(cx + dx + 0.5, cy + dy + 0.5)) continue;
+        this.road[t] = 0;
+        this.onTileChanged(t);
+      }
+    }
+    v.decay = stage;
+    if (stage >= 3) this.note(`As últimas ruínas de ${v.name} sumiram`, 'povo', v);
   }
 
   /** Sobe de nível quando a população permite. Aldeias e vilas não podem conter outro assentamento. */
@@ -1352,7 +1470,11 @@ export class Ecosystem {
     let live = 0;
     for (const v of this.villages) if (!v.abandoned) live++;
     for (const v of this.villages) {
-      if (v.abandoned) continue;
+      if (v.abandoned) {
+        const stage = v.decay ?? 3;
+        if (stage < 3 && this.year - (v.abandonedAt ?? 0) >= (stage + 1) * RUIN_YEARS) this.clearRuins(v, stage + 1);
+        continue;
+      }
       if (v.population <= 0) {
         this.abandon(v);
         continue;
