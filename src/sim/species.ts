@@ -41,6 +41,8 @@ export interface Species {
   body?: string;
   /** Espécie de que esta variante descende (evolução, RF-VIDA-51). */
   parent?: string;
+  /** Predador que também come frutos, raízes e insetos (urso, raposa): passa melhor quando a caça some. */
+  omnivore?: boolean;
 }
 
 /** Onde a espécie pode ficar: 0 terra, 1 água, 2 as duas. */
@@ -90,8 +92,8 @@ const EARTH_BANK: Entry[] = [
   ['Elefante', 'herbivore', 'elephant', [150, 150, 158], 285, 325, { speed: 0.9, maxAge: 40, maturity: 8, size: 1.4 }],
   ['Mamute', 'herbivore', 'mammoth', [120, 78, 50], 225, 280, { speed: 0.9, maxAge: 40, maturity: 8, size: 1.4 }],
   ['Macaco', 'herbivore', 'monkey', [130, 86, 52], 285, 322, { size: 0.7 }],
-  ['Urso', 'predator', 'bear', [110, 76, 50], 240, 300, { speed: 1.6, maxAge: 22, maturity: 4, size: 1.1 }],
-  ['Raposa', 'predator', 'fox', [214, 110, 50], 245, 312, { speed: 2.2, size: 0.7 }],
+  ['Urso', 'predator', 'bear', [110, 76, 50], 240, 300, { speed: 1.6, maxAge: 22, maturity: 4, size: 1.1, omnivore: true }],
+  ['Raposa', 'predator', 'fox', [214, 110, 50], 245, 312, { speed: 2.2, size: 0.7, omnivore: true }],
   ['Onça', 'predator', 'jaguar', [214, 170, 70], 285, 322, { speed: 2.4, size: 0.9 }],
   ['Hiena', 'predator', 'hyena', [180, 150, 100], 285, 325, { size: 0.85 }],
   ['Cobra', 'predator', 'snake', [90, 160, 60], 280, 325, { speed: 1.3, size: 0.5 }],

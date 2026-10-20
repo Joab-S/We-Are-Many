@@ -340,8 +340,8 @@ const fragmentShader = /* glsl */ `
       }
       texel = px.texel;
     }
-    if (uZoom >= 4.0 && kind >= 8 && kind <= 10) c = roadPx(t, f, kind, texel.rgb);
-    if (uZoom >= 5.0 && kind > 0 && kind <= 7) {
+    if (uZoom >= 3.0 && kind >= 8 && kind <= 10) c = roadPx(t, f, kind, texel.rgb);
+    if (uZoom >= (kind == 7 ? 3.0 : 5.0) && kind > 0 && kind <= 7) {
       // Arte 16x16 do enfeite (art.ts): alfa cheio é cor, alfa parcial é sombra.
       vec4 d = texelFetch(uDecor, ivec2((kind - 1) * 16 + f.x, f.y), 0);
       if (d.a > 0.9) c = d.rgb * (0.94 + 0.12 * hash(vec2(t) + 7.0));
@@ -674,7 +674,7 @@ export class SurfaceMode {
     if (road === 1) c = [150, 114, 74];
     else if (road === 2) c = [146, 144, 150];
     else if (road === 3) c = [184, 160, 120];
-    else if (road === 4) c = [122, 86, 48];
+    else if (road === 4) c = [196, 160, 78];
     if (c) {
       px[o] = clamp(c[0] * (1 + n), 0, 255);
       px[o + 1] = clamp(c[1] * (1 + n), 0, 255);
@@ -1291,9 +1291,10 @@ export class SurfaceMode {
       const capital = v.kingdom === v.id;
       ctx.beginPath();
       ctx.arc(sx, sy, r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${c},0.18)`;
+      // De perto o véu quase some, para não apagar a arte das casas, ruas e plantações.
+      ctx.fillStyle = `rgba(${c},${Math.min(0.18, Math.max(0.03, 0.7 / z)).toFixed(3)})`;
       ctx.fill();
-      ctx.lineWidth = Math.max(1.5, z * (capital ? 0.35 : 0.22));
+      ctx.lineWidth = Math.min(capital ? 4 : 3, Math.max(1.5, z * (capital ? 0.35 : 0.22)));
       ctx.setLineDash(capital ? [] : [z * 0.8, z * 0.5]);
       ctx.strokeStyle = `rgba(${c},0.9)`;
       ctx.stroke();
@@ -1416,6 +1417,8 @@ export class SurfaceMode {
     const small = z < 3.5;
     // Casas primeiro, criaturas por cima.
     const buildings: { sprite: SpriteName; sx: number; sy: number; h: number; tint: readonly number[] }[] = [];
+    // As chamas das fogueiras trocam de quadro algumas vezes por segundo.
+    const flame = Math.floor(performance.now() / 260) % 2 === 0;
     for (const v of eco.villages) {
       if (v.abandoned) continue;
       const era = Math.floor(v.tech);
@@ -1434,13 +1437,19 @@ export class SurfaceMode {
         if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
         const sprite = house.kind !== 'house' ? house.kind : house.variant ? `${style}:${house.variant}` : style;
         buildings.push({ sprite, sx, sy, h: Math.max(3, z * 2), tint: v.color });
+        // Na Idade da Pedra, algumas cabanas têm uma fogueira no quintal.
+        if (!small && era === 0 && house.kind === 'house' && house.variant === 1) {
+          const [cx, cy] = this.toScreen(house.x + 2.3, house.y + 2, z, w, h);
+          buildings.push({ sprite: flame ? 'campfire' : 'campfire2', sx: cx, sy: cy, h: z * 0.6, tint: v.color });
+        }
       }
       if (!small) {
         const [fx, fy] = this.toScreen(v.x, v.y + 1.5, z, w, h);
         const capital = v.kingdom === v.id && eco.kingdomSize(v) > 1;
-        if (v.tier >= 2) buildings.push({ sprite: capital ? 'castle' : 'keep', sx: fx, sy: fy, h: z * (capital ? 2 : 2.6), tint: v.color });
-        else if (era >= 1) buildings.push({ sprite: 'well', sx: fx, sy: fy, h: z * 1.3, tint: v.color });
-        else buildings.push({ sprite: 'bonfire', sx: fx, sy: fy, h: z * 1.1, tint: v.color });
+        // Idade da Pedra: a praça é uma fogueira, mesmo nas cidades; depois, poço ou fortaleza.
+        if (era === 0) buildings.push({ sprite: flame ? 'bonfire' : 'bonfire2', sx: fx, sy: fy, h: z * 1.25, tint: v.color });
+        else if (v.tier >= 2) buildings.push({ sprite: capital ? 'castle' : 'keep', sx: fx, sy: fy, h: z * (capital ? 2 : 2.6), tint: v.color });
+        else buildings.push({ sprite: 'well', sx: fx, sy: fy, h: z * 1.3, tint: v.color });
       }
     }
     // Jazidas: caverna, veio ou mina, com pontos na cor do minério.

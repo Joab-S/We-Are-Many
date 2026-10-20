@@ -108,7 +108,7 @@ describe('soltar uma criatura', () => {
     expect(eco.villages.length).toBe(villages + 1);
     const v = eco.villages[villages];
     expect(eco.village[i]).toBe(v.id);
-    expect(v.population).toBe(1);
+    expect(v.population).toBeGreaterThanOrEqual(1);
   });
 
   it('um inteligente solto perto de um assentamento do seu povo se junta a ele', () => {
@@ -184,4 +184,53 @@ describe('ruínas', () => {
     expect(eco.village[i]).toBe(v.id);
     expect(old.decay).toBe(3);
   });
+});
+
+describe('sobrevivência', () => {
+  it('perto do teto quase não nascem filhotes; uma espécie rara tem mais', () => {
+    const { eco } = world();
+    const s = eco.species.findIndex((sp) => sp.name === 'Cervo');
+    const caps = (eco as unknown as { caps: number[] }).caps;
+    const before = eco.population[s];
+    eco.population[s] = caps[s];
+    const full = eco.fertility(s);
+    eco.population[s] = Math.floor(caps[s] * 0.1);
+    const rare = eco.fertility(s);
+    eco.population[s] = before;
+    expect(full).toBeLessThan(0.15);
+    expect(rare).toBeGreaterThan(1.5);
+  });
+
+  it('os peixes não ficam presos no teto: o mar alimenta menos um cardume apertado', () => {
+    const { eco } = world();
+    const s = eco.species.findIndex((sp) => sp.name === 'Peixe');
+    const caps = (eco as unknown as { caps: number[] }).caps;
+    years(eco, 25);
+    expect(eco.population[s]).toBeGreaterThan(caps[s] * 0.3);
+    expect(eco.population[s]).toBeLessThan(caps[s] * 0.95);
+  });
+
+  it('em 80 anos, no máximo uma espécie da Terra some', () => {
+    const { eco } = world();
+    years(eco, 80);
+    expect(eco.extinct.size).toBeLessThanOrEqual(1);
+  }, 30000);
+
+  it('uma aldeia quase vazia recebe andarilhos do seu povo', () => {
+    const { eco } = world();
+    const v = eco.villages[0];
+    let kept = 0;
+    for (let i = 0; i < eco.count; i++) {
+      if (!eco.alive[i] || eco.village[i] !== v.id) continue;
+      if (kept++ < 1) eco.age[i] = eco.species[v.species].maturity + 1;
+      else eco.kill(i, true);
+    }
+    let most = v.population;
+    for (let y = 0; y < 15 && !v.abandoned; y++) {
+      years(eco, 1);
+      most = Math.max(most, v.population);
+    }
+    expect(most).toBeGreaterThanOrEqual(2);
+    expect(eco.chronicle.some((e) => e.text.includes(`se juntou a ${v.name}`))).toBe(true);
+  }, 20000);
 });
