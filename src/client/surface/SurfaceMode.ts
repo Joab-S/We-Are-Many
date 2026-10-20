@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mulberry32, seedFor } from '../../core/rng';
+import { seedFor } from '../../core/rng';
 import {
   BIOME_NAMES,
   classify,
@@ -10,25 +10,42 @@ import {
   type PlanetParams,
   type SurfaceMap,
 } from '../../procgen/surface';
-import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, isLand, YEAR_SECONDS, type Village } from '../../sim/ecosystem';
-import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, type Ore } from '../../sim/economy';
+import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, isLand, YEAR_SECONDS, type ChronicleKind, type Village } from '../../sim/ecosystem';
+import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from '../../sim/economy';
+import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
+import { CATEGORIES, ITEMS, MATERIALS } from '../../sim/items';
 import { CHILD } from '../../sim/roles';
 import { TIER_NAMES } from '../../sim/settlement';
-import { nativeSpecies, type Species } from '../../sim/species';
+import { earthCatalog, EARTH_ID, habitatOf, nativeSpecies, type Species } from '../../sim/species';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
 import type { GameState } from '../state';
-import { makeDecorCanvas, ROLE_NAMES, ROLES } from './art';
+import { BODY_NAMES, makeDecorCanvas, ROLE_NAMES, ROLES, SPRITES } from './art';
 import { generateSurfaceAsync } from './generateAsync';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 
-type Tab = 'terrain' | 'life' | 'civ';
+type Tab = 'terrain' | 'climate' | 'life' | 'civ' | 'events';
+
+const TABS: [Tab, string][] = [
+  ['terrain', '⛰ Terreno'],
+  ['climate', '☁ Clima'],
+  ['life', '🌿 Vida'],
+  ['civ', '🏛 Civilização'],
+  ['events', '☄ Eventos'],
+];
 
 interface Tool {
   id: string;
   tab: Tab;
+  /** Subtítulo dentro da aba (ex.: Minérios, Água, Costa). */
+  group?: string;
   label: string;
+  /** Emoji, ou um sprite (`sprite:nome` pintado com `tint`). */
   icon: string;
+  tint?: readonly number[];
+  skin?: readonly number[];
+  /** Explicação curta, mostrada acima da barra. */
+  tip: string;
   /** Pincel contínuo enquanto o botão está apertado, ou um clique por vez. */
   mode: 'brush' | 'click';
   apply?(map: SurfaceMap, i: number, strength: number): void;
@@ -39,37 +56,78 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 
 const ORE_ICONS: Record<Ore, string> = { copper: '🟠', tin: '⚪', iron: '🟤', gold: '🟡', coal: '⚫' };
 
-/** Ferramentas de terraformação (RF-SUP-06). */
+/** Ferramentas de terraformação e clima (RF-SUP-06). */
 const TERRAIN_TOOLS: Tool[] = [
-  { id: 'raise', tab: 'terrain', label: 'Elevar', icon: '⛰', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] + 0.02 * s, -1, 1)) },
-  { id: 'lower', tab: 'terrain', label: 'Rebaixar', icon: '⛏', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] - 0.02 * s, -1, 1)) },
-  {
-    id: 'water',
-    tab: 'terrain',
-    label: 'Água',
-    icon: '💧',
-    mode: 'brush',
-    apply: (m, i, s) => {
-      m.moisture[i] = clamp(m.moisture[i] + 0.05 * s, 0, 1);
-      if (s > 0.6) m.elevation[i] = Math.min(m.elevation[i], -0.05);
-    },
-  },
-  { id: 'comet', tab: 'terrain', label: 'Cometa', icon: '☄', mode: 'click', act: (ctx, x, y) => ctx.comet(x, y) },
-  { id: 'heat', tab: 'terrain', label: 'Aquecer', icon: '🔥', mode: 'brush', apply: (m, i, s) => (m.heat[i] = clamp(m.heat[i] + 1.5 * s, -150, 400)) },
-  { id: 'cool', tab: 'terrain', label: 'Resfriar', icon: '❄', mode: 'brush', apply: (m, i, s) => (m.heat[i] = clamp(m.heat[i] - 1.5 * s, -150, 400)) },
-  { id: 'plant', tab: 'terrain', label: 'Semear vida', icon: '🌱', mode: 'brush', apply: (m, i, s) => (m.vegetation[i] = clamp(m.vegetation[i] + 0.06 * s, 0, 1)) },
+  { id: 'raise', tab: 'terrain', label: 'Elevar', icon: '⛰', tip: 'Levanta o chão aos poucos: do mar nasce terra, da terra, morros.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] + 0.02 * s, -1, 1)) },
+  { id: 'lower', tab: 'terrain', label: 'Rebaixar', icon: '⛏', tip: 'Abaixa o chão aos poucos: vales, lagos e, no fim, mar.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] - 0.02 * s, -1, 1)) },
+  { id: 'mountain', tab: 'terrain', label: 'Montanha', icon: '🏔', tip: 'Ergue serras de rocha rapidamente.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] + 0.06 * s, -1, 0.95)) },
+  { id: 'sea', tab: 'terrain', label: 'Mar', icon: '🌊', tip: 'Afunda a terra até virar mar raso.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = Math.max(-0.3, m.elevation[i] - 0.06 * s)) },
+  { id: 'flatten', tab: 'terrain', label: 'Nivelar', icon: '▭', tip: 'Aplaina o terreno para perto do nível de planície.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] += (0.12 - m.elevation[i]) * Math.min(1, 0.05 * s)) },
+  { id: 'sand', tab: 'terrain', label: 'Areia', icon: '🏜', tip: 'Seca o solo: vira praia ou deserto.', mode: 'brush', apply: (m, i, s) => { m.moisture[i] = clamp(m.moisture[i] - 0.05 * s, 0, 1); m.vegetation[i] = clamp(m.vegetation[i] - 0.05 * s, 0, 1); } },
   // Minérios: ajuda leve aos povos, que ainda precisam achar o veio e abrir a mina.
   ...ORES.map(
     (ore): Tool => ({
       id: `ore:${ore}`,
       tab: 'terrain',
+      group: 'Minérios',
       label: ORE_NAMES[ore][0].toUpperCase() + ORE_NAMES[ore].slice(1),
       icon: ORE_ICONS[ore],
+      tip: `Coloca um veio de ${ORE_NAMES[ore]}. Os povos só usam depois de achá-lo e abrir uma mina.`,
       mode: 'click',
       act: (ctx, x, y) => ctx.placeOre(x, y, ore),
     }),
   ),
+  { id: 'heat', tab: 'climate', label: 'Aquecer', icon: '🔥', tip: 'Esquenta a região (derrete gelo, seca, e no extremo vira lava).', mode: 'brush', apply: (m, i, s) => (m.heat[i] = clamp(m.heat[i] + 1.5 * s, -150, 400)) },
+  { id: 'cool', tab: 'climate', label: 'Resfriar', icon: '❄', tip: 'Esfria a região (neve, tundra e gelo no mar).', mode: 'brush', apply: (m, i, s) => (m.heat[i] = clamp(m.heat[i] - 1.5 * s, -150, 400)) },
+  { id: 'rain', tab: 'climate', label: 'Chuva', icon: '🌧', tip: 'Deixa o clima mais úmido: a mata cresce melhor.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] + 0.04 * s, 0, 1)) },
+  { id: 'dry', tab: 'climate', label: 'Secar', icon: '☀', tip: 'Deixa o clima mais seco.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] - 0.04 * s, 0, 1)) },
+  { id: 'plant', tab: 'climate', label: 'Semear vida', icon: '🌱', tip: 'Espalha vegetação, que depois se espalha sozinha onde o clima deixa.', mode: 'brush', apply: (m, i, s) => (m.vegetation[i] = clamp(m.vegetation[i] + 0.06 * s, 0, 1)) },
+  { id: 'forest', tab: 'climate', label: 'Floresta', icon: '🌳', tip: 'Planta mata fechada e umedece o solo.', mode: 'brush', apply: (m, i, s) => { m.vegetation[i] = clamp(m.vegetation[i] + 0.15 * s, 0, 1); m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1); } },
 ];
+
+/** Eventos que o jogador pode provocar (aba Eventos). */
+const EVENT_TOOLS: Tool[] = (
+  [
+    ['comet', '☄', 'Um cometa cai onde você clicar: cratera, lago e minério do espaço.'],
+    ['quake', '〰', 'Uma falha corta o chão: um lado sobe, o outro afunda; casas perto caem.'],
+    ['volcano', '🌋', 'Um vulcão nasce: o chão sobe, a lava escorre e esfria em rocha.'],
+    ['island', '🏝', 'Um vulcão no mar ergue uma ilha nova.'],
+    ['fire', '🔥', 'Fogo na mata: queima a floresta em volta.'],
+    ['drought', '🏜', 'Seca numa região grande: a vegetação murcha por um tempo.'],
+  ] as [WorldEvent, string, string][]
+).map(([ev, icon, tip]) => ({
+  id: `event:${ev}`,
+  tab: 'events' as Tab,
+  label: WORLD_EVENT_NAMES[ev],
+  icon,
+  tip,
+  mode: 'click' as const,
+  act: (ctx: SurfaceMode, x: number, y: number) => ctx.trigger(ev, x, y),
+}));
+
+type Win = 'chronicle' | 'kingdoms' | 'species' | 'items' | 'world';
+
+const WINDOWS: [Win, string][] = [
+  ['chronicle', '📜 Crônica'],
+  ['kingdoms', '👑 Reinos'],
+  ['species', '🐾 Espécies'],
+  ['items', '⚒ Itens'],
+  ['world', '⚙ Mundo'],
+];
+
+const KIND_ICONS: Record<ChronicleKind, string> = { povo: '👥', era: '⭐', guerra: '⚔', natureza: '🌋', mar: '⛵', economia: '⚒', jogador: '✋' };
+
+const DEFAULT_SPRITE = { fish: 'fish', herbivore: 'deer', predator: 'wolf', shark: 'shark', sapient: 'human' } as const;
+
+/** Desenho de uma espécie de animal. */
+function spriteOf(sp: Species): string {
+  return sp.sprite && SPRITES[sp.sprite] ? sp.sprite : DEFAULT_SPRITE[sp.kind];
+}
+
+/** Corpo de uma espécie inteligente. */
+function bodyOf(sp: Species): string {
+  return sp.body && BODY_NAMES.includes(sp.body) ? sp.body : sp.origin === EARTH_ID ? 'human' : 'alien';
+}
 
 const vertexShader = /* glsl */ `
   out vec2 vUv;
@@ -257,7 +315,6 @@ export class SurfaceMode {
   private sprites!: SpriteLayer;
   private readonly input: Input;
   private readonly root: HTMLDivElement;
-  private readonly rnd = mulberry32(1234);
   private tools: Tool[] = [...TERRAIN_TOOLS];
   private tool: Tool | null = TERRAIN_TOOLS[0];
   private brush = 6;
@@ -321,7 +378,15 @@ export class SurfaceMode {
     }
     this.eco = eco;
     eco.onTileChanged = (i) => this.repaint(i);
-    this.buildLifeTools();
+    // O banco genético da Terra vem a bordo; variantes que surgem entram no catálogo.
+    for (const sp of earthCatalog()) if (!state.knownSpecies.has(sp.id)) state.knownSpecies.set(sp.id, sp);
+    for (const sp of eco.species) state.knownSpecies.set(sp.id, sp);
+    eco.onSpecies = (sp) => {
+      if (state.knownSpecies.has(sp.id)) return;
+      state.knownSpecies.set(sp.id, sp);
+      this.buildTools();
+      if (this.ready) this.selectTab(this.tab);
+    };
 
     this.pixels = new Uint8Array(map.width * map.height * 4);
     paintSurface(map, this.pixels);
@@ -361,6 +426,7 @@ export class SurfaceMode {
     this.sprites = new SpriteLayer(this.atlas, 12000);
     this.spriteScene.add(this.sprites.mesh);
 
+    this.buildTools();
     this.buildUi();
     this.resize();
     this.ready = true;
@@ -369,45 +435,78 @@ export class SurfaceMode {
     this.raf = requestAnimationFrame(this.frame);
   }
 
-  /** Ferramentas da aba Vida: uma por espécie conhecida, mais controle de população. */
-  private buildLifeTools(): void {
+  /** Ferramentas: terreno e clima, uma por espécie conhecida (Vida e Civilização) e eventos. */
+  private buildTools(): void {
     const known = [...this.state.knownSpecies.values()];
+    const group = (sp: Species) => (sp.parent ? 'Variantes' : habitatOf(sp) === 1 ? 'Água' : habitatOf(sp) === 2 ? 'Costa' : 'Terra');
+    const order = ['Terra', 'Costa', 'Água', 'Variantes'];
     const life: Tool[] = known
       .filter((sp) => sp.kind !== 'sapient')
+      .sort((a, b) => order.indexOf(group(a)) - order.indexOf(group(b)))
       .map((sp) => ({
         id: `spawn:${sp.id}`,
         tab: 'life' as Tab,
+        group: group(sp),
         label: sp.name,
-        icon: { fish: '🐟', predator: '🐺', shark: '🦈', herbivore: '🦌', sapient: '' }[sp.kind],
+        icon: `sprite:${spriteOf(sp)}`,
+        tint: sp.color,
+        tip: `Solta ${sp.name.toLowerCase()}s aqui. Vive de ${(sp.tempMin - 273).toFixed(0)} a ${(sp.tempMax - 273).toFixed(0)} °C${habitatOf(sp) === 2 ? ', na costa' : habitatOf(sp) === 1 ? ', na água' : ''}.`,
         mode: 'click' as const,
         act: (ctx: SurfaceMode, x: number, y: number) => ctx.introduce(sp, x, y),
       }));
     life.push(
-      { id: 'feed', tab: 'life', label: 'Alimentar', icon: '🍎', mode: 'brush', act: (ctx, x, y) => ctx.eco.feed(x, ctx.toRow(y), ctx.brush) },
-      { id: 'cull', tab: 'life', label: 'Reduzir', icon: '✖', mode: 'click', act: (ctx, x, y) => ctx.eco.cull(x, ctx.toRow(y), ctx.brush) },
+      { id: 'feed', tab: 'life', group: 'Cuidar', label: 'Alimentar', icon: '🍎', tip: 'Enche a energia das criaturas no pincel.', mode: 'brush', act: (ctx, x, y) => ctx.eco.feed(x, ctx.toRow(y), ctx.brush) },
+      { id: 'cull', tab: 'life', group: 'Cuidar', label: 'Reduzir', icon: '✖', tip: 'Remove as criaturas dentro do pincel (controle de população).', mode: 'click', act: (ctx, x, y) => ctx.eco.cull(x, ctx.toRow(y), ctx.brush) },
     );
     const civ: Tool[] = known
       .filter((sp) => sp.kind === 'sapient')
       .map((sp) => ({
         id: `spawn:${sp.id}`,
         tab: 'civ' as Tab,
+        group: 'Povos',
         label: sp.name,
-        icon: '🧑',
+        icon: `sprite:${bodyOf(sp)}:gatherer`,
+        tint: [200, 160, 90],
+        skin: sp.color,
+        tip: `Leva um grupo de ${sp.name.toLowerCase()}s para fundar um assentamento fora das áreas existentes.`,
         mode: 'click' as const,
         act: (ctx: SurfaceMode, x: number, y: number) => ctx.introduce(sp, x, y),
       }));
-    civ.push({
-      id: 'teach',
-      tab: 'civ',
-      label: 'Ensinar',
-      icon: '📜',
-      mode: 'click',
-      act: (ctx, x, y) => {
-        const taught = ctx.eco.teach(x, ctx.toRow(y), ctx.brush, 0.35);
-        if (taught.length) ctx.eco.log.unshift(`Você ensinou ${taught.map((v) => v.name).join(', ')}`);
+    civ.push(
+      {
+        id: 'teach',
+        tab: 'civ',
+        group: 'Ajudar de leve',
+        label: 'Ensinar',
+        icon: '📜',
+        tip: 'Adianta um pouco o conhecimento das aldeias no pincel (não pula a condição de era).',
+        mode: 'click',
+        act: (ctx, x, y) => {
+          const taught = ctx.eco.teach(x, ctx.toRow(y), ctx.brush, 0.35);
+          if (taught.length) ctx.eco.note(`Você ensinou ${taught.map((v) => v.name).join(', ')}`, 'jogador', taught[0]);
+        },
       },
-    });
-    this.tools = [...TERRAIN_TOOLS, ...life, ...civ];
+      {
+        id: 'harvest',
+        tab: 'civ',
+        group: 'Ajudar de leve',
+        label: 'Boa colheita',
+        icon: '🌾',
+        tip: 'Uma colheita farta para os assentamentos no pincel: comida guardada e mata viçosa em volta.',
+        mode: 'click',
+        act: (ctx, x, y) => ctx.harvest(x, y),
+      },
+    );
+    const surprise: Tool = {
+      id: 'surprise',
+      tab: 'events',
+      label: 'Surpresa',
+      icon: '🎲',
+      tip: 'Um evento aleatório acontece em algum lugar do mundo (pode ser um povo novo, uma espécie, um desastre...).',
+      mode: 'click',
+      act: (ctx) => ctx.surprise(),
+    };
+    this.tools = [...TERRAIN_TOOLS, ...life, ...civ, ...EVENT_TOOLS, surprise];
   }
 
   // Ações chamadas pelas ferramentas ----------------------------------------
@@ -420,24 +519,39 @@ export class SurfaceMode {
   introduce(sp: Species, x: number, viewY: number): void {
     const s = this.eco.addSpecies(sp);
     const born = this.eco.introduce(s, x, this.toRow(viewY), this.brush, sp.kind === 'sapient' ? 6 : 8);
-    if (!born && !this.eco.log[0]?.startsWith('Muito perto')) this.eco.log.unshift(`${sp.name}: o lugar não é habitável`);
+    if (!born && !this.eco.hint) this.eco.hint = `${sp.name}: o lugar não é habitável`;
+    else if (born && sp.kind !== 'sapient') this.eco.note(`Você soltou ${born} ${sp.name.toLowerCase()}${born > 1 ? 's' : ''}`, 'jogador', { x, y: this.toRow(viewY) }, { key: `spawn:${sp.id}` });
   }
 
   placeOre(x: number, viewY: number, ore: Ore): void {
-    if (!this.eco.placeOre(x, this.toRow(viewY), ore)) this.eco.log.unshift('Aqui não dá para colocar minério');
+    if (!this.eco.placeOre(x, this.toRow(viewY), ore)) this.eco.hint = 'Aqui não dá para colocar minério';
   }
 
-  /** Impacto de cometa: abre uma cratera que vira lago e umedece os arredores. */
-  comet(x: number, viewY: number): void {
-    const r = Math.max(3, this.brush);
-    this.forBrush(x, viewY, r * 1.6, (i, d) => {
-      const m = this.map;
-      if (d < r) m.elevation[i] = Math.min(m.elevation[i], -0.08 - (1 - d / r) * 0.25);
-      else m.elevation[i] = clamp(m.elevation[i] + 0.08 * (1 - (d - r) / (r * 0.6)), -1, 1);
-      m.moisture[i] = clamp(m.moisture[i] + 0.4, 0, 1);
-      m.vegetation[i] *= 0.3;
-    });
-    this.eco.cull(x, this.toRow(viewY), r);
+  /** Evento provocado pelo jogador no ponto clicado. */
+  trigger(ev: WorldEvent, x: number, viewY: number): void {
+    if (!runEvent(this.eco, ev, x, this.toRow(viewY))) this.eco.hint = `${WORLD_EVENT_NAMES[ev]}: não deu certo aqui`;
+  }
+
+  surprise(): void {
+    const ev = runRandomEvent(this.eco);
+    const e = this.eco.chronicle[0];
+    if (ev && e && e.x >= 0) this.goTo(e.x, e.y);
+  }
+
+  /** Boa colheita: comida para os assentamentos no pincel e mata viçosa em volta. */
+  harvest(x: number, viewY: number): void {
+    const row = this.toRow(viewY);
+    const helped = this.eco.villages.filter((v) => !v.abandoned && Math.hypot(((v.x - x + this.map.width * 1.5) % this.map.width) - this.map.width / 2, v.y - row) < this.brush + 6);
+    for (const v of helped) v.food = Math.min(60, v.food + 25);
+    this.forBrush(x, viewY, this.brush, (i) => (this.map.vegetation[i] = clamp(this.map.vegetation[i] + 0.2, 0, 1)));
+    if (helped.length) this.eco.note(`Você deu uma boa colheita a ${helped.map((v) => v.name).join(', ')}`, 'jogador', helped[0]);
+    else this.eco.hint = 'Nenhum assentamento no pincel';
+  }
+
+  /** Leva a câmera até um tile (x, linha). */
+  goTo(x: number, row: number): void {
+    this.center.set(x, this.map.height - row);
+    this.zoom = Math.max(this.zoom, 8);
   }
 
   private forBrush(x: number, viewY: number, r: number, fn: (i: number, d: number) => void): void {
@@ -489,42 +603,101 @@ export class SurfaceMode {
 
   // Interface ----------------------------------------------------------------
 
+  private tab: Tab = 'terrain';
+  /** Janela aberta (crônica, reinos, espécies, itens, mundo) e o filtro dela. */
+  private win: Win | null = null;
+  private winFilter = '';
+  private lastWinHtml = '';
+  private lastWin = 0;
+  private showMinor = false;
+  private showLabels = true;
+  private readonly iconCache = new Map<string, string>();
+
+  /** Ícone de sprite como imagem (para botões e janelas). */
+  private icon(name: string, tint: readonly number[] = [200, 200, 200], skin: readonly number[] = tint): string {
+    const key = `${name}|${tint.join(',')}|${skin.join(',')}`;
+    let url = this.iconCache.get(key);
+    if (!url) {
+      url = SPRITES[name] ? this.atlas.tinted(name, tint, skin).toDataURL() : '';
+      this.iconCache.set(key, url);
+    }
+    return url ? `<img class="wb-px" src="${url}" alt="">` : '';
+  }
+
+  private toolIcon(t: Tool): string {
+    return t.icon.startsWith('sprite:') ? this.icon(t.icon.slice(7), t.tint, t.skin) : `<span>${t.icon}</span>`;
+  }
+
   private buildUi(): void {
     this.root.innerHTML = `
+      <div class="wb-labels" data-l></div>
       <div class="wb-top">
-        <button class="wb-back" data-a="back">⟵ Voltar à órbita</button>
+        <button class="wb-back" data-a="back">⟵ Órbita</button>
         <div class="wb-title">${this.params.name}</div>
         <div class="wb-stats" data-s></div>
+        <div class="wb-menu">
+          ${WINDOWS.map(([id, label]) => `<button class="wb-back" data-w="${id}">${label}</button>`).join('')}
+        </div>
       </div>
       <div class="wb-info" data-i hidden></div>
       <div class="wb-side" data-p></div>
-      <div class="wb-labels" data-l></div>
+      <div class="wb-window" data-win hidden>
+        <div class="wb-win-head"><b data-win-title></b><button class="wb-x" data-close title="Fechar (Esc)">✕</button></div>
+        <div class="wb-win-body" data-win-body></div>
+      </div>
+      <div class="wb-toast" data-toast hidden></div>
       <div class="wb-dock">
-        <div class="wb-tabs">
-          <button data-tab="terrain">⛰ Terreno</button>
-          <button data-tab="life">🌿 Vida</button>
-          <button data-tab="civ">🏛 Civilização</button>
-        </div>
+        <div class="wb-tip" data-tip></div>
+        <div class="wb-tabs">${TABS.map(([id, label]) => `<button data-tab="${id}">${label}</button>`).join('')}</div>
         <div class="wb-bar" data-bar></div>
       </div>
-      <div class="wb-help"><b>Botão esquerdo</b> usa a ferramenta · <b>Botão direito/meio</b> ou <b>WASD</b> move · <b>Roda</b> zoom · <b>Espaço</b> pausa · <b>Esc</b> volta</div>`;
+      <div class="wb-help"><b>Esquerdo</b> usa a ferramenta · <b>Direito/meio</b> ou <b>WASD</b> move · <b>Roda</b> zoom · <b>Espaço</b> pausa · <b>1–4</b> velocidade · <b>C R E I</b> janelas</div>`;
     const signal = this.abort.signal;
     this.root.querySelector('[data-a="back"]')!.addEventListener('click', () => this.onExit(), { signal });
     this.root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
       b.addEventListener('click', () => this.selectTab(b.dataset.tab as Tab), { signal });
     });
-    // pointerdown porque o painel é redesenhado enquanto a simulação roda e um
-    // clique (descer e subir) poderia cair em botões já substituídos.
-    this.root.querySelector('[data-p]')!.addEventListener('pointerdown', (e) => {
-      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-speed]');
-      if (b) this.speed = Number(b.dataset.speed);
-      const g = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-village]');
-      const v = g && this.eco.villages.find((it) => it.id === Number(g.dataset.village));
-      if (v) {
-        this.center.set(v.x, this.map.height - v.y);
-        this.zoom = Math.max(this.zoom, 10);
+    this.root.querySelectorAll<HTMLButtonElement>('[data-w]').forEach((b) => {
+      b.addEventListener('click', () => this.openWindow(b.dataset.w as Win), { signal });
+    });
+    this.root.querySelector('[data-close]')!.addEventListener('click', () => this.openWindow(null), { signal });
+    // pointerdown porque o painel e as janelas são redesenhados enquanto a
+    // simulação roda e um clique (descer e subir) poderia cair em botões já substituídos.
+    const onPanel = (e: Event) => {
+      const el = e.target as HTMLElement;
+      const speed = el.closest<HTMLElement>('[data-speed]');
+      if (speed) this.speed = Number(speed.dataset.speed);
+      const go = el.closest<HTMLElement>('[data-go]');
+      if (go) {
+        const [x, y] = go.dataset.go!.split(',').map(Number);
+        this.goTo(x, y);
       }
-    }, { signal });
+      const village = el.closest<HTMLElement>('[data-village]');
+      const v = village && this.eco.villages.find((it) => it.id === Number(village.dataset.village));
+      if (v) this.goTo(v.x, v.y);
+      const filter = el.closest<HTMLElement>('[data-filter]');
+      if (filter) {
+        this.winFilter = filter.dataset.filter!;
+        this.lastWinHtml = '';
+        this.updateWindow(true);
+      }
+      const tool = el.closest<HTMLElement>('[data-pick]');
+      if (tool) {
+        const t = this.tools.find((it) => it.id === tool.dataset.pick);
+        if (t) {
+          this.selectTab(t.tab);
+          this.tool = t;
+          this.updateToolbar();
+          this.openWindow(null);
+        }
+      }
+      const opt = el.closest<HTMLElement>('[data-opt]');
+      if (opt) this.setOption(opt.dataset.opt!);
+      const open = el.closest<HTMLElement>('[data-open]');
+      if (open) this.openWindow(open.dataset.open as Win);
+    };
+    this.root.querySelector('[data-p]')!.addEventListener('pointerdown', onPanel, { signal });
+    this.root.querySelector('[data-win-body]')!.addEventListener('pointerdown', onPanel, { signal });
     this.selectTab('terrain');
 
     const canvas = this.renderer.domElement;
@@ -551,14 +724,37 @@ export class SurfaceMode {
     canvas.addEventListener('pointerleave', () => (this.mouse = null), { signal });
   }
 
+  private setOption(opt: string): void {
+    const eco = this.eco;
+    if (opt === 'events') eco.autoEvents = !eco.autoEvents;
+    else if (opt.startsWith('rate:')) eco.eventRate = Number(opt.slice(5));
+    else if (opt === 'minor') this.showMinor = !this.showMinor;
+    else if (opt === 'labels') this.showLabels = !this.showLabels;
+    else if (opt === 'now') this.surprise();
+    this.lastWinHtml = '';
+    this.lastPanelHtml = '';
+    this.updateWindow(true);
+  }
+
   private selectTab(tab: Tab): void {
+    this.tab = tab;
     this.root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     const tools = this.tools.filter((t) => t.tab === tab);
     if (!this.tool || this.tool.tab !== tab) this.tool = tools[0] ?? null;
     const bar = this.root.querySelector<HTMLElement>('[data-bar]')!;
+    let html = '';
+    let group: string | undefined;
+    for (const t of tools) {
+      if (t.group !== group) {
+        group = t.group;
+        if (group) html += `<div class="wb-group">${group}</div>`;
+      }
+      html += `<button class="wb-tool" data-t="${t.id}" title="${t.tip}">${this.toolIcon(t)}${t.label}</button>`;
+    }
     bar.innerHTML = `
-      ${tools.map((t) => `<button class="wb-tool" data-t="${t.id}" title="${t.label}"><span>${t.icon}</span>${t.label}</button>`).join('')}
-      <button class="wb-tool" data-t="inspect" title="Inspecionar"><span>🔍</span>Inspecionar</button>
+      ${html}
+      <div class="wb-group"></div>
+      <button class="wb-tool" data-t="inspect" title="Só olhar: passe o mouse para ver detalhes"><span>🔍</span>Inspecionar</button>
       <label class="wb-brush">Pincel <input type="range" min="1" max="30" value="${this.brush}" data-b /></label>`;
     const signal = this.abort.signal;
     bar.querySelectorAll<HTMLButtonElement>('[data-t]').forEach((b) => {
@@ -577,6 +773,144 @@ export class SurfaceMode {
     this.root.querySelectorAll<HTMLButtonElement>('[data-t]').forEach((b) => {
       b.classList.toggle('on', (this.tool?.id ?? 'inspect') === b.dataset.t);
     });
+    const tip = this.root.querySelector<HTMLElement>('[data-tip]')!;
+    tip.textContent = this.tool ? `${this.tool.label}: ${this.tool.tip}` : 'Inspecionar: passe o mouse sobre o mapa para ver detalhes.';
+  }
+
+  // Janelas ----------------------------------------------------------------
+
+  private openWindow(win: Win | null): void {
+    this.win = this.win === win ? null : win;
+    this.winFilter = '';
+    this.lastWinHtml = '';
+    const el = this.root.querySelector<HTMLElement>('[data-win]')!;
+    el.hidden = !this.win;
+    this.root.querySelectorAll<HTMLButtonElement>('[data-w]').forEach((b) => b.classList.toggle('on', b.dataset.w === this.win));
+    this.updateWindow(true);
+  }
+
+  private updateWindow(force = false): void {
+    if (!this.win) return;
+    const now = performance.now();
+    if (!force && now - this.lastWin < 600) return;
+    this.lastWin = now;
+    const title = WINDOWS.find(([id]) => id === this.win)![1];
+    const body =
+      this.win === 'chronicle' ? this.chronicleHtml() : this.win === 'kingdoms' ? this.kingdomsHtml() : this.win === 'species' ? this.speciesHtml() : this.win === 'items' ? this.itemsHtml() : this.worldHtml();
+    if (body === this.lastWinHtml) return;
+    this.lastWinHtml = body;
+    this.root.querySelector<HTMLElement>('[data-win-title]')!.textContent = title;
+    this.root.querySelector<HTMLElement>('[data-win-body]')!.innerHTML = body;
+  }
+
+  private filters(list: [string, string][]): string {
+    return `<div class="wb-filters">${list.map(([id, label]) => `<button data-filter="${id}" class="${this.winFilter === id ? 'on' : ''}">${label}</button>`).join('')}</div>`;
+  }
+
+  private chronicleHtml(): string {
+    const f = this.winFilter;
+    const kinds: Record<string, ChronicleKind[]> = { povos: ['povo', 'era'], guerra: ['guerra'], natureza: ['natureza'], mar: ['mar'], economia: ['economia'], voce: ['jogador'] };
+    const list = this.eco.chronicle.filter((e) => (f === '' ? true : f === 'major' ? e.major : kinds[f]?.includes(e.kind)));
+    const rows = list
+      .slice(0, 150)
+      .map((e) => {
+        const where = e.x >= 0 ? ` data-go="${e.x.toFixed(1)},${e.y.toFixed(1)}"` : '';
+        return `<button class="wb-row ${e.major ? 'major' : ''}"${where}><i>${KIND_ICONS[e.kind]}</i><span class="wb-yr">${Math.floor(e.year)}</span>${Ecosystem.describe(e)}${e.x >= 0 ? '<em>📍</em>' : ''}</button>`;
+      })
+      .join('');
+    return `
+      ${this.filters([['', 'Tudo'], ['major', 'Importantes'], ['povos', 'Povos'], ['guerra', 'Guerras'], ['natureza', 'Natureza'], ['mar', 'Mar'], ['economia', 'Economia'], ['voce', 'Você']])}
+      <div class="wb-list">${rows || '<div class="wb-empty">Nada registrado ainda.</div>'}</div>
+      <div class="wb-note">Clique numa linha com 📍 para ir ao lugar. A crônica guarda os ${this.eco.chronicle.length} acontecimentos mais recentes.</div>`;
+  }
+
+  private kingdomsHtml(): string {
+    const eco = this.eco;
+    const capitals = eco.villages.filter((v) => !v.abandoned && v.kingdom === v.id);
+    if (!capitals.length) return '<div class="wb-empty">Nenhum povo neste planeta ainda. Leve um pela aba Civilização.</div>';
+    const cards = capitals
+      .map((k) => {
+        const members = eco.villages.filter((v) => !v.abandoned && v.kingdom === k.id);
+        const pop = members.reduce((n, v) => n + v.population, 0);
+        const st = k.stock;
+        const stock = STOCK_NAMES.filter(([key]) => st[key] >= 1).map(([key, name]) => `${name} ${Math.floor(st[key])}`).join(' · ');
+        const c = k.culture;
+        const rels = capitals
+          .filter((o) => o !== k && (eco.relations.has(`${Math.min(o.id, k.id)}:${Math.max(o.id, k.id)}`)))
+          .map((o) => {
+            const r = eco.relation(o.id, k.id);
+            const at = eco.warOf(k.id) && eco.wars.some((w) => (w.a === k.id && w.b === o.id) || (w.b === k.id && w.a === o.id));
+            const [mark, cls] = at ? ['⚔ guerra', 'bad'] : eco.allied(o.id, k.id) ? ['❤ aliado', 'good'] : r < -35 ? ['hostil', 'bad'] : r < 0 ? ['tensão', 'warn'] : r > 40 ? ['amigo', 'good'] : ['paz', ''];
+            return `<span class="wb-rel ${cls}"><i style="background:rgb(${o.color.join(',')})"></i>${o.name}: ${mark}</span>`;
+          })
+          .join('');
+        const wonder = k.houses.some((h) => h.kind === 'wonder') ? ` · 🏛 ${WONDER_NAMES[c.value]}` : '';
+        return `
+          <div class="wb-card">
+            <button class="wb-card-head" data-village="${k.id}"><i style="background:rgb(${k.color.join(',')})"></i><b>${members.length > 1 || k.tier >= 2 ? 'Reino de ' : ''}${k.name}</b><em>📍</em></button>
+            <div>Povo ${c.name} · ${eco.species[k.species].name} · valoriza ${c.value} · crê em ${c.belief}${wonder}</div>
+            <div>${members.length} assentamento${members.length > 1 ? 's' : ''} · ${pop} habitantes · ${ERAS[Math.floor(Math.max(...members.map((v) => v.tech)))]}</div>
+            ${stock ? `<div class="wb-dim">${stock}</div>` : ''}
+            ${rels ? `<div class="wb-rels">${rels}</div>` : ''}
+          </div>`;
+      })
+      .join('');
+    return `<div class="wb-grid">${cards}</div>`;
+  }
+
+  private speciesHtml(): string {
+    const eco = this.eco;
+    const f = this.winFilter;
+    const known = [...this.state.knownSpecies.values()].filter((sp) => (f === '' ? true : f === 'here' ? eco.species.some((o, s) => o.id === sp.id && eco.population[s] > 0) : f === 'sapient' ? sp.kind === 'sapient' : sp.kind !== 'sapient'));
+    const kindName = (sp: Species) => (sp.kind === 'sapient' ? 'Inteligente' : sp.kind === 'fish' ? 'Peixe' : sp.kind === 'shark' ? 'Marinho grande' : sp.kind === 'predator' ? 'Predador' : 'Herbívoro') + (sp.amphibious ? ' · anfíbio' : '');
+    const cards = known
+      .map((sp) => {
+        const s = eco.species.findIndex((o) => o.id === sp.id);
+        const pop = s >= 0 ? eco.population[s] : 0;
+        const status = s < 0 ? 'Não vive aqui' : eco.extinct.has(s) ? '<span class="bad">Extinta aqui</span>' : `${pop} aqui`;
+        const origin = sp.parent ? `variante de ${this.state.knownSpecies.get(sp.parent)?.name ?? '?'}` : sp.origin === EARTH_ID ? 'Terra' : sp.origin === this.params.id ? 'nativa' : sp.origin;
+        const img = sp.kind === 'sapient' ? this.icon(`${bodyOf(sp)}:gatherer`, [200, 160, 90], sp.color) : this.icon(spriteOf(sp), sp.color);
+        return `
+          <div class="wb-sp">
+            <div class="wb-sp-img">${img}</div>
+            <div><b>${sp.name}</b><div class="wb-dim">${kindName(sp)} · ${origin}</div><div class="wb-dim">${(sp.tempMin - 273).toFixed(0)} a ${(sp.tempMax - 273).toFixed(0)} °C · vive ${Math.round(sp.maxAge)} anos</div><div>${status}</div></div>
+            <button class="wb-mini" data-pick="spawn:${sp.id}">Soltar</button>
+          </div>`;
+      })
+      .join('');
+    return `${this.filters([['', 'Todas'], ['here', 'Neste planeta'], ['animal', 'Animais'], ['sapient', 'Inteligentes']])}<div class="wb-grid sp">${cards}</div>
+      <div class="wb-note">O banco genético da Terra viaja com você. Espécies novas que surgem por evolução entram aqui sozinhas.</div>`;
+  }
+
+  private itemsHtml(): string {
+    const eco = this.eco;
+    const sections = CATEGORIES.map((cat) => {
+      const items = ITEMS.filter((it) => it.category === cat)
+        .map((it) => {
+          const n = eco.crafted.get(it.id) ?? 0;
+          const mat = MATERIALS[it.material];
+          return `<div class="wb-item ${n ? '' : 'locked'}" title="${it.name}: ${mat.name}, desde a ${ERAS[it.era]}">${this.icon(`item:${it.icon}`, mat.color)}<b>${it.name}</b><span>${n ? `${n} feitos` : 'ainda não'}</span></div>`;
+        })
+        .join('');
+      return `<div class="wb-section">${cat[0].toUpperCase() + cat.slice(1)}s</div><div class="wb-items">${items}</div>`;
+    }).join('');
+    return `${sections}<div class="wb-note">Os ferreiros fazem o que o minério permite: bronze (cobre + estanho), ferro e aço (ferro + carvão). Ouro vira joia. Na Idade da Pedra, pedra e madeira.</div>`;
+  }
+
+  private worldHtml(): string {
+    const eco = this.eco;
+    const quiet = Math.floor(eco.year - eco.lastMajor);
+    const on = (b: boolean) => (b ? 'on' : '');
+    return `
+      <div class="wb-section">Eventos do mundo</div>
+      <div class="wb-filters"><button data-opt="events" class="${on(eco.autoEvents)}">${eco.autoEvents ? 'Eventos aleatórios: ligados' : 'Eventos aleatórios: desligados'}</button></div>
+      <div class="wb-filters">${[[0.5, 'Raros'], [1, 'Normais'], [2, 'Frequentes']].map(([r, l]) => `<button data-opt="rate:${r}" class="${on(eco.eventRate === r)}">${l}</button>`).join('')}</div>
+      <div class="wb-note">Cometas, terremotos, vulcões, incêndios, secas, pestes, povos nômades, espécies novas e reaparecimentos acontecem de vez em quando. Se ${QUIET_YEARS} anos passam sem nada importante, um deles sacode o mundo. Agora: ${quiet} anos desde o último acontecimento importante.</div>
+      <div class="wb-filters"><button data-opt="now">🎲 Provocar um evento agora</button></div>
+      <div class="wb-section">Exibição</div>
+      <div class="wb-filters"><button data-opt="labels" class="${on(this.showLabels)}">Nomes no mapa</button><button data-opt="minor" class="${on(this.showMinor)}">Acontecimentos menores no painel</button></div>
+      <div class="wb-section">Atalhos</div>
+      <div class="wb-note">Espaço pausa · 1 a 4 mudam a velocidade · C crônica · R reinos · E espécies · I itens · Esc fecha a janela ou volta à órbita.</div>`;
   }
 
   private readonly resize = (): void => {
@@ -597,10 +931,15 @@ export class SurfaceMode {
 
     const input = this.input;
     if (input.hit('Escape')) {
-      this.onExit();
-      return;
+      if (this.win) this.openWindow(null);
+      else {
+        this.onExit();
+        return;
+      }
     }
     if (input.hit('Space')) this.speed = this.speed ? 0 : 1;
+    for (let k = 0; k < SPEEDS.length; k++) if (input.hit(`Digit${k + 1}`)) this.speed = k;
+    for (const [code, win] of [['KeyC', 'chronicle'], ['KeyR', 'kingdoms'], ['KeyE', 'species'], ['KeyI', 'items']] as const) if (input.hit(code)) this.openWindow(win);
     const pan = 300 / this.zoom;
     this.center.x += ((input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0)) * pan * dt;
     this.center.y += ((input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0)) * pan * dt;
@@ -621,13 +960,12 @@ export class SurfaceMode {
         this.eco.step(0.1);
         this.simClock -= 0.1;
       }
-      this.spreadVegetation(simDt);
     }
 
     if (this.textureChanged) this.texture.needsUpdate = true;
     // Parado e sem mudanças, não redesenha.
     const view = `${this.center.x},${this.center.y},${this.zoom},${this.hover.x},${this.hover.y},${this.tool?.id},${this.brush},${this.renderer.getPixelRatio()}`;
-    if (simDt > 0 || this.textureChanged || view !== this.lastView) {
+    if (simDt > 0 || this.textureChanged || view !== this.lastView || this.eco.effects.length) {
       this.lastView = view;
       this.textureChanged = false;
       this.render(now);
@@ -636,11 +974,23 @@ export class SurfaceMode {
       this.lastInfo = now;
       this.updateInfo();
       this.updatePanel();
+      this.updateWindow();
+      this.updateToast(now);
     }
     input.endFrame();
   };
 
   private render(now: number): void {
+    // Terremoto: a câmera treme enquanto dura.
+    const shake = this.eco.shake > 0 ? Math.min(1, this.eco.shake) * 6 / this.zoom : 0;
+    const cx = this.center.x;
+    const cy = this.center.y;
+    if (shake) this.center.set(cx + (Math.random() - 0.5) * shake, cy + (Math.random() - 0.5) * shake);
+    this.renderView(now);
+    this.center.set(cx, cy);
+  }
+
+  private renderView(now: number): void {
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     const pr = this.renderer.getPixelRatio();
     if (this.renderer instanceof SoftRenderer) {
@@ -793,6 +1143,14 @@ export class SurfaceMode {
         buildings.push({ sprite, sx, sy, h: (rows * z) / 8, tint: ORE_COLORS[d.ore] });
       }
     }
+    // Ruínas de construções destruídas por desastres.
+    if (!small) {
+      for (const r of eco.ruins) {
+        const [sx, sy] = this.toScreen(r.x, r.y, z, w, h);
+        if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+        buildings.push({ sprite: 'ruin', sx, sy, h: z * 1.25, tint: [150, 150, 150] });
+      }
+    }
     // De cima para baixo, para as construções da frente cobrirem as de trás.
     buildings.sort((a, b) => b.sy - a.sy);
     for (const b of buildings) layer.push(b.sprite, b.sx, b.sy, b.h, b.tint);
@@ -824,7 +1182,7 @@ export class SurfaceMode {
       }
       if (sp.kind === 'sapient') {
         // Aparência pela profissão e pela idade; a pele de espécies alienígenas é a cor da espécie.
-        const body = sp.origin === 'sol-3' ? 'human' : 'alien';
+        const body = bodyOf(sp);
         const role = vi >= 0 ? eco.role[i] : 0;
         const era = vi >= 0 ? Math.floor(eco.villages[vi].tech) : 0;
         if (role === CHILD) {
@@ -835,18 +1193,63 @@ export class SurfaceMode {
         layer.push(`${body}:${elder ? 'elder' : ROLES[role]}`, sx, sy - z * 0.5, z * 1.05 * (11 / 9), tint, sp.color);
         continue;
       }
-      const name: SpriteName = { fish: 'fish', herbivore: 'herbivore', predator: 'predator', shark: 'shark' }[sp.kind];
-      const height = sp.kind === 'fish' ? 0.5 : sp.kind === 'shark' ? 0.55 : 0.85;
-      const flipped = sp.kind === 'shark' && eco.vx[i] < 0 ? `${name}:l` : name;
+      const name: SpriteName = spriteOf(sp);
+      // Altura pelo tamanho da espécie; os bichos olham para onde andam.
+      const height = (name === 'fish' ? 0.5 : name === 'shark' ? 0.55 : name === 'whale' ? 0.7 : 0.85) * (sp.size ?? 1);
+      const flipped = eco.vx[i] < 0 && SPRITES[`${name}:l`] ? `${name}:l` : name;
       layer.push(flipped, sx, sy - z * 0.5, z * height, tint);
     }
+    this.drawEffects(layer, w, h, z, margin);
     layer.end();
+  }
+
+  /** Efeitos de eventos (cometa caindo, explosão, fumaça, fogo, peste) e marcadores de guerra. */
+  private drawEffects(layer: SpriteLayer, w: number, h: number, z: number, margin: number): void {
+    const eco = this.eco;
+    const white = [255, 255, 255];
+    for (const fx of eco.effects) {
+      const t = fx.age / fx.life;
+      let x = fx.x;
+      let y = fx.y;
+      let size = Math.max(fx.size, 1) * z;
+      let sprite: SpriteName = fx.kind;
+      if (fx.kind === 'comet') {
+        // Desce do céu em diagonal até o ponto de impacto.
+        x -= (1 - t) * 30;
+        y -= (1 - t) * 40;
+        size = z * 3;
+      } else if (fx.kind === 'boom') {
+        // A explosão só aparece quando o cometa chega (depois de 2 s) e cresce.
+        const start = 2 / fx.life;
+        if (t < start && fx.life > 3) continue;
+        size *= 0.6 + 0.4 * Math.min(1, (t - start) * 4);
+      } else if (fx.kind === 'smoke') {
+        y -= t * 4;
+        size *= 1 + t;
+      } else if (fx.kind === 'flame') {
+        size = z * (1 + 0.2 * Math.sin(fx.age * 12 + fx.x));
+      } else if (fx.kind === 'quake') {
+        size = z * 1.2;
+      } else size = z * 1.6;
+      const [sx, sy] = this.toScreen(x, y, z, w, h);
+      if (sx < -margin * 4 || sx > w + margin * 4 || sy < -margin * 4 || sy > h + margin * 4) continue;
+      layer.push(sprite, sx, sy, size, white);
+    }
+    // Espadas cruzadas sobre os alvos das guerras em andamento.
+    if (z >= 1.5) {
+      for (const war of eco.wars) {
+        const v = eco.villages[war.target];
+        const [sx, sy] = this.toScreen(v.x, v.y - 4.5, z, w, h);
+        if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+        layer.push('swords', sx, sy, Math.max(10, z * 1.6), white);
+      }
+    }
   }
 
   /** Nomes das aldeias (como no WorldBox), visíveis com zoom. */
   private updateLabels(): void {
     const container = this.root.querySelector<HTMLElement>('[data-l]')!;
-    const show = this.zoom >= 2.5;
+    const show = this.showLabels && this.zoom >= 2.5;
     const w = window.innerWidth;
     const h = window.innerHeight;
     for (const v of this.eco.villages) {
@@ -912,31 +1315,6 @@ export class SurfaceMode {
     }
   }
 
-  /**
-   * Clima e vegetação (RF-SUP-07): a vegetação se espalha para vizinhos com
-   * clima favorável e morre onde o clima ficou hostil.
-   */
-  private spreadVegetation(simDt: number): void {
-    const m = this.map;
-    const n = m.width * m.height;
-    const samples = Math.min(40000, Math.round(n * 0.04 * simDt));
-    for (let k = 0; k < samples; k++) {
-      const i = Math.floor(this.rnd() * n);
-      if (m.elevation[i] < 0) continue;
-      const t = temperatureAt(m, i);
-      const ok = t > 262 && t < 320 && m.moisture[i] > 0.25;
-      const x = i % m.width;
-      const y = (i - x) / m.width;
-      const nx = (x + Math.floor(this.rnd() * 3) - 1 + m.width) % m.width;
-      const ny = y + Math.floor(this.rnd() * 3) - 1;
-      const neighbour = ny >= 0 && ny < m.height ? m.vegetation[ny * m.width + nx] : 0;
-      const before = m.vegetation[i];
-      if (ok && neighbour > 0.3) m.vegetation[i] = Math.min(1, before + 0.05);
-      else if (!ok) m.vegetation[i] = Math.max(0, before - 0.05);
-      if (m.vegetation[i] !== before) this.repaint(i);
-    }
-  }
-
   /** Nome da construção, rua ou plantação no tile, se houver. */
   private placeAt(i: number): string | null {
     const dep = this.eco.depositAt[i];
@@ -956,7 +1334,7 @@ export class SurfaceMode {
     for (const v of this.eco.villages) {
       for (const h of v.houses) {
         const size = h.kind === 'port' ? 0 : 1;
-        if (y >= h.y && y <= h.y + size && (x - h.x + w) % w <= size) return `${BUILDING_NAMES[h.kind]} · ${v.name}`;
+        if (y >= h.y && y <= h.y + size && (x - h.x + w) % w <= size) return `${h.kind === 'wonder' ? WONDER_NAMES[v.culture.value] : BUILDING_NAMES[h.kind]} · ${v.name}`;
       }
     }
     return null;
@@ -972,12 +1350,14 @@ export class SurfaceMode {
     const war = eco.warOf(v.kingdom);
     const enemy = war ? eco.villages[war.a === v.kingdom ? war.b : war.a].name : '';
     const c = v.culture;
+    const allies = eco.villages.filter((o) => !o.abandoned && o.kingdom === o.id && o.id !== v.kingdom && eco.allied(o.id, v.kingdom)).map((o) => o.name);
     return `
       <b>${TIER_NAMES[v.tier]} ${v.name}${capital !== v ? ` · Reino de ${capital.name}` : ''}</b>
       <span>Povo ${c.name} · valoriza ${c.value} · crê n${c.belief.startsWith('a') ? 'a' : 'o'}${c.belief.startsWith('os') || c.belief.startsWith('as') ? 's' : ''} ${c.belief.split(' ').slice(1).join(' ')}</span>
       ${stock ? `<span>${stock}</span>` : ''}
       ${need ? `<span>Para a próxima era: ${need}</span>` : ''}
       ${war ? `<span>⚔ Em guerra com ${enemy}</span>` : ''}
+      ${allies.length ? `<span>❤ Aliado de ${allies.join(', ')}</span>` : ''}
       <hr>`;
   }
 
@@ -1038,15 +1418,19 @@ export class SurfaceMode {
     return `<div class="wb-year">Rumo à ${ERAS[era + 1]}: ${Math.floor((top - era) * 100)}%</div>`;
   }
 
-  /** Painel lateral: ano, era, velocidade do tempo, população por espécie e acontecimentos. */
+  /** Painel lateral: ano, era, velocidade, população, povos, guerras e acontecimentos importantes. */
   private updatePanel(): void {
     const eco = this.eco;
     const live = eco.villages.filter((v) => !v.abandoned);
-    const kingdoms = live.filter((v) => v.kingdom === v.id && eco.kingdomSize(v) > 1).length;
+    const kingdoms = live.filter((v) => v.kingdom === v.id).length;
     const era = live.length ? ERAS[Math.floor(Math.max(...live.map((v) => v.tech)))] : 'Sem civilização';
-    const rows = eco.species
-      .map((sp, s) => `<div class="wb-pop"><i style="background:rgb(${sp.color.join(',')})"></i>${sp.name}<b>${eco.population[s]}</b></div>`)
+    const alive = eco.species.map((sp, s) => ({ sp, n: eco.population[s] })).filter((r) => r.n > 0).sort((a, b) => b.n - a.n);
+    const rows = alive
+      .slice(0, 7)
+      .map(({ sp, n }) => `<div class="wb-pop"><i style="background:rgb(${sp.color.join(',')})"></i>${sp.name}<b>${n}</b></div>`)
       .join('');
+    const more = alive.length > 7 ? `<button class="wb-goto" data-open="species">+ ${alive.length - 7} espécies…</button>` : '';
+    const events = eco.chronicle.filter((e) => this.showMinor || e.major).slice(0, 6);
     const html = `
       <div class="wb-era">${era}</div>
       ${this.progressLine(live)}
@@ -1054,12 +1438,14 @@ export class SurfaceMode {
       <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === this.speed ? 'on' : ''}">${v === 0 ? 'II' : `${v}x`}</button>`).join('')}</div>
       <div class="wb-section">População</div>
       ${rows || '<div class="wb-empty">Nenhuma espécie. Leve uma pela aba Vida.</div>'}
+      ${more}
+      <div class="wb-section">Povos</div>
       <div class="wb-pop">Assentamentos<b>${live.length}</b></div>
-      ${kingdoms ? `<div class="wb-pop">Reinos<b>${kingdoms}</b></div>` : ''}
-      ${eco.wars.length ? `<div class="wb-section">Guerras</div>${eco.wars.map((war) => `<div class="wb-log">⚔ ${eco.villages[war.a].name} × ${eco.villages[war.b].name} · ${war.losses[0] + war.losses[1]} mortos</div>`).join('')}` : ''}
-      ${eco.boats.length ? `<div class="wb-pop">Barcos no mar<b>${eco.boats.filter((b) => b.sunk < 0).length}</b></div>` : ''}
-      ${[...live].sort((a, b) => b.population - a.population).slice(0, 6).map((v) => `<button class="wb-goto" data-village="${v.id}"><i style="background:rgb(${v.color.join(',')})"></i>${TIER_NAMES[v.tier]} ${v.name}<b>${v.population}</b></button>`).join('')}
-      ${eco.log.length ? `<div class="wb-section">Acontecimentos</div>${eco.log.slice(0, 5).map((l) => `<div class="wb-log">${l}</div>`).join('')}` : ''}`;
+      ${kingdoms ? `<button class="wb-goto" data-open="kingdoms">Reinos e povos<b>${kingdoms}</b></button>` : ''}
+      ${eco.alliances.size ? `<div class="wb-pop">Alianças<b>${eco.alliances.size}</b></div>` : ''}
+      ${eco.wars.map((war) => `<button class="wb-goto bad" data-village="${war.target}">⚔ ${eco.villages[war.a].name} × ${eco.villages[war.b].name}<b>${war.losses[0] + war.losses[1]}†</b></button>`).join('')}
+      ${[...live].sort((a, b) => b.population - a.population).slice(0, 4).map((v) => `<button class="wb-goto" data-village="${v.id}"><i style="background:rgb(${v.color.join(',')})"></i>${TIER_NAMES[v.tier]} ${v.name}<b>${v.population}</b></button>`).join('')}
+      ${events.length ? `<div class="wb-section">Acontecimentos</div>${events.map((e) => `<button class="wb-log"${e.x >= 0 ? ` data-go="${e.x.toFixed(1)},${e.y.toFixed(1)}"` : ''}><span class="wb-yr">${Math.floor(e.year)}</span> ${Ecosystem.describe(e)}</button>`).join('')}<button class="wb-goto" data-open="chronicle">Crônica completa…</button>` : ''}`;
     if (html !== this.lastPanelHtml) {
       this.lastPanelHtml = html;
       this.root.querySelector<HTMLElement>('[data-p]')!.innerHTML = html;
@@ -1072,7 +1458,20 @@ export class SurfaceMode {
     }
     const total = this.map.elevation.length / 7;
     this.root.querySelector<HTMLElement>('[data-s]')!.textContent =
-      `${this.map.width}×${this.map.height} · terra ${Math.round((land / total) * 100)}% · vegetação ${Math.round((life / total) * 100)}% · 1 ano = ${YEAR_SECONDS / Math.max(1, SPEEDS[this.speed])} s`;
+      `terra ${Math.round((land / total) * 100)}% · vegetação ${Math.round((life / total) * 100)}% · 1 ano = ${YEAR_SECONDS / Math.max(1, SPEEDS[this.speed])} s`;
+  }
+
+  private toastUntil = 0;
+
+  /** Avisos curtos (lugar inválido etc.) num balão que some sozinho. */
+  private updateToast(now: number): void {
+    const el = this.root.querySelector<HTMLElement>('[data-toast]')!;
+    if (this.eco.hint) {
+      el.textContent = this.eco.hint;
+      el.hidden = false;
+      this.eco.hint = '';
+      this.toastUntil = now + 2500;
+    } else if (now > this.toastUntil) el.hidden = true;
   }
 
   dispose(): void {

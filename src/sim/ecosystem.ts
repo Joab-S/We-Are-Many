@@ -1,6 +1,7 @@
 import { mulberry32 } from '../core/rng';
-import { Biome, temperatureAt, type SurfaceMap } from '../procgen/surface';
+import { Biome, classify, temperatureAt, type SurfaceMap } from '../procgen/surface';
 import {
+  WONDER_NAMES,
   buildCost,
   emptyMade,
   emptyStock,
@@ -15,9 +16,11 @@ import {
   type Ore,
   type Stock,
 } from './economy';
+import { yearlyEvents } from './events';
+import { pickItem, pickPrimitive, TIER_MATERIAL, type Category, type Material } from './items';
 import { CHILD, pickRole, ROLE, type RoleContext } from './roles';
 import { lotsFor, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
-import { alienName, isAquatic, type Species, type SpeciesKind } from './species';
+import { alienName, habitatOf, type Species, type SpeciesKind } from './species';
 
 /**
  * Ecossistema da superfície (RF-SUP-08, RF-SUP-09): criaturas individuais
@@ -55,6 +58,45 @@ export const BOATS = [
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 
+/** Tipo de acontecimento, para filtrar a crônica. */
+export type ChronicleKind = 'povo' | 'era' | 'guerra' | 'natureza' | 'mar' | 'economia' | 'jogador';
+
+export interface ChronicleEntry {
+  year: number;
+  text: string;
+  kind: ChronicleKind;
+  /** Onde aconteceu (tile), para a câmera ir até lá; -1 sem lugar. */
+  x: number;
+  y: number;
+  /** Importante: aparece no painel e conta contra o marasmo. */
+  major: boolean;
+  /** Acontecimentos repetidos com a mesma chave se juntam numa linha só. */
+  key: string;
+  count: number;
+  /** Lugares envolvidos nas repetições (ex.: assentamentos). */
+  places: string[];
+}
+
+/** Anos de trégua depois de uma paz. */
+const TRUCE_YEARS = 25;
+
+/** Tamanho máximo da crônica guardada. */
+const CHRONICLE_MAX = 400;
+
+/** Anos em que repetições com a mesma chave se juntam na mesma linha. */
+const MERGE_YEARS = 30;
+
+/** Efeito visual na superfície; `age` e `life` em segundos de jogo. */
+export interface Effect {
+  kind: 'comet' | 'boom' | 'smoke' | 'flame' | 'quake' | 'skull' | 'tent' | 'heart' | 'swords';
+  x: number;
+  y: number;
+  age: number;
+  life: number;
+  /** Tamanho em tiles. */
+  size: number;
+}
+
 /** Guerra entre dois reinos (ids das capitais): `a` ataca o assentamento `target` de `b`. */
 export interface War {
   a: number;
@@ -63,13 +105,16 @@ export interface War {
   /** Mortos de cada lado em combate. */
   losses: [number, number];
   years: number;
+  /** Sem caminho por terra: o atacante manda soldados de barco. */
+  naval: boolean;
 }
 
 export interface Boat {
   village: number;
   /** Índice em BOATS (a era de quem construiu). */
   kind: number;
-  purpose: 'fish' | 'colonize';
+  /** Pesca, colonos, soldados de uma invasão ou exploradores. */
+  purpose: 'fish' | 'colonize' | 'invade' | 'explore';
   x: number;
   y: number;
   /** Direção para onde a proa aponta: 1 leste, -1 oeste. */
@@ -102,7 +147,7 @@ const KINGDOM_COLORS: [number, number, number][] = [
 ];
 
 /** Construções especiais, na ordem em que um assentamento costuma erguê-las. */
-export const BUILDINGS = ['granary', 'smithy', 'market', 'windmill', 'temple', 'barracks', 'factory'] as const;
+export const BUILDINGS = ['granary', 'smithy', 'market', 'windmill', 'temple', 'barracks', 'factory', 'statue', 'wonder'] as const;
 export type BuildingKind = 'house' | 'port' | (typeof BUILDINGS)[number];
 
 export const BUILDING_NAMES: Record<BuildingKind, string> = {
@@ -115,13 +160,15 @@ export const BUILDING_NAMES: Record<BuildingKind, string> = {
   temple: 'Templo',
   barracks: 'Quartel',
   factory: 'Fábrica',
+  statue: 'Estátua',
+  wonder: 'Grande obra',
 };
 
 /**
  * Se o assentamento já pode erguer a construção: era, nível e condições
  * (a ferraria só faz sentido com metal no estoque; a cultura adianta templos e mercados).
  */
-function canBuild(kind: (typeof BUILDINGS)[number], era: number, tier: number, metal: boolean, culture: Culture): boolean {
+function canBuild(kind: (typeof BUILDINGS)[number], era: number, tier: number, metal: boolean, culture: Culture, capital: boolean): boolean {
   switch (kind) {
     case 'granary':
       return era >= 1;
@@ -137,6 +184,11 @@ function canBuild(kind: (typeof BUILDINGS)[number], era: number, tier: number, m
       return era >= 2 && tier >= 2;
     case 'factory':
       return era >= 4 && tier >= 2;
+    // Capitais ricas erguem monumentos: estátua do líder e a grande obra do povo.
+    case 'statue':
+      return capital && era >= 2 && tier >= 2;
+    case 'wonder':
+      return capital && era >= 3 && tier >= 2;
   }
 }
 
@@ -204,7 +256,7 @@ interface Behaviour {
 const BEHAVIOUR: Record<SpeciesKind, Behaviour> = {
   fish: { metabolism: 0.03, birthRate: 0.12, cap: 2500, crowd: 6 },
   herbivore: { metabolism: 0.09, birthRate: 0.14, cap: 1600, crowd: 8 },
-  predator: { metabolism: 0.035, birthRate: 0.08, cap: 400, crowd: 3 },
+  predator: { metabolism: 0.026, birthRate: 0.08, cap: 400, crowd: 4 },
   shark: { metabolism: 0.012, birthRate: 0.08, cap: 150, crowd: 3 },
   // Inteligentes crescem devagar: poucos filhos por ano, para a história durar.
   sapient: { metabolism: 0.045, birthRate: 0.022, cap: 6000, crowd: 40 },
@@ -258,6 +310,31 @@ export class Ecosystem {
   readonly wars: War[] = [];
   private cultures = 0;
   private yearClock = 0;
+  /** Soldados que desembarcaram numa invasão por mar: marcham até o alvo de qualquer distância. */
+  readonly expedition = new Set<number>();
+  /** Espécies extintas neste planeta (podem reaparecer). */
+  readonly extinct = new Set<number>();
+  /** Trégua depois de uma paz: até esse ano o par não volta à guerra. */
+  readonly truces = new Map<string, number>();
+  /** Reinos cujo rei morreu e que podem se dividir numa guerra civil. */
+  private readonly crises = new Set<number>();
+  /** Alianças entre reinos (chave "a:b") e o ano em que começaram. */
+  readonly alliances = new Map<string, number>();
+  /** Reinos que já se conhecem por mar (chave "a:b"), além dos vizinhos por terra. */
+  readonly contacts = new Set<string>();
+  /** Quantos de cada item do catálogo já foram feitos no planeta (catálogo de itens). */
+  readonly crafted = new Map<string, number>();
+  /** Efeitos visuais de acontecimentos (cometa, explosão, fumaça, fogo...). */
+  readonly effects: Effect[] = [];
+  /** Ruínas de construções destruídas; somem com o tempo. */
+  readonly ruins: { x: number; y: number; age: number }[] = [];
+  /** Tremor de terra em andamento (segundos), para a câmera tremer. */
+  shake = 0;
+  /** Eventos aleatórios do mundo ligados e o ritmo deles (0,5 raro, 1 normal, 2 frequente). */
+  autoEvents = true;
+  eventRate = 1;
+  /** Lava que esfria aos poucos: tile e calor que ainda vai perder. */
+  private readonly cooling: { i: number; heat: number }[] = [];
   /** Ruas por tile: 0 nenhuma, 1 terra, 2 pedra, 3 praça. */
   readonly road: Uint8Array;
   /** Tiles ocupados por casas. */
@@ -265,10 +342,19 @@ export class Ecosystem {
   readonly population: number[] = [];
   /** Teto de cada espécie neste planeta, proporcional ao habitat. */
   private readonly caps: number[] = [];
+  /** Onde cada espécie vive (habitatOf) e se já teve indivíduos aqui (extinção). */
+  private readonly habitat: (0 | 1 | 2)[] = [];
+  private readonly everLived: boolean[] = [];
+  /** Chamado quando uma espécie entra no planeta (variantes novas vão para o catálogo). */
+  onSpecies: (sp: Species) => void = () => {};
   /** Anos de jogo desde a chegada. */
   year = 0;
-  /** Acontecimentos recentes, para o painel. */
-  readonly log: string[] = [];
+  /** Crônica do planeta, do mais novo para o mais antigo (RF-VIDA-156). */
+  readonly chronicle: ChronicleEntry[] = [];
+  /** Ano do último acontecimento importante (para detectar marasmo). */
+  lastMajor = 0;
+  /** Aviso curto para o jogador (ex.: lugar inválido), lido e limpo pela interface. */
+  hint = '';
   private free: number[] = [];
   private readonly rnd: () => number;
   private gridHead = new Int32Array(0);
@@ -296,6 +382,50 @@ export class Ecosystem {
     for (const d of this.deposits) this.depositAt[d.y * map.width + d.x] = d.id;
   }
 
+  /**
+   * Registra um acontecimento na crônica. Com `key`, repetições recentes
+   * (ex.: tempestades que afundam barcos de pesca) viram uma linha só, com a
+   * contagem e os lugares, para não encher o painel do mesmo assunto.
+   */
+  note(text: string, kind: ChronicleKind, at?: { x: number; y: number } | null, opts: { major?: boolean; key?: string; place?: string } = {}): void {
+    const major = opts.major ?? false;
+    if (major && kind !== 'jogador') this.lastMajor = this.year;
+    if (opts.key) {
+      const old = this.chronicle.find((e) => e.key === opts.key && this.year - e.year < MERGE_YEARS);
+      if (old) {
+        old.count++;
+        old.year = this.year;
+        if (opts.place && !old.places.includes(opts.place)) old.places.push(opts.place);
+        if (at) {
+          old.x = at.x;
+          old.y = at.y;
+        }
+        // Volta para o topo.
+        this.chronicle.splice(this.chronicle.indexOf(old), 1);
+        this.chronicle.unshift(old);
+        return;
+      }
+    }
+    this.chronicle.unshift({
+      year: this.year,
+      text,
+      kind,
+      x: at ? at.x : -1,
+      y: at ? at.y : -1,
+      major,
+      key: opts.key ?? '',
+      count: 1,
+      places: opts.place ? [opts.place] : [],
+    });
+    if (this.chronicle.length > CHRONICLE_MAX) this.chronicle.length = CHRONICLE_MAX;
+  }
+
+  /** Texto de uma linha da crônica, com repetições e lugares. */
+  static describe(e: ChronicleEntry): string {
+    const places = e.places.length > 1 ? ` (${e.places.slice(0, 4).join(', ')}${e.places.length > 4 ? '…' : ''})` : '';
+    return `${e.text}${places}${e.count > 1 ? ` ×${e.count}` : ''}`;
+  }
+
   get total(): number {
     return this.count - this.free.length;
   }
@@ -305,19 +435,42 @@ export class Ecosystem {
     if (existing >= 0) return existing;
     this.species.push(sp);
     this.population.push(0);
-    this.caps.push(this.habitatCap(sp));
+    this.habitat.push(habitatOf(sp));
+    this.everLived.push(false);
+    this.caps.push(0);
+    // Espécies do mesmo tipo dividem o habitat: o teto de cada uma cai.
+    this.species.forEach((o, s) => {
+      if (o.kind === sp.kind) this.caps[s] = this.habitatCap(o);
+    });
+    this.onSpecies(sp);
     return this.species.length - 1;
   }
 
   private habitatCap(sp: Species): number {
     const map = this.map;
+    const mode = habitatOf(sp);
     let area = 0;
     for (let i = 0; i < map.elevation.length; i += 4) {
-      if (isAquatic(sp.kind) ? isWater(map, i) : isLand(map, i)) area += 4;
+      const water = isWater(map, i);
+      if (mode === 2 ? water || isLand(map, i) : mode === 1 ? water : isLand(map, i)) area += 4;
     }
     // Inteligentes: o teto é largo; quem limita cada assentamento são as casas.
     const per = { fish: 140, herbivore: 150, predator: 1400, shark: 5000, sapient: 80 }[sp.kind];
-    return Math.max(20, Math.min(BEHAVIOUR[sp.kind].cap, Math.round(area / per)));
+    const sameKind = this.species.filter((o) => o.kind === sp.kind).length;
+    // O pasto (ou a caça) é o mesmo: a soma das espécies do tipo fica perto do teto de uma só.
+    const share = sp.kind === 'sapient' ? 1 : 1.4 / (sameKind + 0.4);
+    // Anfíbios ficam na costa: uma fração pequena da área.
+    const coast = mode === 2 ? 0.15 : 1;
+    return Math.max(20, Math.min(BEHAVIOUR[sp.kind].cap * share, Math.round((area / per) * share * coast)));
+  }
+
+  /** Se a espécie `s` pode estar no tile (terra, água ou, para anfíbios, a costa). */
+  canStand(s: number, i: number): boolean {
+    const mode = this.habitat[s];
+    if (mode === 0) return isLand(this.map, i);
+    if (mode === 1) return isWater(this.map, i);
+    // Anfíbios: terra perto da água ou água rasa.
+    return isLand(this.map, i) ? this.map.elevation[i] < 0.25 : isWater(this.map, i) && this.map.elevation[i] > -0.2;
   }
 
   /** População inicial, proporcional ao habitat disponível. */
@@ -368,8 +521,7 @@ export class Ecosystem {
 
   habitable(s: number, i: number): boolean {
     const sp = this.species[s];
-    const ok = isAquatic(sp.kind) ? isWater(this.map, i) : isLand(this.map, i);
-    if (!ok) return false;
+    if (!this.canStand(s, i)) return false;
     const t = temperatureAt(this.map, i);
     return t >= sp.tempMin - 5 && t <= sp.tempMax + 5;
   }
@@ -418,6 +570,7 @@ export class Ecosystem {
     this.alive[i] = 1;
     this.village[i] = village;
     this.population[s]++;
+    this.everLived[s] = true;
     if (village >= 0) {
       const v = this.villages[village];
       v.population++;
@@ -435,7 +588,13 @@ export class Ecosystem {
   kill(i: number, quiet = false): void {
     if (!this.alive[i]) return;
     this.alive[i] = 0;
-    this.population[this.kind[i]]--;
+    const s = this.kind[i];
+    this.population[s]--;
+    this.expedition.delete(i);
+    if (this.population[s] === 0 && this.species[s].kind !== 'sapient') {
+      this.extinct.add(s);
+      this.note(`${this.species[s].name}: a espécie foi extinta neste planeta`, 'natureza', { x: this.x[i], y: this.y[i] }, { major: true });
+    }
     const v = this.village[i];
     if (v >= 0) {
       const village = this.villages[v];
@@ -443,7 +602,8 @@ export class Ecosystem {
       // Só a morte de reis e de líderes de reinos entra nos acontecimentos.
       if (!quiet && village.leader === i && village.kingdom === village.id && (village.tier >= 2 || this.kingdomSize(village) > 1)) {
         const title = this.role[i] === ROLE.king ? 'O rei' : 'O líder';
-        this.log.unshift(`${title} de ${village.name} morreu aos ${Math.floor(this.age[i])} anos`);
+        if (this.kingdomSize(village) >= 4) this.crises.add(village.id);
+        this.note(`${title} de ${village.name} morreu aos ${Math.floor(this.age[i])} anos`, 'povo', village);
       }
     }
     this.free.push(i);
@@ -510,8 +670,7 @@ export class Ecosystem {
       const ny = this.y[i] + this.vy[i] * dt;
       const tile = Math.min(map.height - 1, Math.max(0, Math.floor(ny))) * w + (((Math.floor(nx) % w) + w) % w);
       const s = this.kind[i];
-      const fish = isAquatic(this.species[s].kind);
-      if (ny >= 0 && ny < map.height && (fish ? isWater(map, tile) : isLand(map, tile))) {
+      if (ny >= 0 && ny < map.height && this.canStand(s, tile)) {
         this.x[i] = ((nx % w) + w) % w;
         this.y[i] = ny;
       } else {
@@ -526,10 +685,47 @@ export class Ecosystem {
       }
     }
     this.updateBoats(dt);
+    this.growVegetation(dt);
+    for (let k = this.effects.length - 1; k >= 0; k--) {
+      const fx = this.effects[k];
+      fx.age += dt;
+      if (fx.age >= fx.life) this.effects.splice(k, 1);
+    }
+    if (this.shake > 0) this.shake = Math.max(0, this.shake - dt);
     this.villageClock += dt;
     if (this.villageClock >= 1) {
       this.updateVillages(this.villageClock);
       this.villageClock = 0;
+    }
+  }
+
+  /**
+   * Clima e vegetação (RF-SUP-07): a vegetação se espalha para vizinhos com
+   * clima favorável e morre onde o clima ficou hostil.
+   */
+  private growVegetation(dt: number): void {
+    const m = this.map;
+    const n = m.width * m.height;
+    const samples = Math.min(40000, Math.round(n * 0.04 * dt));
+    for (let k = 0; k < samples; k++) {
+      const i = Math.floor(this.rnd() * n);
+      if (m.elevation[i] < 0) continue;
+      const t = temperatureAt(m, i);
+      const ok = t > 262 && t < 320 && m.moisture[i] > 0.25;
+      const x = i % m.width;
+      const y = (i - x) / m.width;
+      const nx = (x + Math.floor(this.rnd() * 3) - 1 + m.width) % m.width;
+      const ny = y + Math.floor(this.rnd() * 3) - 1;
+      const neighbour = ny >= 0 && ny < m.height ? m.vegetation[ny * m.width + nx] : 0;
+      const before = m.vegetation[i];
+      // Espalha a partir dos vizinhos; um tile pastado ainda rebrota devagar pelas raízes.
+      if (ok && neighbour > 0.3) m.vegetation[i] = Math.min(1, before + 0.05);
+      else if (ok && before > 0.02 && before < 0.35) m.vegetation[i] = before + 0.02;
+      else if (!ok) m.vegetation[i] = Math.max(0, before - 0.05);
+      if (m.vegetation[i] !== before) {
+        m.biome[i] = classify(m, i);
+        this.onTileChanged(i);
+      }
     }
   }
 
@@ -557,7 +753,7 @@ export class Ecosystem {
     let e = this.energy[i] - b.metabolism * dt;
     if (temp < sp.tempMin || temp > sp.tempMax) e -= 0.2 * dt;
     // O habitat pode ter mudado por baixo da criatura (terraformação).
-    if (isAquatic(sp.kind) ? !isWater(map, tile) : !isLand(map, tile)) e -= 0.6 * dt;
+    if (!this.canStand(s, tile)) e -= 0.6 * dt;
 
     switch (sp.kind) {
       case 'fish':
@@ -565,6 +761,8 @@ export class Ecosystem {
         this.wander(i, sp.speed);
         break;
       case 'herbivore': {
+        // Anfíbios (tartaruga, sapo, caranguejo, pinguim) também comem na água.
+        if (this.habitat[s] === 2 && isWater(map, tile)) e += 0.06 * dt;
         const veg = map.vegetation[tile];
         if (veg > 0.12) {
           const bite = Math.min(veg - 0.1, 0.025);
@@ -597,8 +795,13 @@ export class Ecosystem {
         let pd = Infinity;
         let pdx = 0;
         let pdy = 0;
+        // Predadores anfíbios (crocodilo) também pegam peixes.
+        const fishToo = this.habitat[s] === 2;
         this.forEachNear(this.x[i], this.y[i], 20, (j, dx, dy) => {
-          if (this.species[this.kind[j]].kind !== 'herbivore') return;
+          const k = this.species[this.kind[j]].kind;
+          if (k !== 'herbivore' && !(fishToo && k === 'fish')) return;
+          // Presas raras se escondem melhor: a espécie não some de uma vez.
+          if (this.population[this.kind[j]] < this.caps[this.kind[j]] * 0.15) return;
           const d = dx * dx + dy * dy;
           if (d < pd) {
             pd = d;
@@ -607,11 +810,13 @@ export class Ecosystem {
             pdy = dy;
           }
         });
-        if (prey >= 0 && pd < 0.8) {
+        // Bichos pequenos (roedores, insetos, carniça) cobrem parte da fome no mato.
+        if (map.vegetation[tile] > 0.2) e += 0.016 * dt;
+        if (prey >= 0 && pd < 1.44 && e < 0.8) {
           this.kill(prey);
           e += 0.6;
           this.wander(i, sp.speed * 0.3);
-        } else if (prey >= 0 && e < 0.85) {
+        } else if (prey >= 0 && e < 0.65) {
           const len = Math.sqrt(pd) || 1;
           this.vx[i] = (pdx / len) * sp.speed;
           this.vy[i] = (pdy / len) * sp.speed;
@@ -697,8 +902,8 @@ export class Ecosystem {
             dy = d.y + 0.5 - this.y[i];
             range = 2;
           } else if (working && (role === ROLE.hunter || role === ROLE.miner)) {
-            // Caçadores e mineradores sem mina exploram longe de casa.
-            range = TIER_RADIUS[v.tier] * (role === ROLE.miner ? 2.5 : 1.8);
+            // Caçadores e mineradores sem mina exploram longe de casa, mais longe a cada era.
+            range = TIER_RADIUS[v.tier] * (role === ROLE.miner ? 2.5 : 1.8) * (1 + 0.25 * era);
           }
           if (working && role <= ROLE.miner && this.rnd() < 0.3) this.discover(i, v);
           const march = this.soldier(i, v);
@@ -860,7 +1065,9 @@ export class Ecosystem {
       this.onTileChanged(t);
     }
     v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.rnd() * 4) });
-    if (kind !== 'house') this.log.unshift(`${v.name} construiu ${kind === 'smithy' || kind === 'factory' ? 'uma' : 'um'} ${BUILDING_NAMES[kind].toLowerCase()}`);
+    if (kind === 'wonder') this.note(`${v.name} ergueu a ${WONDER_NAMES[v.culture.value]}, orgulho do povo ${v.culture.name}`, 'povo', v, { major: true });
+    else if (kind === 'statue') this.note(`${v.name} ergueu uma estátua do seu líder`, 'povo', v);
+    else if (kind !== 'house') this.note(`${v.name} construiu ${kind === 'smithy' || kind === 'factory' ? 'uma' : 'um'} ${BUILDING_NAMES[kind].toLowerCase()}`, 'economia', v);
     return true;
   }
 
@@ -869,7 +1076,8 @@ export class Ecosystem {
     const era = Math.floor(v.tech);
     const st = this.store(v);
     const metal = st.copper + st.tin + st.iron > 0;
-    for (const b of BUILDINGS) if (canBuild(b, era, v.tier, metal, v.culture) && !v.houses.some((h) => h.kind === b)) return b;
+    const capital = v.kingdom === v.id;
+    for (const b of BUILDINGS) if (canBuild(b, era, v.tier, metal, v.culture, capital) && !v.houses.some((h) => h.kind === b)) return b;
     return null;
   }
 
@@ -989,7 +1197,7 @@ export class Ecosystem {
     v.mines.length = 0;
     // Assentamentos do reino de uma capital abandonada ficam independentes.
     for (const o of this.villages) if (o.kingdom === v.id && o !== v) o.kingdom = o.id;
-    this.log.unshift(`${v.name} foi abandonada`);
+    this.note(`${v.name} foi abandonada`, 'povo', v, { major: v.tier >= 1 });
   }
 
   /** Sobe de nível quando a população permite. Aldeias e vilas não podem conter outro assentamento. */
@@ -1012,12 +1220,12 @@ export class Ecosystem {
         o.kingdom = v.kingdom;
         o.color = v.color;
         this.connect(v, o);
-        this.log.unshift(`${o.name} passou a fazer parte do reino de ${this.capitalOf(v).name}`);
+        this.note(`${o.name} passou a fazer parte do reino de ${this.capitalOf(v).name}`, 'povo', o);
       }
     }
     v.tier = target;
     this.layStreets(v);
-    this.log.unshift(`${v.name} virou ${TIER_NAMES[target].toLowerCase()}`);
+    this.note(`${v.name} virou ${TIER_NAMES[target].toLowerCase()}`, 'povo', v, { major: target >= 2 });
   }
 
   private updateVillages(dt: number): void {
@@ -1051,7 +1259,7 @@ export class Ecosystem {
         this.advance(v, ((dt / YEAR_SECONDS) * people * kingdom * wise) / ERA_YEARS[before]);
       }
       if (Math.floor(v.tech) > before) {
-        this.log.unshift(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`);
+        this.note(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`, 'era', v, { major: true });
         if (Math.floor(v.tech) === 3) this.layStreets(v);
       }
       this.growTier(v);
@@ -1073,19 +1281,21 @@ export class Ecosystem {
         for (const b of this.boats) if (b.village === v.id && b.purpose === 'fish' && b.sunk < 0) out++;
         if (out < Math.min(3, 1 + Math.floor(fishers[v.id] / 3))) this.launch(v, 'fish');
       }
-      // Assentamentos cheios (ou sem espaço, como numa ilha) enviam colonos para fundar outro.
+      // Exploradores por mar a partir do Bronze; povos comerciantes e sábios exploram mais.
+      const curious = v.culture.value === 'comércio' || v.culture.value === 'conhecimento' ? 2 : 1;
+      if (v.port >= 0 && v.tech >= 1 && this.rnd() < (0.012 * curious * dt) / YEAR_SECONDS) this.explore(v);
+      // Assentamentos cheios (ou sem espaço, como numa ilha) enviam colonos para fundar outro; mais em eras avançadas.
       const crowded = v.population >= 8 && v.population >= v.houses.length * 4 && !this.freeLot(v);
-      if ((v.population > 26 || crowded) && this.rnd() < (COLONY_RATE * dt) / YEAR_SECONDS && live < 100) {
+      if ((v.population > 26 || crowded) && this.rnd() < (COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * dt) / YEAR_SECONDS && live < 100) {
         if (!this.colonizeByLand(v)) this.colonizeBySea(v);
       }
     }
-    this.updateWars();
+    this.updateWars(dt);
     this.yearClock += dt;
     if (this.yearClock >= YEAR_SECONDS) {
       this.yearClock = 0;
-      this.diplomacy();
+      this.yearly();
     }
-    if (this.log.length > 8) this.log.length = 8;
   }
 
   // Economia ---------------------------------------------------------------
@@ -1103,9 +1313,10 @@ export class Ecosystem {
   private pay(v: Village, kind: string): boolean {
     const st = this.store(v);
     const c = buildCost(kind, Math.floor(v.tech));
-    if (st.wood < c.wood || st.stone < c.stone) return false;
+    if (st.wood < c.wood || st.stone < c.stone || st.gold < c.gold) return false;
     st.wood -= c.wood;
     st.stone -= c.stone;
+    st.gold -= c.gold;
     return true;
   }
 
@@ -1179,7 +1390,7 @@ export class Ecosystem {
         if (d.amount <= 0) {
           d.mine = -1;
           v.mines.splice(v.mines.indexOf(d.id), 1);
-          this.log.unshift(`A mina de ${ORE_NAMES[d.ore]} de ${v.name} se esgotou`);
+          this.note(`A mina de ${ORE_NAMES[d.ore]} de ${v.name} se esgotou`, 'economia', d);
         }
       }
     }
@@ -1190,29 +1401,69 @@ export class Ecosystem {
       st.stone += stone;
       made.stone += stone;
     }
-    // Ferraria: cada ferreiro faz uma peça a cada ano e pouco, se houver metal.
+    const era = Math.floor(v.tech);
+    const soldiers = w[ROLE.soldier] + w[ROLE.guard];
+    // Idade da Pedra: construtores e coletores lascam pedra e madeira (sem ferraria).
+    if (st.stone >= 1 && st.wood >= 1 && this.rnd() < (w[ROLE.builder] + w[ROLE.gatherer]) * 0.12 * yr) {
+      st.stone -= 1;
+      st.wood -= 1;
+      this.craft(v, st, this.needed(st, adults, soldiers, v), 'stone', era);
+    }
+    // Ferraria: cada ferreiro faz uma peça a cada ano e pouco, se houver metal; a fábrica dobra o ritmo.
     if (w[ROLE.blacksmith] && v.houses.some((h) => h.kind === 'smithy')) {
-      v.forgeWork += w[ROLE.blacksmith] * 0.6 * yr;
+      const factory = v.houses.some((h) => h.kind === 'factory') ? 2 : 1;
+      v.forgeWork += w[ROLE.blacksmith] * 0.6 * yr * factory;
       while (v.forgeWork >= 1) {
-        const piece = forge(st, Math.floor(v.tech));
+        // Ouro vira joia de vez em quando (anéis, amuletos e a coroa do rei).
+        if (era >= 1 && st.gold >= 2 && this.rnd() < 0.2) {
+          st.gold -= 2;
+          v.forgeWork -= 1;
+          this.craft(v, st, 'joia', 'gold', era);
+          continue;
+        }
+        const piece = forge(st, era);
         if (!piece) {
           v.forgeWork = 0;
           break;
         }
         v.forgeWork -= 1;
         made[piece.kind]++;
-        // Primeiro ferramentas; depois armas (antes, se o reino estiver em guerra).
-        if (st.tools < adults * 0.3 && !this.warOf(v.kingdom)) st.tools++;
-        else {
-          st.weapons++;
-          st.weaponTier = Math.max(st.weaponTier, piece.tier);
-        }
+        this.craft(v, st, this.needed(st, adults, soldiers, v), TIER_MATERIAL[piece.tier], era);
       }
     }
     // Ferramentas se gastam com o uso.
     st.tools = Math.max(0, st.tools - st.tools * 0.02 * yr);
     // Abre uma mina numa jazida conhecida, de preferência do minério que falta para a próxima era.
     if (w[ROLE.miner] && v.mines.length < 1 + v.tier && this.rnd() < 0.1 * dt) this.openMine(v);
+  }
+
+  /** O que falta mais: ferramentas para quem trabalha, armas e armaduras para quem luta (antes, na guerra). */
+  private needed(st: Stock, adults: number, soldiers: number, v: Village): Category {
+    const war = this.warOf(v.kingdom) !== null;
+    if (!war && st.tools < adults * 0.3) return 'ferramenta';
+    if (st.weapons < soldiers + 2 || (war && st.weapons <= st.armor)) return 'arma';
+    if (st.armor < soldiers) return 'armadura';
+    return st.tools <= st.weapons ? 'ferramenta' : 'arma';
+  }
+
+  /** Um item do catálogo entra no estoque do reino; a primeira vez que alguém no mundo o faz vira notícia. */
+  private craft(v: Village, st: Stock, category: Category, material: Material, era: number): void {
+    const item = material === 'stone' ? pickPrimitive(category, this.rnd()) : pickItem(material, category, era, this.rnd());
+    if (!item) return;
+    st.items[item.id] = (st.items[item.id] ?? 0) + 1;
+    const tier = Math.max(0, TIER_MATERIAL.indexOf(material));
+    if (item.category === 'ferramenta') st.tools++;
+    else if (item.category === 'arma') {
+      st.weapons++;
+      st.weaponTier = Math.max(st.weaponTier, tier);
+    } else if (item.category === 'armadura') {
+      st.armor++;
+      st.armorTier = Math.max(st.armorTier, tier);
+    } else st.jewels++;
+    this.crafted.set(item.id, (this.crafted.get(item.id) ?? 0) + 1);
+    if (this.crafted.get(item.id) === 1 && material !== 'stone' && material !== 'wood') {
+      this.note(`Pela primeira vez neste mundo, ${v.name} fez ${item.name.toLowerCase()}`, 'economia', v);
+    }
   }
 
   /** Minérios que o povo precisa agora para a próxima era. */
@@ -1245,7 +1496,7 @@ export class Ecosystem {
       this.road[tile] = 0;
       this.onTileChanged(tile);
     }
-    this.log.unshift(`${v.name} abriu uma mina de ${ORE_NAMES[best.ore]}${best.cave ? ' numa caverna' : ''}`);
+    this.note(`${v.name} abriu uma mina de ${ORE_NAMES[best.ore]}${best.cave ? ' numa caverna' : ''}`, 'economia', best);
     return true;
   }
 
@@ -1262,7 +1513,7 @@ export class Ecosystem {
         const d = this.deposits[id];
         if (d.amount <= 0 || d.known.has(v.kingdom)) continue;
         d.known.add(v.kingdom);
-        this.log.unshift(`${v.name} encontrou ${ORE_NAMES[d.ore]} ${d.cave ? 'numa caverna' : 'num veio'}`);
+        this.note(`${v.name} encontrou ${ORE_NAMES[d.ore]} ${d.cave ? 'numa caverna' : 'num veio'}`, 'economia', d);
       }
     }
   }
@@ -1270,12 +1521,10 @@ export class Ecosystem {
   /** O jogador coloca um veio de minério num tile de terra (ajuda leve). */
   placeOre(x: number, y: number, ore: Ore): boolean {
     const t = this.tileAt(x, Math.floor(y));
-    if (t < 0 || !isLand(this.map, t) || this.depositAt[t] >= 0 || this.built[t] || this.road[t]) return false;
-    const w = this.map.width;
-    const d: Deposit = { id: this.deposits.length, x: t % w, y: Math.floor(t / w), ore, amount: 100, initial: 100, cave: false, mine: -1, known: new Set() };
-    this.deposits.push(d);
-    this.depositAt[t] = d.id;
-    this.log.unshift(`Um veio de ${ORE_NAMES[ore]} apareceu na superfície`);
+    if (t < 0 || this.road[t]) return false;
+    const d = this.addDeposit(x, y, ore, 100, false);
+    if (!d) return false;
+    this.note(`Você colocou um veio de ${ORE_NAMES[ore]}`, 'jogador', d);
     return true;
   }
 
@@ -1295,13 +1544,40 @@ export class Ecosystem {
     return null;
   }
 
-  /** Força de combate de um indivíduo: profissão, era e armas do reino. */
+  /** Guerra entre dois reinos, se houver. */
+  private warBetween(a: number, b: number): War | null {
+    for (const w of this.wars) if ((w.a === a && w.b === b) || (w.a === b && w.b === a)) return w;
+    return null;
+  }
+
+  /** Inimigos de cada reino; refeito a cada atualização das guerras. */
+  private enemies = new Map<number, Set<number>>();
+
+  private rebuildEnemies(): void {
+    this.enemies.clear();
+    for (const w of this.wars) {
+      for (const [x, y] of [[w.a, w.b], [w.b, w.a]]) {
+        const set = this.enemies.get(x) ?? new Set<number>();
+        set.add(y);
+        this.enemies.set(x, set);
+      }
+    }
+  }
+
+  allied(a: number, b: number): boolean {
+    return this.alliances.has(this.key(a, b));
+  }
+
+  /** Força de combate de um indivíduo: profissão, era, armas e armaduras do reino. */
   private strength(i: number): number {
     const v = this.villages[this.village[i]];
     const st = this.store(v);
     const role = this.role[i];
     const base = role === ROLE.soldier ? 1.2 : role === ROLE.guard ? 1.1 : role === ROLE.king || role === ROLE.leader ? 0.8 : 0.4;
-    return base * (1 + 0.15 * Math.floor(v.tech)) * (1 + 0.5 * st.weaponTier * Math.min(1, st.weapons / 10));
+    const arms = 1 + 0.5 * st.weaponTier * Math.min(1, st.weapons / 10);
+    const armor = 1 + 0.25 * st.armorTier * Math.min(1, st.armor / 10);
+    const arena = this.villages[v.kingdom].houses.some((h) => h.kind === 'wonder') && this.villages[v.kingdom].culture.value === 'guerra' ? 1.15 : 1;
+    return base * (1 + 0.15 * Math.floor(v.tech)) * arms * armor * arena;
   }
 
   /** Luta entre dois indivíduos de reinos em guerra: um deles morre. */
@@ -1312,35 +1588,43 @@ export class Ecosystem {
     const k = this.villages[this.village[loser]].kingdom;
     war.losses[k === war.a ? 0 : 1]++;
     const st = this.villages[k].stock;
-    if (st.weapons > 0 && this.role[loser] === ROLE.soldier) st.weapons--;
+    if (this.role[loser] === ROLE.soldier) {
+      if (st.weapons > 0) st.weapons--;
+      if (st.armor > 0 && this.rnd() < 0.5) st.armor--;
+    }
     this.kill(loser, true);
   }
 
   /** Combate e marcha dos soldados; chamado no `decide` de cada inteligente. */
   private soldier(i: number, v: Village): { x: number; y: number } | null {
-    const war = this.warOf(v.kingdom);
-    if (!war) return null;
+    const enemies = this.enemies.get(v.kingdom);
+    if (!enemies) return null;
     const role = this.role[i];
-    const enemy = war.a === v.kingdom ? war.b : war.a;
     if (role === ROLE.soldier || role === ROLE.guard) {
       let foe = -1;
       this.forEachNear(this.x[i], this.y[i], 1.5, (j) => {
         if (foe >= 0 || this.village[j] < 0 || this.species[this.kind[j]].kind !== 'sapient') return;
-        if (this.villages[this.village[j]].kingdom === enemy) foe = j;
+        if (enemies.has(this.villages[this.village[j]].kingdom)) foe = j;
       });
       if (foe >= 0) {
-        this.fight(i, foe, war);
+        const war = this.warBetween(v.kingdom, this.villages[this.village[foe]].kingdom);
+        if (war) this.fight(i, foe, war);
         return null;
       }
     }
-    // Soldados do atacante marcham até o alvo; os do defensor voltam para defender o alvo.
-    const target = this.villages[war.target];
-    if (role !== ROLE.soldier || this.distance(target, v.x, v.y) > 90) return null;
-    return { x: wrapDx(target.x - this.x[i], this.map.width), y: target.y - this.y[i] };
+    if (role !== ROLE.soldier) return null;
+    // Soldados do atacante marcham até o alvo (por terra, até 90 tiles; os que desembarcaram, de qualquer distância).
+    for (const war of this.wars) {
+      if (war.a !== v.kingdom) continue;
+      const target = this.villages[war.target];
+      if (!this.expedition.has(i) && (war.naval || this.distance(target, v.x, v.y) > 90)) continue;
+      return { x: wrapDx(target.x - this.x[i], this.map.width), y: target.y - this.y[i] };
+    }
+    return null;
   }
 
-  /** Conquista: atacantes na praça e nenhum defensor armado por perto. */
-  private updateWars(): void {
+  /** Conquista (atacantes na praça e nenhum defensor armado por perto) e invasões por mar. */
+  private updateWars(dt: number): void {
     for (let k = this.wars.length - 1; k >= 0; k--) {
       const war = this.wars[k];
       const a = this.villages[war.a];
@@ -1363,8 +1647,75 @@ export class Ecosystem {
       if (attackers >= 3 && defenders === 0) {
         this.conquer(war, target);
         this.wars.splice(k, 1);
+        continue;
       }
+      if (war.naval && this.rnd() < 0.06 * dt) this.invadeBySea(war);
     }
+    this.rebuildEnemies();
+  }
+
+  /** Rota de barco do porto `from` até a costa perto do alvo, dentro do alcance; null se não houver. */
+  private seaRoute(from: Village, target: Village): { path: number[]; landing: number } | null {
+    if (from.port < 0) return null;
+    const w = this.map.width;
+    const type = BOATS[Math.min(BOATS.length - 1, Math.floor(from.tech))];
+    let found = -1;
+    let landing = -1;
+    const reach = TIER_RADIUS[target.tier] + 6;
+    this.searchSea(from.port, 400000, type.range, (t) => {
+      const x = t % w;
+      const y = (t - x) / w;
+      if (Math.hypot(wrapDx(x - target.x, w), y - target.y) > reach) return false;
+      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const l = this.tileAt(x + ox, y + oy);
+        if (l >= 0 && isLand(this.map, l)) {
+          found = t;
+          landing = l;
+          return true;
+        }
+      }
+      return false;
+    });
+    if (found < 0) return null;
+    const path: number[] = [];
+    for (let t = found; t >= 0; t = this.searchParent[t]) path.push(t);
+    return { path: path.reverse(), landing };
+  }
+
+  /** Porto do reino `k` com rota até o alvo, se houver. */
+  private navalBase(k: number, target: Village): { from: Village; route: { path: number[]; landing: number } } | null {
+    if (Math.floor(this.villages[k].tech) < 1) return null;
+    const ports = this.villages.filter((v) => !v.abandoned && v.kingdom === k && v.port >= 0).sort((p, q) => this.distance(p, target.x, target.y) - this.distance(q, target.x, target.y));
+    for (const from of ports.slice(0, 3)) {
+      const route = this.seaRoute(from, target);
+      if (route) return { from, route };
+    }
+    return null;
+  }
+
+  /** Invasão por mar: soldados embarcam no porto mais perto e desembarcam perto do alvo. */
+  private invadeBySea(war: War): void {
+    if (this.boats.filter((b) => b.purpose === 'invade' && b.sunk < 0 && this.villages[b.village].kingdom === war.a).length >= 2) return;
+    const base = this.navalBase(war.a, this.villages[war.target]);
+    if (!base) return;
+    const { from, route } = base;
+    const type = BOATS[Math.min(BOATS.length - 1, Math.floor(from.tech))];
+    const passengers: Boat['passengers'] = [];
+    for (let i = 0; i < this.count && passengers.length < type.capacity; i++) {
+      if (!this.alive[i] || this.role[i] !== ROLE.soldier || this.village[i] < 0 || this.villages[this.village[i]].kingdom !== war.a) continue;
+      if (this.distance(from, this.x[i], this.y[i]) > TIER_RADIUS[from.tier] + 6) continue;
+      passengers.push({ age: this.age[i], role: ROLE.soldier });
+      this.kill(i, true);
+    }
+    if (passengers.length < 3) {
+      for (const p of passengers) {
+        const c = this.spawn(from.species, from.x + this.rnd(), from.y + this.rnd(), from.id, p.age);
+        if (c >= 0) this.role[c] = p.role;
+      }
+      return;
+    }
+    this.launch(from, 'invade', route.path, route.landing, passengers);
+    this.note(`${passengers.length} soldados de ${from.name} zarparam ${type.on} para atacar ${this.villages[war.target].name}`, 'guerra', from);
   }
 
   private conquer(war: War, target: Village): void {
@@ -1375,7 +1726,7 @@ export class Ecosystem {
     }
     // Saque: metade do estoque do vencido vai para o vencedor.
     const loot = this.villages[target.kingdom].stock;
-    for (const key of ['wood', 'stone', 'copper', 'tin', 'iron', 'gold', 'coal', 'weapons'] as const) {
+    for (const key of ['wood', 'stone', 'copper', 'tin', 'iron', 'gold', 'coal', 'weapons', 'armor', 'jewels'] as const) {
       const half = loot[key] / 2;
       loot[key] -= half;
       winner.stock[key] += half;
@@ -1385,13 +1736,24 @@ export class Ecosystem {
     target.leader = -1;
     for (const id of target.mines) this.deposits[id].known.add(winner.id);
     this.relations.set(this.key(war.a, war.b), -20);
-    this.log.unshift(`${winner.name} conquistou ${target.name}`);
+    this.note(`${winner.name} conquistou ${target.name}`, 'guerra', target, { major: true });
+  }
+
+  /** Uma vez por ano: diplomacia, lava esfriando, ruínas sumindo e eventos do mundo. */
+  private yearly(): void {
+    for (const k of this.crises) this.succession(this.villages[k]);
+    this.crises.clear();
+    this.diplomacy();
+    this.coolLava();
+    for (let k = this.ruins.length - 1; k >= 0; k--) if (++this.ruins[k].age > 40) this.ruins.splice(k, 1);
+    yearlyEvents(this);
   }
 
   /**
-   * Uma vez por ano: relações entre reinos vizinhos mudam (fronteira, espécie,
-   * cultura, comércio), reinos com mercado comerciam e, com relação muito
-   * ruim, um declara guerra ao outro. Guerras longas ou sangrentas acabam em paz.
+   * Uma vez por ano: as relações entre reinos que se conhecem (vizinhos por
+   * terra ou contatos por mar) mudam por fronteira, espécie, cultura,
+   * comércio e incidentes; surgem alianças, uniões e guerras; guerras longas
+   * ou sangrentas acabam em paz.
    */
   private diplomacy(): void {
     // Armazéns têm limite: madeira e pedra sobrando não se acumulam para sempre.
@@ -1410,7 +1772,16 @@ export class Ecosystem {
       list.push(v);
       members.set(v.kingdom, list);
     }
-    const market = (k: number) => (members.get(k) ?? []).some((v) => v.houses.some((h) => h.kind === 'market'));
+    // Soldados por reino, contados uma vez.
+    const soldiers = new Map<number, number>();
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || this.role[i] !== ROLE.soldier || this.village[i] < 0) continue;
+      const k = this.villages[this.village[i]].kingdom;
+      soldiers.set(k, (soldiers.get(k) ?? 0) + 1);
+    }
+    const force = (k: number) => (soldiers.get(k) ?? 0) * (1 + this.villages[k].stock.weaponTier * 0.5);
+    const has = (k: number, kind: BuildingKind) => (members.get(k) ?? []).some((v) => v.houses.some((h) => h.kind === kind));
+    const port = (k: number) => (members.get(k) ?? []).some((v) => v.port >= 0);
     for (let x = 0; x < capitals.length; x++) {
       for (let y = x + 1; y < capitals.length; y++) {
         const a = capitals[x];
@@ -1429,10 +1800,11 @@ export class Ecosystem {
             }
           }
         }
-        if (best > 60) continue;
         const key = this.key(a.id, b.id);
+        const border = best <= 60;
+        if (!border && !this.contacts.has(key)) continue;
         let rel = this.relations.get(key) ?? (a.species !== b.species ? -30 : 0);
-        rel -= 1.5;
+        if (border) rel -= 1.5;
         if (a.species !== b.species) rel -= 1;
         if (a.culture.id !== b.culture.id) rel -= 0.5;
         for (const c of [a.culture, b.culture]) {
@@ -1440,25 +1812,30 @@ export class Ecosystem {
           if (c.value === 'fé' || c.value === 'comércio') rel += 0.5;
         }
         rel += (a.culture.tolerance + b.culture.tolerance) * 1.2;
-        const war = this.warOf(a.id);
-        if (!war && !this.warOf(b.id) && market(a.id) && market(b.id) && this.trade(a, b)) rel += 3 * (a.culture.value === 'comércio' || b.culture.value === 'comércio' ? 2 : 1);
+        if (this.allied(a.id, b.id)) rel += 2;
+        const atWar = this.warBetween(a.id, b.id);
+        const busy = this.warOf(a.id) || this.warOf(b.id);
+        // Comércio: por terra entre vizinhos com mercado; por mar entre contatos com mercado e porto.
+        // Sem mercado, vizinhos amigos ainda fazem escambo.
+        const market = (has(a.id, 'market') && has(b.id, 'market') && (border || (port(a.id) && port(b.id)))) || (border && rel > 20);
+        if (!atWar && market && this.trade(a, b)) rel += 3 * (a.culture.value === 'comércio' || b.culture.value === 'comércio' ? 2 : 1);
+        if (!atWar && this.rnd() < 0.03) rel += this.incident(a, b, border);
         rel = Math.max(-100, Math.min(100, rel));
         this.relations.set(key, rel);
-        if (war || this.warOf(b.id) || rel > -40 || !this.landPath(pa.x, pa.y, pb.x, pb.y)) continue;
+        if (atWar) continue;
+        if (this.alliance(a, b, rel)) continue;
+        if (busy) continue;
+        // Guerra: relação muito ruim, ou ambição de um reino forte e avançado.
         const warlike = a.culture.value === 'guerra' || b.culture.value === 'guerra';
-        if (this.rnd() > 0.12 * (warlike ? 2 : 1)) continue;
-        // Ataca quem tem mais soldados; o alvo é o assentamento do outro mais perto.
-        const soldiers = (k: number) => {
-          let n = 0;
-          for (let i = 0; i < this.count; i++) if (this.alive[i] && this.role[i] === ROLE.soldier && this.village[i] >= 0 && this.villages[this.village[i]].kingdom === k) n++;
-          return n * (1 + this.villages[k].stock.weaponTier * 0.5);
-        };
-        const sa = soldiers(a.id);
-        const sb = soldiers(b.id);
-        if (Math.max(sa, sb) < 4) continue;
-        const [att, def, target] = sa >= sb ? [a, b, pb] : [b, a, pa];
-        this.wars.push({ a: att.id, b: def.id, target: target.id, losses: [0, 0], years: 0 });
-        this.log.unshift(`Guerra! ${att.name} atacou ${def.name}${target !== def ? ` em ${target.name}` : ''}`);
+        const fa = force(a.id);
+        const fb = force(b.id);
+        const strong = Math.max(fa, fb) >= 2 * Math.max(1, Math.min(fa, fb)) && Math.floor(Math.max(a.tech, b.tech)) >= 2;
+        const hostile = rel < (warlike ? -20 : -35);
+        const ambition = strong && rel < 0 && this.rnd() < 0.04;
+        if (!ambition && (!hostile || this.rnd() > 0.15 * (warlike ? 2 : 1))) continue;
+        if (Math.max(fa, fb) < 4 || this.allied(a.id, b.id) || (this.truces.get(key) ?? 0) > this.year) continue;
+        const [att, def, target] = fa >= fb ? [a, b, pb] : [b, a, pa];
+        if (this.declareWar(att, def, target, members)) this.callAllies(att, def, members);
       }
     }
     for (let k = this.wars.length - 1; k >= 0; k--) {
@@ -1468,9 +1845,162 @@ export class Ecosystem {
       if (this.rnd() < 0.03 + dead / 150 + (war.years > 30 ? 0.1 : 0)) {
         this.wars.splice(k, 1);
         this.relations.set(this.key(war.a, war.b), -10);
-        this.log.unshift(`Paz entre ${this.villages[war.a].name} e ${this.villages[war.b].name}`);
+        this.truces.set(this.key(war.a, war.b), this.year + TRUCE_YEARS);
+        this.note(`Paz entre ${this.villages[war.a].name} e ${this.villages[war.b].name}`, 'guerra', this.villages[war.b], { major: true });
       }
     }
+    this.vassals(members);
+    this.rebuildEnemies();
+  }
+
+  /** Declara guerra se houver caminho por terra ou, sem ele, por mar. Retorna se começou. */
+  private declareWar(att: Village, def: Village, target: Village, members: Map<number, Village[]>): boolean {
+    let naval = false;
+    const home = (members.get(att.id) ?? []).reduce((p, q) => (this.distance(q, target.x, target.y) < this.distance(p, target.x, target.y) ? q : p), att);
+    if (!this.landPath(home.x, home.y, target.x, target.y)) {
+      if (!this.navalBase(att.id, target)) return false;
+      naval = true;
+    }
+    this.wars.push({ a: att.id, b: def.id, target: target.id, losses: [0, 0], years: 0, naval });
+    this.note(`Guerra! ${att.name} atacou ${def.name}${target !== def ? ` em ${target.name}` : ''}${naval ? ', pelo mar' : ''}`, 'guerra', target, { major: true });
+    this.effect('swords', target.x, target.y - 3, 30, 1);
+    return true;
+  }
+
+  /** Aliados do atacado entram na guerra (pacto de defesa) ou mandam armas. */
+  private callAllies(att: Village, def: Village, members: Map<number, Village[]>): void {
+    for (const ally of this.villages) {
+      if (ally.abandoned || ally.kingdom !== ally.id || ally === def || ally === att || !this.allied(ally.id, def.id) || this.allied(ally.id, att.id)) continue;
+      if (this.warOf(ally.id)) continue;
+      // Alvo: o assentamento do atacante mais perto do aliado.
+      const target = (members.get(att.id) ?? [att]).reduce((p, q) => (this.distance(q, ally.x, ally.y) < this.distance(p, ally.x, ally.y) ? q : p));
+      if (this.declareWar(ally, att, target, members)) {
+        this.note(`${ally.name} entrou na guerra ao lado de ${def.name}`, 'guerra', ally, { major: true });
+      } else {
+        const gift = Math.min(ally.stock.weapons, 5);
+        ally.stock.weapons -= gift;
+        def.stock.weapons += gift;
+        if (gift) this.note(`${ally.name} mandou armas para ajudar ${def.name}`, 'guerra', ally);
+      }
+    }
+  }
+
+  /** Incidente entre dois reinos (presente, casamento, insulto, escaramuça, disputa); devolve a mudança na relação. */
+  private incident(a: Village, b: Village, border: boolean): number {
+    const warlike = (a.culture.value === 'guerra' ? 1 : 0) + (b.culture.value === 'guerra' ? 1 : 0);
+    const kind = (a.culture.value === 'fé' || b.culture.value === 'fé' || a.culture.value === 'comércio') ? 0.55 : 0.4;
+    const good = this.rnd() < kind - warlike * 0.12;
+    const [x, y] = this.rnd() < 0.5 ? [a, b] : [b, a];
+    if (good) {
+      if (a.species === b.species && a.tier >= 1 && b.tier >= 1 && this.rnd() < 0.35) {
+        this.note(`Um casamento real uniu as famílias de ${a.name} e ${b.name}`, 'povo', a);
+        return 12;
+      }
+      this.note(`${x.name} enviou presentes a ${y.name}`, 'povo', x);
+      return 6;
+    }
+    const shared = this.deposits.find((d) => d.amount > 0 && d.known.has(a.id) && d.known.has(b.id) && this.distance(a, d.x, d.y) < 50 && this.distance(b, d.x, d.y) < 50);
+    if (shared && this.rnd() < 0.5) {
+      this.note(`${a.name} e ${b.name} disputam a jazida de ${ORE_NAMES[shared.ore]}`, 'guerra', shared);
+      return -7;
+    }
+    if (border && this.rnd() < 0.5) {
+      this.note(`Escaramuça na fronteira entre ${a.name} e ${b.name}`, 'guerra', y);
+      return -9;
+    }
+    this.note(`O líder de ${x.name} insultou o povo de ${y.name}`, 'povo', x);
+    return -6;
+  }
+
+  /**
+   * Alianças: relação acima de 50 pode virar aliança; abaixo de 15 ela acaba.
+   * Aliados antigos da mesma espécie podem se unir num reino só (federação).
+   * Retorna true se o par mudou de situação neste ano.
+   */
+  private alliance(a: Village, b: Village, rel: number): boolean {
+    const key = this.key(a.id, b.id);
+    const since = this.alliances.get(key);
+    if (since === undefined) {
+      if (rel > 50 && !this.warOf(a.id) && !this.warOf(b.id) && this.rnd() < 0.12) {
+        this.alliances.set(key, this.year);
+        this.note(`Aliança entre ${a.name} e ${b.name}`, 'povo', a, { major: true });
+        this.effect('heart', a.x, a.y - 3, 20, 1);
+        this.effect('heart', b.x, b.y - 3, 20, 1);
+        return true;
+      }
+      return false;
+    }
+    if (rel < 15) {
+      this.alliances.delete(key);
+      this.note(`A aliança entre ${a.name} e ${b.name} acabou`, 'povo', a, { major: true });
+      return true;
+    }
+    if (this.year - since > 50 && a.species === b.species && rel > 80 && this.rnd() < 0.03) {
+      const [big, small] = this.kingdomSize(a) >= this.kingdomSize(b) ? [a, b] : [b, a];
+      for (const o of this.villages) {
+        if (o.abandoned || o.kingdom !== small.id) continue;
+        o.kingdom = big.id;
+        o.color = big.color;
+      }
+      small.leader = -1;
+      for (const field of ['wood', 'stone', 'copper', 'tin', 'iron', 'gold', 'coal', 'tools', 'weapons', 'armor', 'jewels'] as const) big.stock[field] += small.stock[field];
+      this.alliances.delete(key);
+      this.connect(big, small);
+      this.note(`${small.name} e ${big.name} se uniram num só reino, com capital em ${big.name}`, 'povo', big, { major: true });
+      return true;
+    }
+    return false;
+  }
+
+  /** Aldeias independentes pequenas perto de um reino amigo pedem proteção e viram vassalas. */
+  private vassals(members: Map<number, Village[]>): void {
+    for (const v of this.villages) {
+      if (v.abandoned || v.kingdom !== v.id || v.tier > 0 || (members.get(v.id)?.length ?? 0) > 1 || this.warOf(v.id)) continue;
+      for (const c of this.villages) {
+        if (c.abandoned || c === v || c.kingdom !== c.id || c.species !== v.species || (members.get(c.id)?.length ?? 0) < 2) continue;
+        if (this.distance(c, v.x, v.y) > 45 || this.relation(c.id, v.id) < 20 || this.rnd() > 0.03) continue;
+        v.kingdom = c.id;
+        v.color = c.color;
+        this.connect(c, v);
+        this.note(`${v.name} pediu proteção e passou a fazer parte do reino de ${c.name}`, 'povo', v);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Crise de sucessão (RF-VIDA-138): quando morre o rei de um reino grande,
+   * um pretendente pode levar a metade mais distante do reino e começar uma
+   * guerra civil.
+   */
+  private succession(capital: Village): void {
+    if (capital.abandoned || capital.kingdom !== capital.id || this.rnd() > 0.3) return;
+    const others = this.villages.filter((o) => !o.abandoned && o.kingdom === capital.id && o !== capital);
+    if (others.length < 3) return;
+    others.sort((p, q) => this.distance(capital, q.x, q.y) - this.distance(capital, p.x, p.y));
+    const rebels = others.slice(0, Math.ceil(others.length / 2));
+    const seat = rebels.reduce((p, q) => (q.population > p.population ? q : p));
+    for (const o of rebels) o.kingdom = seat.id;
+    this.newKingdom(seat, capital);
+    const key = this.key(capital.id, seat.id);
+    this.relations.set(key, -60);
+    this.note(`O rei de ${capital.name} morreu sem herdeiro aceito: ${seat.name} coroou outro rei e levou ${rebels.length} assentamentos`, 'povo', seat, { major: true });
+    if (!this.warOf(capital.id) && !this.warOf(seat.id) && this.rnd() < 0.6) {
+      this.wars.push({ a: seat.id, b: capital.id, target: capital.id, losses: [0, 0], years: 0, naval: !this.landPath(seat.x, seat.y, capital.x, capital.y) });
+      this.note(`Guerra civil entre ${seat.name} e ${capital.name}`, 'guerra', capital, { major: true });
+      this.effect('swords', capital.x, capital.y - 3, 30, 1);
+    }
+  }
+
+  /** Torna `v` capital de um reino novo saído de `old`: cultura, cor, estoque inicial. */
+  private newKingdom(v: Village, old: Village): void {
+    v.kingdom = v.id;
+    v.culture = makeCulture(this.cultures++, v.name, this.rnd);
+    v.color = KINGDOM_COLORS[(KINGDOM_COLORS.indexOf(old.color) + 1 + Math.floor(this.rnd() * (KINGDOM_COLORS.length - 1))) % KINGDOM_COLORS.length];
+    for (const o of this.villages) if (o.kingdom === v.id) o.color = v.color;
+    v.stock = { ...emptyStock(), wood: old.stock.wood * 0.2, weapons: Math.floor(old.stock.weapons * 0.3) };
+    old.stock.weapons -= v.stock.weapons;
+    v.made = { ...old.made };
   }
 
   /**
@@ -1482,17 +2012,14 @@ export class Ecosystem {
       if (v.abandoned || v.kingdom === v.id || v.population < 20) continue;
       const capital = this.villages[v.kingdom];
       const far = this.distance(capital, v.x, v.y);
-      if (far < 50 || this.rnd() > 0.004 * (far / 50) * (capital.culture.tolerance < 0.3 ? 2 : 1)) continue;
+      // Reinos grandes são difíceis de manter unidos.
+      const size = Math.min(2, 1 + (this.kingdomSize(capital) - 4) * 0.1);
+      if (far < 40 || this.rnd() > 0.005 * (far / 40) * size * (capital.culture.tolerance < 0.3 ? 2 : 1)) continue;
       const old = v.kingdom;
       for (const o of this.villages) if (!o.abandoned && o.kingdom === old && this.distance(v, o.x, o.y) < 30) o.kingdom = v.id;
-      v.kingdom = v.id;
-      v.culture = makeCulture(this.cultures++, v.name, this.rnd);
-      v.color = KINGDOM_COLORS[(KINGDOM_COLORS.indexOf(capital.color) + 1 + Math.floor(this.rnd() * (KINGDOM_COLORS.length - 1))) % KINGDOM_COLORS.length];
-      for (const o of this.villages) if (o.kingdom === v.id) o.color = v.color;
-      v.stock = { ...emptyStock(), wood: capital.stock.wood * 0.2 };
-      v.made = { ...capital.made };
+      this.newKingdom(v, capital);
       this.relations.set(this.key(old, v.id), -45);
-      this.log.unshift(`${v.name} declarou independência de ${capital.name}: nasce o povo ${v.culture.name}`);
+      this.note(`${v.name} declarou independência de ${capital.name}: nasce o povo ${v.culture.name}`, 'povo', v, { major: true });
     }
   }
 
@@ -1501,9 +2028,11 @@ export class Ecosystem {
     let traded: '' | 'tin' | 'copper' | 'iron' | 'coal' | 'stone' | 'wood' = '';
     for (const r of ['tin', 'copper', 'iron', 'coal', 'stone', 'wood'] as const) {
       for (const [from, to] of [[a, b], [b, a]]) {
-        if (from.stock[r] > 25 && to.stock[r] < 5) {
-          from.stock[r] -= 5;
-          to.stock[r] += 5;
+        const bulk = r === 'stone' || r === 'wood';
+        const amount = bulk ? 5 : 4;
+        if (from.stock[r] > (bulk ? 25 : 10) && to.stock[r] < (bulk ? 5 : 4)) {
+          from.stock[r] -= amount;
+          to.stock[r] += amount;
           if (to.stock.gold >= 1) {
             to.stock.gold -= 1;
             from.stock.gold += 1;
@@ -1512,7 +2041,7 @@ export class Ecosystem {
         }
       }
     }
-    if (traded && this.rnd() < 0.25) this.log.unshift(`${a.name} e ${b.name} trocaram ${traded === 'wood' ? 'madeira' : traded === 'stone' ? 'pedra' : ORE_NAMES[traded]}`);
+    if (traded) this.note(`${a.name} e ${b.name} trocaram ${traded === 'wood' ? 'madeira' : traded === 'stone' ? 'pedra' : ORE_NAMES[traded]}`, 'economia', a, { key: `trade:${this.key(a.id, b.id)}` });
     return traded !== '';
   }
 
@@ -1539,7 +2068,7 @@ export class Ecosystem {
           moved++;
         }
       }
-      this.log.unshift(`Colonos de ${v.name} fundaram ${nv.name}`);
+      this.note(`Colonos de ${v.name} fundaram ${nv.name}`, 'povo', nv);
       return true;
     }
     return false;
@@ -1600,7 +2129,7 @@ export class Ecosystem {
     v.houses.push({ x: bx, y: by, kind: 'port', variant: wx === (bx + 1) % w ? 0 : wx === (bx - 1 + w) % w ? 1 : 2 });
     v.port = bestWater;
     this.lineRoad(v.x, v.y, bx + 0.5, by + 0.5);
-    this.log.unshift(`${v.name} construiu um porto`);
+    this.note(`${v.name} construiu um porto`, 'mar', v);
     return true;
   }
 
@@ -1731,7 +2260,7 @@ export class Ecosystem {
       return false;
     }
     this.launch(v, 'colonize', path, pick.land, passengers);
-    this.log.unshift(`${passengers.length} colonos de ${v.name} partiram de ${type.name.toLowerCase()}`);
+    this.note(`${passengers.length} colonos de ${v.name} partiram de ${type.name.toLowerCase()}`, 'mar', v);
     return true;
   }
 
@@ -1755,20 +2284,21 @@ export class Ecosystem {
     if (this.rnd() > 0.35 * (1 - b.kind * 0.2)) return;
     const v = this.villages[b.village];
     const type = BOATS[b.kind];
-    const what = b.purpose === 'fish' ? `um barco de pesca de ${v.name}` : `${type.the} de colonos de ${v.name}`;
+    const crew = { fish: '', colonize: ' de colonos', invade: ' de soldados', explore: ' de exploradores' }[b.purpose];
+    const what = b.purpose === 'fish' ? `um barco de pesca de ${v.name}` : `${type.the}${crew} de ${v.name}`;
     if (b.kind <= 1 && this.rnd() < 0.5) {
-      this.sink(b, `${predator}s afundaram ${what}`);
+      this.sink(b, `${predator}s afundaram ${b.purpose === 'fish' ? 'barcos de pesca' : what}`, b.purpose === 'fish' ? 'shark-fish' : undefined);
     } else if (b.passengers.length) {
       b.passengers.pop();
-      this.log.unshift(`Um ${predator.toLowerCase()} atacou ${what}: um colono morreu`);
+      this.note(`Um ${predator.toLowerCase()} atacou ${what}: um colono morreu`, 'mar', b);
       if (!b.passengers.length) this.sink(b, `Ninguém sobreviveu ${type.on} de ${v.name}`);
     } else if (b.purpose === 'fish') {
-      this.sink(b, `${predator}s afundaram ${what}`);
+      this.sink(b, `${predator}s afundaram barcos de pesca`, 'shark-fish');
     }
   }
 
   /** Naufrágio: morrem os passageiros (ou um pescador, nos barcos de pesca). */
-  private sink(b: Boat, message: string): void {
+  private sink(b: Boat, message: string, key?: string): void {
     if (b.sunk >= 0) return;
     b.sunk = 0;
     const v = this.villages[b.village];
@@ -1781,7 +2311,8 @@ export class Ecosystem {
       }
     }
     b.passengers.length = 0;
-    this.log.unshift(message);
+    // Perder um barco de pesca é rotina: as repetições viram uma linha só.
+    this.note(message, 'mar', b, { key, place: v.name, major: !key && b.purpose !== 'fish' });
   }
 
   /** Movimento dos barcos, pesca, chegada dos colonos e os perigos do mar. */
@@ -1815,7 +2346,7 @@ export class Ecosystem {
       }
       let tx: number;
       let ty: number;
-      if (b.purpose === 'colonize') {
+      if (b.purpose !== 'fish') {
         const t = b.path[Math.min(b.step, b.path.length - 1)];
         tx = (t % w) + 0.5;
         ty = Math.floor(t / w) + 0.5;
@@ -1864,36 +2395,109 @@ export class Ecosystem {
         b.x = (nx + w) % w;
         b.y = ny;
       }
-      if (b.purpose === 'colonize' && d < 0.35) {
+      if (b.purpose !== 'fish' && d < 0.35) {
         b.step++;
         if (b.step >= b.path.length) {
-          this.landColonists(b);
+          if (b.purpose === 'invade') this.landSoldiers(b);
+          else if (b.purpose === 'explore') this.explored(b);
+          else this.landColonists(b);
           this.boats.splice(k, 1);
           continue;
         }
       }
       // Perigos: tempestades (mais comuns nos barcos antigos), ficar à deriva e doenças em viagens longas.
-      if (this.rnd() < type.risk * move) {
-        this.sink(
-          b,
-          b.purpose === 'fish'
-            ? `Uma tempestade afundou um barco de pesca de ${v.name}`
-            : `Uma tempestade afundou ${type.the} de ${v.name}: ${b.passengers.length} colonos morreram`,
-        );
+      // Barcos de pesca ficam perto da costa e voltam com tempo ruim: risco bem menor.
+      if (this.rnd() < type.risk * move * (b.purpose === 'fish' ? 0.25 : 1)) {
+        if (b.purpose === 'fish') this.sink(b, 'Tempestades afundaram barcos de pesca', 'storm-fish');
+        else this.sink(b, `Uma tempestade afundou ${type.the} de ${v.name}${b.passengers.length ? `: ${b.passengers.length} ${b.purpose === 'invade' ? 'soldados' : 'colonos'} morreram` : ''}`);
         continue;
       }
-      if (b.purpose === 'colonize') {
+      if (b.purpose !== 'fish') {
         if (this.rnd() < type.risk * 0.6 * move) {
           b.adrift = 6 + this.rnd() * 10;
           b.heading = this.rnd() * Math.PI * 2;
-          this.log.unshift(`${cap(type.the)} de ${v.name} ficou à deriva`);
+          this.note(`${cap(type.the)} de ${v.name} ficou à deriva`, 'mar', b);
         } else if (b.step > 40 && this.rnd() < 0.0015 * move) {
           b.passengers.pop();
-          this.log.unshift(`Uma doença a bordo matou um colono de ${v.name}`);
+          this.note(`Uma doença a bordo matou um colono de ${v.name}`, 'mar', b, { key: `sick:${v.id}` });
           if (!b.passengers.length) this.sink(b, `Ninguém sobreviveu ${type.on} de ${v.name}`);
         }
       }
     }
+  }
+
+  /** Soldados desembarcam perto do alvo e marcham; se a guerra acabou no caminho, viram colonos. */
+  private landSoldiers(b: Boat): void {
+    const from = this.villages[b.village];
+    const k = from.kingdom;
+    if (!this.wars.some((w) => w.a === k)) {
+      this.landColonists(b);
+      return;
+    }
+    const w = this.map.width;
+    const lx = b.landing % w;
+    const ly = Math.floor(b.landing / w);
+    for (const p of b.passengers) {
+      const c = this.spawn(from.species, lx + this.rnd(), ly + this.rnd(), from.id, p.age);
+      if (c < 0) continue;
+      this.role[c] = ROLE.soldier;
+      this.expedition.add(c);
+    }
+    this.note(`Soldados de ${from.name} desembarcaram para a batalha`, 'guerra', { x: lx, y: ly });
+  }
+
+  /** Exploradores chegam a uma costa distante: podem achar outro povo (primeiro contato), minérios ou terras livres. */
+  private explored(b: Boat): void {
+    const from = this.villages[b.village];
+    const w = this.map.width;
+    const lx = b.landing % w;
+    const ly = Math.floor(b.landing / w);
+    const met = new Set<number>();
+    for (const v of this.villages) {
+      if (v.abandoned || v.kingdom === from.kingdom || this.distance(v, lx, ly) > 35) continue;
+      met.add(v.kingdom);
+    }
+    for (const k of met) {
+      const key = this.key(k, from.kingdom);
+      if (this.contacts.has(key) || this.relations.has(key)) continue;
+      this.contacts.add(key);
+      const other = this.villages[k];
+      this.relations.set(key, (other.species !== from.species ? -30 : 0) + (other.culture.tolerance + from.culture.tolerance - 1) * 20);
+      this.note(`Primeiro contato: exploradores de ${from.name} encontraram o povo ${other.culture.name}, de ${other.name}`, 'povo', { x: lx, y: ly }, { major: true });
+    }
+    for (const d of this.deposits) {
+      if (d.amount > 0 && !d.known.has(from.kingdom) && Math.hypot(wrapDx(d.x - lx, w), d.y - ly) < 12) d.known.add(from.kingdom);
+    }
+    if (!met.size) this.note(`Exploradores de ${from.name} chegaram a terras desconhecidas`, 'mar', { x: lx, y: ly });
+  }
+
+  /** Manda exploradores pelo mar a uma costa distante, dentro do alcance do barco da era. */
+  private explore(v: Village): boolean {
+    if (v.port < 0 || this.boats.some((b) => b.village === v.id && b.purpose === 'explore' && b.sunk < 0)) return false;
+    const map = this.map;
+    const w = map.width;
+    const type = BOATS[Math.min(BOATS.length - 1, Math.floor(v.tech))];
+    const coasts: { water: number; land: number }[] = [];
+    this.searchSea(v.port, 400000, type.range, (t, d) => {
+      if (d < type.range * 0.35 || this.rnd() > 0.05) return false;
+      const x = t % w;
+      const y = (t - x) / w;
+      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const l = this.tileAt(x + ox, y + oy);
+        if (l >= 0 && isLand(map, l)) {
+          coasts.push({ water: t, land: l });
+          break;
+        }
+      }
+      return coasts.length >= 12;
+    });
+    if (!coasts.length) return false;
+    const pick = coasts[Math.floor(this.rnd() * coasts.length)];
+    const path: number[] = [];
+    for (let t = pick.water; t >= 0; t = this.searchParent[t]) path.push(t);
+    path.reverse();
+    this.launch(v, 'explore', path, pick.land, []);
+    return true;
   }
 
   /** Os colonos desembarcam e fundam um assentamento (ou se juntam a um da mesma espécie). */
@@ -1905,22 +2509,126 @@ export class Ecosystem {
     let target: Village | null = null;
     if (this.canFound(lx, ly)) {
       target = this.foundVillage(from.species, lx, ly, 0, from);
-      this.log.unshift(`Colonos de ${from.name} cruzaram o mar de ${BOATS[b.kind].name.toLowerCase()} e fundaram ${target.name}`);
+      this.note(`Colonos de ${from.name} cruzaram o mar de ${BOATS[b.kind].name.toLowerCase()} e fundaram ${target.name}`, 'mar', target, { major: true });
     } else {
       const other = this.settlementAt(lx, ly);
       if (other && other.species === from.species) {
         target = other;
-        this.log.unshift(`Colonos de ${from.name} chegaram de barco a ${other.name}`);
+        this.note(`Colonos de ${from.name} chegaram de barco a ${other.name}`, 'mar', other);
       }
     }
     if (!target) {
-      this.log.unshift(`Os colonos de ${from.name} não acharam onde morar e se perderam`);
+      this.note(`Os colonos de ${from.name} não acharam onde morar e se perderam`, 'mar', b);
       return;
     }
     for (const p of b.passengers) {
       const c = this.spawn(from.species, lx + this.rnd(), ly + this.rnd(), target.id, p.age);
       if (c >= 0) this.role[c] = p.role;
     }
+  }
+
+  // Mudanças no mundo (eventos e ferramentas) -------------------------------
+
+  /** Número aleatório da simulação (determinístico pela semente). */
+  random(): number {
+    return this.rnd();
+  }
+
+  effect(kind: Effect['kind'], x: number, y: number, life: number, size = 1): void {
+    if (this.effects.length < 300) this.effects.push({ kind, x, y, age: 0, life, size });
+  }
+
+  /**
+   * Altera o terreno num raio: `fn` recebe o tile e a distância ao centro.
+   * Reclassifica o bioma e avisa a renderização.
+   */
+  reshape(x: number, y: number, r: number, fn: (i: number, d: number) => void): void {
+    const ri = Math.ceil(r);
+    for (let dy = -ri; dy <= ri; dy++) {
+      for (let dx = -ri; dx <= ri; dx++) {
+        const d = Math.hypot(dx, dy);
+        if (d > r) continue;
+        const t = this.tileAt(Math.floor(x) + dx, Math.floor(y) + dy);
+        if (t < 0) continue;
+        fn(t, d);
+        this.map.biome[t] = classify(this.map, t);
+        this.onTileChanged(t);
+      }
+    }
+  }
+
+  /** Lava num tile: o calor sobe e vai esfriando ao longo dos anos até virar rocha. */
+  pourLava(i: number, heat: number): void {
+    this.map.heat[i] += heat;
+    this.cooling.push({ i, heat });
+  }
+
+  /** Esfria a lava um pouco a cada ano. */
+  private coolLava(): void {
+    for (let k = this.cooling.length - 1; k >= 0; k--) {
+      const c = this.cooling[k];
+      const drop = Math.max(8, c.heat * 0.12);
+      const d = Math.min(drop, c.heat);
+      c.heat -= d;
+      this.map.heat[c.i] -= d;
+      this.map.biome[c.i] = classify(this.map, c.i);
+      this.onTileChanged(c.i);
+      if (c.heat <= 0) this.cooling.splice(k, 1);
+    }
+  }
+
+  /**
+   * Destrói construções num raio (terremoto, cometa, vulcão): casas viram
+   * ruína, assentamentos sem casa são abandonados. Retorna quantas caíram.
+   */
+  destroyAround(x: number, y: number, r: number, chance = 1): number {
+    let n = 0;
+    for (const v of this.villages) {
+      if (v.abandoned || this.distance(v, x, y) > r + TIER_RADIUS[v.tier]) continue;
+      for (let k = v.houses.length - 1; k >= 0; k--) {
+        const h = v.houses[k];
+        if (Math.hypot(wrapDx(h.x + 1 - x, this.map.width), h.y + 1 - y) > r || this.rnd() > chance) continue;
+        const size = h.kind === 'port' ? 1 : 2;
+        for (let dy = 0; dy < size; dy++) {
+          for (let dx = 0; dx < size; dx++) {
+            const t = this.tileAt(h.x + dx, h.y + dy);
+            if (t >= 0) {
+              this.built[t] = 0;
+              this.onTileChanged(t);
+            }
+          }
+        }
+        if (h.kind === 'port') v.port = -1;
+        v.houses.splice(k, 1);
+        this.ruins.push({ x: h.x + size / 2, y: h.y + size, age: 0 });
+        n++;
+      }
+    }
+    if (this.ruins.length > 200) this.ruins.splice(0, this.ruins.length - 200);
+    return n;
+  }
+
+  /** Nova jazida de minério (cometa, terremoto, vulcão ou o jogador). */
+  addDeposit(x: number, y: number, ore: Ore, amount: number, cave: boolean): Deposit | null {
+    const t = this.tileAt(x, Math.floor(y));
+    if (t < 0 || !isLand(this.map, t) || this.depositAt[t] >= 0 || this.built[t]) return null;
+    const w = this.map.width;
+    const d: Deposit = { id: this.deposits.length, x: t % w, y: Math.floor(t / w), ore, amount, initial: amount, cave, mine: -1, known: new Set() };
+    this.deposits.push(d);
+    this.depositAt[t] = d.id;
+    return d;
+  }
+
+  /** Mata criaturas num raio sem registrar cada morte; retorna quantas. */
+  killAround(x: number, y: number, r: number, chance = 1): number {
+    this.buildGrid();
+    let n = 0;
+    this.forEachNear(x, y, r, (i) => {
+      if (this.rnd() > chance) return;
+      this.kill(i, true);
+      n++;
+    });
+    return n;
   }
 
   // Ferramentas do jogador -------------------------------------------------
@@ -1934,11 +2642,11 @@ export class Ecosystem {
       if (!this.habitable(s, tile)) return 0;
       const other = this.settlementAt(x, y);
       if (other || !this.canFound(Math.floor(x), Math.floor(y))) {
-        this.log.unshift(`Muito perto de ${other?.name ?? 'outro assentamento'}: escolha um lugar fora da área`);
+        this.hint = `Muito perto de ${other?.name ?? 'outro assentamento'}: escolha um lugar fora da área`;
         return 0;
       }
       const v = this.foundVillage(s, ((Math.floor(x) % w) + w) % w, Math.floor(y), Math.max(4, amount));
-      this.log.unshift(`${this.species[s].name}s fundaram ${v.name}`);
+      this.note(`Você trouxe ${this.species[s].name.toLowerCase()}s, que fundaram ${v.name}`, 'jogador', v);
       return v.population;
     }
     for (let k = 0; k < amount * 4 && born < amount; k++) {
@@ -1971,6 +2679,11 @@ export class Ecosystem {
     this.forEachNear(x, y, radius, (i) => {
       this.energy[i] = 1;
     });
+  }
+
+  /** Avança o conhecimento de um assentamento (sem pular a condição de era). */
+  teachVillage(v: Village, amount: number): void {
+    this.advance(v, amount);
   }
 
   /** Ensina as aldeias numa área: avança a tecnologia delas. */

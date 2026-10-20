@@ -1,6 +1,6 @@
 # We Are Many: Requisitos da Vida nos Planetas
 
-> Versão 0.1 · 19/10/2026 · complementa a seção 4.7 (SUP) do [REQUISITOS.md](REQUISITOS.md)
+> Versão 0.2 · 20/10/2026 · complementa a seção 4.7 (SUP) do [REQUISITOS.md](REQUISITOS.md)
 > Escopo: tudo o que acontece na superfície 2D depois que existe vida: espécies, ecossistema, evolução, civilizações, assentamentos, guerra, diplomacia, arte em pixel e o papel do jogador.
 
 Itens marcados com **Implementado (Fase 0)** já existem no PR #1. O resto é requisito para as fases indicadas na seção 15.
@@ -62,16 +62,18 @@ Itens marcados com **Implementado (Fase 0)** já existem no PR #1. O resto é re
 | ID | Requisito | Situação |
 |---|---|---|
 | RF-VIDA-10 | Tipos de espécie: **peixe** (água), **herbívoro**, **predador** e **inteligente** (terra). | Implementado (Fase 0) |
-| RF-VIDA-11 | Tipos adicionais: **flora** (árvores, arbustos, algas, com espécies próprias), **aves** (voam por cima de água e terra, migram), **anfíbios** (costa), **insetos/enxames** (agregados, polinizam e viram praga), **grandes animais** (megafauna, poucos indivíduos, muito impacto). | Fase 5 |
+| RF-VIDA-11 | Tipos adicionais: **flora** (árvores, arbustos, algas, com espécies próprias), **aves** (voam por cima de água e terra, migram), **anfíbios** (costa), **insetos/enxames** (agregados, polinizam e viram praga), **grandes animais** (megafauna, poucos indivíduos, muito impacto). | Parcial: anfíbios de costa (sapo, caranguejo, tartaruga, pinguim, crocodilo) andam na terra baixa e na água rasa; megafauna (mamute, elefante, baleia) com sprite maior |
+| RF-VIDA-11a | **Banco genético da Terra:** 30 espécies com sprite próprio virado para a direção em que andam: coelho, galinha, sapo, caranguejo, besouro, cobra, tartaruga, pinguim, raposa, lobo, cervo, cabra, ovelha, javali, lhama, macaco, hiena, onça, urso, bisão, camelo, elefante, mamute, crocodilo, piranha, baleia, tartaruga-marinha, lula, peixe e tubarão. Na Terra já vivem 14 delas (peixe, cervo, lobo, humano, tubarão, coelho, bisão, raposa, urso, caranguejo, tartaruga, pinguim, baleia, camelo). Cada tipo divide o espaço entre as espécies do mesmo tipo, para que mais espécies não esgotem a vegetação. | Implementado (Fase 0) |
+| RF-VIDA-11b | Predadores comem caça miúda (não sobrevivem só de presas grandes), caçam só com fome e as presas têm refúgio, para que lobo e cervo convivam por séculos. | Implementado (Fase 0) |
 | RF-VIDA-12 | Cada espécie tem: nome, origem (planeta), cor, faixa de temperatura, bioma preferido, velocidade, idade adulta, idade máxima, dieta, tamanho, sociabilidade (solitária, bando, colônia), fertilidade e agressividade. | Parcial: sem bioma, dieta detalhada, tamanho e sociabilidade |
 | RF-VIDA-13 | Nomes de espécies alienígenas são gerados por sílabas; nomes da Terra são os comuns em português. Nunca nomes da obra de referência. | Implementado (Fase 0) |
-| RF-VIDA-14 | Espécies inteligentes alienígenas têm aparência própria (sprite "alien" tingido) e nomes de aldeias no idioma gerado da espécie. | Implementado (Fase 0) |
+| RF-VIDA-14 | Espécies inteligentes alienígenas têm aparência própria e nomes de aldeias no idioma gerado da espécie. Corpos possíveis: réptil, felino, ave, inseto, anfíbio e urso (com versões de criança e de cada profissão), além do humano. | Implementado (Fase 0) |
 
 ### 3.2 Catálogo do jogador
 
 | ID | Requisito |
 |---|---|
-| RF-VIDA-15 | O catálogo lista toda espécie conhecida com origem, faixa de clima, população total em todos os planetas e planetas onde vive. |
+| RF-VIDA-15 | O catálogo lista toda espécie conhecida com origem, faixa de clima, população total em todos os planetas e planetas onde vive. Hoje: janela **Espécies** (tecla E) com filtro por tipo, sprite, população, clima, situação (viva, extinta, nunca viveu aqui) e botão Soltar. |
 | RF-VIDA-16 | Uma espécie extinta em todos os planetas fica marcada como extinta e não pode mais ser introduzida. |
 | RF-VIDA-17 | Variantes evoluídas (seção 7) aparecem no catálogo como subespécies ligadas à original. |
 
@@ -126,7 +128,7 @@ O jogador nunca cria espécies. A evolução modifica espécies existentes de fo
 | ID | Requisito |
 |---|---|
 | RF-VIDA-50 | **Adaptação:** populações que vivem por várias gerações perto do limite da sua faixa de temperatura deslocam a faixa aos poucos (ex.: +1 K a cada N gerações), até um limite por espécie. |
-| RF-VIDA-51 | **Variantes:** uma população isolada geograficamente (sem contato por muitas gerações, por exemplo em outra ilha ou outro planeta) vira uma **subespécie** com nome derivado (ex.: "Cervo-das-neves"), cor ajustada e atributos levemente diferentes. |
+| RF-VIDA-51 | (Parcial: o evento "espécie nova" cria uma variante já adaptada a um lugar, ex.: "Lobo-das-neves", "Camelo-do-deserto", ligada à original no catálogo.) **Variantes:** uma população isolada geograficamente (sem contato por muitas gerações, por exemplo em outra ilha ou outro planeta) vira uma **subespécie** com nome derivado (ex.: "Cervo-das-neves"), cor ajustada e atributos levemente diferentes. |
 | RF-VIDA-52 | **Especiação lenta:** uma subespécie que acumula diferenças suficientes vira espécie nova no catálogo. Isso leva centenas de anos de jogo, não minutos. |
 | RF-VIDA-53 | Atributos que podem mudar: faixa de temperatura, tamanho, velocidade, fertilidade, cor. Dieta e tipo (peixe vira terrestre etc.) **não** mudam, para manter a legibilidade. |
 | RF-VIDA-54 | **Extinção:** uma espécie some de um planeta quando a população chega a zero; some do jogo quando some de todos. Extinções locais podem ser revertidas reintroduzindo de outro planeta. |
@@ -145,6 +147,9 @@ O jogador nunca cria espécies. A evolução modifica espécies existentes de fo
 | RF-VIDA-63 | **Pragas:** enxames de insetos ou herbívoros em excesso devoram plantações e vegetação. |
 | RF-VIDA-64 | **Desastres:** secas, enchentes, incêndios florestais (espalham-se pela vegetação seca), vulcões, terremotos, eras glaciais, impactos. Desastres naturais seguem o clima e a geologia; desastres causados pelo jogador (cometa) seguem as ferramentas. |
 | RF-VIDA-65 | Desastres e doenças sempre geram uma linha na crônica com o local, e o jogador pode clicar para levar a câmera até lá. |
+| RF-VIDA-67 | **Gestão de eventos:** o mundo sorteia eventos aleatórios, 2,5% por ano normalmente e 20% por ano quando passam 30 anos sem nada importante (mundo monótono). O sorteio pesa o estado do mundo: espécie extinta favorece o reaparecimento, poucos povos favorecem nômades, mundo grande favorece peste. Na janela **Mundo** o jogador liga ou desliga os eventos automáticos e escolhe a frequência (rara, normal, frequente). | Implementado (Fase 0) |
+| RF-VIDA-68 | **Eventos:** cometa (cratera que vira lago, borda levantada, minério do espaço, povo perto passa a crer no cometa), terremoto (falha que levanta o chão, derruba casas, abre caverna com minério), vulcão e ilha vulcânica (lava que esfria em rocha e jazidas), incêndio florestal, seca, peste num assentamento grande, nômades (um povo novo, com cultura própria, surge longe dos outros), espécie nova (variante, RF-VIDA-51), reaparecimento de espécie extinta, migração de rebanho e era de ouro (um povo aprende mais rápido por um tempo). Os desastres ficam longe das capitais quando sorteados, mas o jogador pode lançá-los onde quiser (aba Eventos). | Implementado (Fase 0) |
+| RF-VIDA-69 | Efeitos visuais dos eventos: cometa descendo, explosão, fumaça, fogo, tremor da câmera e ruínas onde casas foram destruídas (somem em 40 anos). | Implementado (Fase 0) |
 | RF-VIDA-66 | Mudanças de terreno do jogador afetam a vida na hora: transformar mar em terra mata peixes, inundar terra afoga terrestres (implementado na Fase 0), aquecer demais mata quem está fora da faixa. |
 
 ---
@@ -225,7 +230,7 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 | RF-VIDA-104 | Ruas paralelas formam uma malha: vilas ganham uma rua paralela de cada lado da cruz, cidades duas. Futuro: a malha cresce sob demanda, quando os lotes acabam. | Implementado (Fase 0), malha fixa por nível |
 | RF-VIDA-105 | **Campos cultivados** (seção 11) em volta das casas da periferia, a partir do Bronze. | Fase 5 |
 | RF-VIDA-106 | **Muralhas por era:** paliçada de madeira (Ferro), muralha de pedra com portões nas ruas (Medieval), contornando a área da cidade. | Fase 6 |
-| RF-VIDA-107 | **Edifícios especiais:** castelo/palácio na capital do reino, templo, mercado, quartel, celeiro, ferraria (exige metal no estoque), moinho, fábrica (Industrial), porto (seção 10.5), mina (seção 11.1), pontes onde estradas cruzam rios estreitos, marcos (estátua, torre) que contam a história. Toda construção custa madeira e pedra do estoque do reino (casa: 4 de madeira, ou 4 de pedra e 1 de madeira a partir da Era Medieval; especiais: 10 de madeira e 2 a 8 de pedra; porto: 12 de madeira; mina: 6 de madeira); sem material, a obra espera. | Parcial: faltam pontes e marcos |
+| RF-VIDA-107 | **Edifícios especiais:** castelo/palácio na capital do reino, templo, mercado, quartel, celeiro, ferraria (exige metal no estoque), moinho, fábrica (Industrial), porto (seção 10.5), mina (seção 11.1), pontes onde estradas cruzam rios estreitos, marcos (estátua, torre, maravilha; RF-VIDA-124d) que contam a história. Toda construção custa madeira e pedra do estoque do reino (casa: 4 de madeira, ou 4 de pedra e 1 de madeira a partir da Era Medieval; especiais: 10 de madeira e 2 a 8 de pedra; porto: 12 de madeira; mina: 6 de madeira); sem material, a obra espera. | Parcial: faltam pontes e torres |
 | RF-VIDA-108 | Assentamentos abandonados (população zero) deixam ruínas por um tempo; ruínas podem ser reocupadas. | Parcial: some, sem ruínas |
 
 ### 10.4 Crescimento
@@ -267,7 +272,8 @@ A economia faz parte do crescimento: o povo junta recursos, constrói com eles, 
 | RF-VIDA-124a | **Lenha:** lenhadores produzem madeira conforme a floresta em volta; o corte desbasta a vegetação perto do assentamento. | Implementado (Fase 0) |
 | RF-VIDA-124b | **Pedra:** mineradores sem mina e construtores tiram pedra, quatro vezes mais onde há rocha ou colina por perto. | Implementado (Fase 0) |
 | RF-VIDA-124c | **Ferraria:** cada ferreiro faz cerca de 0,6 peça por ano com o metal do estoque: bronze (2 cobre + 1 estanho), ferro (2 ferro, a partir do Bronze), aço (2 ferro + 1 carvão, a partir da Era Medieval). Primeiro ferramentas (até 30% dos adultos; aumentam a produção em 40% e se gastam), depois armas (definem a força na guerra). O que os ferreiros fazem depende do que foi minerado. | Implementado (Fase 0) |
-| RF-VIDA-125 | **Comércio:** uma vez por ano, reinos vizinhos em paz e com mercado trocam excedentes (quem tem mais de 25 manda 5 a quem tem menos de 5), pagando em ouro quando podem. Comércio melhora a relação (em dobro para povos comerciantes). Futuro: comerciantes visíveis nas estradas e espalhar tecnologia. | Parcial |
+| RF-VIDA-124d | **Monumentos:** cidades grandes erguem estátuas (pedra e ouro) e a capital de um reino rico ergue uma maravilha conforme o valor do povo: Grande Arena (guerra, dá força), Grande Bazar (comércio), Catedral (fé) e Grande Biblioteca (conhecimento). | Implementado (Fase 0) |
+| RF-VIDA-125 | **Comércio:** uma vez por ano, reinos vizinhos em paz e com mercado trocam excedentes (madeira e pedra: quem tem mais de 25 manda 5 a quem tem menos de 5; minérios: mais de 10 manda 4 a quem tem menos de 4), pagando em ouro quando podem. Vizinhos amigos (relação > 20) fazem escambo mesmo sem mercado, e reinos com porto e mercado comerciam pelo mar com quem já conhecem. Comércio melhora a relação (em dobro para povos comerciantes). Futuro: comerciantes visíveis nas estradas e espalhar tecnologia. | Parcial |
 | RF-VIDA-126 | Desmatamento e mineração aparecem no mapa e afetam a vegetação e a fauna. | Parcial: corte desbasta a vegetação; minas aparecem no mapa |
 
 ### 11.1 Minérios, cavernas e minas
@@ -281,6 +287,14 @@ A economia faz parte do crescimento: o povo junta recursos, constrói com eles, 
 | RF-VIDA-127e | **Ajuda do jogador:** ferramentas de Terreno colocam um veio de cobre, estanho, ferro, ouro ou carvão (100 unidades) num tile de terra livre. É ajuda leve: o povo ainda precisa encontrar o veio e abrir a mina. | Implementado (Fase 0) |
 | RF-VIDA-127f | Futuro: minas profundas na Era Industrial (mais produção, mais risco de desabamento), minérios alienígenas em planetas com vida própria. | Fase 6 |
 
+### 11.2 Catálogo de itens
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-128a | **Itens:** 34 itens em quatro categorias (ferramentas, armas, armaduras, joias) e seis materiais (madeira, pedra, bronze, ferro, aço, ouro), cada um com ícone em pixel pintado na cor do material: machado, faca, martelo, vara de pesca, enxada, picareta, serra, lança, arco, espada, besta, machado de guerra, mosquete, escudo, elmo, cota de malha, armadura de placas, anel, amuleto e coroa. A era mínima limita o que sai (besta no Renascimento, mosquete na Era Industrial). | Implementado (Fase 0) |
+| RF-VIDA-128b | Na Idade da Pedra construtores e coletores fazem ferramentas, lanças, arcos e escudos de pedra e madeira, sem ferraria. Com ferraria o material vem do metal minerado; parte das peças vira armadura (conta na força da guerra). Ourives transformam ouro em joias. O primeiro item de metal do mundo vai para a crônica. | Implementado (Fase 0) |
+| RF-VIDA-128c | Janela **Itens** (tecla I): todos os itens, quantos já foram feitos no mundo e os que ainda ninguém sabe fazer (apagados). | Implementado (Fase 0) |
+
 ---
 
 ## 12. Relações entre povos: diplomacia, união, guerra e revoltas
@@ -292,15 +306,18 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 | ID | Requisito | Situação |
 |---|---|---|
 | RF-VIDA-127 | Cada par de reinos vizinhos (assentamentos a até 60 tiles) tem uma relação de −100 a +100. Todo ano: fronteira −1,5; espécies diferentes −1; povos diferentes −0,5; cada povo guerreiro −1,5; cada povo de fé ou comerciante +0,5; tolerância dos dois soma até +2,4; comércio +3 (ou +6). Uma cidade que cresce sobre aldeias de outro reino piora a relação em 10. | Implementado (Fase 0) |
-| RF-VIDA-128 | Estados: paz, tensão, guerra, trégua, aliança. Mudanças de estado geram linha na crônica. | Parcial: paz e guerra, com linha nos acontecimentos |
-| RF-VIDA-129 | **União:** dois reinos aliados por muito tempo podem se fundir (casamento real, federação) num reino só. Aldeias isoladas podem pedir proteção a um reino vizinho e virar vassalas. | Parcial: aldeias independentes dentro da área de uma cidade da mesma espécie se juntam ao reino dela |
+| RF-VIDA-128 | Estados: paz, tensão, guerra, trégua, aliança. Mudanças de estado geram linha na crônica. A janela **Reinos** (tecla R) mostra cada reino com povo, cultura, estoque e a relação com cada vizinho. | Implementado (Fase 0) |
+| RF-VIDA-128d | **Incidentes:** 3% por ano para cada par de vizinhos: presentes (+6), casamento real entre cidades da mesma espécie (+12), disputa por jazida (−7), escaramuça na fronteira (−9) ou insulto (−5). Povos de fé e comércio têm mais incidentes bons; guerreiros, mais ruins. | Implementado (Fase 0) |
+| RF-VIDA-128e | **Alianças:** com relação acima de 50, 12% por ano de aliança; desfaz abaixo de 15. Aliados entram nas guerras um do outro. Depois de 50 anos de aliança, reinos da mesma espécie com relação acima de 80 podem se unir numa federação (3% por ano). | Implementado (Fase 0) |
+| RF-VIDA-128f | **Primeiro contato:** barcos de exploração (a partir do Bronze, mais em povos curiosos) cruzam o mar, descobrem jazidas e fazem contato com povos de outras terras, que passam a ter relação, comércio e guerra pelo mar. | Implementado (Fase 0) |
+| RF-VIDA-129 | **União:** dois reinos aliados por muito tempo podem se fundir (casamento real, federação) num reino só. Aldeias isoladas podem pedir proteção a um reino vizinho e virar vassalas. | Implementado (Fase 0): federação (RF-VIDA-128e) e aldeias sozinhas pedem proteção a um reino amigo da mesma espécie a até 45 tiles (3% por ano) |
 | RF-VIDA-130 | Povos diferentes (espécies diferentes no mesmo planeta, por exemplo humanos levados para um planeta com inteligentes nativos) têm relação inicial baixa e podem conviver, comerciar, se aliar ou guerrear. | Implementado (Fase 0): relação inicial −30 |
 
 ### 12.2 Guerra
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-131 | **Declaração:** com relação abaixo de −40, os dois em paz e um caminho por terra entre eles, há 12% de chance por ano (24% se um povo for guerreiro) de guerra. Ataca quem tem mais força (soldados × armas, mínimo 4); o alvo é o assentamento inimigo mais perto. Os soldados do atacante a até 90 tiles marcham até o alvo. | Implementado (Fase 0) |
+| RF-VIDA-131 | (Atualizado: guerra com relação abaixo de −35, ou −20 se um povo for guerreiro, e 4% por ano de guerra por ambição de um reino forte; depois da paz há trégua de 25 anos. Sem caminho por terra, a guerra é **naval**: os soldados vão de barco e desembarcam perto do alvo. Monumento de povo guerreiro dá força.) **Declaração:** com relação abaixo de −40, os dois em paz e um caminho por terra entre eles, há 12% de chance por ano (24% se um povo for guerreiro) de guerra. Ataca quem tem mais força (soldados × armas, mínimo 4); o alvo é o assentamento inimigo mais perto. Os soldados do atacante a até 90 tiles marcham até o alvo. | Implementado (Fase 0) |
 | RF-VIDA-132 | **Combate:** soldados e guardas lutam com inimigos a até 1,5 tile; vence com chance proporcional à força (soldado 1,2, guarda 1,1, líder 0,8, civil 0,4; +15% por era; até +150% com armas de aço suficientes). Soldados armados que morrem perdem a arma. O painel lista as guerras com o número de mortos. | Implementado (Fase 0), sem muralhas |
 | RF-VIDA-133 | **Cerco e conquista:** 3 ou mais soldados atacantes na praça sem nenhum defensor armado por perto conquistam o assentamento: ele muda de reino e de cor, metade do estoque do reino vencido vai para o vencedor (saque), e se era capital, os outros assentamentos daquele reino ficam independentes. | Implementado (Fase 0), sem casas queimadas |
 | RF-VIDA-134 | Fim de guerra por conquista do alvo, ou paz: 3% por ano, mais 1% a cada 1,5 morto, mais 10% depois de 30 anos. Depois da paz a relação volta a −10. | Implementado (Fase 0) |
@@ -312,7 +329,7 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 |---|---|
 | RF-VIDA-136 | Cada assentamento tem estabilidade, reduzida por fome, doença, distância da capital, cultura diferente da capital, impostos/guerra longa e por **intervenção excessiva do jogador** (ensinar demais em pouco tempo). |
 | RF-VIDA-137 | Estabilidade baixa gera revolta: o assentamento declara independência e vira um reino novo, possivelmente em guerra com o antigo. (Hoje a independência vem da distância da capital, RF-VIDA-81, e começa com relação −45.) |
-| RF-VIDA-138 | Guerras civis quando a capital perde o líder sem sucessor claro. |
+| RF-VIDA-138 | Guerras civis quando a capital perde o líder sem sucessor claro. Implementado (Fase 0): quando morre o rei de um reino com 4 ou mais assentamentos, há 30% de chance de um pretendente levar a metade mais distante e começar uma guerra civil. Colônias distantes também declaram independência mais cedo em reinos grandes. |
 
 ---
 
@@ -321,7 +338,8 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 | ID | Requisito | Situação |
 |---|---|---|
 | RF-VIDA-140 | Ferramentas de vida: introduzir espécie conhecida (pincel), alimentar (pincel), reduzir população (clique). | Implementado (Fase 0) |
-| RF-VIDA-141 | Ferramentas de civilização: introduzir espécie inteligente conhecida (funda um assentamento fora das áreas existentes) e ensinar (adianta o conhecimento, mas não pula a condição de era). Ferramentas de Terreno colocam veios de minério (RF-VIDA-127e). | Implementado (Fase 0) |
+| RF-VIDA-141 | Ferramentas de civilização: introduzir espécie inteligente conhecida (funda um assentamento fora das áreas existentes), ensinar (adianta o conhecimento, mas não pula a condição de era) e boa colheita (dá madeira e comida a um assentamento). Ferramentas de Terreno colocam veios de minério (RF-VIDA-127e). | Implementado (Fase 0) |
+| RF-VIDA-141a | **Ferramentas de terraformação:** Terreno (elevar, rebaixar, montanha, mar, nivelar, areia, veios de minério) e Clima (aquecer, esfriar, chuva, secar, plantar, floresta). Aba **Eventos:** cometa, terremoto, vulcão, ilha vulcânica, incêndio, seca e surpresa (evento aleatório). | Implementado (Fase 0) |
 | RF-VIDA-142 | Ferramentas futuras: **proteger** (área onde predadores e desastres não entram por um tempo), **curar** (encerra surto), **realocar** (captura um grupo e solta em outro lugar ou planeta, usando a nave), **inspirar** (sinal no céu que aumenta estabilidade ou fé), **semear discórdia/paz** (altera relações), **colher amostra** (adiciona espécie ao catálogo sem matá-la). | Fase 5/6 |
 | RF-VIDA-143 | Toda ferramenta de vida e civilização tem custo (energia, recursos da nave) e recarga, para que a interferência seja escolha, não spam. | Fase 5 |
 | RF-VIDA-144 | **Não criar do zero:** não existe ferramenta que crie espécie nova, mude o tipo de uma espécie ou crie inteligência. O jogador só usa o que encontrou ou trouxe. | Implementado (Fase 0) |
@@ -338,13 +356,14 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-150 | Abas Terreno, Vida e Civilização com as ferramentas de cada uma. | Implementado (Fase 0) |
+| RF-VIDA-150 | Abas Terreno, Clima, Vida, Civilização e Eventos, com as ferramentas agrupadas (ex.: Vida em Terra, Costa, Água e Variantes, cada espécie com o seu sprite) e uma dica de uma linha sobre a ferramenta escolhida. | Implementado (Fase 0) |
+| RF-VIDA-150a | **Janelas** no menu do topo: Crônica (C), Reinos (R), Espécies (E), Itens (I) e Mundo (configuração de eventos e rótulos). Esc fecha a janela; 1 a 4 mudam a velocidade. | Implementado (Fase 0) |
 | RF-VIDA-151 | Painel lateral: era, ano, controle de tempo, população por espécie com cor, lista de assentamentos (clicar leva a câmera), acontecimentos recentes. | Implementado (Fase 0) |
 | RF-VIDA-152 | Rótulos de assentamento no mapa com nome, nível e população; capital mostra o reino. | Implementado (Fase 0) |
 | RF-VIDA-153 | Inspecionar criatura: espécie, assentamento, era, idade, energia; inspecionar tile: bioma, altitude, temperatura, umidade, vegetação. | Implementado (Fase 0) |
 | RF-VIDA-154 | Painéis futuros: espécie (atributos, tendência evolutiva, mapa de distribuição), assentamento (nível, recursos, estabilidade, líder), reino (assentamentos, relações, guerras), gráficos de população ao longo do tempo. | Fase 5/6 |
 | RF-VIDA-155 | Camadas de visualização adicionais: território, fertilidade, doenças, relações. | Fase 5/6 |
-| RF-VIDA-156 | **Crônica:** histórico completo do planeta (fundações, eras, guerras, extinções, desastres, intervenções do jogador), filtrável, com clique para ir ao local. Exportável como texto. | Parcial: últimos 5 acontecimentos |
+| RF-VIDA-156 | **Crônica:** histórico completo do planeta (fundações, eras, guerras, extinções, desastres, intervenções do jogador), filtrável, com clique para ir ao local. Exportável como texto. | Implementado (Fase 0), sem exportar: até 400 linhas, filtros (importantes, povos, guerras, natureza, mar, economia, você). Repetições do mesmo assunto em 30 anos viram uma linha com contagem e lugares (ex.: "Tempestades afundaram barcos de pesca (Xita, Luru…) ×35"), para que um evento frequente não esconda os outros. |
 
 ### 14.2 Arte em pixel (estilo 16 bits)
 
@@ -423,4 +442,6 @@ Mapeado às fases do [REQUISITOS.md](REQUISITOS.md#8-plano-de-desenvolvimento-po
 | 20/10/2026 | Avançar de era depende de condições (achar jazidas, abrir minas, trabalhar o metal), não de tempo. Minérios são limitados; o que os ferreiros fazem depende do que foi minerado; o jogador pode colocar veios. |
 | 20/10/2026 | Economia (estoque do reino, custo de construção, comércio), culturas com valor e crença, independência de colônias distantes. |
 | 20/10/2026 | Cidades não estagnam: metrópole (≥ 140), mais gente por casa e por era, deserto colonizável a partir do Ferro e limite de 100 assentamentos vivos. |
+| 20/10/2026 | Adicionar espécies usa o banco genético da Terra que está a bordo; as "espécies novas" que surgem sozinhas são variantes evolutivas das que já existem. Assim o jogador continua gerenciando, sem criar do zero (RF-VIDA-144). |
+| 20/10/2026 | Eventos aleatórios quando o mundo fica monótono, crônica que agrupa repetições, alianças, federação, guerra naval, guerra civil, primeiro contato pelo mar, catálogo de itens e HUD com janelas. Sondas, cometas e anéis no espaço ficam com a navegação espacial. |
 | 19/10/2026 | Evolução só modifica espécies existentes (adaptação, variantes, especiação lenta); inteligência nunca surge de espécies não inteligentes. |

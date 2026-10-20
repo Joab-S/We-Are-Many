@@ -3,7 +3,7 @@ import { generateSurface, type PlanetParams } from '../procgen/surface';
 import { BOATS, Ecosystem, isLand, isWater, YEAR_SECONDS } from './ecosystem';
 import { CHILD } from './roles';
 import { lotsFor, streetPlan, TIER_RADIUS } from './settlement';
-import { isAquatic, nativeLifeLevel, nativeLifeTier, nativeSpecies } from './species';
+import { habitatOf, nativeLifeLevel, nativeLifeTier, nativeSpecies } from './species';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
 const mars: PlanetParams = { id: 'sol-4', name: 'Marte', radiusEarth: 0.4, temperatureK: 210, water: 0.04, life: 0 };
@@ -21,8 +21,8 @@ const run = (eco: Ecosystem, seconds: number) => {
 };
 
 describe('espécies', () => {
-  it('a Terra tem peixes, cervos, lobos, humanos e tubarões; Marte não tem vida', () => {
-    expect(nativeSpecies(earth).map((s) => s.name)).toEqual(['Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão']);
+  it('a Terra tem a sua fauna nativa; Marte não tem vida', () => {
+    expect(nativeSpecies(earth).map((s) => s.name)).toEqual(['Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão', 'Coelho', 'Bisão', 'Camelo', 'Urso', 'Raposa', 'Tartaruga', 'Caranguejo', 'Pinguim', 'Baleia']);
     expect(nativeSpecies(mars)).toEqual([]);
   });
   it('vida nativa fora da Terra vem em três níveis raros', () => {
@@ -57,8 +57,9 @@ describe('ecossistema', () => {
     for (let i = 0; i < eco.count; i++) {
       if (!eco.alive[i]) continue;
       const t = Math.floor(eco.y[i]) * map.width + Math.floor(eco.x[i]);
-      if (isAquatic(eco.species[eco.kind[i]].kind)) expect(isWater(map, t)).toBe(true);
-      else expect(isLand(map, t)).toBe(true);
+      const habitat = habitatOf(eco.species[eco.kind[i]]);
+      if (habitat === 1) expect(isWater(map, t)).toBe(true);
+      else if (habitat === 0) expect(isLand(map, t)).toBe(true);
     }
   });
 
