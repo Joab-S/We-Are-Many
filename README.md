@@ -81,6 +81,14 @@ public/universe Chunks gerados
 - Estrelas: [HYG Database](https://github.com/astronexus/HYG-Database) v4.1, por David Nash (astronexus), licença CC BY-SA 4.0. Os chunks em `public/universe/` são derivados dele e seguem a mesma licença.
 - Sistema Solar: parâmetros orbitais e físicos da NASA/JPL.
 
+## Publicar no GitHub Pages (grátis)
+
+O workflow `.github/workflows/pages.yml` testa, compila e publica o jogo a cada push na `main`.
+
+1. No repositório, abra **Settings → Pages** e, em **Build and deployment → Source**, escolha **GitHub Actions** (só uma vez).
+2. Em **Actions**, rode **Publicar no GitHub Pages** (ou faça um push na `main`).
+3. O jogo fica em https://joab-s.github.io/We-Are-Many/.
+
 ## Publicar na Vercel
 
 O jogo é um site estático (Vite), e o `vercel.json` já traz a configuração.
