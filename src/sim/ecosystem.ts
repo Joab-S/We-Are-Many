@@ -22,7 +22,7 @@ import { yearlyEvents } from './events';
 import { pickItem, pickPrimitive, TIER_MATERIAL, type Category, type Material } from './items';
 import { CHILD, pickRole, ROLE, type RoleContext } from './roles';
 import { completeness, missingText, planItems, type PlanItem } from './plan';
-import { lotsFor, plotSeed, pruneBlocks, radiusFor, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
+import { lotsFor, plotSeed, pruneBlocks, radiusFor, streetOrder, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, habitatOf, type Species, type SpeciesKind } from './species';
 
 /**
@@ -277,6 +277,11 @@ export interface Village {
   ruinOf?: number;
   /** Ruas e área rumo ao nível seguinte, de 0 a 1 (ruas sob demanda, RF-VIDA-207). */
   growth?: number;
+  /** Já tem estrada para um vizinho do mesmo reino. */
+  linked?: boolean;
+  /** Tiles da planta de ruas já abertos e o total da planta (ruas bloco a bloco). */
+  streetLen?: number;
+  streetPlan?: number;
   /** Completude da estrutura de referência, de 0 a 1, e o que falta (RF-VIDA-201). */
   completeness?: number;
   missing?: string;
@@ -1530,15 +1535,17 @@ export class Ecosystem {
     }
     const seed = plotSeed(v.x, v.y);
     const laid: number[] = [];
-    for (const st of streetPlan(v.tier, seed, v.growth ?? 0)) {
-      for (const p of st.pts) {
-        const t = this.tileAt(cx + p.x, cy + p.y);
-        if (t < 0 || !isLand(this.map, t)) break;
-        if (this.road[t] === 3) continue;
-        if (kind === 2 && this.road[t] === 1) this.road[t] = 0;
-        this.setRoad(t, kind);
-        laid.push(t);
-      }
+    // Só o começo da planta, na ordem em que as ruas vão sendo abertas (bloco a bloco, RF-VIDA-207).
+    const order = streetOrder(v.tier, seed, v.growth ?? 0);
+    v.streetLen = Math.min(order.length, v.streetLen ?? B.STREET_START);
+    v.streetPlan = order.length;
+    for (let k = 0; k < v.streetLen; k++) {
+      const p = order[k];
+      const t = this.tileAt(cx + p.x, cy + p.y);
+      if (t < 0 || !isLand(this.map, t) || this.road[t] === 3) continue;
+      if (kind === 2 && this.road[t] === 1) this.road[t] = 0;
+      this.setRoad(t, kind);
+      laid.push(t);
     }
     this.pruneRoads(laid);
     v.lots = lotsFor(v.tier, seed, v.growth ?? 0);
@@ -1617,6 +1624,12 @@ export class Ecosystem {
     return true;
   }
 
+  /** Abre mais um trecho de rua da planta (um bloco), onde faltam lotes. */
+  private openBlock(v: Village): void {
+    v.streetLen = (v.streetLen ?? 0) + B.STREET_BLOCK;
+    this.layStreets(v);
+  }
+
   /** Ruas crescem rumo ao nível seguinte (e a área junto), sem engolir outro assentamento. */
   private growStreets(v: Village): void {
     const next = Math.min(1, (v.growth ?? 0) + B.STREET_GROW_RATE);
@@ -1672,6 +1685,30 @@ export class Ecosystem {
   /** Estrada de terra entre dois assentamentos (a mesma em qualquer ordem, RF-VIDA-194). */
   private connect(a: Village, b: Village): void {
     this.lineRoad(a.x, a.y, b.x, b.y);
+    a.linked = b.linked = true;
+  }
+
+  /**
+   * Estradas só onde há movimento: uma vez por ano, um assentamento que já
+   * tem gente e ainda não tem estrada se liga ao vizinho mais perto do mesmo
+   * reino, se estiver perto e der para ir a pé. Reinos diferentes não ganham
+   * estrada entre si.
+   */
+  private linkRoads(): void {
+    for (const v of this.villages) {
+      if (v.abandoned || v.linked || v.population < B.ROAD_LINK_POP) continue;
+      let best: Village | null = null;
+      let bd: number = B.ROAD_LINK_RANGE;
+      for (const o of this.villages) {
+        if (o === v || o.abandoned || o.kingdom !== v.kingdom || o.population < B.ROAD_LINK_POP) continue;
+        const d = this.distance(o, v.x, v.y);
+        if (d < bd && this.landPath(v.x, v.y, o.x, o.y)) {
+          bd = d;
+          best = o;
+        }
+      }
+      if (best) this.connect(v, best);
+    }
   }
 
   /**
@@ -1938,7 +1975,6 @@ export class Ecosystem {
     this.villages.push(village);
     this.layStreets(village);
     this.buildHouse(village, 'house', true);
-    if (from) this.connect(from, village);
     for (let k = 0; k < settlers; k++) {
       this.spawn(s, x + (rnd() - 0.5) * 3, y + (rnd() - 0.5) * 3, village.id, sp.maturity + rnd() * 10);
     }
@@ -1986,7 +2022,7 @@ export class Ecosystem {
    * estiver dentro de um assentamento vivo.
    */
   private clearRuins(v: Village, stage: number): void {
-    const r = this.radius(v) + 1;
+    const r = Math.ceil(this.radius(v)) + 1;
     const cx = Math.floor(v.x);
     const cy = Math.floor(v.y);
     for (let dy = -r; dy <= r; dy++) {
@@ -2094,8 +2130,11 @@ export class Ecosystem {
       const builders = workers[v.id]?.[ROLE.builder] ?? 0;
       const squeezed = needRoom && !lot;
       if (happens(this.civRnd, B.REFORM_RATE * Math.max(1, builders) * (squeezed ? 3 : 1), yr)) this.reform(v);
-      // Ruas sob demanda (RF-VIDA-207): sem lote e sem casa para reformar, as ruas crescem rumo ao nível seguinte.
-      if (squeezed && !this.reformable(v) && (v.growth ?? 0) < 1 && happens(this.civRnd, B.STREET_GROW_RATE * 4, yr)) this.growStreets(v);
+      // Ruas sob demanda (RF-VIDA-207): sem lote, abre mais um trecho da planta; com a planta toda aberta e
+      // sem casa para reformar, a planta cresce rumo ao nível seguinte.
+      const planLeft = (v.streetLen ?? 0) < (v.streetPlan ?? 0);
+      if ((needRoom || v.completeness < 1) && !lot && planLeft && happens(this.civRnd, B.STREET_BLOCK_RATE, yr)) this.openBlock(v);
+      else if (squeezed && !planLeft && !this.reformable(v) && (v.growth ?? 0) < 1 && happens(this.civRnd, B.STREET_GROW_RATE * 4, yr)) this.growStreets(v);
       // Lavouras trabalhadas por agricultores enchem o celeiro (cada porção mata a fome de um morador).
       if (v.fields > 0 && workers[v.id]) {
         const worked = Math.min(v.fields, Math.ceil(workers[v.id][ROLE.farmer] / 2) + 1);
@@ -2117,7 +2156,7 @@ export class Ecosystem {
       const curious = v.culture.value === 'comércio' || v.culture.value === 'conhecimento' ? 2 : 1;
       if (v.port >= 0 && v.tech >= 1 && happens(this.civRnd, B.EXPLORE_RATE * curious, dt / YEAR_SECONDS)) this.explore(v);
       // Colonos (RF-VIDA-204): mais em eras avançadas, bem menos com a planta incompleta, e mais quando falta espaço de verdade.
-      const crowded = v.population >= 8 && squeezed && !this.reformable(v) && (v.growth ?? 0) >= 1;
+      const crowded = v.population >= 8 && squeezed && !planLeft && !this.reformable(v) && (v.growth ?? 0) >= 1;
       const ready = B.COLONY_MIN_FACTOR + (1 - B.COLONY_MIN_FACTOR) * v.completeness ** 2;
       const pressure = crowded ? B.COLONY_PRESSURE_CROWDED : B.COLONY_PRESSURE_ROOM;
       if ((v.population > B.COLONY_MIN_POP || crowded) && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * ready * pressure, yr) && live < 100) {
@@ -2583,6 +2622,7 @@ export class Ecosystem {
     }
     this.migrate();
     this.epidemics();
+    this.linkRoads();
     for (const k of this.crises) this.succession(this.villages[k]);
     this.crises.clear();
     this.diplomacy();
@@ -2787,7 +2827,6 @@ export class Ecosystem {
       small.leader = -1;
       for (const field of ['wood', 'stone', 'copper', 'tin', 'iron', 'gold', 'coal', 'tools', 'weapons', 'armor', 'jewels'] as const) big.stock[field] += small.stock[field];
       this.alliances.delete(key);
-      this.connect(big, small);
       this.note(`${small.name} e ${big.name} se uniram num só reino, com capital em ${big.name}`, 'povo', big, { major: true });
       return true;
     }
@@ -2803,7 +2842,6 @@ export class Ecosystem {
         if (this.distance(c, v.x, v.y) > 45 || this.relation(c.id, v.id) < 20 || this.polRnd() > 0.03) continue;
         v.kingdom = c.id;
         v.color = c.color;
-        this.connect(c, v);
         this.note(`${v.name} pediu proteção e passou a fazer parte do reino de ${c.name}`, 'povo', v);
         break;
       }
@@ -2939,7 +2977,7 @@ export class Ecosystem {
   private buildPort(v: Village): boolean {
     const map = this.map;
     const w = map.width;
-    const r = this.radius(v);
+    const r = Math.ceil(this.radius(v));
     const cx = Math.floor(v.x);
     const cy = Math.floor(v.y);
     let best = -1;

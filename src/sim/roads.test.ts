@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runWorld } from './calibrate';
-import { roadBlocks, streetPlan } from './settlement';
+import { roadBlocks, streetOrder, streetPlan } from './settlement';
 
 describe('ruas e estradas (RF-VIDA-190 a 196)', () => {
   it('a planta de qualquer assentamento não tem ruas coladas nem blocos 2x2', () => {
@@ -21,6 +21,43 @@ describe('ruas e estradas (RF-VIDA-190 a 196)', () => {
       const low = new Set(streetPlan(1, seed).flatMap((st) => st.pts.map((p) => `${p.x},${p.y}`)));
       const high = new Set(streetPlan(3, seed).flatMap((st) => st.pts.map((p) => `${p.x},${p.y}`)));
       for (const k of low) expect(high.has(k)).toBe(true);
+    }
+  });
+
+  it('as ruas abrem bloco a bloco: cada trecho novo continua uma rua já aberta ou começa uma rua', () => {
+    const side = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (let seed = 1; seed < 60; seed++) {
+      const order = streetOrder(3, seed * 31);
+      const plan = new Set(streetPlan(3, seed * 31).flatMap((st) => st.pts.map((p) => `${p.x},${p.y}`)));
+      expect(order.length).toBe(plan.size);
+      // Pedaço ligado de cada tile da planta.
+      const part = new Map<string, number>();
+      let n = 0;
+      for (const k of plan) {
+        if (part.has(k)) continue;
+        const stack = [k];
+        part.set(k, n);
+        while (stack.length) {
+          const [x, y] = stack.pop()!.split(',').map(Number);
+          for (const [dx, dy] of side) {
+            const q = `${x + dx},${y + dy}`;
+            if (plan.has(q) && !part.has(q)) {
+              part.set(q, n);
+              stack.push(q);
+            }
+          }
+        }
+        n++;
+      }
+      const open = new Set<string>();
+      const started = new Set<number>();
+      for (const p of order) {
+        const k = `${p.x},${p.y}`;
+        const touches = side.some(([dx, dy]) => open.has(`${p.x + dx},${p.y + dy}`));
+        expect(touches || !started.has(part.get(k)!), `semente ${seed} em ${k}`).toBe(true);
+        started.add(part.get(k)!);
+        open.add(k);
+      }
     }
   });
 
