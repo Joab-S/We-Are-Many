@@ -1,6 +1,6 @@
 import { mulberry32 } from '../core/rng';
 import * as B from './balance';
-import { happens, ouStep, streams } from './stochastic';
+import { binomial, happens, ouStep, streams } from './stochastic';
 import { Biome, classify, temperatureAt, type SurfaceMap } from '../procgen/surface';
 import {
   WONDER_NAMES,
@@ -21,7 +21,8 @@ import {
 import { yearlyEvents } from './events';
 import { pickItem, pickPrimitive, TIER_MATERIAL, type Category, type Material } from './items';
 import { CHILD, pickRole, ROLE, type RoleContext } from './roles';
-import { lotsFor, plotSeed, pruneBlocks, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
+import { completeness, missingText, planItems, type PlanItem } from './plan';
+import { lotsFor, plotSeed, pruneBlocks, radiusFor, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, habitatOf, type Species, type SpeciesKind } from './species';
 
 /**
@@ -165,7 +166,7 @@ function hsl(h: number, s: number, l: number): [number, number, number] {
 }
 
 /** Construções especiais, na ordem em que um assentamento costuma erguê-las. */
-export const BUILDINGS = ['granary', 'smithy', 'market', 'windmill', 'temple', 'barracks', 'factory', 'statue', 'wonder'] as const;
+export const BUILDINGS = ['granary', 'smithy', 'market', 'windmill', 'temple', 'barracks', 'factory', 'aqueduct', 'statue', 'wonder'] as const;
 export type BuildingKind = 'house' | 'port' | (typeof BUILDINGS)[number];
 
 export const BUILDING_NAMES: Record<BuildingKind, string> = {
@@ -178,6 +179,7 @@ export const BUILDING_NAMES: Record<BuildingKind, string> = {
   temple: 'Templo',
   barracks: 'Quartel',
   factory: 'Fábrica',
+  aqueduct: 'Aqueduto',
   statue: 'Estátua',
   wonder: 'Grande obra',
 };
@@ -202,6 +204,9 @@ function canBuild(kind: (typeof BUILDINGS)[number], era: number, tier: number, m
       return era >= 2 && tier >= 2;
     case 'factory':
       return era >= 4 && tier >= 2;
+    // Saneamento da metrópole (RF-VIDA-284).
+    case 'aqueduct':
+      return era >= 2 && tier >= 3;
     // Capitais ricas erguem monumentos: estátua do líder e a grande obra do povo.
     case 'statue':
       return capital && era >= 2 && tier >= 2;
@@ -217,6 +222,10 @@ export interface Building {
   kind: BuildingKind;
   /** Variação de aparência (casas). */
   variant: number;
+  /** Andares a mais (casas reformadas e adensadas, RF-VIDA-203). */
+  level?: number;
+  /** Ano até o qual a obra continua, com andaime. */
+  workUntil?: number;
 }
 
 export interface Village {
@@ -266,6 +275,11 @@ export interface Village {
   lastCause?: string;
   /** Id das ruínas que este assentamento reocupou, se for o caso. */
   ruinOf?: number;
+  /** Ruas e área rumo ao nível seguinte, de 0 a 1 (ruas sob demanda, RF-VIDA-207). */
+  growth?: number;
+  /** Completude da estrutura de referência, de 0 a 1, e o que falta (RF-VIDA-201). */
+  completeness?: number;
+  missing?: string;
 }
 
 /** Anos entre cada etapa do sumiço das ruínas (plantações, depois ruas, depois a praça). */
@@ -785,6 +799,62 @@ export class Ecosystem {
     ];
   }
 
+  /**
+   * Migração interna (RF-VIDA-281): de um assentamento apertado ou com fome,
+   * um adulto muda para um vizinho do mesmo povo e espécie com lugar sobrando,
+   * a até 60 tiles e alcançável a pé.
+   */
+  private migrate(): void {
+    for (const v of this.villages) {
+      if (v.abandoned || v.population < 6) continue;
+      const tight = v.population > this.housing(v) - 1;
+      const hungry = v.food < 1 && v.fields === 0 && v.port < 0;
+      if (!(tight || hungry) || !happens(this.civRnd, B.MIGRATION_RATE, 1)) continue;
+      let best: Village | null = null;
+      let bd = 60;
+      for (const o of this.villages) {
+        if (o === v || o.abandoned || o.species !== v.species || o.culture !== v.culture) continue;
+        if (this.housing(o) - o.population < 3) continue;
+        const d = this.distance(o, v.x, v.y);
+        if (d < bd && this.landPath(v.x, v.y, o.x, o.y)) {
+          bd = d;
+          best = o;
+        }
+      }
+      if (!best) continue;
+      for (let i = 0; i < this.count; i++) {
+        if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD) continue;
+        v.population--;
+        this.village[i] = -1;
+        this.join(i, best);
+        this.note(`Gente de ${v.name} se mudou para ${best.name} em busca de ${hungry ? 'comida' : 'lugar'}`, 'povo', best, { key: `migra-${v.id}-${best.id}` });
+        break;
+      }
+    }
+  }
+
+  /**
+   * Epidemias (RF-VIDA-284): cidades grandes sem saneamento adoecem com mais
+   * facilidade; o aqueduto da metrópole corta o risco.
+   */
+  private epidemics(): void {
+    for (const v of this.villages) {
+      if (v.abandoned || v.tier < 2) continue;
+      const clean = v.houses.some((h) => h.kind === 'aqueduct') ? 0.25 : Math.floor(v.tech) >= 1 ? 0.6 : 1;
+      if (!happens(this.civRnd, B.EPIDEMIC_RATE * (v.population / 100) * clean, 1)) continue;
+      let toll = binomial(this.civRnd, v.population, B.EPIDEMIC_SHARE);
+      if (toll <= 0) continue;
+      const dead = toll;
+      for (let i = 0; i < this.count && toll > 0; i++) {
+        if (!this.alive[i] || this.village[i] !== v.id || i === v.leader) continue;
+        if (this.civRnd() < 0.5) continue;
+        this.kill(i, true);
+        toll--;
+      }
+      this.note(`Uma epidemia matou ${dead - toll} pessoas em ${v.name}${clean < 1 && clean > 0.3 ? '' : clean <= 0.3 ? ', mesmo com o aqueduto' : ': faltam poços e esgoto'}`, 'natureza', v);
+    }
+  }
+
   /** Região do clima do ano que contém o tile (x, y). */
   private region(x: number, y: number): number {
     const [cols, rows] = B.CLIMATE_REGIONS;
@@ -1051,7 +1121,7 @@ export class Ecosystem {
           let dy = v.y - this.y[i];
           const role = this.role[i];
           // Crianças, idosos, soldados, guardas e líderes ficam perto do centro; pescadores, perto do porto.
-          let range = TIER_RADIUS[v.tier] * (role >= ROLE.soldier || !working ? 0.4 : 0.8);
+          let range = this.radius(v) * (role >= ROLE.soldier || !working ? 0.4 : 0.8);
           if (role === ROLE.fisher && v.port >= 0) {
             dx = wrapDx((v.port % map.width) + 0.5 - this.x[i], map.width);
             dy = Math.floor(v.port / map.width) + 0.5 - this.y[i];
@@ -1064,7 +1134,7 @@ export class Ecosystem {
             range = 2;
           } else if (working && (role === ROLE.hunter || role === ROLE.miner)) {
             // Caçadores e mineradores sem mina exploram longe de casa, mais longe a cada era.
-            range = TIER_RADIUS[v.tier] * (role === ROLE.miner ? 2.5 : 1.8) * (1 + 0.25 * era);
+            range = this.radius(v) * (role === ROLE.miner ? 2.5 : 1.8) * (1 + 0.25 * era);
           }
           if (working && role <= ROLE.miner && this.rnd() < 0.3) this.discover(i, v);
           const march = this.soldier(i, v);
@@ -1122,8 +1192,8 @@ export class Ecosystem {
         if (j !== i && this.age[j] >= sp.maturity && (sp.kind !== 'sapient' || this.village[j] === v)) mates++;
       });
       if (!mates || (sp.kind === 'sapient' && v < 0)) return;
-      // Casas de eras mais avançadas abrigam mais gente (sobrados, prédios).
-      const housed = v < 0 || this.villages[v].population < this.villages[v].houses.length * (4 + era) + this.villages[v].fields * 2 + 4;
+      // Casas de eras mais avançadas e com andares a mais abrigam mais gente (sobrados, prédios).
+      const housed = v < 0 || this.villages[v].population < this.housing(this.villages[v]);
       if (crowd < b.crowd && housed) {
         const child = this.spawn(s, this.x[i] + (this.rnd() - 0.5), this.y[i] + (this.rnd() - 0.5), v);
         if (child >= 0) this.energy[i] -= 0.3;
@@ -1223,7 +1293,7 @@ export class Ecosystem {
       }
     }
     const name = this.species[s].name.toLowerCase();
-    if (best && bd < TIER_RADIUS[best.tier]) {
+    if (best && bd < this.radius(best)) {
       this.join(i, best);
       this.note(`Um ${name} solitário se juntou a ${best.name}`, 'povo', best, { key: `join:${best.id}` });
       return undefined;
@@ -1308,7 +1378,7 @@ export class Ecosystem {
     const sp = this.species[v.species];
     for (let t = 0; t < 12; t++) {
       const a = this.civRnd() * Math.PI * 2;
-      const d = TIER_RADIUS[v.tier] + 3 + this.civRnd() * 6;
+      const d = this.radius(v) + 3 + this.civRnd() * 6;
       const x = v.x + Math.cos(a) * d;
       const y = v.y + Math.sin(a) * d;
       const tile = this.tileAt(x, Math.floor(y));
@@ -1361,15 +1431,68 @@ export class Ecosystem {
     return Math.hypot(wrapDx(v.x - x, this.map.width), v.y - y);
   }
 
+  /** Raio da área, que cresce aos poucos com as ruas (RF-VIDA-206). */
+  radius(v: Village): number {
+    return radiusFor(v.tier, v.growth ?? 0);
+  }
+
+  /** Quantas pessoas as casas do assentamento abrigam. */
+  housing(v: Village): number {
+    const era = Math.floor(v.tech);
+    let n = 4 + v.fields * 2;
+    for (const h of v.houses) n += h.kind === 'house' ? 4 + era + (h.level ?? 0) * B.LEVEL_HOUSING : h.kind === 'port' ? 0 : 2;
+    return n;
+  }
+
+  /** Andares a mais que uma casa pode ter na era (sobrado no Bronze, mais um na Era Medieval). */
+  private maxLevel(v: Village): number {
+    const era = Math.floor(v.tech);
+    return era >= 3 ? 2 : era >= 1 ? 1 : 0;
+  }
+
+  /** Estrutura de referência do assentamento no nível e era atuais (RF-VIDA-200). */
+  plan(v: Village): PlanItem[] {
+    const era = Math.floor(v.tech);
+    const st = this.store(v);
+    const metal = st.copper + st.tin + st.iron > 0;
+    const capital = v.kingdom === v.id;
+    const built = new Set<string>(v.houses.map((h) => h.kind));
+    return planItems({
+      tier: v.tier,
+      tech: v.tech,
+      population: v.population,
+      housing: this.housing(v),
+      homes: v.houses.filter((h) => h.kind === 'house').length,
+      fields: v.fields,
+      food: v.food,
+      port: v.port >= 0,
+      coastal: v.port >= 0 || this.coastal(v),
+      built,
+      buildable: BUILDINGS.filter((b) => canBuild(b, era, v.tier, metal, v.culture, capital)),
+    });
+  }
+
+  /** Tem mar (não lago) a até o raio da área: dá para ter porto. */
+  private coastal(v: Village): boolean {
+    const r = Math.ceil(this.radius(v));
+    for (let dy = -r; dy <= r; dy += 2) {
+      for (let dx = -r; dx <= r; dx += 2) {
+        const t = this.tileAt(v.x + dx, Math.floor(v.y) + dy);
+        if (t >= 0 && isWater(this.map, t) && dx * dx + dy * dy <= r * r) return true;
+      }
+    }
+    return false;
+  }
+
   /** Assentamento cuja área contém o ponto, se houver. */
   settlementAt(x: number, y: number): Village | null {
-    for (const v of this.villages) if (!v.abandoned && this.distance(v, x, y) < TIER_RADIUS[v.tier]) return v;
+    for (const v of this.villages) if (!v.abandoned && this.distance(v, x, y) < this.radius(v)) return v;
     return null;
   }
 
   /** Um assentamento novo não pode nascer dentro (nem encostado) da área de outro. */
   canFound(x: number, y: number): boolean {
-    return this.villages.every((v) => v.abandoned || this.distance(v, x + 0.5, y + 0.5) >= TIER_RADIUS[v.tier] + TIER_RADIUS[0]);
+    return this.villages.every((v) => v.abandoned || this.distance(v, x + 0.5, y + 0.5) >= this.radius(v) + TIER_RADIUS[0]);
   }
 
   /** Capital do reino do assentamento. */
@@ -1407,7 +1530,7 @@ export class Ecosystem {
     }
     const seed = plotSeed(v.x, v.y);
     const laid: number[] = [];
-    for (const st of streetPlan(v.tier, seed)) {
+    for (const st of streetPlan(v.tier, seed, v.growth ?? 0)) {
       for (const p of st.pts) {
         const t = this.tileAt(cx + p.x, cy + p.y);
         if (t < 0 || !isLand(this.map, t)) break;
@@ -1418,7 +1541,7 @@ export class Ecosystem {
       }
     }
     this.pruneRoads(laid);
-    v.lots = lotsFor(v.tier, seed);
+    v.lots = lotsFor(v.tier, seed, v.growth ?? 0);
   }
 
   /** Lote 2x2 com canto em (x, y) tem rua a até 2 tiles (casa sempre na beira da rua, RF-VIDA-102). */
@@ -1461,11 +1584,46 @@ export class Ecosystem {
       this.built[t] = 1;
       this.onTileChanged(t);
     }
-    v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.civRnd() * 4) });
+    v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.civRnd() * 4), workUntil: this.year + B.WORK_YEARS / 2 });
     if (kind === 'wonder') this.note(`${v.name} ergueu a ${WONDER_NAMES[v.culture.value]}, orgulho do povo ${v.culture.name}`, 'povo', v, { major: true });
     else if (kind === 'statue') this.note(`${v.name} ergueu uma estátua do seu líder`, 'povo', v);
     else if (kind !== 'house') this.note(`${v.name} construiu ${kind === 'smithy' || kind === 'factory' ? 'uma' : 'um'} ${BUILDING_NAMES[kind].toLowerCase()}`, 'economia', v);
     return true;
+  }
+
+  /** Casa que ainda pode ganhar um andar nesta era, a mais perto do centro. */
+  private reformable(v: Village): Building | null {
+    const max = this.maxLevel(v);
+    let best: Building | null = null;
+    let bd = Infinity;
+    for (const h of v.houses) {
+      if (h.kind !== 'house' || (h.level ?? 0) >= max || (h.workUntil ?? 0) > this.year) continue;
+      const d = Math.hypot(wrapDx(h.x + 1 - v.x, this.map.width), h.y + 1 - v.y);
+      if (d < bd) {
+        bd = d;
+        best = h;
+      }
+    }
+    return best;
+  }
+
+  /** Reforma (RF-VIDA-203): a casa ganha um andar e fica com andaime por um tempo. */
+  private reform(v: Village): boolean {
+    const h = this.reformable(v);
+    if (!h || !this.pay(v, 'reform')) return false;
+    h.level = (h.level ?? 0) + 1;
+    h.workUntil = this.year + B.WORK_YEARS;
+    this.note(`${v.name} está reformando casas`, 'povo', v, { key: `reform-${v.id}` });
+    return true;
+  }
+
+  /** Ruas crescem rumo ao nível seguinte (e a área junto), sem engolir outro assentamento. */
+  private growStreets(v: Village): void {
+    const next = Math.min(1, (v.growth ?? 0) + B.STREET_GROW_RATE);
+    const r = radiusFor(v.tier, next);
+    if (v.tier < 2 && this.villages.some((o) => o !== v && !o.abandoned && this.distance(o, v.x, v.y) < r + TIER_RADIUS[0])) return;
+    v.growth = next;
+    this.layStreets(v);
   }
 
   /** Próxima construção especial que o assentamento pode erguer, se houver. */
@@ -1828,7 +1986,7 @@ export class Ecosystem {
    * estiver dentro de um assentamento vivo.
    */
   private clearRuins(v: Village, stage: number): void {
-    const r = TIER_RADIUS[v.tier] + 1;
+    const r = this.radius(v) + 1;
     const cx = Math.floor(v.x);
     const cy = Math.floor(v.y);
     for (let dy = -r; dy <= r; dy++) {
@@ -1850,6 +2008,8 @@ export class Ecosystem {
   private growTier(v: Village): void {
     const target = tierFor(v.population);
     if (target <= v.tier) return;
+    // Subir de nível exige a planta do nível atual quase completa (RF-VIDA-205); sem ela, o lugar adensa.
+    if ((v.completeness ?? 1) < B.TIER_UP_COMPLETENESS) return;
     const r = TIER_RADIUS[target];
     const inside = this.villages.filter((o) => o !== v && !o.abandoned && this.distance(o, v.x, v.y) < r);
     if (target < 2 && inside.length) return;
@@ -1870,6 +2030,7 @@ export class Ecosystem {
       }
     }
     v.tier = target;
+    v.growth = 0;
     this.layStreets(v);
     this.note(`${v.name} virou ${TIER_NAMES[target].toLowerCase()}`, 'povo', v, { major: target >= 2 });
   }
@@ -1916,12 +2077,25 @@ export class Ecosystem {
       this.updateLeader(v, adults[v.id] ?? []);
       // Assentamentos fundados neste passo ainda não têm contagem.
       if (workers[v.id]) this.produce(v, workers[v.id], adults[v.id].length, dt);
-      // Constrói casas quando o assentamento cresce; às vezes uma construção especial.
+      // Crescimento para dentro (RF-VIDA-202): preencher os lotes, completar a planta e reformar, adensar e só então expandir.
       const homes = v.houses.filter((h) => h.kind === 'house').length;
-      if (v.population > homes * 3 && happens(this.civRnd, B.HOUSE_RATE, dt / YEAR_SECONDS)) {
-        const special = homes >= 4 && this.civRnd() < B.SPECIAL_BUILDING_SHARE ? this.nextBuilding(v) : null;
-        this.buildHouse(v, special ?? 'house');
+      const yr = dt / YEAR_SECONDS;
+      const items = this.plan(v);
+      v.completeness = completeness(items);
+      v.missing = missingText(items);
+      const needRoom = v.population > this.housing(v) - 3;
+      const lot = needRoom || v.completeness < 1 ? this.freeLot(v) : null;
+      if ((needRoom || v.population > homes * 3) && happens(this.civRnd, B.HOUSE_RATE, yr)) {
+        // A planta pede uma construção especial: ela vem antes da casa nova, quando há material.
+        const special = homes >= 4 && (v.completeness < 1 || this.civRnd() < B.SPECIAL_BUILDING_SHARE) ? this.nextBuilding(v) : null;
+        if (!(special && this.buildHouse(v, special)) && lot) this.buildHouse(v, 'house');
       }
+      // Reformas: casa que ganha um andar (sobrado), mais depressa quando falta lote e sobra gente.
+      const builders = workers[v.id]?.[ROLE.builder] ?? 0;
+      const squeezed = needRoom && !lot;
+      if (happens(this.civRnd, B.REFORM_RATE * Math.max(1, builders) * (squeezed ? 3 : 1), yr)) this.reform(v);
+      // Ruas sob demanda (RF-VIDA-207): sem lote e sem casa para reformar, as ruas crescem rumo ao nível seguinte.
+      if (squeezed && !this.reformable(v) && (v.growth ?? 0) < 1 && happens(this.civRnd, B.STREET_GROW_RATE * 4, yr)) this.growStreets(v);
       // Lavouras trabalhadas por agricultores enchem o celeiro (cada porção mata a fome de um morador).
       if (v.fields > 0 && workers[v.id]) {
         const worked = Math.min(v.fields, Math.ceil(workers[v.id][ROLE.farmer] / 2) + 1);
@@ -1942,9 +2116,11 @@ export class Ecosystem {
       // Exploradores por mar a partir do Bronze; povos comerciantes e sábios exploram mais.
       const curious = v.culture.value === 'comércio' || v.culture.value === 'conhecimento' ? 2 : 1;
       if (v.port >= 0 && v.tech >= 1 && happens(this.civRnd, B.EXPLORE_RATE * curious, dt / YEAR_SECONDS)) this.explore(v);
-      // Assentamentos cheios (ou sem espaço, como numa ilha) enviam colonos para fundar outro; mais em eras avançadas.
-      const crowded = v.population >= 8 && v.population >= v.houses.length * 4 && !this.freeLot(v);
-      if ((v.population > 26 || crowded) && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)), dt / YEAR_SECONDS) && live < 100) {
+      // Colonos (RF-VIDA-204): mais em eras avançadas, bem menos com a planta incompleta, e mais quando falta espaço de verdade.
+      const crowded = v.population >= 8 && squeezed && !this.reformable(v) && (v.growth ?? 0) >= 1;
+      const ready = B.COLONY_MIN_FACTOR + (1 - B.COLONY_MIN_FACTOR) * v.completeness ** 2;
+      const pressure = crowded ? B.COLONY_PRESSURE_CROWDED : B.COLONY_PRESSURE_ROOM;
+      if ((v.population > B.COLONY_MIN_POP || crowded) && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * ready * pressure, yr) && live < 100) {
         if (!this.colonizeByLand(v)) this.colonizeBySea(v);
       }
     }
@@ -1998,7 +2174,7 @@ export class Ecosystem {
 
   /** Floresta e rocha em volta do assentamento (amostra), para lenha e pedra. */
   private survey(v: Village): void {
-    const r = TIER_RADIUS[v.tier] + 6;
+    const r = this.radius(v) + 6;
     let veg = 0;
     let rock = false;
     for (let k = 0; k < 40; k++) {
@@ -2028,7 +2204,7 @@ export class Ecosystem {
       st.wood += wood;
       if (this.civRnd() < wood) {
         const a = this.civRnd() * Math.PI * 2;
-        const d = TIER_RADIUS[v.tier] * (0.8 + this.civRnd() * 0.6);
+        const d = this.radius(v) * (0.8 + this.civRnd() * 0.6);
         const t = this.tileAt(v.x + Math.cos(a) * d, Math.floor(v.y + Math.sin(a) * d));
         if (t >= 0 && this.map.vegetation[t] > 0.35) {
           this.map.vegetation[t] -= 0.08;
@@ -2134,7 +2310,7 @@ export class Ecosystem {
     const want = this.wanted(v);
     let best: Deposit | null = null;
     let score = Infinity;
-    const reach = TIER_RADIUS[v.tier] + 25;
+    const reach = this.radius(v) + 25;
     for (const d of this.deposits) {
       if (d.amount <= 0 || d.mine >= 0 || !d.known.has(v.kingdom)) continue;
       const dist = this.distance(v, d.x + 0.5, d.y + 0.5);
@@ -2294,7 +2470,7 @@ export class Ecosystem {
       }
       let attackers = 0;
       let defenders = 0;
-      this.forEachNear(target.x, target.y, TIER_RADIUS[target.tier] * 0.6, (j) => {
+      this.forEachNear(target.x, target.y, this.radius(target) * 0.6, (j) => {
         const vj = this.village[j];
         if (vj < 0 || this.species[this.kind[j]].kind !== 'sapient') return;
         const r = this.role[j];
@@ -2319,7 +2495,7 @@ export class Ecosystem {
     const type = BOATS[Math.min(BOATS.length - 1, Math.floor(from.tech))];
     let found = -1;
     let landing = -1;
-    const reach = TIER_RADIUS[target.tier] + 6;
+    const reach = this.radius(target) + 6;
     this.searchSea(from.port, 400000, type.range, (t) => {
       const x = t % w;
       const y = (t - x) / w;
@@ -2361,7 +2537,7 @@ export class Ecosystem {
     const passengers: Boat['passengers'] = [];
     for (let i = 0; i < this.count && passengers.length < type.capacity; i++) {
       if (!this.alive[i] || this.role[i] !== ROLE.soldier || this.village[i] < 0 || this.villages[this.village[i]].kingdom !== war.a) continue;
-      if (this.distance(from, this.x[i], this.y[i]) > TIER_RADIUS[from.tier] + 6) continue;
+      if (this.distance(from, this.x[i], this.y[i]) > this.radius(from) + 6) continue;
       passengers.push({ age: this.age[i], role: ROLE.soldier });
       this.kill(i, true);
     }
@@ -2405,6 +2581,8 @@ export class Ecosystem {
       this.pruneRoads(this.roadDirty);
       this.roadDirty = [];
     }
+    this.migrate();
+    this.epidemics();
     for (const k of this.crises) this.succession(this.villages[k]);
     this.crises.clear();
     this.diplomacy();
@@ -2714,7 +2892,7 @@ export class Ecosystem {
     const map = this.map;
     for (let t = 0; t < 12; t++) {
       const a = this.civRnd() * Math.PI * 2;
-      const d = TIER_RADIUS[v.tier] + TIER_RADIUS[0] + 2 + this.civRnd() * 22;
+      const d = this.radius(v) + TIER_RADIUS[0] + 2 + this.civRnd() * 22;
       const nx = Math.floor(v.x + Math.cos(a) * d);
       const ny = Math.floor(v.y + Math.sin(a) * d);
       if (ny < 2 || ny >= map.height - 2) continue;
@@ -2761,7 +2939,7 @@ export class Ecosystem {
   private buildPort(v: Village): boolean {
     const map = this.map;
     const w = map.width;
-    const r = TIER_RADIUS[v.tier];
+    const r = this.radius(v);
     const cx = Math.floor(v.x);
     const cy = Math.floor(v.y);
     let best = -1;
@@ -2883,7 +3061,7 @@ export class Ecosystem {
     const w = map.width;
     const type = BOATS[Math.min(BOATS.length - 1, Math.floor(v.tech))];
     const candidates: { water: number; land: number }[] = [];
-    const home = TIER_RADIUS[v.tier] + TIER_RADIUS[0];
+    const home = this.radius(v) + TIER_RADIUS[0];
     this.searchSea(v.port, 400000, type.range, (t, d) => {
       if (d < 6) return false;
       const x = t % w;
@@ -3248,7 +3426,7 @@ export class Ecosystem {
   destroyAround(x: number, y: number, r: number, chance = 1): number {
     let n = 0;
     for (const v of this.villages) {
-      if (v.abandoned || this.distance(v, x, y) > r + TIER_RADIUS[v.tier]) continue;
+      if (v.abandoned || this.distance(v, x, y) > r + this.radius(v)) continue;
       for (let k = v.houses.length - 1; k >= 0; k--) {
         const h = v.houses[k];
         if (Math.hypot(wrapDx(h.x + 1 - x, this.map.width), h.y + 1 - y) > r || this.worldRnd() > chance) continue;

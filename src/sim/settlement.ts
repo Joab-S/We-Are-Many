@@ -12,6 +12,15 @@ export const TIER_RADIUS = [8, 12, 18, 25];
 /** População mínima de cada nível. */
 export const TIER_POPULATION = [0, 25, 60, 140];
 
+/**
+ * Raio da área: o do nível, crescendo até metade do caminho para o do nível
+ * seguinte conforme `grow` (0 a 1) (área que cresce aos poucos, RF-VIDA-206).
+ */
+export function radiusFor(tier: number, grow = 0): number {
+  const next = TIER_RADIUS[Math.min(TIER_RADIUS.length - 1, tier + 1)] + (tier >= TIER_RADIUS.length - 1 ? 6 : 0);
+  return TIER_RADIUS[tier] + (next - TIER_RADIUS[tier]) * 0.5 * Math.max(0, Math.min(1, grow));
+}
+
 export function tierFor(population: number): number {
   let t = 0;
   while (t + 1 < TIER_POPULATION.length && population >= TIER_POPULATION[t + 1]) t++;
@@ -83,9 +92,11 @@ function walk(x: number, y: number, angle: number, len: number, r: () => number,
  * Ruas diferentes nunca correm coladas: uma rua que chegaria a menos de
  * `STREET_GAP` tiles de outra para ali (RF-VIDA-191 e 193). A planta é
  * calculada inteira (nível máximo) e só depois cortada no nível pedido, para
- * continuar estável quando o assentamento cresce.
+ * continuar estável quando o assentamento cresce. `grow` (0 a 1) estende as
+ * ruas rumo ao nível seguinte quando os lotes acabam (ruas sob demanda,
+ * RF-VIDA-207).
  */
-export function streetPlan(tier: number, seed = 0): Street[] {
+export function streetPlan(tier: number, seed = 0, grow = 0): Street[] {
   const r = rng(seed);
   const arms = 3 + Math.floor(r() * 3);
   const turn = r() * Math.PI * 2;
@@ -162,9 +173,13 @@ export function streetPlan(tier: number, seed = 0): Street[] {
   );
   for (const st of out) st.pts = st.pts.filter((p) => !removed.has(key(p)));
   const streets: Street[] = [];
+  const g = tier < ARM.length - 1 ? Math.max(0, Math.min(1, grow)) : 0;
+  const arm = Math.round(ARM[tier] + (tier < ARM.length - 1 ? (ARM[tier + 1] - ARM[tier]) * g : 0));
   for (const st of out) {
-    if (st.min === 0) streets.push({ pts: st.pts.slice(0, ARM[tier]) });
+    if (st.min === 0) streets.push({ pts: st.pts.slice(0, arm) });
     else if (tier >= st.min) streets.push({ pts: st.pts.slice(0, Math.ceil((st.len ?? st.pts.length) * Math.min(1, (tier - st.min + 1) / 2))) });
+    // Rumo ao nível seguinte: as laterais dele começam a nascer, curtas.
+    else if (g > 0 && st.min === tier + 1) streets.push({ pts: st.pts.slice(0, Math.ceil((st.len ?? st.pts.length) * g * 0.5)) });
   }
   return streets.filter((st) => st.pts.length > 0);
 }
@@ -261,17 +276,18 @@ export function roadBlocks(road: Uint8Array, width: number, height: number): num
  * fora. Lotes que caem em cima de rua ou de outra casa são pulados na hora
  * de construir.
  */
-export function lotsFor(tier: number, seed = 0): { x: number; y: number }[] {
+export function lotsFor(tier: number, seed = 0, grow = 0): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
   const seen = new Set<string>();
   const r = rng(seed ^ 0x9e3779b9);
+  const limit = radiusFor(tier, grow);
   const add = (x: number, y: number) => {
     const k = `${x},${y}`;
-    if (seen.has(k) || (x + 1) ** 2 + (y + 1) ** 2 > TIER_RADIUS[tier] ** 2) return;
+    if (seen.has(k) || (x + 1) ** 2 + (y + 1) ** 2 > limit ** 2) return;
     seen.add(k);
     out.push({ x, y });
   };
-  for (const { pts } of streetPlan(tier, seed)) {
+  for (const { pts } of streetPlan(tier, seed, grow)) {
     for (let i = 1; i < pts.length; i += 3) {
       const a = pts[i - 1];
       const b = pts[Math.min(i + 1, pts.length - 1)];
