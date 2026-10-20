@@ -1,9 +1,11 @@
 # We Are Many: Requisitos da Vida nos Planetas
 
-> Versão 0.2 · 20/10/2026 · complementa a seção 4.7 (SUP) do [REQUISITOS.md](REQUISITOS.md)
+> Versão 0.3 · 20/10/2026 · complementa a seção 4.7 (SUP) do [REQUISITOS.md](REQUISITOS.md) · revisão geral: situação de todos os requisitos conferida com o código da branch `development`, correções, próximos requisitos (seção 16.1) e regra de preservação
 > Escopo: tudo o que acontece na superfície 2D depois que existe vida: espécies, ecossistema, evolução, civilizações, assentamentos, guerra, diplomacia, arte em pixel e o papel do jogador.
 
-Itens marcados com **Implementado (Fase 0)** já existem no PR #1. O resto é requisito para as fases indicadas na seção 15.
+Itens marcados com **Implementado (Fase 0)** já existem no jogo (branch `development`). **Parcial** diz o que falta. O resto é requisito para a fase indicada, mapeada na seção 16.
+
+> **Regra de preservação** (a mesma do [REQUISITOS.md, seção 0](REQUISITOS.md#0-como-manter-este-documento)): nada do que está implementado ou registrado aqui é removido sem necessidade ou pedido do Joab. Toda remoção entra no [Registro de remoções](REQUISITOS.md#13-registro-de-remoções), com a data, o motivo e o que ficou no lugar. Um requisito que muda guarda o valor antigo entre parênteses ("antes: ...").
 
 ---
 
@@ -71,11 +73,11 @@ Itens marcados com **Implementado (Fase 0)** já existem no PR #1. O resto é re
 
 ### 3.2 Catálogo do jogador
 
-| ID | Requisito |
-|---|---|
-| RF-VIDA-15 | O catálogo lista toda espécie conhecida com origem, faixa de clima, população total em todos os planetas e planetas onde vive. Hoje: janela **Espécies** (tecla E) com filtro por tipo, sprite, população, clima, situação (viva, extinta, nunca viveu aqui) e botão Soltar. |
-| RF-VIDA-16 | Uma espécie extinta em todos os planetas fica marcada como extinta e não pode mais ser introduzida. |
-| RF-VIDA-17 | Variantes evoluídas (seção 7) aparecem no catálogo como subespécies ligadas à original. |
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-15 | O catálogo lista toda espécie conhecida com origem, faixa de clima, população total em todos os planetas e planetas onde vive. Hoje: janela **Espécies** (tecla E) com filtro por tipo, sprite, população, clima, situação (viva, extinta, nunca viveu aqui) e botão Soltar. | Parcial: janela Espécies do planeta atual; população em todos os planetas e lista de planetas onde vive faltam (Fase 5) |
+| RF-VIDA-16 | Uma espécie extinta em todos os planetas fica marcada como extinta e não pode mais ser introduzida. | A fazer (Fase 5): hoje as espécies da Terra estão sempre no banco genético e podem ser soltas de novo |
+| RF-VIDA-17 | Variantes evoluídas (seção 7) aparecem no catálogo como subespécies ligadas à original. | Parcial: as variantes do evento "espécie nova" entram no catálogo ligadas à original (RF-VIDA-51) |
 
 ---
 
@@ -102,7 +104,7 @@ Itens marcados com **Implementado (Fase 0)** já existem no PR #1. O resto é re
 | RF-VIDA-32 | Reprodução por tipo: peixes desovam várias crias, herbívoros têm 1–2 filhotes, predadores ninhadas pequenas, inteligentes um filho por vez com intervalo longo (cerca de 0,13 filho por adulto por ano, para a história durar). | Parcial |
 | RF-VIDA-33 | Gestação/intervalo mínimo entre crias por espécie, para evitar explosões. | Fase 5 |
 | RF-VIDA-34 | Teto global de indivíduos simulados por planeta (orçamento, seção 15). Acima dele, a população é agregada (um indivíduo representa vários) sem mudar o comportamento visível. | Fase 5 |
-| RF-VIDA-35 | Filhotes seguem adultos do bando; inteligentes jovens ficam perto de casa. | Fase 5 |
+| RF-VIDA-35 | Filhotes seguem adultos do bando; inteligentes jovens ficam perto de casa. | Parcial: crianças inteligentes ficam perto de casa (RF-VIDA-30) e bichos começam em bandos (RF-VIDA-38); filhotes seguindo o bando na Fase 5 |
 | RF-VIDA-36 | Reprodução sazonal opcional por espécie (seção 8). | Fase 5 |
 | RF-VIDA-37 | **Natalidade controlada:** a chance de filhote cai com o quadrado do quanto a espécie ocupa do teto (perto dele, 8% do normal); abaixo de 20% do teto, 2,2 vezes o normal, para a espécie se recuperar. | Implementado (Fase 0) |
 | RF-VIDA-38 | **Procurar parceiro:** adultos bem alimentados andam até o adulto da mesma espécie mais perto (24 tiles; 48 quando a espécie está rara); bichos acham parceiro a até 12 tiles. Bichos começam o mundo em bandos (cardumes de 6, manadas de 5, matilhas de 3, pares de tubarões). | Implementado (Fase 0) |
@@ -129,32 +131,32 @@ Itens marcados com **Implementado (Fase 0)** já existem no PR #1. O resto é re
 
 O jogador nunca cria espécies. A evolução modifica espécies existentes de forma lenta, legível e limitada.
 
-| ID | Requisito |
-|---|---|
-| RF-VIDA-50 | **Adaptação:** populações que vivem por várias gerações perto do limite da sua faixa de temperatura deslocam a faixa aos poucos (ex.: +1 K a cada N gerações), até um limite por espécie. |
-| RF-VIDA-51 | (Parcial: o evento "espécie nova" cria uma variante já adaptada a um lugar, ex.: "Lobo-das-neves", "Camelo-do-deserto", ligada à original no catálogo.) **Variantes:** uma população isolada geograficamente (sem contato por muitas gerações, por exemplo em outra ilha ou outro planeta) vira uma **subespécie** com nome derivado (ex.: "Cervo-das-neves"), cor ajustada e atributos levemente diferentes. |
-| RF-VIDA-52 | **Especiação lenta:** uma subespécie que acumula diferenças suficientes vira espécie nova no catálogo. Isso leva centenas de anos de jogo, não minutos. |
-| RF-VIDA-53 | Atributos que podem mudar: faixa de temperatura, tamanho, velocidade, fertilidade, cor. Dieta e tipo (peixe vira terrestre etc.) **não** mudam, para manter a legibilidade. |
-| RF-VIDA-54 | **Extinção:** uma espécie some de um planeta quando a população chega a zero; some do jogo quando some de todos. Extinções locais podem ser revertidas reintroduzindo de outro planeta. |
-| RF-VIDA-55 | **Surgimento de inteligência:** só a partir de espécies que já sejam inteligentes. Herbívoros e predadores nunca viram inteligentes (decisão para preservar a raridade e o pilar "não criar"). |
-| RF-VIDA-56 | Pressões evolutivas visíveis num painel da espécie: "adaptando-se ao frio", "isolada há 120 anos", com a tendência dos atributos. |
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-50 | **Adaptação:** populações que vivem por várias gerações perto do limite da sua faixa de temperatura deslocam a faixa aos poucos (ex.: +1 K a cada N gerações), até um limite por espécie. | Fase 6 |
+| RF-VIDA-51 | (Parcial: o evento "espécie nova" cria uma variante já adaptada a um lugar, ex.: "Lobo-das-neves", "Camelo-do-deserto", ligada à original no catálogo.) **Variantes:** uma população isolada geograficamente (sem contato por muitas gerações, por exemplo em outra ilha ou outro planeta) vira uma **subespécie** com nome derivado (ex.: "Cervo-das-neves"), cor ajustada e atributos levemente diferentes. | Parcial (evento "espécie nova") |
+| RF-VIDA-52 | **Especiação lenta:** uma subespécie que acumula diferenças suficientes vira espécie nova no catálogo. Isso leva centenas de anos de jogo, não minutos. | Fase 6 |
+| RF-VIDA-53 | Atributos que podem mudar: faixa de temperatura, tamanho, velocidade, fertilidade, cor. Dieta e tipo (peixe vira terrestre etc.) **não** mudam, para manter a legibilidade. | Decidido |
+| RF-VIDA-54 | **Extinção:** uma espécie some de um planeta quando a população chega a zero; some do jogo quando some de todos. Extinções locais podem ser revertidas reintroduzindo de outro planeta. | Parcial: extinção local registrada ("Extinta aqui") e reversível soltando do banco genético; extinção global na Fase 5 (RF-VIDA-16) |
+| RF-VIDA-55 | **Surgimento de inteligência:** só a partir de espécies que já sejam inteligentes. Herbívoros e predadores nunca viram inteligentes (decisão para preservar a raridade e o pilar "não criar"). | Decidido |
+| RF-VIDA-56 | Pressões evolutivas visíveis num painel da espécie: "adaptando-se ao frio", "isolada há 120 anos", com a tendência dos atributos. | Fase 6 |
 
 ---
 
 ## 8. Clima, estações, doenças e desastres
 
-| ID | Requisito |
-|---|---|
-| RF-VIDA-60 | **Estações:** o ano tem estações conforme a inclinação do planeta. No inverno a vegetação para de crescer nas latitudes altas, a água congela perto dos polos e animais migram. |
-| RF-VIDA-61 | **Migração:** espécies se deslocam para áreas mais favoráveis quando o tile fica hostil (frio, seca, fome). Aves fazem migrações sazonais longas. |
-| RF-VIDA-62 | **Doenças:** surtos começam em populações densas (aldeias grandes, rebanhos). Espalham-se por contato, com taxa de mortalidade por doença. Espécies vindas de outro planeta podem trazer doenças desconhecidas aos nativos. |
-| RF-VIDA-63 | **Pragas:** enxames de insetos ou herbívoros em excesso devoram plantações e vegetação. |
-| RF-VIDA-64 | **Desastres:** secas, enchentes, incêndios florestais (espalham-se pela vegetação seca), vulcões, terremotos, eras glaciais, impactos. Desastres naturais seguem o clima e a geologia; desastres causados pelo jogador (cometa) seguem as ferramentas. |
-| RF-VIDA-65 | Desastres e doenças sempre geram uma linha na crônica com o local, e o jogador pode clicar para levar a câmera até lá. |
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-60 | **Estações:** o ano tem estações conforme a inclinação do planeta. No inverno a vegetação para de crescer nas latitudes altas, a água congela perto dos polos e animais migram. | Fase 4 |
+| RF-VIDA-61 | **Migração:** espécies se deslocam para áreas mais favoráveis quando o tile fica hostil (frio, seca, fome). Aves fazem migrações sazonais longas. | Parcial: todo bicho foge do frio, do calor e da fome (RF-VIDA-39) e há o evento migração de rebanho; migração sazonal e aves na Fase 4/5 |
+| RF-VIDA-62 | **Doenças:** surtos começam em populações densas (aldeias grandes, rebanhos). Espalham-se por contato, com taxa de mortalidade por doença. Espécies vindas de outro planeta podem trazer doenças desconhecidas aos nativos. | Parcial: evento peste em assentamentos grandes e doença a bordo nas viagens longas; contágio por contato e doenças de outro planeta na Fase 5 |
+| RF-VIDA-63 | **Pragas:** enxames de insetos ou herbívoros em excesso devoram plantações e vegetação. | Fase 5 |
+| RF-VIDA-64 | **Desastres:** secas, enchentes, incêndios florestais (espalham-se pela vegetação seca), vulcões, terremotos, eras glaciais, impactos. Desastres naturais seguem o clima e a geologia; desastres causados pelo jogador (cometa) seguem as ferramentas. | Parcial: seca, incêndio, vulcão, terremoto e cometa (RF-VIDA-68); enchentes, eras glaciais e incêndio que se espalha pela vegetação seca na Fase 4/5 |
+| RF-VIDA-65 | Desastres e doenças sempre geram uma linha na crônica com o local, e o jogador pode clicar para levar a câmera até lá. | Implementado (Fase 0): toda linha da crônica com local leva a câmera até lá |
 | RF-VIDA-67 | **Gestão de eventos:** o mundo sorteia eventos aleatórios, 2,5% por ano normalmente e 20% por ano quando passam 30 anos sem nada importante (mundo monótono). O sorteio pesa o estado do mundo: espécie extinta favorece o reaparecimento, poucos povos favorecem nômades, mundo grande favorece peste. Na janela **Mundo** o jogador liga ou desliga os eventos automáticos e escolhe a frequência (rara, normal, frequente). | Implementado (Fase 0) |
 | RF-VIDA-68 | **Eventos:** cometa (cratera que vira lago, borda levantada, minério do espaço, povo perto passa a crer no cometa), terremoto (falha que levanta o chão, derruba casas, abre caverna com minério), vulcão e ilha vulcânica (lava que esfria em rocha e jazidas), incêndio florestal, seca, peste num assentamento grande, nômades (um povo novo, com cultura própria, surge longe dos outros), espécie nova (variante, RF-VIDA-51), reaparecimento de espécie extinta, migração de rebanho e era de ouro (um povo aprende mais rápido por um tempo). Os desastres ficam longe das capitais quando sorteados, mas o jogador pode lançá-los onde quiser (aba Eventos). | Implementado (Fase 0) |
 | RF-VIDA-69 | Efeitos visuais dos eventos: cometa descendo, explosão, fumaça, fogo, tremor da câmera e ruínas onde casas foram destruídas (somem em 40 anos). | Implementado (Fase 0) |
-| RF-VIDA-66 | Mudanças de terreno do jogador afetam a vida na hora: transformar mar em terra mata peixes, inundar terra afoga terrestres (implementado na Fase 0), aquecer demais mata quem está fora da faixa. |
+| RF-VIDA-66 | Mudanças de terreno do jogador afetam a vida na hora: transformar mar em terra mata peixes, inundar terra afoga terrestres (implementado na Fase 0), aquecer demais mata quem está fora da faixa. | Parcial: mar virando terra mata peixes e terra inundada afoga terrestres; aquecer demais ainda não mata na hora |
 
 ---
 
@@ -172,8 +174,6 @@ O jogador nunca cria espécies. A evolução modifica espécies existentes de fo
 
 As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 
-| Era | Desbloqueia |
-|---|---|
 | Era | Desbloqueia | Condição para sair dela |
 |---|---|---|
 | Idade da Pedra | Cabanas de palha, coleta, caça com lança, fogo, aldeias pequenas, canoas | Fazer 5 peças de bronze (cobre + estanho numa ferraria) |
@@ -219,7 +219,7 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 | RF-VIDA-94 | Cada assentamento tem uma **área circular** com raio por nível: aldeia **8**, vila **12**, cidade **18**, metrópole **25** tiles. | Implementado (Fase 0) |
 | RF-VIDA-95 | **Nenhum assentamento pode ser fundado dentro da área de outro.** Colonos e o jogador (ferramenta de espécie inteligente) só fundam fora de todas as áreas existentes. | Implementado (Fase 0) |
 | RF-VIDA-96 | A área de uma **cidade pode crescer e conter aldeias**; essas aldeias passam a pertencer ao reino da cidade. **O contrário não acontece**: uma aldeia ou vila nunca contém uma cidade, e assentamentos que não são cidades não expandem a área sobre outros. | Implementado (Fase 0) |
-| RF-VIDA-97 | A área é visível como contorno suave com a cor do reino quando o jogador passa o mouse ou ativa a camada "Território". | Fase 5 |
+| RF-VIDA-97 | A área é visível como contorno suave com a cor do reino quando o jogador passa o mouse ou ativa a camada "Território". | Implementado (Fase 0): área tingida e contornada com a cor do reino, ligada com T ou na janela Mundo (RF-VIDA-152) |
 | RF-VIDA-98 | Fronteiras de reino: a união das áreas dos assentamentos do reino; tiles disputados entre dois reinos geram tensão (seção 12). | Fase 6 |
 | RF-VIDA-99 | Fundação inteligente: colonos preferem locais com água doce ou costa por perto, terra plana, vegetação e distância razoável do assentamento de origem; evitam montanha, gelo e deserto (a partir da Idade do Ferro, poços e irrigação abrem o deserto). Por terra, só vão a pé: não atravessam água. | Parcial: escolhe terra habitável e alcançável a pé |
 
@@ -295,7 +295,7 @@ A economia faz parte do crescimento: o povo junta recursos, constrói com eles, 
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-128a | **Itens:** 34 itens em quatro categorias (ferramentas, armas, armaduras, joias) e seis materiais (madeira, pedra, bronze, ferro, aço, ouro), cada um com ícone em pixel pintado na cor do material: machado, faca, martelo, vara de pesca, enxada, picareta, serra, lança, arco, espada, besta, machado de guerra, mosquete, escudo, elmo, cota de malha, armadura de placas, anel, amuleto e coroa. A era mínima limita o que sai (besta no Renascimento, mosquete na Era Industrial). | Implementado (Fase 0) |
+| RF-VIDA-128a | **Itens:** 34 itens em quatro categorias (ferramentas, armas, armaduras, joias) e seis materiais (madeira, pedra, bronze, ferro, aço, ouro), cada um com ícone em pixel pintado na cor do material: machado, faca, martelo, vara de pesca, enxada, picareta, serra, lança, arco, espada, besta, machado de guerra, mosquete, escudo, elmo, cota de malha, armadura de placas, anel, amuleto e coroa. A era mínima limita o que sai (besta na Era Medieval, mosquete na Era Industrial; antes o texto dizia "besta no Renascimento", era que não existe no jogo). | Implementado (Fase 0) |
 | RF-VIDA-128b | Na Idade da Pedra construtores e coletores fazem ferramentas, lanças, arcos e escudos de pedra e madeira, sem ferraria. Com ferraria o material vem do metal minerado; parte das peças vira armadura (conta na força da guerra). Ourives transformam ouro em joias. O primeiro item de metal do mundo vai para a crônica. | Implementado (Fase 0) |
 | RF-VIDA-128c | Janela **Itens** (tecla I): todos os itens, quantos já foram feitos no mundo e os que ainda ninguém sabe fazer (apagados). | Implementado (Fase 0) |
 
@@ -329,11 +329,11 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 
 ### 12.3 Revoltas e instabilidade
 
-| ID | Requisito |
-|---|---|
-| RF-VIDA-136 | Cada assentamento tem estabilidade, reduzida por fome, doença, distância da capital, cultura diferente da capital, impostos/guerra longa e por **intervenção excessiva do jogador** (ensinar demais em pouco tempo). |
-| RF-VIDA-137 | Estabilidade baixa gera revolta: o assentamento declara independência e vira um reino novo, possivelmente em guerra com o antigo. (Hoje a independência vem da distância da capital, RF-VIDA-81, e começa com relação −45.) |
-| RF-VIDA-138 | Guerras civis quando a capital perde o líder sem sucessor claro. Implementado (Fase 0): quando morre o rei de um reino com 4 ou mais assentamentos, há 30% de chance de um pretendente levar a metade mais distante e começar uma guerra civil. Colônias distantes também declaram independência mais cedo em reinos grandes. |
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-136 | Cada assentamento tem estabilidade, reduzida por fome, doença, distância da capital, cultura diferente da capital, impostos/guerra longa e por **intervenção excessiva do jogador** (ensinar demais em pouco tempo). | Fase 6 |
+| RF-VIDA-137 | Estabilidade baixa gera revolta: o assentamento declara independência e vira um reino novo, possivelmente em guerra com o antigo. (Hoje a independência vem da distância da capital, RF-VIDA-81, e começa com relação −45.) | Parcial: independência por distância da capital (RF-VIDA-81) |
+| RF-VIDA-138 | Guerras civis quando a capital perde o líder sem sucessor claro. Implementado (Fase 0): quando morre o rei de um reino com 4 ou mais assentamentos, há 30% de chance de um pretendente levar a metade mais distante e começar uma guerra civil. Colônias distantes também declaram independência mais cedo em reinos grandes. | Implementado (Fase 0) |
 
 ---
 
@@ -377,10 +377,10 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 |---|---|---|
 | RF-VIDA-160 | Estilo **16 bits simples e bonito**: elementos grandes (casas ~16×16 px de arte, árvores ~12–16 px) com **contorno escuro**, **3 a 4 tons por material** e **luz vinda de cima à esquerda**. Nada exagerado: cores mais bonitas e objetos bem definidos no zoom próximo. | Implementado (Fase 0) |
 | RF-VIDA-161 | Criaturas pequenas: de longe são 1 pixel na cor da espécie (peixe = 1 pixel), de perto viram sprites; o humano segue a referência do WorldBox (corpo simples, roupa na cor do reino). | Implementado (Fase 0) |
-| RF-VIDA-162 | Casas mudam por era: **cabana de palha** (Pedra), **casa de madeira com telhado de palha** (Bronze), **casa enxaimel com telhado de telha** (Ferro), **casa de pedra com telhado de ardósia** (Medieval) e **sobrado de tijolo** (Industrial, e nas cidades já a partir da Medieval). Futuro: a cor do telhado ou de um detalhe identifica o reino. | Implementado (Fase 0), sem cor de reino nas casas |
+| RF-VIDA-162 | Casas mudam por era: **cabana de palha** (Pedra), **casa de madeira com telhado de palha** (Bronze), **casa enxaimel com telhado de telha** (Ferro), **casa de pedra com telhado de ardósia** (Medieval) e **sobrado de tijolo** (Industrial, e nas cidades já a partir da Medieval). A cor do telhado e dos detalhes identifica o reino. | Implementado (Fase 0): casas, portos e construções especiais pintados com a cor do reino |
 | RF-VIDA-163 | Árvores por bioma (folhosa, floresta tropical, pinheiro, acácia, cacto) e pedras, com o mesmo estilo, desenhadas sobre o tile no zoom alto. | Implementado (Fase 0) |
 | RF-VIDA-164 | Ruas e estradas como tiles de terra batida (pedra a partir da Era Medieval), com leve variação por tile; praça com fogueira animada (chamas em dois quadros) em todo assentamento da Idade da Pedra, mesmo cidades, e fogueiras pequenas no quintal de algumas cabanas. Ruas e plantações desenhadas em pixel art bem de perto (zoom 8); plantação dourada em qualquer zoom; o véu do território quase some de perto. | Implementado (Fase 0) |
-| RF-VIDA-165 | Futuro: lavouras por estação, muralhas, ruínas, exércitos com bandeira na cor do reino. | Fase 5/6 |
+| RF-VIDA-165 | Futuro: lavouras por estação, muralhas, ruínas, exércitos com bandeira na cor do reino. | Parcial: ruínas (RF-VIDA-108) e ícone de espadas nas batalhas; lavouras por estação, muralhas e bandeiras na Fase 5/6 |
 | RF-VIDA-167 | **Terreno de perto (zoom médio e próximo):** a fronteira entre tiles diferentes ondula em vez de formar quadrados; manchas e grãos por material (grama com manchas e fios, areia com grãos); linha de espuma colada na costa, água rasa, areia molhada e barranco quando a água fica ao sul. | Implementado (Fase 0) |
 | RF-VIDA-168 | Sprites de porto, canoa, barco a remo, veleiro, caravela, navio a vapor (com fumaça), destroços, tubarão, crianças, idosos, pescador e fábrica, no mesmo estilo. | Implementado (Fase 0) |
 | RF-VIDA-166 | Paleta da flora alienígena derivada da estrela (RF-ART-04): plantas de estrela vermelha mais escuras/arroxeadas, de estrela azul mais claras. | Fase 5 |
@@ -389,39 +389,64 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 
 ## 15. Requisitos não funcionais
 
-| ID | Requisito |
-|---|---|
-| RNF-VIDA-01 | **Orçamento de CPU:** a simulação de vida usa no máximo ~2 ms por quadro no planeta observado, a 5x, num PC modesto. Hoje: ~8 ms por segundo simulado com ~3.800 criaturas (≈ 1 ms por quadro a 5x, medido em Node). |
-| RNF-VIDA-02 | **Teto de indivíduos** por planeta observado: ~12.000 simulados individualmente (limite atual da camada de sprites). Acima disso, agregação (RF-VIDA-34). |
-| RNF-VIDA-03 | Decisões por indivíduo espaçadas (hoje a cada 0,4 s de jogo), com grade espacial para vizinhança; nada de busca O(n²). |
-| RNF-VIDA-04 | **Fora da tela:** criaturas fora da área visível continuam simuladas, mas sem desenho. |
-| RNF-VIDA-05 | **Planetas não observados:** quando o jogador está no 3D ou em outro planeta, a vida é simulada de forma **agregada** (populações por espécie e por assentamento, eras, relações), em passos grandes, e reconstituída em indivíduos ao observar de novo. Custo desprezível por planeta. |
-| RNF-VIDA-06 | Simulação determinística dada a semente e a sequência de ações do jogador, para reproduzir bugs e, no coop, sincronizar. |
+| ID | Requisito | Situação |
+|---|---|---|
+| RNF-VIDA-01 | **Orçamento de CPU:** a simulação de vida usa no máximo ~2 ms por quadro no planeta observado, a 5x, num PC modesto. Hoje: ~8 ms por segundo simulado com ~3.800 criaturas (≈ 1 ms por quadro a 5x, medido em Node). | Parcial: dentro do orçamento medido em Node; a simulação ainda roda na thread principal (worker na Fase 5) |
+| RNF-VIDA-02 | **Teto de indivíduos** por planeta observado: ~12.000 simulados individualmente (limite atual da camada de sprites). Acima disso, agregação (RF-VIDA-34). | Implementado (Fase 0): camada de sprites com 12.000; agregação na Fase 5 |
+| RNF-VIDA-03 | Decisões por indivíduo espaçadas (hoje a cada 0,4 s de jogo), com grade espacial para vizinhança; nada de busca O(n²). | Implementado (Fase 0) |
+| RNF-VIDA-04 | **Fora da tela:** criaturas fora da área visível continuam simuladas, mas sem desenho. | Implementado (Fase 0) |
+| RNF-VIDA-05 | **Planetas não observados:** quando o jogador está no 3D ou em outro planeta, a vida é simulada de forma **agregada** (populações por espécie e por assentamento, eras, relações), em passos grandes, e reconstituída em indivíduos ao observar de novo. Custo desprezível por planeta. | A fazer (Fase 5): hoje o ecossistema de um planeta fica guardado na memória e para no tempo enquanto o jogador está no espaço ou em outro planeta |
+| RNF-VIDA-06 | Simulação determinística dada a semente e a sequência de ações do jogador, para reproduzir bugs e, no coop, sincronizar. | Parcial: PRNG com semente por planeta, mas o passo de tempo segue os quadros; passo fixo na Fase 7 |
 | RNF-VIDA-07 | A superfície (2D) não usa placa de vídeo: desenha sempre em Canvas 2D, igual em qualquer computador; só o espaço (3D) precisa de WebGL. De longe, o mapa é chapado (um pixel por tile) com enfeites a partir do zoom 5; bem de perto (zoom 8 em diante), entra a arte detalhada (bordas onduladas, espuma na costa, ruas e só manchas suaves no chão, sem granulado), com 8 pixels de arte por tile, a mesma escala das casas e criaturas, pintada na CPU em blocos de 32x32 tiles guardados em cache e refeitos só quando um tile muda. Árvores, pedras e trigo ficam fora do chão e mantêm a arte original de 16 pixels em qualquer zoom (a partir do 5). | Implementado (Fase 0) |
-| RNF-VIDA-08 | Todo texto de interface e nomes em português; nomes alienígenas gerados; nenhum nome da obra de referência. |
+| RNF-VIDA-08 | Todo texto de interface e nomes em português; nomes alienígenas gerados; nenhum nome da obra de referência. | Implementado (Fase 0) |
 
 ### 15.1 Persistência
 
-| ID | Requisito |
-|---|---|
-| RNF-VIDA-09 | O save guarda, por planeta com vida: espécies e populações, assentamentos (posição, nível, casas, ruas, reino, era, recursos, estabilidade), reinos e relações, a crônica e as camadas alteradas do terreno (como diff, RF-SUP). |
-| RNF-VIDA-10 | Indivíduos podem ser salvos de forma compacta (posição quantizada, idade, espécie, assentamento) ou regenerados a partir das populações se o save precisar ser pequeno. |
-| RNF-VIDA-11 | O save do planeta entra no backup único da base secreta (regra do backup em aberto no REQUISITOS.md). |
+| ID | Requisito | Situação |
+|---|---|---|
+| RNF-VIDA-09 | O save guarda, por planeta com vida: espécies e populações, assentamentos (posição, nível, casas, ruas, reino, era, recursos, estabilidade), reinos e relações, a crônica e as camadas alteradas do terreno (como diff, RF-SUP). | A fazer (Fase 2, RF-SAV-01) |
+| RNF-VIDA-10 | Indivíduos podem ser salvos de forma compacta (posição quantizada, idade, espécie, assentamento) ou regenerados a partir das populações se o save precisar ser pequeno. | A fazer (Fase 2) |
+| RNF-VIDA-11 | O save do planeta entra no backup único da base secreta (regra do backup em aberto no REQUISITOS.md). | A fazer (Fase 3) |
 
 ---
 
 ## 16. Plano por fases
 
-Mapeado às fases do [REQUISITOS.md](REQUISITOS.md#8-plano-de-desenvolvimento-por-fases).
+Mapeado às fases do [REQUISITOS.md](REQUISITOS.md#8-plano-de-desenvolvimento-por-fases). As linhas das Fases 4 a 8 são o plano original e foram mantidas como estavam (regra de preservação); muito do que elas listam já foi adiantado na Fase 0. A situação de cada item está nas seções acima, e o que falta está na seção 16.1.
 
 | Fase | O que entra da vida nos planetas |
 |---|---|
-| **Fase 0** (feito, PR #1) | Raridade em três níveis, espécies da Terra a bordo, ecossistema com peixes/herbívoros/predadores/inteligentes, eras, assentamentos com níveis, áreas, ruas, casas em lotes, estradas e reinos, arte 16 bits, abas e painel, modo sem GPU. |
+| **Fase 0** (feito, PRs #1, #2, #4 e #6 a #10 e commit 0f7b0c7) | Raridade em três níveis, banco genético da Terra a bordo (30 espécies), ecossistema com peixes, herbívoros, predadores, anfíbios, megafauna e inteligentes, natalidade controlada e busca ativa de comida, idade visível, eras por condição, profissões, assentamentos com níveis, áreas, ruas orgânicas, casas em lotes, estradas e reinos com cor própria, portos, barcos e perigos no mar, minérios, minas e ferraria, economia e comércio, culturas e crenças, diplomacia, alianças, federação, guerra (inclusive naval e civil), independência, eventos do mundo, crônica, catálogo de itens, HUD com janelas, minimapa e mão vazia, ruínas reocupáveis, andarilhos, arte 16 bits e superfície em Canvas 2D sem placa de vídeo. Isso adiantou boa parte das Fases 4, 5 e 6 abaixo. |
 | **Fase 4** (superfície e terraformação) | Estações, fertilidade do solo, migração por clima, desastres naturais básicos, contorno de território. |
 | **Fase 5** (espécies e colonização) | Tipos novos (flora, aves, anfíbios, insetos, megafauna), reprodução com intervalos, caçada em grupo, caça por inteligentes com viagem, agricultura e domesticação, doenças, agregação de população, catálogo, ferramentas proteger/curar/realocar com custo, colonos humanos, simulação agregada fora de observação, persistência. |
 | **Fase 6** (ameaças, narrativa e conteúdo) | Evolução (adaptação, variantes, especiação), cultura e crenças, comércio, diplomacia, união, guerra, cercos, revoltas, muralhas, castelos, portos, crônica completa, objetivos por planeta, poluição industrial. |
 | **Fase 7** (coop) | Sincronização determinística da simulação de vida entre jogadores. |
 | **Fase 8** (escala e polimento) | Otimização para planetas grandes (2048×1024) cheios, animações extras, eras Atômica e Espacial. |
+
+### 16.1 Próximos requisitos (backlog da vida, 20/10/2026)
+
+O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos novos que a implementação gerou. A ordem geral com o resto do jogo está no [REQUISITOS.md, seção 8.1](REQUISITOS.md#81-backlog-revisado-em-20102026-próximos-passos).
+
+| ID | Requisito | Fase | Origem |
+|---|---|---|---|
+| RF-VIDA-170 | **Save do planeta:** espécies, indivíduos (compactos), assentamentos, reinos, relações, crônica e terreno alterado entram no save do jogo e voltam iguais. | 2 | Novo: hoje tudo dura só a sessão (RNF-VIDA-09, RF-SAV-01) |
+| RF-VIDA-171 | **Vida fora da observação:** ao sair do planeta, a simulação continua agregada (populações, eras, relações, guerras) e, ao voltar, os indivíduos são reconstituídos; a crônica registra o que houve no intervalo. | 5 | RNF-VIDA-05; hoje o planeta para no tempo |
+| RF-VIDA-172 | **Testes que protegem o que já existe:** extinções raras na Terra em 200 anos (semente fixa), plantações e fogueiras presentes cedo, aldeia de solitário que dura enquanto ele vive, ruínas que somem ou são reocupadas; e captura de tela da superfície comparada a uma referência. | 1 | Novo: regra de preservação e regressões já relatadas (fogueiras e roças "sumidas") |
+| RF-VIDA-173 | **Simulação num Web Worker**, com a tela só desenhando o estado. | 5 | RNF-VIDA-01; mapas maiores e até 100 assentamentos vivos |
+| RF-VIDA-174 | **Assentamento desce de nível** quando a população cai (hoje só sobe), e o reino muda de capital ou se desfaz quando a capital cai (RF-VIDA-92). | 5/6 | RF-VIDA-90 |
+| RF-VIDA-175 | **Custo e recarga das ferramentas** de vida, civilização e terraformação, pagos com os recursos das sondas (RF-SON-12) ou com energia. | 3/5 | RF-VIDA-143, questão aberta 1 |
+| RF-VIDA-176 | **Ensinar com risco:** ensinar demais gera instabilidade e vira crença (hoje ensinar não tem custo nem risco). | 6 | RF-VIDA-75, 136, 145 |
+| RF-VIDA-177 | **Catálogo entre planetas:** população de cada espécie em todos os planetas, planetas onde vive e extinção global (não pode mais ser solta). | 5 | RF-VIDA-15, 16 |
+| RF-VIDA-178 | **Comerciantes visíveis** nas estradas e barcos de comércio entre portos, espalhando tecnologia entre parceiros. | 6 | RF-VIDA-74, 119, 125 |
+| RF-VIDA-179 | **Sacerdote e comerciante** como profissões com aparência própria. | 5 | RF-VIDA-70 |
+| RF-VIDA-180 | **Estações do ano** com lavouras que mudam de aparência, colheita sazonal e migração das aves. | 4/5 | RF-VIDA-36, 60, 61, 120, 121 |
+| RF-VIDA-181 | **Domesticação e rebanhos**, campos cultivados na periferia, muralhas por era, pontes e torres. | 5/6 | RF-VIDA-105 a 107, 123 |
+| RF-VIDA-182 | **Doenças por contato**, pragas e espécies invasoras com aviso. | 5 | RF-VIDA-26, 62, 63 |
+| RF-VIDA-183 | **Evolução:** adaptação ao clima, variantes por isolamento e especiação lenta, com painel da espécie. | 6 | RF-VIDA-50 a 56 |
+| RF-VIDA-184 | **Flora alienígena** com cor derivada da estrela e espécies de flora próprias. | 5 | RF-VIDA-05, 11, 166 |
+| RF-VIDA-185 | **Ferramentas novas:** proteger, curar, realocar (com a nave), inspirar, semear paz ou discórdia, colher amostra. | 5/6 | RF-VIDA-142 |
+| RF-VIDA-186 | **Colonos humanos** trazidos por naves de transporte. | 5 | RF-VIDA-146, RF-SUP-10 |
+| RF-VIDA-187 | **Exportar a crônica** como texto. | 5 | RF-VIDA-156 |
 
 **Critério de saída da vida nos planetas:** levar espécies da Terra a um planeta terraformado, vê-las se adaptar ao longo de gerações, acompanhar uma civilização da Idade da Pedra até reinos que comerciam, se aliam e guerreiam, e ver na crônica o efeito das intervenções do jogador.
 
@@ -442,6 +467,7 @@ Mapeado às fases do [REQUISITOS.md](REQUISITOS.md#8-plano-de-desenvolvimento-po
 | 19/10/2026 | Assentamentos com níveis (aldeia < 25, vila 25–59, cidade ≥ 60), áreas circulares (8/12/18 tiles), sem fundação dentro de outra área; cidade pode conter aldeias, nunca o contrário; reinos formados por capital e subordinados. |
 | 19/10/2026 | Planta com praça central, ruas em cruz, casas em lotes de frente para as ruas e estradas entre assentamentos do mesmo reino. |
 | 19/10/2026 | Arte em pixel no estilo 16 bits simples: contorno escuro, 3–4 tons por material, luz de cima à esquerda, elementos grandes ~16 px. |
+| 19/10/2026 | Evolução só modifica espécies existentes (adaptação, variantes, especiação lenta); inteligência nunca surge de espécies não inteligentes. |
 | 20/10/2026 | Eras bem mais lentas (séculos por era) e crescimento lento dos inteligentes; idade visível (crianças e idosos); portos e barcos por era; perigos no mar (tempestade, predador marinho, deriva, doença). |
 | 20/10/2026 | Os povos não vão ao espaço por conta própria: a Era Industrial é a última. |
 | 20/10/2026 | Guerras são entre os povos; o jogador não comanda e só ajuda de leve com ferramentas de gestão do mundo. |
@@ -456,4 +482,4 @@ Mapeado às fases do [REQUISITOS.md](REQUISITOS.md#8-plano-de-desenvolvimento-po
 | 20/10/2026 | Solitários fundam só onde conseguem viver (antes morriam de fome e a aldeia sumia); ruínas somem aos poucos ou são reocupadas por quem chega perto. |
 | 20/10/2026 | Rebalanceamento da vida: natalidade logística, procura de parceiro, bandos, fuga do clima ruim, busca ativa de comida, plâncton para os peixes, onívoros, tetos revistos e andarilhos. Roças e fogueiras voltam a aparecer cedo. |
 | 20/10/2026 | A superfície passa a desenhar sempre em Canvas 2D, sem placa de vídeo; arte detalhada só bem de perto e textura do chão mais leve. |
-| 19/10/2026 | Evolução só modifica espécies existentes (adaptação, variantes, especiação lenta); inteligência nunca surge de espécies não inteligentes. |
+| 20/10/2026 | Regra de preservação: nada é removido sem necessidade ou pedido, e toda remoção vai para o [Registro de remoções](REQUISITOS.md#13-registro-de-remoções). Revisão da situação de todos os requisitos e backlog da vida (seção 16.1). |

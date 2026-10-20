@@ -2,8 +2,9 @@
 
 Jogo de navegador de exploração espacial, replicação de sondas e terraformação, feito com three.js e inspirado na temática de *Somos Legião, Somos Bob*. As estrelas estão nas posições reais, vindas de catálogos astronômicos públicos.
 
-- Requisitos e plano de desenvolvimento: [docs/REQUISITOS.md](docs/REQUISITOS.md)
-- Estado atual: **Fase 0** (provas técnicas)
+- Requisitos e plano de desenvolvimento: [docs/REQUISITOS.md](docs/REQUISITOS.md) e vida nos planetas: [docs/REQUISITOS-VIDA.md](docs/REQUISITOS-VIDA.md). Cada requisito tem a sua situação (feito, parcial, a fazer).
+- Estado atual: **Fase 0** concluída e ampliada (navegação com o GUIA, sondas e quase toda a vida nos planetas já existem); próximos passos na [seção 8.1](docs/REQUISITOS.md#81-backlog-revisado-em-20102026-próximos-passos).
+- Regra do projeto: nada que já foi implementado é removido sem necessidade ou pedido, e toda remoção é registrada com o motivo ([seção 0](docs/REQUISITOS.md#0-como-manter-este-documento)).
 
 ## Rodando
 
