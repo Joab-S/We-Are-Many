@@ -121,6 +121,12 @@ export interface Stock {
   cloth: number;
   hides: number;
   horses: number;
+  /** Bens de luxo da região (RF-VIDA-282): sal, vinho, especiarias, tinta e seda. */
+  salt: number;
+  wine: number;
+  spice: number;
+  dye: number;
+  silk: number;
   /** Quantos de cada item do catálogo (items.ts) o reino tem. */
   items: Record<string, number>;
 }
@@ -135,7 +141,7 @@ export interface Made {
 }
 
 export function emptyStock(): Stock {
-  return { wood: 30, stone: 0, copper: 0, tin: 0, iron: 0, gold: 0, coal: 0, tools: 0, weapons: 0, weaponTier: 0, armor: 0, armorTier: 0, jewels: 0, clay: 0, brick: 0, wool: 0, cloth: 0, hides: 0, horses: 0, items: {} };
+  return { wood: 30, stone: 0, copper: 0, tin: 0, iron: 0, gold: 0, coal: 0, tools: 0, weapons: 0, weaponTier: 0, armor: 0, armorTier: 0, jewels: 0, clay: 0, brick: 0, wool: 0, cloth: 0, hides: 0, horses: 0, salt: 0, wine: 0, spice: 0, dye: 0, silk: 0, items: {} };
 }
 
 export function emptyMade(): Made {
@@ -160,12 +166,17 @@ export const STOCK_NAMES: [Exclude<keyof Stock, 'items'>, string][] = [
   ['cloth', 'Roupa'],
   ['hides', 'Peles'],
   ['horses', 'Cavalos'],
+  ['salt', 'Sal'],
+  ['wine', 'Vinho'],
+  ['spice', 'Especiarias'],
+  ['dye', 'Tinta'],
+  ['silk', 'Seda'],
 ];
 
 /** Recursos guardados (fora a comida), cada um com o grupo do seu teto (STORE_BASE em balance.ts). */
-export const GOODS = ['wood', 'stone', 'clay', 'brick', 'copper', 'tin', 'iron', 'coal', 'gold', 'tools', 'weapons', 'armor', 'jewels', 'wool', 'cloth', 'hides'] as const;
+export const GOODS = ['wood', 'stone', 'clay', 'brick', 'copper', 'tin', 'iron', 'coal', 'gold', 'tools', 'weapons', 'armor', 'jewels', 'wool', 'cloth', 'hides', 'salt', 'wine', 'spice', 'dye', 'silk'] as const;
 export type Good = (typeof GOODS)[number];
-export const GOOD_GROUP: Record<Good, 'material' | 'ore' | 'goods' | 'gold'> = {
+export const GOOD_GROUP: Record<Good, 'material' | 'ore' | 'goods' | 'gold' | 'luxury'> = {
   wood: 'material',
   stone: 'material',
   clay: 'material',
@@ -182,6 +193,11 @@ export const GOOD_GROUP: Record<Good, 'material' | 'ore' | 'goods' | 'gold'> = {
   wool: 'goods',
   cloth: 'goods',
   hides: 'goods',
+  salt: 'luxury',
+  wine: 'luxury',
+  spice: 'luxury',
+  dye: 'luxury',
+  silk: 'luxury',
 };
 
 /**

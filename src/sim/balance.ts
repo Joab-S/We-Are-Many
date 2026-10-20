@@ -125,6 +125,8 @@ export const STORE_BASE = {
   material: [30, 80, 200, 450],
   ore: [10, 30, 80, 200],
   goods: [10, 30, 80, 200],
+  /** Bens de luxo (RF-VIDA-282): pouco, mas valioso. */
+  luxury: [6, 15, 40, 90],
   gold: [10, 30, 100, 300],
 };
 /** Quanto cada construção soma ao teto: celeiro (comida), armazém (materiais), mercado como tesouro (ouro), cada mina (minério). */
@@ -210,3 +212,83 @@ export const SOIL_FALLOW = 0.55;
 export const SEASON_HARVEST = [0.2, 0.8, 2.6, 0.4];
 export const SEASON_WOOL = [3.2, 0.4, 0.2, 0.2];
 export const SEASON_FUEL = [0.8, 0.4, 0.8, 2];
+
+// Comércio vivo (seção 19.6, RF-VIDA-230 a 236) ---------------------------------------
+
+/** Caravanas por assentamento: tantas por nível (a aldeia conta como 1), +1 se mercantil; e no mundo todo (RF-VIDA-236). */
+export const CARAVANS_PER_TIER = 1;
+export const CARAVANS_MAX = 24;
+/** Saídas de caravana por ano em cada assentamento que pode mandar (×2 mercantil, ×1,5 com mercado). */
+export const CARAVAN_RATE = 0.8;
+/** Alcance de uma caravana por terra, em tiles (×1,5 rumo a uma feira). */
+export const CARAVAN_RANGE = 60;
+/** Velocidade a pé com burro ou camelo, em tiles por segundo; cavalo vai 50% mais rápido (RF-VIDA-223). */
+export const CARAVAN_SPEED = 2.4;
+export const HORSE_SPEED = 1.5;
+/** Carga de cada animal e quantos animais por nível. */
+export const CARAVAN_LOAD = 6;
+/** Parte do teto que o assentamento guarda para si antes de vender. */
+export const CARAVAN_KEEP = 0.35;
+/** Custo da viagem por tile de distância, em unidades de troca (a caravana só sai se o lucro passar disso). */
+export const CARAVAN_TRIP_COST = 0.05;
+/** Quanto vale um ouro em unidades de troca. */
+export const GOLD_VALUE = 5;
+/** Preferência por parceiro com acordo, por feira e por comércio dentro de um reino que cunha moeda. */
+export const AGREEMENT_PREFERENCE = 1.3;
+export const FAIR_PREFERENCE = 1.5;
+export const MINT_PREFERENCE = 1.2;
+/** Relação que cada viagem entre reinos soma (×2 se um dos povos valoriza o comércio). */
+export const CARAVAN_RELATION = 1.5;
+/** Conhecimento que passa por viagem: fração da diferença de era (RF-VIDA-74), ×3 na feira. */
+export const TRADE_TEACH = 0.01;
+/** Ataques por ano de cada predador a até 3 tiles da caravana, e chance de inimigos em guerra a roubarem em cada tile perto deles. */
+export const CARAVAN_PREDATOR = 1.5;
+export const CARAVAN_RAID = 0.15;
+
+/** Acordo comercial (RF-VIDA-232): viagens de ida e volta antes de firmar, relação mínima, duração e quebra. */
+export const AGREEMENT_TRIPS = 2;
+export const AGREEMENT_RELATION = 0;
+export const AGREEMENT_YEARS = 20;
+export const AGREEMENT_KEPT = 1;
+export const AGREEMENT_BROKEN = 8;
+
+/** Estrada pelo uso (RF-VIDA-233): passagens para virar estrada, cascalho e pedra; perda anual do uso. */
+export const ROUTE_USE = 4;
+export const GRAVEL_USE = 10;
+export const STONE_USE = 24;
+export const TRAFFIC_DECAY = 0.1;
+
+/** Feira anual nas vilas e cidades mercantis (RF-VIDA-234): relação a mais por caravana que chega. */
+export const FAIR_RELATION = 2;
+
+/** Barcos mercantes entre portos que se conhecem (RF-VIDA-235): carga por barco. */
+export const TRADE_BOAT_LOAD = 14;
+
+/** Bens de luxo (RF-VIDA-282): produção por nível, teto, consumo dos ricos e o sal que conserva a comida. */
+export const LUXURY_MAKE = 0.7;
+export const LUXURY_USE = 0.03;
+export const LUXURY_STABILITY = 0.05;
+export const SPOIL_SALTED = 0.2;
+export const SALT_USE = 0.02;
+
+/** Pedágio (RF-VIDA-286): ouro por passagem num passo de montanha de outro reino, alcance do dono e a tensão que causa. */
+export const TOLL_GOLD = 1;
+export const TOLL_RANGE = 25;
+export const TOLL_TENSION = 0.5;
+
+/** Pedidos da capital (RF-VIDA-289): chance por ano, prazo, carga e efeito de atender ou recusar. */
+export const REQUEST_RATE = 0.5;
+export const REQUEST_YEARS = 3;
+export const REQUEST_LOAD = 10;
+export const REQUEST_STABILITY = 0.1;
+export const REFUSAL_INDEPENDENCE = 0.5;
+
+/** Moeda cunhada (RF-VIDA-291): carroças a mais dentro do reino. */
+export const MINT_HAUL = 1.25;
+
+/** Transumância (RF-VIDA-293): rebanho mínimo, alcance do pasto alto, velocidade, ganho do rebanho e briga ao cruzar terra alheia. */
+export const TRANSHUMANCE_HEAD = 4;
+export const TRANSHUMANCE_RANGE = 30;
+export const FLOCK_SPEED = 1.2;
+export const TRANSHUMANCE_GROWTH = 0.12;
+export const TRANSHUMANCE_TENSION = 1;

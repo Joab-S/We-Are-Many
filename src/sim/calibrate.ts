@@ -44,6 +44,17 @@ export interface Indicators {
   overCap: number;
   /** Estabilidade média (RF-VIDA-280). */
   stability: number;
+  /** Média de caravanas e barcos mercantes ao mesmo tempo, amostrada uma vez por ano (RF-VIDA-230 e 236), e o máximo. */
+  caravans: number;
+  caravansMax: number;
+  /** Acordos comerciais em vigor no fim (RF-VIDA-232). */
+  agreements: number;
+  /** Tiles de estrada que nasceram do uso (RF-VIDA-233). */
+  routeTiles: number;
+  /** Assentamentos que produzem algum luxo (RF-VIDA-282). */
+  luxuries: number;
+  /** Postos de pedágio (RF-VIDA-286). */
+  tolls: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -76,9 +87,14 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
     }
   }
   let wars = 0;
+  let caravans = 0;
+  let caravansMax = 0;
   for (let y = 0; y < years; y++) {
     for (let t = 0; t < YEAR_SECONDS; t += 0.25) eco.step(0.25);
     wars += eco.wars.length;
+    const moving = eco.caravans.filter((c) => c.kind !== 'flock').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
+    caravans += moving;
+    caravansMax = Math.max(caravansMax, moving);
   }
   const live = eco.villages.filter((v) => !v.abandoned);
   const e = eco as unknown as { road: Uint8Array };
@@ -137,6 +153,12 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       stockFill: fills ? fill / fills : 0,
       overCap: over,
       stability: live.reduce((n, v) => n + (v.stability ?? 1), 0) / Math.max(1, live.length),
+      caravans: caravans / Math.max(1, years),
+      caravansMax,
+      agreements: eco.agreements.length,
+      routeTiles: eco.routeTiles,
+      luxuries: live.filter((v) => v.luxury && Math.floor(v.tech) >= 0).filter((v) => (v.ledger?.[v.luxury!]?.[0] ?? 0) > 0).length,
+      tolls: eco.tolls.size,
     },
   };
 }
@@ -153,6 +175,7 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
   { key: 'vocations', label: 'Vocações diferentes', min: 4, max: 8 },
   { key: 'stockFill', label: 'Preenchimento médio dos estoques', min: 0.3, max: 0.8 },
   { key: 'overCap', label: 'Recursos acima do teto', min: 0, max: 0 },
+  { key: 'caravansMax', label: 'Caravanas e barcos mercantes ao mesmo tempo (máximo)', min: 1, max: 24 },
 ];
 
 /** Nome de cada indicador no relatório. */
@@ -165,6 +188,11 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   herds: 'Assentamentos com rebanho',
   welfare: 'Atendimento médio das necessidades',
   stability: 'Estabilidade média',
+  caravans: 'Caravanas e barcos mercantes ao mesmo tempo (média)',
+  agreements: 'Acordos comerciais no fim',
+  routeTiles: 'Tiles de estrada nascidos do uso',
+  luxuries: 'Assentamentos que produzem luxo',
+  tolls: 'Postos de pedágio',
 };
 
 /** Média, mediana e faixa de 10% a 90% de uma lista. */

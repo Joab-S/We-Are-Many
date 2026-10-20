@@ -138,6 +138,18 @@ export const CREATURE_ART: Record<string, string[]> = {
     '.4.4..4.4.',
     '.4.4..4.4.',
   ],
+  // Burro de carga das caravanas (RF-VIDA-230).
+  donkey: [
+    '.........m.m',
+    '.........MMm',
+    '........+MEM',
+    '........MMm.',
+    '.+MMMMMMMm..',
+    '4MMMMMMMMm..',
+    '..mMMMMmm...',
+    '..m.m..m.m..',
+    '..4.4..4.4..',
+  ],
   // Rebanhos domesticados (RF-VIDA-215).
   cow: [
     '..........5..5',

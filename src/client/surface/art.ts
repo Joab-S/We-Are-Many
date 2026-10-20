@@ -755,6 +755,59 @@ export const ART = {
     'KnKddKnK',
     'KKKKKKKK',
   ],
+  // Caravanas (RF-VIDA-230): fardos no lombo, carroça e carroção coberto, pela era.
+  packs: [
+    '.KKKKKK.',
+    'KYyKKPpK',
+    'KyuKKpqK',
+    '.KKKKKK.',
+  ],
+  cart: [
+    '..KKKKKKKK..',
+    '.KYyPPpYyK..',
+    '.KPPPPPPpKKK',
+    'KKKKKKKKKK..',
+    '.KnK...KnK..',
+    '.KK.....KK..',
+  ],
+  wagon: [
+    '...KKKKKKK....',
+    '..KWWWWWWwK...',
+    '.KWWWWWWWWwK..',
+    '.KwwwwwwwwwK..',
+    'KPPPPPPPPPPpKK',
+    'KKKKKKKKKKKKK.',
+    '.KnnK....KnnK.',
+    '..KK......KK..',
+  ],
+  // Caixotes no convés do barco mercante (RF-VIDA-235).
+  crates: [
+    'KKKKKK',
+    'KPpKPK',
+    'KppKpK',
+    'KKKKKK',
+  ],
+  // Barraca da feira anual (RF-VIDA-234), com o toldo listrado na cor do reino.
+  stall: [
+    'KKKKKKKKKKKK',
+    'KM+M+M+M+M+K',
+    'KmMmMmMmMmMK',
+    '.KKKKKKKKKK.',
+    '.Kq......qK.',
+    '.KqYyPpAaqK.',
+    'KKKKKKKKKKKK',
+    '.Kp......pK.',
+  ],
+  // Posto de pedágio no passo da montanha (RF-VIDA-286): guarita e cancela.
+  toll: [
+    '.KKKK.......',
+    'KMMMMK......',
+    'KWWWWK......',
+    'KWDOWKKKKKKK',
+    'KWDWWKWRWRWK',
+    'KWDWWKKKKKKK',
+    'KKKKKK......',
+  ],
   // Lampião das ruas calçadas da Era Industrial.
   lamp: [
     '.K.',
@@ -1059,7 +1112,7 @@ for (const body of BODY_NAMES) {
   SPRITES[`${body}:child`] = CHILDREN[body];
 }
 /** Barcos e o tubarão também viram para a esquerda (`nome:l`). */
-for (const name of ['canoe', 'rowboat', 'sailboat', 'caravel', 'steamship', 'shark'] as const) SPRITES[`${name}:l`] = flip(ART[name]);
+for (const name of ['canoe', 'rowboat', 'sailboat', 'caravel', 'steamship', 'shark', 'packs', 'cart', 'wagon'] as const) SPRITES[`${name}:l`] = flip(ART[name]);
 for (const [name, walls] of Object.entries(WALLS)) {
   const base = ART[name as keyof typeof ART];
   SPRITES[`${name}:1`] = flip(base);

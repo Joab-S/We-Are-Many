@@ -12,6 +12,7 @@ import { DEATH_CAUSES, familyName, personName } from '../../sim/people';
 import { CHILD, ROLE_NAMES, ROLES, type Role } from '../../sim/roles';
 import { TIER_NAMES } from '../../sim/settlement';
 import { MATERIAL_NAMES } from '../../sim/architecture';
+import { CURRENCY_NAMES, LUXURY_NAMES } from '../../sim/trade';
 import { elderAge } from '../../sim/ecosystem';
 
 export type SettlementTab = 'summary' | 'economy' | 'people' | 'buildings' | 'relations' | 'history';
@@ -135,7 +136,7 @@ function economyHtml(eco: Ecosystem, v: Village): string {
       const have = g === 'food' ? v.food : v.stock[g];
       const cap = eco.capOf(v, g);
       const [made, used] = ledger[g] ?? [0, 0];
-      return { g, have, cap, made, used };
+      return { g, have, cap, made, used, price: eco.priceAt(v, g) };
     })
     .filter((r) => r.have >= 0.5 || r.made >= 0.5 || r.used >= 0.5);
   const table = rows
@@ -144,7 +145,7 @@ function economyHtml(eco: Ecosystem, v: Village): string {
       const net = r.made - r.used;
       const n0 = Math.round(net);
       const tag = net < -0.5 && fill < 0.2 ? '<span class="bad">falta</span>' : fill >= 0.95 ? '<span class="good">sobra</span>' : '';
-      return `<tr><td>${GOOD_NAMES.get(r.g) ?? r.g}</td><td class="wb-wide">${bar(fill, `${Math.floor(r.have)} de ${Math.round(r.cap)}`, fill >= 0.95 ? 'good' : fill < 0.15 ? 'bad' : 'warn')}</td><td>${Math.round(r.made) ? `+${Math.round(r.made)}` : '0'}</td><td>${Math.round(r.used) ? `−${Math.round(r.used)}` : '0'}</td><td class="${n0 > 0 ? 'good' : n0 < 0 ? 'bad' : ''}">${n0 > 0 ? '+' : n0 < 0 ? '−' : ''}${Math.abs(n0)}</td><td>${tag}</td></tr>`;
+      return `<tr><td>${GOOD_NAMES.get(r.g) ?? r.g}</td><td class="wb-wide">${bar(fill, `${Math.floor(r.have)} de ${Math.round(r.cap)}`, fill >= 0.95 ? 'good' : fill < 0.15 ? 'bad' : 'warn')}</td><td>${Math.round(r.made) ? `+${Math.round(r.made)}` : '0'}</td><td>${Math.round(r.used) ? `−${Math.round(r.used)}` : '0'}</td><td class="${n0 > 0 ? 'good' : n0 < 0 ? 'bad' : ''}">${n0 > 0 ? '+' : n0 < 0 ? '−' : ''}${Math.abs(n0)}</td><td>${r.g === 'gold' ? '' : r.price.toFixed(1)}</td><td>${tag}</td></tr>`;
     })
     .join('');
   const n = v.needs;
@@ -155,12 +156,44 @@ function economyHtml(eco: Ecosystem, v: Village): string {
     <div class="wb-section">Necessidades</div>
     ${needs}
     <div class="wb-section">Estoque e balança do ano passado</div>
-    ${table ? `<table class="wb-table"><tr><th>Recurso</th><th>Estoque e teto</th><th>Fez</th><th>Gastou</th><th>Saldo</th><th></th></tr>${table}</table>` : '<div class="wb-empty">Nada guardado.</div>'}
+    ${table ? `<table class="wb-table"><tr><th>Recurso</th><th>Estoque e teto</th><th>Fez</th><th>Gastou</th><th>Saldo</th><th title="Quanto vale aqui, pela falta que faz (RF-VIDA-231)">Preço</th><th></th></tr>${table}</table>` : '<div class="wb-empty">Nada guardado.</div>'}
     <div class="wb-kv"><span>Caixa</span><b>${Math.floor(v.stock.gold)} de ouro</b></div>
     ${v.herd ? `<div class="wb-kv"><span>Rebanho</span><b>${v.herd.head} ${HERD_NAMES[v.herd.kind]}${(v.herd.plague ?? 0) > eco.year ? ' · <span class="bad">com praga</span>' : ''}</b></div>` : ''}
     ${v.soil !== undefined ? `<div class="wb-kv"><span>Solo</span>${bar(v.soil, `fertilidade ${pct(v.soil)}`)}</div>` : ''}
     <div class="wb-kv"><span>Estação</span><b>${SEASONS[eco.season()]}</b></div>
-    <div class="wb-note">Preço local, acordos e caravanas chegam com as Etapas E e G.</div>`;
+    ${tradeHtml(eco, v)}
+    <div class="wb-note">O preço sobe com a falta que o bem faz; as caravanas levam o que vale mais lá do que aqui. Caixa, falência e crise chegam com a Etapa G.</div>`;
+}
+
+/** Comércio do assentamento (19.6): moeda, luxo, caravanas, acordos, feira e pedidos da capital. */
+function tradeHtml(eco: Ecosystem, v: Village): string {
+  const name = (id: number) => eco.villages[id]?.name ?? '?';
+  const out = eco.caravans.filter((c) => c.home === v.id);
+  const inbound = eco.caravans.filter((c) => c.target === v.id && c.home !== v.id);
+  const trips = out
+    .map((c) => (c.kind === 'flock' ? `rebanho ${c.back ? 'voltando do pasto alto' : 'subindo para o pasto alto'}` : `${c.kind === 'tribute' ? 'tributo' : 'caravana'} ${c.back ? `voltando de ${name(c.target)}` : `indo para ${name(c.target)}`} com ${c.cargo.map((g) => `${Math.round(g.amount)} de ${eco.goodName(g.good)}`).join(' e ') || 'pouca carga'}`))
+    .concat(eco.boats.filter((b) => b.village === v.id && b.trade && b.sunk < 0).map((b) => `barco mercante ${b.trade!.back ? 'voltando de' : 'indo para'} ${name(b.trade!.target)}`));
+  const deals = eco.agreements
+    .filter((g) => g.a === v.id || g.b === v.id)
+    .map((g) => {
+      const mine = g.a === v.id;
+      const other = name(mine ? g.b : g.a);
+      const give = eco.goodName(g.goods[mine ? 0 : 1]);
+      const take = eco.goodName(g.goods[mine ? 1 : 0]);
+      return `<div class="wb-kv"><span>Acordo com ${other}</span><b>${give} por ${take}, ${g.every === 1 ? 'todo ano' : `a cada ${g.every} anos`}, até o ano ${Math.floor(g.until)}</b></div>`;
+    })
+    .join('');
+  const capital = eco.villages[v.kingdom];
+  return `
+    <div class="wb-section">Comércio</div>
+    <div class="wb-kv"><span>Moeda</span><b>${CURRENCY_NAMES[eco.currencyName(v)]}${capital.mint ? ` do reino de ${capital.name}` : ''}</b></div>
+    ${v.luxury ? `<div class="wb-kv"><span>Luxo da região</span><b>${LUXURY_NAMES[v.luxury]}</b></div>` : ''}
+    ${v.fair === Math.floor(eco.year) ? `<div class="wb-kv"><span>Feira anual</span><b>${eco.season() === 1 ? 'acontecendo agora' : 'neste verão'}</b></div>` : ''}
+    <div class="wb-kv"><span>Na estrada</span><b>${trips.length ? trips.join(' · ') : 'nenhuma caravana'}</b></div>
+    ${inbound.length ? `<div class="wb-kv"><span>Chegando</span><b>${inbound.map((c) => `de ${name(c.home)}`).join(', ')}</b></div>` : ''}
+    ${deals}
+    ${v.request ? `<div class="wb-kv"><span>Pedido da capital</span><b class="warn">${Math.round(v.request.amount)} de ${eco.goodName(v.request.good)} até o ano ${v.request.until}</b></div>` : ''}
+    ${v.refused ? `<div class="wb-kv"><span>Pedidos recusados</span><b class="bad">${v.refused}</b></div>` : ''}`;
 }
 
 function peopleHtml(eco: Ecosystem, v: Village): string {
