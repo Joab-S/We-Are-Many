@@ -1,8 +1,11 @@
+import { ROLES, type Role } from '../../sim/roles';
+
 /**
  * Pixel art da superfície, em texto, no estilo 16 bits: contorno escuro,
  * 3 a 4 tons por material e luz vinda de cima à esquerda.
- * `M` é a cor da instância (espécie, aldeia ou reino) e `m` a mesma cor
- * escurecida; o renderizador troca essas duas pela cor de cada um.
+ * `M` é a cor da instância (espécie, aldeia ou reino), `m` a mesma cor
+ * escurecida e `+` clareada; `$` e `%` são a pele da espécie. O
+ * renderizador troca essas cores pelas de cada um.
  */
 
 export const COLORS: Record<string, string> = {
@@ -12,6 +15,9 @@ export const COLORS: Record<string, string> = {
   B: '#4a3020', // calça
   M: '#ff00ff', // cor da instância
   m: '#800080', // cor da instância escurecida
+  '+': '#ff80ff', // cor da instância clareada
+  $: '#00ffff', // pele da espécie
+  '%': '#008080', // pele da espécie escurecida
   E: '#101010', // olho
   // Palha
   Y: '#ecd07a',
@@ -163,11 +169,11 @@ export const ART = {
   house: [
     '...........KK...',
     '....KKKKKKKGgK..',
-    '...KQQQRRRRKKK..',
-    '..KQQRRRRRRRrrK.',
-    '.KQRRRRRRRRRRrrK',
-    'KRRRRRRRRRRRRrrK',
-    'KrrrrrrrrrrrrrrK',
+    '...K+++MMMMKKK..',
+    '..K++MMMMMMMmmK.',
+    '.K+MMMMMMMMMMmmK',
+    'KMMMMMMMMMMMMmmK',
+    'KmmmmmmmmmmmmmmK',
     '.KWqWWWqWWWqWwK.',
     '.KWqKKKqWWWqWwK.',
     '.KWqKOKqWKKKqwK.',
@@ -180,12 +186,12 @@ export const ART = {
   ],
   stoneHouse: [
     '.....KKKKKK.....',
-    '....KNNNLLLK....',
-    '...KNNNLLLLlK...',
-    '..KNNNLLLLLLlK..',
-    '.KNNLLLLLLLLllK.',
-    'KNLLLLLLLLLLLllK',
-    'KllllllllllllllK',
+    '....K+++MMMK....',
+    '...K+++MMMMmK...',
+    '..K+++MMMMMMmK..',
+    '.K++MMMMMMMMmmK.',
+    'K+MMMMMMMMMMMmmK',
+    'KmmmmmmmmmmmmmmK',
     '.KGGgGGGgGGGgnK.',
     '.KGKKKgGGKKKgnK.',
     '.KgKOKGGgKOKGnK.',
@@ -199,10 +205,10 @@ export const ART = {
   townhouse: [
     '..KK......KK....',
     '..KnK.KKKKnK....',
-    '..KKKLLLLLKKK...',
-    '.KNNLLLLLLLLlK..',
-    'KNLLLLLLLLLLllK.',
-    'KllllllllllllllK',
+    '..KKKMMMMMKKK...',
+    '.K++MMMMMMMMmK..',
+    'K+MMMMMMMMMMmmK.',
+    'KmmmmmmmmmmmmmmK',
     'KXXXxXXXxXXXxXxK',
     'KXKKKXXKKKXKKKxK',
     'KXKOKxXKOKXKOKxK',
@@ -254,6 +260,134 @@ export const ART = {
     '...KgGKDDdKgnK..',
     '...KKKKKKKKKKK..',
     '................',
+  ],
+
+  // Construções especiais.
+  smithy: [
+    '..........KK....',
+    '..........KnK...',
+    '...KKKKKKKKnK...',
+    '..K+++MMMMMKKK..',
+    '.K+++MMMMMMMmmK.',
+    'K++MMMMMMMMMMmmK',
+    'KmmmmmmmmmmmmmmK',
+    '.KGGgGGGgGGGgnK.',
+    '.KGKKKKKKKgGGnK.',
+    '.KgKfFFhfKGGgnK.',
+    '.KGKhffhhKgKKnK.',
+    '.KGKKKKKKKGKnnK.',
+    '.KgGGgGGgGGKKnK.',
+    '.KGGgGGgGGgGgnK.',
+    '.KKKKKKKKKKKKKK.',
+    '................',
+  ],
+  granary: [
+    '.....KKKKKK.....',
+    '....K+MMMMmK....',
+    '...K++MMMMmmK...',
+    '..K++MMMMMMmmK..',
+    '.K+MMMMMMMMMMmK.',
+    'KMMMMMMMMMMMMMmK',
+    'KKKKKKKKKKKKKKKK',
+    '.KPPpPPKKPPpPPK.',
+    '.KPPpPKqqKPpPPK.',
+    '.KPPpKqPPqKpPPK.',
+    '.KPPpKPqqPKpPPK.',
+    '.KPPpKqPPqKpPPK.',
+    '.KppqKPqqPKqppK.',
+    '.KqqqKqPPqKqqqK.',
+    '.KKKKKKKKKKKKKK.',
+    '................',
+  ],
+  temple: [
+    '.......KK.......',
+    '.......KFK......',
+    '......K+MK......',
+    '.....K+MMmK.....',
+    '....K+MMMMmK....',
+    '....KWWWWWwK....',
+    '....KWKOKWwK....',
+    '..KKKWKoKWwKKK..',
+    '.K+MKWWWWWwKMmK.',
+    'K+MMKWWWWWwKMmmK',
+    'KWWWKWKDDKwKWWwK',
+    'KWOWKWKDdKwKWOwK',
+    'KWoWKWKDdKwKWowK',
+    'KWWWKWKDdKwKWWwK',
+    'KKKKKKKKKKKKKKKK',
+    '................',
+  ],
+  barracks: [
+    '..KMMMK.........',
+    '..KMMm..........',
+    '..K.............',
+    'KKKKKKKKKKKKKKKK',
+    'KGgKGgKGgKGgKGgK',
+    'KGGGGgGGGGgGGGnK',
+    'KGKKKgGGGGgKKKnK',
+    'KGKOKGgGGgGKOKnK',
+    'KgKoKGGGGGGKoKnK',
+    'KGGGGGKKKKGGGGnK',
+    'KGgGGKMMMMKGgGnK',
+    'KGGgGKMddmKGGgnK',
+    'KgGGGKMddmKgGGnK',
+    'KGGgGKMddmKGGgnK',
+    'KKKKKKKKKKKKKKKK',
+    '................',
+  ],
+  market: [
+    '................',
+    '................',
+    '................',
+    '..KKKKKKKKKKKK..',
+    '.KM+M+M+M+M+MMK.',
+    'KMWMWMWMWMWMWMmK',
+    'KmmmmmmmmmmmmmmK',
+    '.Kq..........qK.',
+    '.Kq..RhFfYy..qK.',
+    '.KqKKKKKKKKKKqK.',
+    '.KqPPPpPPPPpPqK.',
+    '.KqPPPpPPPPpPqK.',
+    '.KqpppqpppppqqK.',
+    '.KKKKKKKKKKKKKK.',
+    '................',
+    '................',
+  ],
+  windmill: [
+    '..KW.......WK...',
+    '...KW.....WK....',
+    '....KWKKKWK.....',
+    '.....KqMqmK.....',
+    '....K++KMmmK....',
+    '....KKqKqKKK....',
+    '....KWPPPWpK....',
+    '...KWPPKKPWK....',
+    '..KWKPKOoKpWK...',
+    '.KW.KPKooKpKWK..',
+    '....KPPKKPpK....',
+    '...KPPPPPPPpK...',
+    '...KPPKKKPPpK...',
+    '...KPPKDdKPpK...',
+    '...KppKDdKppK...',
+    '...KKKKKKKKKK...',
+  ],
+  castle: [
+    '........KKKKKKKK........',
+    '.......K++MMMMMmK.......',
+    '..KK..K++MMMMMMMmK..KK..',
+    '.K+MK.KKKKKKKKKKKK.K+MK.',
+    'K++MmK.KGGGGGGGgK.K++MmK',
+    'KMMMmK.KGKOKKOKgK.KMMMmK',
+    'KKKKKK.KGKoKKoKgK.KKKKKK',
+    'KGGGgKKKGGGGGGGgKKKGGGgK',
+    'KGOGgKGgKGgKKGgKGgKGOGgK',
+    'KGoGgKGGGGGGGGGGGnKGoGgK',
+    'KGGGgKGGgGGgGGgGGnKGGGgK',
+    'KGGGgKgGGGKKKKGGgnKGGGgK',
+    'KgGGgKGGGKMMMmKGGnKgGGgK',
+    'KGGGgKGgGKMddmKGgnKGGGgK',
+    'KGGGgKGGGKMddmKGGnKGGGgK',
+    'KKKKKKKKKKKKKKKKKKKKKKKK',
   ],
 } satisfies Record<string, string[]>;
 
@@ -373,6 +507,25 @@ export const DECOR_ART: string[][] = [
     '...~KKKKKKK~~~..',
     '....~~~~~~~~....',
   ],
+  // Plantação
+  [
+    'Y.Y.Y.Y.Y.Y.Y.Y.',
+    'yYyYyYyYyYyYyYyY',
+    'uyuyuyuyuyuyuyuy',
+    '~~~~~~~~~~~~~~~~',
+    'Y.Y.Y.Y.Y.Y.Y.Y.',
+    'yYyYyYyYyYyYyYyY',
+    'uyuyuyuyuyuyuyuy',
+    '~~~~~~~~~~~~~~~~',
+    'Y.Y.Y.Y.Y.Y.Y.Y.',
+    'yYyYyYyYyYyYyYyY',
+    'uyuyuyuyuyuyuyuy',
+    '~~~~~~~~~~~~~~~~',
+    'Y.Y.Y.Y.Y.Y.Y.Y.',
+    'yYyYyYyYyYyYyYyY',
+    'uyuyuyuyuyuyuyuy',
+    '~~~~~~~~~~~~~~~~',
+  ],
 ];
 
 /** Canvas com os enfeites lado a lado (16 px cada). Alfa 255 = cor; alfa 100 = sombra. */
@@ -394,4 +547,85 @@ export function makeDecorCanvas(): HTMLCanvasElement {
   return canvas;
 }
 
-export type SpriteName = keyof typeof ART;
+// Profissões ---------------------------------------------------------------
+
+export { ROLE_NAMES, ROLES, type Role } from '../../sim/roles';
+
+/** Corpo base (7x9); `H` é o cabelo ou o que vai na cabeça. */
+const BODIES: Record<'human' | 'alien', string[]> = {
+  human: ['..HHH..', '..HSH..', '..SSs..', 'SMMMMmS', 'S.MMm.S', '..MMm..', '..B.B..', '..B.B..', '..D.D..'],
+  alien: ['..HHH..', '.$E$E$.', '..$$%..', '$MMMMm$', '$.MMm.$', '..MMm..', '..%.%..', '..%.%..', '..%.%..'],
+};
+
+interface RoleLook {
+  /** O que vai na cabeça: cabelo, chapéu, capacete, coroa. */
+  head: string;
+  /** Peito de armadura no lugar da roupa nas laterais. */
+  armor?: boolean;
+  /** Avental de couro. */
+  apron?: boolean;
+  /** Pixels extras (ferramenta, arma, capa) numa grade de 11x11, corpo em (2, 2). */
+  extra: [number, number, string][];
+}
+
+const vline = (x: number, y0: number, y1: number, c: string): [number, number, string][] =>
+  Array.from({ length: y1 - y0 + 1 }, (_, k) => [x, y0 + k, c]);
+
+const LOOKS: Record<Role, RoleLook> = {
+  gatherer: { head: 'K', extra: [[9, 6, 'R'], [10, 6, 'h'], [9, 7, 'u'], [10, 7, 'u'], [9, 8, 'y'], [10, 8, 'y']] },
+  hunter: { head: 'K', extra: [[1, 3, 'p'], [0, 4, 'p'], [0, 5, 'p'], [0, 6, 'p'], [0, 7, 'p'], [1, 8, 'p'], ...vline(1, 4, 7, 'w')] },
+  farmer: { head: 'Y', extra: [[3, 3, 'y'], [7, 3, 'y'], [8, 0, 'g'], [10, 0, 'g'], [8, 1, 'g'], [9, 1, 'g'], [10, 1, 'g'], ...vline(9, 2, 10, 'q')] },
+  woodcutter: { head: 'u', extra: [...vline(9, 4, 9, 'q'), [10, 3, 'G'], [10, 4, 'g'], [10, 5, 'g'], [9, 3, 'q']] },
+  builder: { head: 'u', extra: [...vline(9, 5, 9, 'q'), [8, 4, 'g'], [9, 4, 'n'], [10, 4, 'g']] },
+  miner: { head: 'Y', extra: [[5, 2, 'F'], ...vline(9, 3, 9, 'q'), [7, 2, 'g'], [8, 2, 'g'], [9, 2, 'n'], [10, 2, 'g'], [10, 3, 'g']] },
+  blacksmith: { head: 'K', apron: true, extra: [...vline(9, 4, 8, 'q'), [8, 3, 'n'], [9, 3, 'n'], [10, 3, 'n']] },
+  soldier: { head: 'g', armor: true, extra: [[4, 1, 'n'], [5, 1, 'n'], [6, 1, 'n'], ...vline(9, 0, 4, 'G'), [8, 5, 'u'], [10, 5, 'u'], [9, 6, 'q'], [0, 5, 'p'], [1, 5, 'p'], [0, 6, 'p'], [1, 6, 'G'], [0, 7, 'p'], [1, 7, 'p'], [0, 8, 'p'], [1, 8, 'p']] },
+  guard: { head: 'g', armor: true, extra: [[4, 1, 'n'], [5, 1, 'n'], [6, 1, 'n'], [9, 0, 'G'], [9, 1, 'G'], ...vline(9, 2, 10, 'q')] },
+  leader: { head: 'K', extra: [[9, 1, 'F'], [9, 2, 'f'], ...vline(9, 3, 10, 'q'), [4, 7, 'F'], [5, 7, 'F']] },
+  king: { head: 'F', extra: [[4, 1, 'F'], [6, 1, 'F'], [5, 1, 'R'], ...vline(1, 5, 9, 'R'), ...vline(9, 5, 9, 'r'), [4, 7, 'F'], [5, 7, 'F'], [6, 7, 'F']] },
+};
+
+function composeRole(body: 'human' | 'alien', role: Role): string[] {
+  const look = LOOKS[role];
+  const grid = Array.from({ length: 11 }, () => Array<string>(11).fill('.'));
+  BODIES[body].forEach((row, y) => {
+    [...row].forEach((ch, x) => {
+      let c = ch;
+      if (c === 'H') c = body === 'alien' && look.head === 'K' ? '$' : look.head;
+      if (look.armor && y >= 3 && y <= 5 && (x === 1 || x === 2)) c = c === '.' ? c : 'G';
+      if (look.armor && y >= 3 && y <= 5 && (x === 4 || x === 5) && c !== '.') c = 'g';
+      if (look.apron && y >= 4 && y <= 6 && x >= 2 && x <= 4 && c !== '.') c = 'p';
+      if (c !== '.') grid[y + 2][x + 2] = c;
+    });
+  });
+  for (const [x, y, c] of look.extra) grid[y][x] = c;
+  return grid.map((r) => r.join(''));
+}
+
+// Variações de construção -----------------------------------------------------
+
+const flip = (rows: string[]) => rows.map((r) => [...r].reverse().join(''));
+const swap = (rows: string[], map: Record<string, string>) => rows.map((r) => [...r].map((c) => map[c] ?? c).join(''));
+
+/** Variações das casas: espelhada e com outro material de parede. */
+const WALLS: Record<string, Record<string, string>> = {
+  hut: { A: 'P', a: 'p' },
+  cottage: { P: 'A', p: 'a', q: 'a' },
+  house: { W: 'P', w: 'p' },
+  stoneHouse: { G: 'Y', g: 'y', n: 'u' },
+  townhouse: { X: 'G', x: 'g' },
+};
+
+export const HOUSE_VARIANTS = 4;
+
+/** Todos os sprites: a arte base, as profissões e as variações das casas. */
+export const SPRITES: Record<string, string[]> = { ...ART };
+for (const body of ['human', 'alien'] as const) for (const role of ROLES) SPRITES[`${body}:${role}`] = composeRole(body, role);
+for (const [name, walls] of Object.entries(WALLS)) {
+  const base = ART[name as keyof typeof ART];
+  SPRITES[`${name}:1`] = flip(base);
+  SPRITES[`${name}:2`] = swap(base, walls);
+  SPRITES[`${name}:3`] = flip(swap(base, walls));
+}
+
+export type SpriteName = string;

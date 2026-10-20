@@ -12,8 +12,14 @@ describe('superfície', () => {
   it('é determinística', () => {
     const a = generateSurface(earth);
     const b = generateSurface(earth);
-    expect(a.elevation).toEqual(b.elevation);
-    expect(a.biome).toEqual(b.biome);
+    // Comparação byte a byte: o toEqual em arrays grandes é lento demais.
+    const same = (x: ArrayBufferView, y: ArrayBufferView) => {
+      const p = new Uint8Array(x.buffer);
+      const q = new Uint8Array(y.buffer);
+      return p.length === q.length && p.every((v, i) => v === q[i]);
+    };
+    expect(same(a.elevation, b.elevation)).toBe(true);
+    expect(same(a.biome, b.biome)).toBe(true);
   });
   it('respeita a fração de água', () => {
     const map = generateSurface(earth);

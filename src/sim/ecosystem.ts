@@ -1,5 +1,6 @@
 import { mulberry32 } from '../core/rng';
 import { Biome, temperatureAt, type SurfaceMap } from '../procgen/surface';
+import { pickRole, ROLE } from './roles';
 import { lotsFor, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, type Species, type SpeciesKind } from './species';
 
@@ -15,14 +16,70 @@ export const YEAR_SECONDS = 6;
 
 export const ERAS = ['Idade da Pedra', 'Idade do Bronze', 'Idade do Ferro', 'Era Medieval', 'Era Industrial'];
 
+/** Cores vivas dos reinos (telhados e roupas), como nos jogos de deus em pixel art. */
+const KINGDOM_COLORS: [number, number, number][] = [
+  [52, 110, 220],
+  [214, 64, 52],
+  [232, 140, 40],
+  [64, 168, 80],
+  [148, 72, 200],
+  [36, 170, 176],
+  [226, 196, 56],
+  [210, 84, 150],
+];
+
+/** Construções especiais, na ordem em que um assentamento costuma erguê-las. */
+export const BUILDINGS = ['granary', 'smithy', 'market', 'windmill', 'temple', 'barracks'] as const;
+export type BuildingKind = 'house' | (typeof BUILDINGS)[number];
+
+export const BUILDING_NAMES: Record<BuildingKind, string> = {
+  house: 'Casa',
+  granary: 'Celeiro',
+  smithy: 'Ferraria',
+  market: 'Mercado',
+  windmill: 'Moinho',
+  temple: 'Templo',
+  barracks: 'Quartel',
+};
+
+/** Se o assentamento já pode erguer a construção (era e nível). */
+function canBuild(kind: (typeof BUILDINGS)[number], era: number, tier: number): boolean {
+  switch (kind) {
+    case 'granary':
+      return era >= 1;
+    case 'smithy':
+      return era >= 1;
+    case 'market':
+      return tier >= 1;
+    case 'windmill':
+    case 'temple':
+      return era >= 2 && tier >= 1;
+    case 'barracks':
+      return era >= 2 && tier >= 2;
+  }
+}
+
+export interface Building {
+  /** Canto superior esquerdo de 2x2 tiles. */
+  x: number;
+  y: number;
+  kind: BuildingKind;
+  /** Variação de aparência (casas). */
+  variant: number;
+}
+
 export interface Village {
   id: number;
   name: string;
   species: number;
   x: number;
   y: number;
-  /** Casas: canto superior esquerdo de 2x2 tiles. */
-  houses: { x: number; y: number }[];
+  /** Casas e construções especiais. */
+  houses: Building[];
+  /** Plantações (2x2 tiles cada). */
+  fields: number;
+  /** Índice da criatura que lidera o assentamento, ou -1. */
+  leader: number;
   /** Nível: 0 aldeia, 1 vila, 2 cidade (TIER_NAMES). */
   tier: number;
   /** Id do assentamento capital do reino a que pertence (o próprio, se independente). */
@@ -80,6 +137,8 @@ export class Ecosystem {
   kind = new Uint8Array(0);
   alive = new Uint8Array(0);
   village = new Int16Array(0);
+  /** Profissão de cada indivíduo inteligente (índice em ROLES). */
+  role = new Uint8Array(0);
   readonly villages: Village[] = [];
   /** Ruas por tile: 0 nenhuma, 1 terra, 2 pedra, 3 praça. */
   readonly road: Uint8Array;
@@ -210,6 +269,7 @@ export class Ecosystem {
     this.kind = copy(this.kind, (n) => new Uint8Array(n));
     this.alive = copy(this.alive, (n) => new Uint8Array(n));
     this.village = copy(this.village, (n) => new Int16Array(n));
+    this.role = copy(this.role, (n) => new Uint8Array(n));
     // A grade pode estar em uso no meio de um passo: copiar, nunca zerar (zeros criariam um laço infinito).
     const next = new Int32Array(capacity).fill(-1);
     next.set(this.gridNext);
@@ -235,7 +295,11 @@ export class Ecosystem {
     this.alive[i] = 1;
     this.village[i] = village;
     this.population[s]++;
-    if (village >= 0) this.villages[village].population++;
+    if (village >= 0) {
+      const v = this.villages[village];
+      v.population++;
+      this.role[i] = pickRole(Math.floor(v.tech), v.tier, this.rnd());
+    }
     return i;
   }
 
@@ -434,8 +498,21 @@ export class Ecosystem {
           if (dx > map.width / 2) dx -= map.width;
           else if (dx < -map.width / 2) dx += map.width;
           const dy = v.y - this.y[i];
-          const range = TIER_RADIUS[v.tier] * 0.8;
+          const role = this.role[i];
+          // Soldados, guardas e líderes ficam perto do centro.
+          const range = TIER_RADIUS[v.tier] * (role >= ROLE.soldier ? 0.4 : 0.8);
           if (dx * dx + dy * dy > range * range) bias = { x: dx, y: dy };
+          // Caçadores abatem herbívoros por perto.
+          if (role === ROLE.hunter && e < 0.8) {
+            let prey = -1;
+            this.forEachNear(this.x[i], this.y[i], 3, (j) => {
+              if (prey < 0 && this.species[this.kind[j]].kind === 'herbivore') prey = j;
+            });
+            if (prey >= 0) {
+              this.kill(prey);
+              e += 0.4;
+            }
+          }
         }
         this.wander(i, sp.speed, bias);
         break;
@@ -455,7 +532,7 @@ export class Ecosystem {
         if (this.kind[j] === s) crowd++;
       });
       const v = this.village[i];
-      const housed = v < 0 || this.villages[v].population < this.villages[v].houses.length * 5 + 4;
+      const housed = v < 0 || this.villages[v].population < this.villages[v].houses.length * 5 + this.villages[v].fields * 2 + 4;
       if (crowd < b.crowd && housed) {
         const child = this.spawn(s, this.x[i] + (this.rnd() - 0.5), this.y[i] + (this.rnd() - 0.5), v);
         if (child >= 0) this.energy[i] -= 0.3;
@@ -540,12 +617,13 @@ export class Ecosystem {
     v.lots = lotsFor(v.tier);
   }
 
-  /** Constrói uma casa no lote livre mais perto do centro. */
-  private buildHouse(v: Village): boolean {
+  /** Tiles do lote livre (casas: do centro para fora; plantações: de fora para dentro). */
+  private freeLot(v: Village, fromEdge = false): number[] | null {
     const cx = Math.floor(v.x);
     const cy = Math.floor(v.y);
-    const w = this.map.width;
-    for (const lot of v.lots) {
+    const n = v.lots.length;
+    for (let k = 0; k < n; k++) {
+      const lot = v.lots[fromEdge ? n - 1 - k : k];
       const tiles: number[] = [];
       for (let dy = 0; dy < 2; dy++) {
         for (let dx = 0; dx < 2; dx++) {
@@ -554,15 +632,59 @@ export class Ecosystem {
           tiles.push(t);
         }
       }
-      if (tiles.length < 4) continue;
-      for (const t of tiles) {
-        this.built[t] = 1;
-        this.onTileChanged(t);
-      }
-      v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w) });
-      return true;
+      if (tiles.length === 4) return tiles;
     }
-    return false;
+    return null;
+  }
+
+  /** Constrói uma casa (ou construção especial) no lote livre mais perto do centro. */
+  private buildHouse(v: Village, kind: BuildingKind = 'house'): boolean {
+    const tiles = this.freeLot(v);
+    if (!tiles) return false;
+    const w = this.map.width;
+    for (const t of tiles) {
+      this.built[t] = 1;
+      this.onTileChanged(t);
+    }
+    v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.rnd() * 4) });
+    if (kind !== 'house') this.log.unshift(`${v.name} construiu ${kind === 'smithy' ? 'uma' : 'um'} ${BUILDING_NAMES[kind].toLowerCase()}`);
+    return true;
+  }
+
+  /** Próxima construção especial que o assentamento pode erguer, se houver. */
+  private nextBuilding(v: Village): BuildingKind | null {
+    const era = Math.floor(v.tech);
+    for (const b of BUILDINGS) if (canBuild(b, era, v.tier) && !v.houses.some((h) => h.kind === b)) return b;
+    return null;
+  }
+
+  /** Plantação na borda da área: tiles de lavoura com trigo. */
+  private plantField(v: Village): boolean {
+    const tiles = this.freeLot(v, true);
+    if (!tiles) return false;
+    for (const t of tiles) {
+      this.road[t] = 4;
+      this.onTileChanged(t);
+    }
+    v.fields++;
+    return true;
+  }
+
+  /** Garante um líder vivo (rei, se for capital de um reino com cidade). */
+  private updateLeader(v: Village, adults: number[]): void {
+    const l = v.leader;
+    const king = v.tier >= 2 && v.kingdom === v.id;
+    if (l >= 0 && this.alive[l] && this.village[l] === v.id) {
+      this.role[l] = king ? ROLE.king : ROLE.leader;
+      return;
+    }
+    if (!adults.length) {
+      v.leader = -1;
+      return;
+    }
+    const pick = adults[Math.floor(this.rnd() * adults.length)];
+    v.leader = pick;
+    this.role[pick] = king ? ROLE.king : ROLE.leader;
   }
 
   /** Estrada de terra em linha reta entre dois assentamentos, interrompida na água. */
@@ -593,12 +715,14 @@ export class Ecosystem {
       x: x + 0.5,
       y: y + 0.5,
       houses: [],
+      fields: 0,
+      leader: -1,
       tier: 0,
       kingdom: from ? from.kingdom : id,
       lots: [],
       tech: from ? from.tech * 0.8 : 0,
       population: 0,
-      color: from ? from.color : ([90 + rnd() * 160, 60 + rnd() * 150, 60 + rnd() * 150].map(Math.round) as [number, number, number]),
+      color: from ? from.color : KINGDOM_COLORS[(this.villages.filter((o) => o.kingdom === o.id).length + Math.floor(rnd() * 3)) % KINGDOM_COLORS.length],
       abandoned: false,
     };
     this.villages.push(village);
@@ -659,6 +783,12 @@ export class Ecosystem {
 
   private updateVillages(dt: number): void {
     const map = this.map;
+    // Adultos de cada assentamento, para escolher líderes.
+    const adults: number[][] = this.villages.map(() => []);
+    for (let i = 0; i < this.count; i++) {
+      const v = this.village[i];
+      if (v >= 0 && this.alive[i] && this.age[i] >= this.species[this.kind[i]].maturity) adults[v].push(i);
+    }
     for (const v of this.villages) {
       if (v.abandoned) continue;
       if (v.population <= 0) {
@@ -672,8 +802,15 @@ export class Ecosystem {
         if (Math.floor(v.tech) === 3) this.layStreets(v);
       }
       this.growTier(v);
-      // Constrói casas quando o assentamento cresce.
-      if (v.population > v.houses.length * 3 && this.rnd() < 0.4) this.buildHouse(v);
+      this.updateLeader(v, adults[v.id] ?? []);
+      // Constrói casas quando o assentamento cresce; às vezes uma construção especial.
+      const homes = v.houses.filter((h) => h.kind === 'house').length;
+      if (v.population > homes * 3 && this.rnd() < 0.4) {
+        const special = homes >= 4 && this.rnd() < 0.35 ? this.nextBuilding(v) : null;
+        this.buildHouse(v, special ?? 'house');
+      }
+      // Plantações a partir da Idade do Bronze, uma para cada duas casas.
+      if (Math.floor(v.tech) >= 1 && v.fields < homes / 2 && this.rnd() < 0.3) this.plantField(v);
       // Assentamentos cheios enviam colonos para fundar outro, fora de qualquer área.
       if (v.population > 26 && this.rnd() < 0.04 * dt && this.villages.length < 60) {
         for (let t = 0; t < 12; t++) {
