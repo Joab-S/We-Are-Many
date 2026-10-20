@@ -1,6 +1,6 @@
 # We Are Many: Requisitos da Vida nos Planetas
 
-> Versão 0.5 · 20/10/2026 · seção 19 atualizada com as respostas do Joab: estoque próprio por assentamento com teto e consumo, extermínio só entre povos inteligentes, todas as ideias complementares aprovadas, base de simulação estocástica (19.15) e melhorias visuais (19.16) · versão 0.4: seção 19 nova: crescimento controlado, vocação, economia viva, guerras com motivo, eras por desenvolvimento e o defeito das ruas em grade (proposta, ainda não implementada) · versão 0.3: complementa a seção 4.7 (SUP) do [REQUISITOS.md](REQUISITOS.md) · revisão geral: situação de todos os requisitos conferida com o código da branch `development`, correções, próximos requisitos (seção 16.1) e regra de preservação
+> Versão 0.6 · 20/10/2026 · seção 19.17 nova: seleção de criaturas e informações do assentamento; ícone da vocação no rótulo e no painel · versão 0.5: seção 19 atualizada com as respostas do Joab: estoque próprio por assentamento com teto e consumo, extermínio só entre povos inteligentes, todas as ideias complementares aprovadas, base de simulação estocástica (19.15) e melhorias visuais (19.16) · versão 0.4: seção 19 nova: crescimento controlado, vocação, economia viva, guerras com motivo, eras por desenvolvimento e o defeito das ruas em grade (proposta, ainda não implementada) · versão 0.3: complementa a seção 4.7 (SUP) do [REQUISITOS.md](REQUISITOS.md) · revisão geral: situação de todos os requisitos conferida com o código da branch `development`, correções, próximos requisitos (seção 16.1) e regra de preservação
 > Escopo: tudo o que acontece na superfície 2D depois que existe vida: espécies, ecossistema, evolução, civilizações, assentamentos, guerra, diplomacia, arte em pixel e o papel do jogador.
 
 Itens marcados com **Implementado (Fase 0)** já existem no jogo (branch `development`). **Parcial** diz o que falta. O resto é requisito para a fase indicada, mapeada na seção 16.
@@ -367,8 +367,8 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 | RF-VIDA-150c | **Relógio no topo** (era, ano, progresso da era e velocidade), **minimapa** com os assentamentos e o retângulo da vista (clicar ou arrastar leva a câmera), painel lateral recolhível (P), ajuda de controles (H ou ?), pincel com [ e ], e **ficha fixada**: um clique curto de mão vazia numa criatura (a ficha a segue) ou num assentamento fixa a ficha até Esc ou um clique no vazio. A barra de ferramentas inteira recebe o mouse e rola para o lado. | Implementado (Fase 0) |
 | RF-VIDA-151 | Painel lateral: era, ano, controle de tempo, população por espécie com cor, lista de assentamentos (clicar leva a câmera), acontecimentos recentes. | Implementado (Fase 0) |
 | RF-VIDA-152 | Rótulos de assentamento no mapa com nome, nível e população; capital mostra o reino. **Cor do reino:** cada reino tem uma cor própria (nenhum reino vivo repete a cor de outro); a área de cada assentamento fica tingida e contornada com essa cor (borda cheia na capital, tracejada nos outros) e o rótulo leva uma faixa da cor. Liga e desliga com T ou na janela Mundo. | Implementado (Fase 0) |
-| RF-VIDA-153 | Inspecionar criatura: espécie, assentamento, era, idade, energia; inspecionar tile: bioma, altitude, temperatura, umidade, vegetação. | Implementado (Fase 0) |
-| RF-VIDA-154 | Painéis futuros: espécie (atributos, tendência evolutiva, mapa de distribuição), assentamento (nível, recursos, estabilidade, líder), reino (assentamentos, relações, guerras), gráficos de população ao longo do tempo. | Fase 5/6 |
+| RF-VIDA-153 | Inspecionar criatura: espécie, assentamento, era, idade, energia; inspecionar tile: bioma, altitude, temperatura, umidade, vegetação. | Implementado (Fase 0); melhorias detalhadas em 19.17 (RF-VIDA-330 a 337) |
+| RF-VIDA-154 | Painéis futuros: espécie (atributos, tendência evolutiva, mapa de distribuição), assentamento (nível, recursos, estabilidade, líder), reino (assentamentos, relações, guerras), gráficos de população ao longo do tempo. | Fase 5/6; a janela do assentamento está detalhada em 19.17 (RF-VIDA-341 a 349a) |
 | RF-VIDA-155 | Camadas de visualização adicionais: território, fertilidade, doenças, relações. | Fase 5/6 |
 | RF-VIDA-156 | **Crônica:** histórico completo do planeta (fundações, eras, guerras, extinções, desastres, intervenções do jogador), filtrável, com clique para ir ao local. Exportável como texto. | Implementado (Fase 0), sem exportar: até 400 linhas, filtros (importantes, povos, guerras, natureza, mar, economia, você). Repetições do mesmo assunto em 30 anos viram uma linha com contagem e lugares (ex.: "Tempestades afundaram barcos de pesca (Xita, Luru…) ×35"), para que um evento frequente não esconda os outros. |
 
@@ -449,7 +449,7 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 | RF-VIDA-186 | **Colonos humanos** trazidos por naves de transporte. | 5 | RF-VIDA-146, RF-SUP-10 |
 | RF-VIDA-187 | **Exportar a crônica** como texto. | 5 | RF-VIDA-156 |
 | RF-VIDA-190 a 196 | **Corrigir as ruas em grade e em escada** (rede viária única, sem rua dupla, diagonais limpas, teste). Etapa A da seção 19. | 0/1 | Defeito relatado pelo Joab (20/10/2026), seção 19.2 |
-| RF-VIDA-200 a 326 | **Crescimento controlado, vocação, economia viva, caravanas, guerras com motivo, arquitetura por era, falência e eras por desenvolvimento.** Etapas S, B a H e V da seção 19, com estoque próprio por assentamento, base estocástica e melhorias visuais. | 5/6 | Pedido do Joab (20/10/2026), seção 19 |
+| RF-VIDA-200 a 349b | **Crescimento controlado, vocação, economia viva, caravanas, guerras com motivo, arquitetura por era, falência e eras por desenvolvimento.** Etapas S, B a H, I e V da seção 19, com estoque próprio por assentamento, base estocástica e melhorias visuais. | 5/6 | Pedido do Joab (20/10/2026), seção 19 |
 
 **Critério de saída da vida nos planetas:** levar espécies da Terra a um planeta terraformado, vê-las se adaptar ao longo de gerações, acompanhar uma civilização da Idade da Pedra até reinos que comerciam, se aliam e guerreiam, e ver na crônica o efeito das intervenções do jogador.
 
@@ -458,7 +458,7 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 ## 17. Questões em aberto
 
 1. **Custo das ferramentas de vida:** sair de energia da nave, dos recursos minerados ou de uma recarga por tempo?
-2. **Vocação no rótulo** (seção 19.14, item 3): mostrar o ícone sempre ou só no painel?
+2. ~~**Vocação no rótulo** (seção 19.14, item 3): mostrar o ícone sempre ou só no painel?~~ Respondida em 20/10/2026: no rótulo, de forma simples, e no painel.
 
 ---
 
@@ -489,6 +489,7 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 | 20/10/2026 | Regra de preservação: nada é removido sem necessidade ou pedido, e toda remoção vai para o [Registro de remoções](REQUISITOS.md#13-registro-de-remoções). Revisão da situação de todos os requisitos e backlog da vida (seção 16.1). |
 | 20/10/2026 | Proposta registrada (seção 19, sem implementação): crescer para dentro antes de para fora (estrutura de referência, reformas, expansão mais lenta), necessidades essenciais e vocação de cada assentamento (inclusive cavalos para guerra), caravanas e acordos, guerras com motivo e moderadas, arquitetura que muda aos poucos com a era, falência com causa, eras por marcos mais pontos de desenvolvimento, tudo parametrizado. Diagnóstico e correção planejada das ruas em grade. |
 | 20/10/2026 | Respostas do Joab à proposta: estoque próprio por assentamento, sem estoque compartilhado do reino (o comércio nasce da diferença), com teto por recurso e consumo obrigatório para a economia não explodir; extermínio só entre povos inteligentes, inclusive da mesma espécie quando os interesses são diferentes, e nunca entre animais; todas as ideias complementares entram; toda a vida passa a seguir simulação estocástica; lógica nova vem sempre com o seu visual, e os elementos existentes também melhoram. |
+| 20/10/2026 | Ícone da vocação no rótulo, de forma simples, e no painel. Requisitos de seleção de criaturas (realce, escolha entre amontoadas, marcador, seguir, nome, ficha completa, grupo) e da janela do assentamento com abas (seção 19.17). |
 
 ---
 
@@ -611,7 +612,7 @@ Cada assentamento ganha uma **vocação**, sorteada com pesos tirados do lugar o
 | RF-VIDA-221 | **Efeito da vocação:** +`VOCATION_BONUS` (40%) na produção da vocação; o prédio característico entra na estrutura de referência a partir de vila; a divisão do trabalho tem peso extra para ela. | A fazer (Etapa C) |
 | RF-VIDA-222 | **Vocação que muda devagar:** quando a base acaba (mina esgotada, seca longa, rota de comércio perdida, rebanho dizimado), o assentamento pode trocar de vocação depois de `VOCATION_CHANGE_YEARS` (20) anos ruins. A crônica registra ("Orlu deixou as minas e passou a criar ovelhas"). | A fazer (Etapa C) |
 | RF-VIDA-223 | **Cavalos:** o haras cria cavalos (estoque de animais). Cavalos servem para (1) **cavalaria**, a partir do Bronze (carros de guerra) e com mais força no Ferro: soldado montado com força `CAVALRY_STRENGTH` (2,0, contra 1,2 do soldado a pé, RF-VIDA-132), um cavalo por soldado; (2) **caravanas** mais rápidas (+50%); (3) **arado e carroça**. Cavalos podem ser vendidos, o que torna o haras um alvo de cobiça (RF-VIDA-240). | A fazer (Etapa C, cavalaria na Etapa F) |
-| RF-VIDA-224 | **Vocação visível:** ícone pequeno ao lado do nome no rótulo e no painel; camada "Vocação" na janela Mundo. | A fazer (Etapa C) |
+| RF-VIDA-224 | **Vocação visível:** ícone simples ao lado do nome no rótulo e também no painel do assentamento (decisão do Joab, 20/10/2026); camada "Vocação" na janela Mundo. | A fazer (Etapa C) |
 
 ### 19.6 Comércio vivo: caravanas, acordos e feiras
 
@@ -760,6 +761,7 @@ Todos ficam em `src/sim/balance.ts` (RF-VIDA-208). Os valores são o ponto de pa
 | `CONSUME_FOOD` / `CONSUME_FUEL` / `CONSUME_CLOTH` | Consumo anual por morador | 1 / 0,4 (×2 no frio) / 0,2 |
 | `SPOIL_GRAIN` / `SPOIL_MEAT` / `SPOIL_WOOD` | Perda anual no estoque | 8% / 45% (20% com sal) / 3% |
 | `DIMINISHING` | Expoente do retorno decrescente perto do teto | 2 (produção × (1 − preenchimento²)) |
+| `PICK_RADIUS_PX` | Raio de escolha de criatura, em pixels de tela | 10 |
 | `CALIBRATION_SEEDS` / `CALIBRATION_YEARS` | Rodadas e anos da calibração Monte Carlo (19.15) | 20 / 250 |
 
 ### 19.13 Ordem sugerida de implementação
@@ -776,16 +778,17 @@ Cada etapa é um PR para a `development`, com testes e capturas de tela, e marca
 | E | Caravanas, preços, acordos, feiras, barcos mercantes | RF-VIDA-230 a 236 | Caravanas visíveis nas estradas; estradas de rota comercial calçadas antes das outras |
 | F | Guerras com motivo, cavalaria, logística, consequências | RF-VIDA-240 a 244 | No máximo `WARS_MAX` guerras simultâneas; crônica com o motivo de cada guerra |
 | G | Caixa, falência e crise | RF-VIDA-260 a 264 | Pelo menos uma falência com causa registrada em 250 anos, e recuperação possível |
+| I | Seleção de criaturas e janela do assentamento (as abas ganham campos a cada etapa) | RF-VIDA-330 a 349b | Selecionar e seguir uma criatura numa aldeia cheia; abrir a janela do assentamento pelo rótulo com uma criatura passando por cima; capturas de tela de cada aba |
 | V | Melhorias visuais dos elementos que já existem | RF-VIDA-321, 323 a 326 | Capturas de tela antes e depois de cada elemento da tabela de 19.16, sem perder nenhum elemento existente (RNF-14) |
 | H | Eras por desenvolvimento e técnicas | RF-VIDA-270 a 275 | Assentamentos com vocações diferentes chegam a eras em momentos diferentes; Era Industrial ainda perto do ano 1.300 em média |
 
 ### 19.14 Decisões do Joab
 
-Respondidas em 20/10/2026, menos a 3, que segue com a sugestão.
+Todas respondidas em 20/10/2026.
 
 1. **Estoque:** cada assentamento tem o seu, nada compartilhado; é isso que faz o comércio acontecer. Cada recurso tem teto, e o que está estocado precisa ser consumido (RF-VIDA-212, 218, 219). (A sugestão era manter o estoque do reino para madeira, pedra e metal.)
 2. **Extermínio:** só entre povos inteligentes. Pode ser da mesma espécie quando são assentamentos ou reinos diferentes com interesses diferentes. Entre animais não há guerra: a mesma espécie não tem conflito de interesse, e entre espécies existe a predação (RF-VIDA-241).
-3. **Vocação no rótulo:** em aberto. Vale a sugestão de mostrar o ícone sempre (RF-VIDA-224).
+3. **Vocação no rótulo:** ícone simples no rótulo e também no painel (RF-VIDA-224, 349).
 4. **Ideias complementares:** todas entram (19.11).
 
 ### 19.15 Base de simulação estocástica
@@ -865,3 +868,47 @@ Pedido do Joab: além das lógicas, os elementos que já existem melhoram e os n
 | Cavalaria, exército em marcha com bandeira, roças queimadas, fumaça de saque, refugiados com trouxas | F |
 | Casas abandonadas com tábuas, mercado fechado, bandidos com acampamento | G |
 | Prédio característico de cada técnica (escrita, moeda, imprensa, vapor) | H |
+
+### 19.17 Seleção de criaturas e informações do assentamento
+
+Pedido do Joab em 20/10/2026: melhorar a seleção de criaturas e a forma de ver as informações de um assentamento.
+
+**Como é hoje** (`src/client/surface/SurfaceMode.ts`):
+- Passar o mouse mostra uma ficha da criatura mais perto do cursor, num raio de 6 pixels de tela (ou 0,8 tile de perto). Clicar fixa a ficha, que segue a criatura enquanto ela viver. Esc ou um clique no vazio soltam a ficha.
+- Ficha da criatura: espécie, profissão ou fase da vida, assentamento, era, reino, idade e energia.
+- A ficha do assentamento só aparece quando não há criatura perto do cursor. Ela mostra nome, nível, reino, povo, valor, crença, estoque do reino, o que falta para a próxima era, guerra e aliados, tudo em linhas de texto dentro da mesma ficha do tile.
+
+**Problemas:**
+- Dentro de uma aldeia há gente em todo lugar, então é difícil chegar à ficha do assentamento.
+- Nada marca no mapa quem está selecionado, e não dá para escolher entre criaturas sobrepostas nem seguir uma com a câmera.
+- A ficha do assentamento é curta demais para a economia, as pessoas e as construções que a seção 19 traz.
+
+**Seleção de criaturas**
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-330 | **Alvo claro antes do clique:** a criatura que seria escolhida ganha um contorno claro ao passar o mouse. O raio de escolha é medido em pixels de tela (`PICK_RADIUS_PX`, 10), igual em qualquer zoom, e ganha a criatura mais perto do cursor. | Parcial: escolhe a mais perto, sem realce |
+| RF-VIDA-331 | **Criaturas amontoadas:** clicar de novo no mesmo ponto passa para a próxima criatura sob o cursor. Com mais de 3 criaturas ali, aparece uma lista pequena ("5 aqui: Humano, caçador · Humano, criança · Lobo...") para escolher. | A fazer (Etapa I) |
+| RF-VIDA-332 | **Marcador da seleção:** um anel pulsante na cor do reino (ou branco para animais) fica sobre a criatura selecionada, visível em qualquer zoom, com uma seta na borda da tela quando ela sai da vista. | A fazer (Etapa I) |
+| RF-VIDA-333 | **Seguir com a câmera:** botão "Seguir" na ficha e tecla F; a câmera acompanha a criatura até o jogador arrastar o mapa ou a criatura morrer. A morte gera um aviso ("Enka morreu de velhice aos 61 anos"). | A fazer (Etapa I) |
+| RF-VIDA-334 | **Nome próprio:** inteligentes têm nome gerado no estilo do povo e sobrenome de família (liga RF-VIDA-296). Animais aparecem pela espécie, com "filhote", "adulto" ou "velho". | A fazer (Etapa I) |
+| RF-VIDA-335 | **Ficha completa da criatura:** nome, espécie, idade e fase da vida, energia e saúde em barras, doença se houver, profissão e **o que está fazendo agora** ("indo caçar", "voltando com peixe", "construindo uma casa", "fugindo de um lobo"), assentamento e casa (clique leva até lá), família (pais e filhos vivos), o que carrega (ferramenta, arma, carga) e uma história curta ("nasceu em Orlu, mudou para Tekva no ano 212"). Animais mostram dieta, bando ou cardume e predador por perto. | Parcial: espécie, profissão, assentamento, era, reino, idade e energia |
+| RF-VIDA-336 | **Seleção de grupo:** arrastar com Shift desenha um retângulo; a ficha mostra o resumo do grupo (quantos de cada espécie e profissão, energia média). | A fazer (Etapa I) |
+| RF-VIDA-337 | **Selecionar a partir do painel:** clicar numa espécie na lista de população destaca todos os indivíduos dela no mapa, e cliques seguidos levam a câmera de um a outro. Na ficha do assentamento, clicar numa profissão faz o mesmo com quem tem aquela profissão (RF-VIDA-343). | A fazer (Etapa I) |
+
+**Informações do assentamento**
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-340 | **Selecionar o assentamento sem disputar com as pessoas:** clicar no rótulo, na praça ou num prédio do assentamento abre a ficha dele. A ficha da criatura continua no clique sobre ela fora desses pontos. | A fazer (Etapa I) |
+| RF-VIDA-341 | **Janela do assentamento**, separada da ficha do tile, fixa até ser fechada, com abas: Resumo, Economia, Pessoas, Construções, Relações e História. Só a aba visível é atualizada, no máximo 4 vezes por segundo. | A fazer (Etapa I) |
+| RF-VIDA-342 | **Resumo:** nome, nível e vocação com ícone; era e progresso por pilar (19.10); população com seta de tendência; líder com nome e traço; reino e capital; povo, valor e crença; estabilidade; situação econômica (próspero, estável, em crise, falido); completude da planta com o que falta (RF-VIDA-201). | A fazer (Etapa I; os campos novos chegam com cada etapa) |
+| RF-VIDA-343 | **Pessoas:** crianças, adultos e idosos; profissões com ícone e contagem; nascimentos, mortes e as causas no último ano; quem chegou e quem saiu. Clicar numa profissão destaca essas pessoas no mapa. | A fazer (Etapa I) |
+| RF-VIDA-344 | **Economia:** para cada recurso, barra de estoque e teto (RF-VIDA-218), produção e consumo por ano, saldo e preço local; caixa; acordos e caravanas em curso; destaque para o que falta e o que sobra. | A fazer (chega com as Etapas C, E e G) |
+| RF-VIDA-345 | **Construções:** casas por padrão, prédios especiais, obras em andamento com porcentagem, minas e porto. Clicar num item leva a câmera até ele. | A fazer (Etapa I) |
+| RF-VIDA-346 | **Relações:** reino, vizinhos com a relação em barra de −100 a +100, guerras, alianças, acordos e rancores. | A fazer (Etapa I) |
+| RF-VIDA-347 | **História:** a crônica só desse assentamento e gráficos pequenos de população e de estoque ao longo do tempo. | A fazer (Etapa I) |
+| RF-VIDA-348 | **Destaque no mapa** enquanto a janela está aberta: área tingida, prédios contornados, minas, porto e rotas das caravanas ligadas ao assentamento. | A fazer (Etapa I) |
+| RF-VIDA-349 | **Passar o mouse continua leve:** um balão curto com nome, nível, população, vocação e ícones de estado (guerra, crise, fome); o detalhe fica na janela. O rótulo no mapa mostra o ícone simples da vocação ao lado do nome e os ícones de estado (decisão do Joab, RF-VIDA-224). | A fazer (Etapa I) |
+| RF-VIDA-349a | **Comparar assentamentos:** janela Assentamentos com uma tabela ordenável (população, era, vocação, riqueza, estabilidade, completude); clicar numa linha leva até o lugar. | A fazer (Etapa I) |
+| RF-VIDA-349b | **Leitura fácil:** todo número com unidade, barras com cor e texto (não só cor, liga RNF-13), textos em português, nada de rolagem para o lado, Esc fecha a janela. | A fazer (Etapa I) |
