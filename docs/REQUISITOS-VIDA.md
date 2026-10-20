@@ -1,6 +1,6 @@
 # We Are Many: Requisitos da Vida nos Planetas
 
-> Versão 0.3 · 20/10/2026 · complementa a seção 4.7 (SUP) do [REQUISITOS.md](REQUISITOS.md) · revisão geral: situação de todos os requisitos conferida com o código da branch `development`, correções, próximos requisitos (seção 16.1) e regra de preservação
+> Versão 0.7 · 20/10/2026 · as 8 ideias novas foram aprovadas e a sequência de implementação da seção 19 foi definida (19.13) · versão 0.6: seção 19.17 nova: seleção de criaturas e informações do assentamento; ícone da vocação no rótulo e no painel · versão 0.5: seção 19 atualizada com as respostas do Joab: estoque próprio por assentamento com teto e consumo, extermínio só entre povos inteligentes, todas as ideias complementares aprovadas, base de simulação estocástica (19.15) e melhorias visuais (19.16) · versão 0.4: seção 19 nova: crescimento controlado, vocação, economia viva, guerras com motivo, eras por desenvolvimento e o defeito das ruas em grade (proposta, ainda não implementada) · versão 0.3: complementa a seção 4.7 (SUP) do [REQUISITOS.md](REQUISITOS.md) · revisão geral: situação de todos os requisitos conferida com o código da branch `development`, correções, próximos requisitos (seção 16.1) e regra de preservação
 > Escopo: tudo o que acontece na superfície 2D depois que existe vida: espécies, ecossistema, evolução, civilizações, assentamentos, guerra, diplomacia, arte em pixel e o papel do jogador.
 
 Itens marcados com **Implementado (Fase 0)** já existem no jogo (branch `development`). **Parcial** diz o que falta. O resto é requisito para a fase indicada, mapeada na seção 16.
@@ -29,6 +29,7 @@ Itens marcados com **Implementado (Fase 0)** já existem no jogo (branch `develo
 16. [Plano por fases](#16-plano-por-fases)
 17. [Questões em aberto](#17-questões-em-aberto)
 18. [Registro de decisões](#18-registro-de-decisões)
+19. [Crescimento controlado, vocação e economia viva](#19-crescimento-controlado-vocação-e-economia-viva)
 
 ---
 
@@ -228,10 +229,10 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 | ID | Requisito | Situação |
 |---|---|---|
 | RF-VIDA-100 | Todo assentamento tem uma **praça central** com fogueira (Pedra) ou poço (Bronze em diante); a praça de uma cidade ganha, da Idade do Bronze em diante, uma fortaleza com a bandeira do reino. | Implementado (Fase 0) |
-| RF-VIDA-101 | **Ruas orgânicas:** de 3 a 5 ruas principais saem da praça em direções sorteadas e serpenteiam; o comprimento cresce com o nível (aldeia curta, cidade longa). Cada assentamento tem sua planta própria e estável: o nível seguinte só estende as ruas. Ruas são tiles de terra batida pintados no mapa e não passam por água. | Implementado (Fase 0) |
+| RF-VIDA-101 | **Ruas orgânicas:** de 3 a 5 ruas principais saem da praça em direções sorteadas e serpenteiam; o comprimento cresce com o nível (aldeia curta, cidade longa). Cada assentamento tem sua planta própria e estável: o nível seguinte só estende as ruas. Ruas são tiles de terra batida pintados no mapa e não passam por água. | Implementado (Fase 0); **defeito aberto:** ruas em escada e ruas paralelas coladas, correção em RF-VIDA-190 a 196 |
 | RF-VIDA-102 | **Casas em lotes ao longo das ruas**, dos dois lados, a cada 3 tiles com uma pequena folga irregular, ocupando primeiro os lotes mais perto da praça. Casas nunca ficam na água nem sobre a rua. | Implementado (Fase 0) |
 | RF-VIDA-103 | **Estradas de terra** ligam assentamentos do mesmo reino, contornando água quando possível. Desenho em pixel: faixa contínua com cantos arredondados que se liga às vizinhas, borda e sulcos de carroça na terra batida, paralelepípedos com meio-fio a partir da Era Medieval e lajes na praça; o chão em volta aparece dos lados. | Implementado (Fase 0): estrada em curva suave, interrompida na água |
-| RF-VIDA-104 | Ruas laterais nascem das principais em ângulos variados, mais numerosas e longas em vilas, cidades e metrópoles (sem grade quadrada). Futuro: ruas crescem sob demanda, quando os lotes acabam. | Implementado (Fase 0), planta fixa por nível |
+| RF-VIDA-104 | Ruas laterais nascem das principais em ângulos variados, mais numerosas e longas em vilas, cidades e metrópoles (sem grade quadrada). Futuro: ruas crescem sob demanda, quando os lotes acabam (RF-VIDA-207). | Implementado (Fase 0), planta fixa por nível; **defeito aberto:** laterais nascem coladas na principal e formam grade (RF-VIDA-193) |
 | RF-VIDA-105 | **Campos cultivados** (seção 11) em volta das casas da periferia, a partir do Bronze. | Fase 5 |
 | RF-VIDA-106 | **Muralhas por era:** paliçada de madeira (Ferro), muralha de pedra com portões nas ruas (Medieval), contornando a área da cidade. | Fase 6 |
 | RF-VIDA-107 | **Edifícios especiais:** castelo/palácio na capital do reino, templo, mercado, quartel, celeiro, ferraria (exige metal no estoque), moinho, fábrica (Industrial), porto (seção 10.5), mina (seção 11.1), pontes onde estradas cruzam rios estreitos, marcos (estátua, torre, maravilha; RF-VIDA-124d) que contam a história. Toda construção custa madeira e pedra do estoque do reino (casa: 4 de madeira, ou 4 de pedra e 1 de madeira a partir da Era Medieval; especiais: 10 de madeira e 2 a 8 de pedra; porto: 12 de madeira; mina: 6 de madeira); sem material, a obra espera. | Parcial: faltam pontes e torres |
@@ -272,7 +273,7 @@ A economia faz parte do crescimento: o povo junta recursos, constrói com eles, 
 | RF-VIDA-121 | Colheita sazonal; secas, pragas e frio reduzem a produção e podem causar fome. | Fase 5 |
 | RF-VIDA-122 | Irrigação (Ferro em diante) permite campos mais longe da água. | Parcial: deserto colonizável a partir do Ferro |
 | RF-VIDA-123 | **Domesticação:** herbívoros próximos podem ser domesticados; viram rebanho (sprites seguindo pastores), fornecem comida e tração. Rebanhos atraem predadores. | Fase 5 |
-| RF-VIDA-124 | **Estoque do reino** (guardado na capital, usado por todos os assentamentos do reino): madeira, pedra, cobre, estanho, ferro, carvão, ouro, ferramentas e armas, mais a comida dos barcos de pesca. Madeira e pedra têm limite de armazém (200 + 20 por habitante). O painel do assentamento (mouse sobre a área) mostra o estoque. | Implementado (Fase 0) |
+| RF-VIDA-124 | **Estoque do reino** (guardado na capital, usado por todos os assentamentos do reino): madeira, pedra, cobre, estanho, ferro, carvão, ouro, ferramentas e armas, mais a comida dos barcos de pesca. Madeira e pedra têm limite de armazém (200 + 20 por habitante). O painel do assentamento (mouse sobre a área) mostra o estoque. | Implementado (Fase 0); **vai mudar na Etapa C:** cada assentamento passa a ter estoque próprio, sem estoque do reino (RF-VIDA-212, decisão do Joab de 20/10/2026) |
 | RF-VIDA-124a | **Lenha:** lenhadores produzem madeira conforme a floresta em volta; o corte desbasta a vegetação perto do assentamento. | Implementado (Fase 0) |
 | RF-VIDA-124b | **Pedra:** mineradores sem mina e construtores tiram pedra, quatro vezes mais onde há rocha ou colina por perto. | Implementado (Fase 0) |
 | RF-VIDA-124c | **Ferraria:** cada ferreiro faz cerca de 0,6 peça por ano com o metal do estoque: bronze (2 cobre + 1 estanho), ferro (2 ferro, a partir do Bronze), aço (2 ferro + 1 carvão, a partir da Era Medieval). Primeiro ferramentas (até 30% dos adultos; aumentam a produção em 40% e se gastam), depois armas (definem a força na guerra). O que os ferreiros fazem depende do que foi minerado. | Implementado (Fase 0) |
@@ -323,7 +324,7 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 |---|---|---|
 | RF-VIDA-131 | (Atualizado: guerra com relação abaixo de −35, ou −20 se um povo for guerreiro, e 4% por ano de guerra por ambição de um reino forte; depois da paz há trégua de 25 anos. Sem caminho por terra, a guerra é **naval**: os soldados vão de barco e desembarcam perto do alvo. Monumento de povo guerreiro dá força.) **Declaração:** com relação abaixo de −40, os dois em paz e um caminho por terra entre eles, há 12% de chance por ano (24% se um povo for guerreiro) de guerra. Ataca quem tem mais força (soldados × armas, mínimo 4); o alvo é o assentamento inimigo mais perto. Os soldados do atacante a até 90 tiles marcham até o alvo. | Implementado (Fase 0) |
 | RF-VIDA-132 | **Combate:** soldados e guardas lutam com inimigos a até 1,5 tile; vence com chance proporcional à força (soldado 1,2, guarda 1,1, líder 0,8, civil 0,4; +15% por era; até +150% com armas de aço suficientes). Soldados armados que morrem perdem a arma. O painel lista as guerras com o número de mortos. | Implementado (Fase 0), sem muralhas |
-| RF-VIDA-133 | **Cerco e conquista:** 3 ou mais soldados atacantes na praça sem nenhum defensor armado por perto conquistam o assentamento: ele muda de reino e de cor, metade do estoque do reino vencido vai para o vencedor (saque), e se era capital, os outros assentamentos daquele reino ficam independentes. | Implementado (Fase 0), sem casas queimadas |
+| RF-VIDA-133 | **Cerco e conquista:** 3 ou mais soldados atacantes na praça sem nenhum defensor armado por perto conquistam o assentamento: ele muda de reino e de cor, metade do estoque do reino vencido vai para o vencedor (saque), e se era capital, os outros assentamentos daquele reino ficam independentes. | Implementado (Fase 0), sem casas queimadas; com o estoque próprio (RF-VIDA-212), o saque passa a levar parte do estoque do assentamento conquistado |
 | RF-VIDA-134 | Fim de guerra por conquista do alvo, ou paz: 3% por ano, mais 1% a cada 1,5 morto, mais 10% depois de 30 anos. Depois da paz a relação volta a −10. | Implementado (Fase 0) |
 | RF-VIDA-135 | Guerras afetam o ecossistema (incêndios, fome) e a cultura (povos vencidos guardam rancor). | Parcial: relação −20 depois de uma conquista |
 
@@ -366,8 +367,8 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 | RF-VIDA-150c | **Relógio no topo** (era, ano, progresso da era e velocidade), **minimapa** com os assentamentos e o retângulo da vista (clicar ou arrastar leva a câmera), painel lateral recolhível (P), ajuda de controles (H ou ?), pincel com [ e ], e **ficha fixada**: um clique curto de mão vazia numa criatura (a ficha a segue) ou num assentamento fixa a ficha até Esc ou um clique no vazio. A barra de ferramentas inteira recebe o mouse e rola para o lado. | Implementado (Fase 0) |
 | RF-VIDA-151 | Painel lateral: era, ano, controle de tempo, população por espécie com cor, lista de assentamentos (clicar leva a câmera), acontecimentos recentes. | Implementado (Fase 0) |
 | RF-VIDA-152 | Rótulos de assentamento no mapa com nome, nível e população; capital mostra o reino. **Cor do reino:** cada reino tem uma cor própria (nenhum reino vivo repete a cor de outro); a área de cada assentamento fica tingida e contornada com essa cor (borda cheia na capital, tracejada nos outros) e o rótulo leva uma faixa da cor. Liga e desliga com T ou na janela Mundo. | Implementado (Fase 0) |
-| RF-VIDA-153 | Inspecionar criatura: espécie, assentamento, era, idade, energia; inspecionar tile: bioma, altitude, temperatura, umidade, vegetação. | Implementado (Fase 0) |
-| RF-VIDA-154 | Painéis futuros: espécie (atributos, tendência evolutiva, mapa de distribuição), assentamento (nível, recursos, estabilidade, líder), reino (assentamentos, relações, guerras), gráficos de população ao longo do tempo. | Fase 5/6 |
+| RF-VIDA-153 | Inspecionar criatura: espécie, assentamento, era, idade, energia; inspecionar tile: bioma, altitude, temperatura, umidade, vegetação. | Implementado (Fase 0); melhorias detalhadas em 19.17 (RF-VIDA-330 a 337) |
+| RF-VIDA-154 | Painéis futuros: espécie (atributos, tendência evolutiva, mapa de distribuição), assentamento (nível, recursos, estabilidade, líder), reino (assentamentos, relações, guerras), gráficos de população ao longo do tempo. | Fase 5/6; a janela do assentamento está detalhada em 19.17 (RF-VIDA-341 a 349a) |
 | RF-VIDA-155 | Camadas de visualização adicionais: território, fertilidade, doenças, relações. | Fase 5/6 |
 | RF-VIDA-156 | **Crônica:** histórico completo do planeta (fundações, eras, guerras, extinções, desastres, intervenções do jogador), filtrável, com clique para ir ao local. Exportável como texto. | Implementado (Fase 0), sem exportar: até 400 linhas, filtros (importantes, povos, guerras, natureza, mar, economia, você). Repetições do mesmo assunto em 30 anos viram uma linha com contagem e lugares (ex.: "Tempestades afundaram barcos de pesca (Xita, Luru…) ×35"), para que um evento frequente não esconda os outros. |
 
@@ -447,6 +448,8 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 | RF-VIDA-185 | **Ferramentas novas:** proteger, curar, realocar (com a nave), inspirar, semear paz ou discórdia, colher amostra. | 5/6 | RF-VIDA-142 |
 | RF-VIDA-186 | **Colonos humanos** trazidos por naves de transporte. | 5 | RF-VIDA-146, RF-SUP-10 |
 | RF-VIDA-187 | **Exportar a crônica** como texto. | 5 | RF-VIDA-156 |
+| RF-VIDA-190 a 196 | **Corrigir as ruas em grade e em escada** (rede viária única, sem rua dupla, diagonais limpas, teste). Etapa A da seção 19. | 0/1 | Defeito relatado pelo Joab (20/10/2026), seção 19.2 |
+| RF-VIDA-200 a 349b | **Crescimento controlado, vocação, economia viva, caravanas, guerras com motivo, arquitetura por era, falência e eras por desenvolvimento.** Etapas S, B a H, I e V da seção 19, com estoque próprio por assentamento, base estocástica e melhorias visuais. | 5/6 | Pedido do Joab (20/10/2026), seção 19 |
 
 **Critério de saída da vida nos planetas:** levar espécies da Terra a um planeta terraformado, vê-las se adaptar ao longo de gerações, acompanhar uma civilização da Idade da Pedra até reinos que comerciam, se aliam e guerreiam, e ver na crônica o efeito das intervenções do jogador.
 
@@ -455,6 +458,7 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 ## 17. Questões em aberto
 
 1. **Custo das ferramentas de vida:** sair de energia da nave, dos recursos minerados ou de uma recarga por tempo?
+2. ~~**Vocação no rótulo** (seção 19.14, item 3): mostrar o ícone sempre ou só no painel?~~ Respondida em 20/10/2026: no rótulo, de forma simples, e no painel.
 
 ---
 
@@ -483,3 +487,442 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 | 20/10/2026 | Rebalanceamento da vida: natalidade logística, procura de parceiro, bandos, fuga do clima ruim, busca ativa de comida, plâncton para os peixes, onívoros, tetos revistos e andarilhos. Roças e fogueiras voltam a aparecer cedo. |
 | 20/10/2026 | A superfície passa a desenhar sempre em Canvas 2D, sem placa de vídeo; arte detalhada só bem de perto e textura do chão mais leve. |
 | 20/10/2026 | Regra de preservação: nada é removido sem necessidade ou pedido, e toda remoção vai para o [Registro de remoções](REQUISITOS.md#13-registro-de-remoções). Revisão da situação de todos os requisitos e backlog da vida (seção 16.1). |
+| 20/10/2026 | Proposta registrada (seção 19, sem implementação): crescer para dentro antes de para fora (estrutura de referência, reformas, expansão mais lenta), necessidades essenciais e vocação de cada assentamento (inclusive cavalos para guerra), caravanas e acordos, guerras com motivo e moderadas, arquitetura que muda aos poucos com a era, falência com causa, eras por marcos mais pontos de desenvolvimento, tudo parametrizado. Diagnóstico e correção planejada das ruas em grade. |
+| 20/10/2026 | As 8 ideias novas (RF-VIDA-290 a 297) foram aprovadas; sequência de implementação: S e A, B, C, I, D, E, F, G, H, V (seção 19.13). |
+| 20/10/2026 | Respostas do Joab à proposta: estoque próprio por assentamento, sem estoque compartilhado do reino (o comércio nasce da diferença), com teto por recurso e consumo obrigatório para a economia não explodir; extermínio só entre povos inteligentes, inclusive da mesma espécie quando os interesses são diferentes, e nunca entre animais; todas as ideias complementares entram; toda a vida passa a seguir simulação estocástica; lógica nova vem sempre com o seu visual, e os elementos existentes também melhoram. |
+| 20/10/2026 | Ícone da vocação no rótulo, de forma simples, e no painel. Requisitos de seleção de criaturas (realce, escolha entre amontoadas, marcador, seguir, nome, ficha completa, grupo) e da janela do assentamento com abas (seção 19.17). |
+
+---
+
+## 19. Crescimento controlado, vocação e economia viva
+
+> Pedido do Joab em 20/10/2026, atualizado no mesmo dia com as respostas dele (19.14). **Situação: proposta, nada implementado ainda.** Esta seção junta o pedido, o que já existe no código, o diagnóstico do defeito das ruas, os requisitos novos, ideias complementares, os parâmetros e a ordem sugerida de implementação. Ela não remove nada das seções anteriores: onde um requisito novo muda um antigo, o antigo continua valendo até a etapa correspondente ser entregue, e a mudança entra no registro de decisões (e no de remoções, se tirar algo que o jogador via).
+
+**Princípios desta seção**
+
+1. **Sob medida, nada exagerado.** Guerra, falência, caravana e crise acontecem com causa visível e com frequência baixa; o mundo deve parecer vivo, não caótico.
+2. **Para dentro antes de para fora.** Um assentamento se completa e se melhora antes de se espalhar. Expandir continua possível, só fica mais lento.
+3. **Todo avanço aparece.** Uma técnica, uma vocação ou um recurso em uso tem que ser visto no mapa (construção, rebanho, rua, sprite) ou no painel. Nenhum progresso invisível.
+4. **Tudo é probabilidade.** Todo acontecimento segue a simulação estocástica (19.15): taxas explícitas, sorteios com distribuições adequadas e calibração por muitas rodadas, nunca regra fixa escondida.
+5. **Tudo parametrizado.** Cada taxa, limite e peso desta seção é uma constante com nome, num lugar só (RF-VIDA-208), para o Joab poder ajustar sem caçar números no código.
+6. **Identidade local.** Dois assentamentos do mesmo povo podem ser bem diferentes: um vive de trigo, outro de cavalos, outro do porto.
+7. **Toda lógica tem visual.** Cada mecânica nova vem com a sua arte, e os elementos que já existem também melhoram (19.16).
+
+### 19.1 Como é hoje (base para a proposta)
+
+- **Crescimento:** casas novas surgem quando a população passa da capacidade (RF-VIDA-109). Com mais de 26 pessoas, ou sem lote livre, o assentamento manda colonos com chance de 5% por ano, mais 25% por era (`COLONY_RATE`, RF-VIDA-110). A planta (ruas e lotes) é fixa por nível e só cresce quando o nível sobe (RF-VIDA-101 e 104).
+- **Resultado medido** (Terra 1024×512, semente 42, 6 aldeias semeadas e 4 inteligentes soltos, 250 anos): **25 assentamentos, nenhum passou de vila**, a maior com 31 pessoas. O povo se espalha em muitas aldeias pequenas parecidas em vez de formar cidades completas.
+- **Economia:** estoque único por reino (madeira, pedra, minérios, ouro, ferramentas, armas, RF-VIDA-124), comida por assentamento (caça, coleta, pesca, roças). Comércio anual abstrato entre reinos vizinhos (RF-VIDA-125). Não há pecuária, roupas, cerâmica, dinheiro local nem despesas.
+- **Eras:** avançam por tempo e por condições de metal (bronze, ferro, pedra, carvão e aço; RF-VIDA-73). Nada além do metal pesa: um povo com terra boa, cavalos e comércio avança igual a um que não tem nada disso.
+- **Guerra:** nasce de relação ruim ou ambição e termina em conquista ou paz (RF-VIDA-131 a 134). Não tem motivo econômico explícito.
+- **Arquitetura:** as casas são refeitas no estilo da era assim que ela muda (RF-VIDA-111); ruas viram pedra na Era Medieval.
+
+### 19.2 Defeito: ruas em grade e em escada
+
+**O que o Joab viu:** ruas paralelas a 1 tile de distância, ligadas por pedaços perpendiculares, formando grade ou escada.
+
+**Medição** (mesmo cenário de 19.1, 250 anos): **93 blocos 2×2 inteiramente de rua fora das praças**. Pela origem do tile: 54 vêm das ruas internas (`layStreets`), 31 das estradas entre assentamentos (`connect`) e 8 das estradas de porto e de mina (`lineRoad`).
+
+**Causas encontradas no código** (`src/sim/settlement.ts` e `src/sim/ecosystem.ts`):
+
+1. **Cada estrada é desenhada sozinha, sem olhar as que já existem.** `lineRoad` traça uma curva do centro do assentamento até o destino e pinta os tiles por cima de tudo. A estrada do porto corre colada, lado a lado, com uma rua que já ia na mesma direção; estradas de várias aldeias até a mesma capital chegam paralelas. É a principal origem da "grade".
+2. **Passo diagonal vira degrau.** `walk` (ruas) e `lineRoad` (estradas) põem um tile de canto a cada passo diagonal. Uma rua a 45° vira uma escada; duas escadas próximas formam blocos 2×2.
+3. **Ruas laterais nascem coladas na principal.** O primeiro passo da rua lateral sai de um tile da principal, num ângulo de 63° a 109° que, com o serpentear, faz o começo correr ao lado dela. Laterais de braços vizinhos também se cruzam e se encostam.
+4. **A mesma ligação pode gerar duas estradas.** A curva de `lineRoad` desvia para o lado que depende da ordem dos pontos (A→B ou B→A): ligar o mesmo par duas vezes, em ordens diferentes, cria duas estradas lado a lado.
+5. **Estrada interrompida por casa.** `setRoad` não pinta sobre casa; a estrada fica com um buraco e o desenho parece um desvio.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-190 | **Rede viária única.** As ruas e estradas de um assentamento e do reino formam uma rede (grafo de tiles). Toda estrada nova (entre assentamentos, até o porto, até a mina) é traçada por busca de caminho (A*) que: anda barato sobre rua existente; paga caro para ficar **ao lado** de uma rua sem estar nela; não passa por água nem por casa; prefere terreno plano. Ela sai do ponto da rede mais perto do destino, não do centro da praça. | Implementado (Fase 0): busca A* com os custos de `balance.ts`, seguindo a curva de antes como guia |
+| RF-VIDA-191 | **Sem rua dupla.** Fora da praça, nenhum bloco 2×2 é todo de rua, e duas ruas diferentes não correm lado a lado por mais de 2 tiles. A exceção é a avenida da cidade (RF-VIDA-253), que é larga de propósito e marcada como tal. | Implementado (Fase 0): planta e mundo sem blocos 2x2 (teste em `roads.test.ts`) |
+| RF-VIDA-192 | **Diagonal limpa.** Num trecho diagonal, o tile de canto fica sempre do mesmo lado do trecho inteiro (degrau regular, não zigue-zague), e cada tile de rua tem no máximo 2 vizinhos de rua, salvo cruzamentos. A arte (RNF-VIDA-07) desenha o degrau como uma curva suave. | Parcial: degrau sempre do mesmo lado; falta a arte desenhar o degrau como curva |
+| RF-VIDA-193 | **Ruas laterais espaçadas.** Uma lateral começa perpendicular à principal e só é aceita se ficar a pelo menos `STREET_GAP` tiles (3: um lote de 2 e uma folga) de qualquer outra rua que não seja a de origem; se não couber, ela é encurtada ou descartada. | Implementado (Fase 0): laterais saem perpendiculares e param a 3 tiles de outra rua |
+| RF-VIDA-194 | **Mesma ligação, mesma estrada.** Ligar A e B dá sempre o mesmo traçado, em qualquer ordem, e não refaz a estrada se a rede já liga os dois. | Implementado (Fase 0) |
+| RF-VIDA-195 | **Limpeza da rede.** Ao subir de nível, mudar de era ou fundar sobre ruínas, um passo de limpeza remove tiles de rua redundantes (que formam bloco 2×2 e cuja retirada não desliga nada) e emenda buracos deixados por casas. | Parcial: limpeza dos blocos 2x2 ao traçar ruas e estradas; falta emendar ruas cortadas por casas antigas |
+| RF-VIDA-196 | **Teste que protege a rede:** em 250 anos na Terra (sementes 42 e 7), zero blocos 2×2 de rua fora das praças, todo assentamento do reino ligado à capital quando há caminho por terra, e todo lote de casa encostado numa rua. | Implementado (Fase 0): sementes 42 e 7, 200 anos, zero blocos e nenhuma casa longe de rua |
+
+### 19.3 Crescimento controlado: estrutura de referência e reformas
+
+Cada assentamento passa a ter uma **estrutura de referência** por nível: a lista do que um assentamento daquele tamanho "deveria ter". Ele cresce na ordem **preencher → reformar → adensar → expandir**.
+
+| Nível | Estrutura de referência (sugestão inicial) |
+|---|---|
+| Aldeia | Praça com fogueira; cabanas para todos; uma roça ou área de caça/pesca; depósito de comida simples; trilha até a água. |
+| Vila | Praça com poço; celeiro; casas de madeira; roças ou pastos conforme a vocação (RF-VIDA-220); oficina básica (oleiro ou carpinteiro); ruas principais completas; estrada até o reino. |
+| Cidade | Mercado; templo; ferraria; prédio da vocação (curral, haras, cais, serraria ou mina); ruas principais calçadas (cascalho ou pedra conforme a era); paliçada ou muralha conforme a era; quartel se o povo for guerreiro. |
+| Metrópole | Avenida; fortaleza ou castelo (capital); dois mercados ou feira; edifícios de produção da era (moinho, tecelagem, fábrica); muralha com portões; monumento. |
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-200 | **Estrutura de referência** por nível (tabela acima), ajustada pela vocação (19.5) e pela era (19.8). É dados, não código espalhado: uma tabela que lista, por nível, os itens com quantidade mínima. | A fazer (Etapa B) |
+| RF-VIDA-201 | **Completude:** cada assentamento calcula de 0 a 100% o quanto tem da estrutura do seu nível. O painel mostra "Planta: 70%, falta celeiro e poço". | A fazer (Etapa B) |
+| RF-VIDA-202 | **Ordem de crescimento:** (1) **preencher** os lotes livres dentro da área; (2) **reformar** o que existe (RF-VIDA-203) e construir o que falta da estrutura; (3) **adensar** (casas maiores, sobrados, mais gente por casa) quando os lotes acabam; (4) **expandir**: subir de nível, crescer a área e mandar colonos. Cada passo só domina quando o anterior está satisfeito, mas nenhum é proibido. | A fazer (Etapa B) |
+| RF-VIDA-203 | **Reformas internas:** casa que melhora de padrão (palha → madeira → pedra → tijolo), rua de terra que vira cascalho e depois pedra, praça que ganha poço e depois fonte, prédio velho que é refeito. Cada reforma custa material e trabalho de construtores, leva tempo e aparece no mapa como obra (andaime) enquanto dura. | A fazer (Etapa B) |
+| RF-VIDA-204 | **Expansão mais lenta, não proibida.** A chance anual de mandar colonos passa a ser `COLONY_RATE × f(completude) × pressão`, onde `f` é baixo com a planta incompleta (`COLONY_MIN_FACTOR`, 0,2) e 1 com ela completa, e a pressão sobe com lotação, fome ou falta de um recurso que só existe fora (terra fértil, pasto, jazida, porto). Uma aldeia apertada numa ilha ainda manda colonos. (Antes: 5% por ano com mais de 26 pessoas, RF-VIDA-110, que continua valendo até a Etapa B.) | A fazer (Etapa B) |
+| RF-VIDA-205 | **Subir de nível exige planta.** Além da população (RF-VIDA-90), subir exige completude mínima do nível atual (`TIER_UP_COMPLETENESS`, 70%). Sem ela, o assentamento fica "vila cheia" e adensa. | A fazer (Etapa B) |
+| RF-VIDA-206 | **Área que cresce aos poucos.** O raio cresce com a população dentro do intervalo do nível (por exemplo, a vila vai de 12 a 15 tiles antes de virar cidade com 18), em vez de saltar só na troca de nível. Os limites de RF-VIDA-94 a 96 continuam valendo. | A fazer (Etapa B) |
+| RF-VIDA-207 | **Ruas sob demanda.** Uma rua nova só é aberta quando os lotes das existentes acabam (o "Futuro" de RF-VIDA-104), sempre respeitando 19.2. | A fazer (Etapa B) |
+| RF-VIDA-208 | **Parametrização central.** Todas as constantes desta seção (19.12) ficam num módulo só (`src/sim/balance.ts`), com nome, comentário em português e valor inicial; os testes usam os mesmos nomes. Futuro: uma janela de ajustes para testes locais. | A fazer (Etapa B) |
+
+### 19.4 Recursos essenciais, profissões e economia local
+
+Todo assentamento precisa de um conjunto de **necessidades essenciais**. Cada uma tem produção, consumo e estoque; a falta de uma delas freia o crescimento e a estabilidade.
+
+| Necessidade | De onde vem | Era em que entra |
+|---|---|---|
+| Comida | Coleta, caça, pesca (já existem); grão das roças; carne e leite dos rebanhos; pão (moinho e padaria) | Pedra; rebanhos no Bronze; pão no Ferro |
+| Água | Rio, lago ou costa; poço; aqueduto ou cisterna em cidade grande | Pedra; poço no Bronze |
+| Combustível | Lenha (já existe); carvão | Pedra; carvão na Era Medieval |
+| Material de construção | Madeira e pedra (já existem); barro e tijolo (olaria) | Pedra; tijolo no Bronze |
+| Roupa | Peles da caça; lã (ovelhas), couro (gado), linho (roça) | Pedra; tecelagem no Bronze |
+| Ferramentas | Ferraria e artesãos (já existem, RF-VIDA-124c e 128b) | Pedra |
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-210 | **Necessidades essenciais** por assentamento (tabela acima), com um índice de atendimento de 0 a 100% por necessidade. Atendimento baixo reduz a natalidade dos inteligentes, a velocidade das obras e a estabilidade (RF-VIDA-136). | A fazer (Etapa C) |
+| RF-VIDA-211 | **Cadeias de produção curtas e visíveis:** roça → grão → moinho → pão; ovelha → lã → tecelão → roupa; gado → couro e leite, e tração que dobra a área que um agricultor cuida (arado); barro → oleiro → tijolo e telha; árvore → lenhador → madeira (existente); jazida → mina → ferraria (existente). No máximo dois elos por cadeia. | A fazer (Etapa C) |
+| RF-VIDA-212 | **Estoque próprio de cada assentamento, nada compartilhado** (decisão do Joab, 20/10/2026). Cada assentamento guarda só o que é seu: comida, água armazenada, lenha, madeira, pedra, barro e tijolo, minérios, metal, ferramentas, armas, roupa, animais e ouro. Um bem só sai de um assentamento para outro carregado: caravana, barco, colonos levando o enxoval, exército levando suprimentos, saque ou tributo. A falta num lugar e a sobra no outro são o que faz o comércio acontecer (19.6). (Antes: estoque único do reino guardado na capital, RF-VIDA-124, que continua valendo até a Etapa C; o PR da Etapa C registra a remoção no [Registro de remoções](REQUISITOS.md#13-registro-de-remoções).) | A fazer (Etapa C) |
+| RF-VIDA-218 | **Teto de estoque por recurso.** Cada recurso tem um teto que faz sentido para o tamanho e as construções do assentamento: uma base por nível mais o que cada construção guarda (celeiro guarda comida, armazém guarda materiais, depósito da mina guarda minério, curral e pasto limitam os animais pela área de pasto, tesouro limita o ouro). Valores iniciais na 19.12. Chegando ao teto, a produção daquele recurso para, os trabalhadores mudam de setor (RF-VIDA-214) e o excedente vira oferta para o comércio. | A fazer (Etapa C) |
+| RF-VIDA-219 | **Consumo obrigatório.** O que está estocado precisa ser consumido: cada morador come, gasta lenha (mais no frio) e gasta roupa todo ano; ferramentas e armas se desgastam (RF-VIDA-124c); prédios consomem madeira e pedra de manutenção; animais comem pasto ou grão. Sem o consumo, a necessidade não é atendida (RF-VIDA-210). | A fazer (Etapa C) |
+| RF-VIDA-219a | **Perecimento:** comida estraga (grão devagar no celeiro, carne e peixe depressa, mais devagar com sal), madeira apodrece aos poucos, ferramentas enferrujam; ouro, pedra e metal não estragam. Taxas na 19.12. | A fazer (Etapa C) |
+| RF-VIDA-219b | **Freio contra o "boom":** a produção por trabalhador cai à medida que o estoque se aproxima do teto (retorno decrescente, como a natalidade logística, RF-VIDA-37), o preço de um bem cai quando sobra em toda a região, e ouro em excesso perde valor (inflação leve). Teste: em 250 anos, nenhum estoque cresce sem parar, e o preenchimento médio dos estoques fica entre 30% e 80%. | A fazer (Etapa C) |
+| RF-VIDA-213 | **Profissões novas ligadas à economia:** pastor (ovelha, gado, cabra), tratador de cavalos, tecelão, oleiro, moleiro, comerciante e sacerdote (RF-VIDA-179), cada uma com aparência própria. O pescador já existe. | A fazer (Etapa C) |
+| RF-VIDA-214 | **Divisão do trabalho pela falta.** Todo ano o assentamento redistribui uma parte dos adultos (`LABOR_SHIFT`, 15%) para o setor com o pior atendimento, com peso extra para a vocação (RF-VIDA-221). Hoje a profissão é sorteada ao nascer e não muda; passa a poder mudar. | A fazer (Etapa C) |
+| RF-VIDA-215 | **Domesticação e rebanhos** (detalha RF-VIDA-123): herbívoros da região (ovelha, gado, cabra, cavalo, camelo no deserto) podem ser domesticados a partir do fim da Idade da Pedra. Rebanhos aparecem como sprites pastando num pasto cercado perto da vila, guiados por pastores; pastam a vegetação, atraem predadores e podem pegar doença (RF-VIDA-182). | A fazer (Etapa C) |
+| RF-VIDA-216 | **No mapa:** pasto cercado, curral, haras, olaria com fumaça, moinho, tear, cais de pesca. | A fazer (Etapa C) |
+| RF-VIDA-217 | **Painel de economia** do assentamento: produção e consumo por recurso, o que falta, o que sobra e a balança (19.9). | A fazer (Etapa C) |
+
+### 19.5 Vocação do assentamento
+
+Cada assentamento ganha uma **vocação**, sorteada com pesos tirados do lugar onde foi fundado e do povo. A vocação não proíbe nada; ela dá bônus, decide o prédio característico e puxa a divisão do trabalho.
+
+| Vocação | Terreno que favorece | Prédio e visual | Efeito principal |
+|---|---|---|---|
+| Agrícola | Solo fértil, umidade, rio | Campos grandes, celeiro, moinho | Mais grão; cresce mais rápido |
+| Gado | Campo aberto e úmido | Curral, pasto cercado com bois | Carne, leite, couro e tração |
+| Ovelhas | Colina, clima frio ou temperado | Pasto em encosta, tecelagem | Lã e roupa; comércio de tecido |
+| Cavalos (haras) | Planície aberta e seca, estepe | Haras com cercado grande | Cavalos para caravanas e cavalaria (RF-VIDA-223) |
+| Pesqueira | Costa, lago grande | Cais, barcos, varais de peixe | Mais peixe; porto mais cedo |
+| Mercantil | Cruzamento de estradas, porto, povo comerciante | Mercado grande, armazéns | Mais caravanas e ouro (19.6) |
+| Mineira | Rocha, colina, jazida conhecida | Mina, ferraria, carrinhos | Mais minério e metal |
+| Madeireira | Floresta densa | Serraria, pilhas de toras | Mais madeira; casas de madeira melhores |
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-220 | **Vocação sorteada pelo lugar:** na fundação, cada vocação recebe um peso pelos tiles da área (fertilidade, pasto, relevo, temperatura, costa, floresta, jazidas, estradas) e pelo valor do povo (comércio pesa Mercantil, guerra pesa Cavalos); sorteio com esses pesos. Colônias têm uma leve tendência à vocação da origem (`VOCATION_INHERIT`, 25%). | A fazer (Etapa C) |
+| RF-VIDA-221 | **Efeito da vocação:** +`VOCATION_BONUS` (40%) na produção da vocação; o prédio característico entra na estrutura de referência a partir de vila; a divisão do trabalho tem peso extra para ela. | A fazer (Etapa C) |
+| RF-VIDA-222 | **Vocação que muda devagar:** quando a base acaba (mina esgotada, seca longa, rota de comércio perdida, rebanho dizimado), o assentamento pode trocar de vocação depois de `VOCATION_CHANGE_YEARS` (20) anos ruins. A crônica registra ("Orlu deixou as minas e passou a criar ovelhas"). | A fazer (Etapa C) |
+| RF-VIDA-223 | **Cavalos:** o haras cria cavalos (estoque de animais). Cavalos servem para (1) **cavalaria**, a partir do Bronze (carros de guerra) e com mais força no Ferro: soldado montado com força `CAVALRY_STRENGTH` (2,0, contra 1,2 do soldado a pé, RF-VIDA-132), um cavalo por soldado; (2) **caravanas** mais rápidas (+50%); (3) **arado e carroça**. Cavalos podem ser vendidos, o que torna o haras um alvo de cobiça (RF-VIDA-240). | A fazer (Etapa C, cavalaria na Etapa F) |
+| RF-VIDA-224 | **Vocação visível:** ícone simples ao lado do nome no rótulo e também no painel do assentamento (decisão do Joab, 20/10/2026); camada "Vocação" na janela Mundo. | A fazer (Etapa C) |
+
+### 19.6 Comércio vivo: caravanas, acordos e feiras
+
+Hoje o comércio é uma troca anual invisível (RF-VIDA-125), que continua como reserva enquanto as caravanas não existirem.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-230 | **Caravanas visíveis:** um comerciante com animais de carga (burro ou cavalo; camelo no deserto) leva carga de um assentamento a outro pela estrada, no tempo real da viagem. Ao chegar, troca a carga e volta com outra. Pode ser atacada por predadores, bandidos (RF-VIDA-283) ou inimigos em guerra. | A fazer (Etapa E) |
+| RF-VIDA-231 | **Preço pela escassez:** cada assentamento dá valor a um bem pela falta que sente dele (atendimento da necessidade e estoque). O comerciante escolhe a rota com mais lucro dentro do alcance, preferindo parceiros com acordo. | A fazer (Etapa E) |
+| RF-VIDA-232 | **Acordos comerciais** entre assentamentos ou reinos: o que se troca, por quantos anos e com que frequência. Aparecem na janela Reinos. Cumprir melhora a relação; quebrar (guerra, falência) piora. | A fazer (Etapa E) |
+| RF-VIDA-233 | **Estrada que evolui pelo uso:** cada passagem de caravana soma uso ao tile; estrada muito usada vira cascalho e depois pedra antes das outras. As rotas comerciais aparecem sozinhas no mapa. | A fazer (Etapa E) |
+| RF-VIDA-234 | **Feira anual** nas cidades mercantis: atrai caravanas de longe, melhora relações e espalha técnicas (RF-VIDA-74). | A fazer (Etapa E) |
+| RF-VIDA-235 | **Barcos mercantes** entre portos que se conhecem (RF-VIDA-119), com os mesmos perigos do mar (RF-VIDA-116 a 118). | A fazer (Etapa E) |
+| RF-VIDA-236 | **Moderação:** no máximo `CARAVANS_PER_SETTLEMENT` caravanas por assentamento (1 por nível, +1 se mercantil) e `CARAVANS_MAX` no mundo (24). | A fazer (Etapa E) |
+
+### 19.7 Guerras com motivo, sob medida
+
+As regras de declaração, combate e paz (RF-VIDA-131 a 134) continuam. O que muda é que a guerra ganha **motivo**, e o motivo decide o objetivo e o fim.
+
+| Motivo | Quando aparece | Objetivo | Fim |
+|---|---|---|---|
+| Bens (saque) | Vizinho rico num bem que falta muito (cavalos, ferro, grão na fome, ouro) | Atacar, levar parte do estoque, rebanhos ou cavalos e voltar | Curta; termina quando o saque volta para casa |
+| Território | Terra fértil, pasto, jazida, porto ou estrada disputados na fronteira (RF-VIDA-98) | Conquistar o assentamento ou a área disputada | Conquista ou paz com cessão |
+| Extermínio e posse | Muito raro e **só entre povos inteligentes**: relação ≤ −80 e interesse em conflito (a mesma terra, jazida, pasto ou rota), com o alvo fraco. Pode ser entre povos da mesma espécie, desde que sejam assentamentos ou reinos diferentes com interesses diferentes | Destruir o assentamento e ocupar a terra | Assentamento destruído; o vencedor funda por cima das ruínas (RF-VIDA-108) |
+| Independência e guerra civil | Já existem (RF-VIDA-81, 137, 138) | — | — |
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-240 | **Motivo de guerra** escolhido pelas condições acima, com objetivo e fim próprios. O saque não muda o dono do assentamento. | A fazer (Etapa F) |
+| RF-VIDA-241 | **Moderação:** no máximo `WARS_MAX` guerras ao mesmo tempo no planeta (1 a cada 6 reinos, mínimo 1); depois de uma guerra o reino fica `WAR_COOLDOWN` anos (25, como a trégua de hoje) sem declarar outra; o cansaço de guerra sobe a chance de paz a cada ano e a cada morte. Extermínio: no máximo `EXTERMINATION_RATE` (0,2%) por ano por par que cumpre as condições. **Só povos inteligentes guerreiam** (decisão do Joab, 20/10/2026): animais da mesma espécie não entram em conflito entre si, e entre espécies animais o que existe é a predação (seção 6). | A fazer (Etapa F) |
+| RF-VIDA-242 | **Força e logística:** força = soldados × armas × (1 + cavalaria), mais muralhas na defesa (RF-VIDA-106). O exército leva comida do estoque; longe de casa ou sem comida, perde força e pode voltar. | A fazer (Etapa F) |
+| RF-VIDA-243 | **Consequências visíveis:** estoque saqueado, roças queimadas, rebanhos roubados, casas destruídas (o "sem casas queimadas" de RF-VIDA-133), refugiados que fogem para vizinhos e rancor duradouro. | A fazer (Etapa F) |
+| RF-VIDA-244 | **Crônica com motivo:** "Lutek atacou Votek para tomar os cavalos do haras"; "Os Tekvenses arrasaram Baka e fundaram Nova Lutek nas ruínas". | A fazer (Etapa F) |
+
+### 19.8 Arquitetura e ruas que acompanham a era
+
+| Era | Casas | Ruas | Praça e defesa |
+|---|---|---|---|
+| Idade da Pedra | Cabana de palha e barro | Trilha de terra | Fogueira; nada de muralha |
+| Idade do Bronze | Madeira e taipa, telha de barro | Terra batida com valeta | Poço; cerca de estacas na aldeia guerreira |
+| Idade do Ferro | Pedra e madeira | Cascalho nas principais | Paliçada de madeira |
+| Era Medieval | Pedra e enxaimel, sobrados | Pedra nas principais, terra nas laterais | Muralha de pedra com portões, castelo na capital |
+| Era Industrial | Tijolo, prédios de 2 e 3 andares | Calçamento com calçada e lampiões, avenida | Fábricas com chaminé, estação |
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-250 | **Estilo por era** conforme a tabela, para casas, ruas, praça e defesa. As casas de hoje (RF-VIDA-111) já mudam por era; esta tabela completa ruas, praça, defesa e material. | Parcial: casas mudam por era; ruas viram pedra na Era Medieval |
+| RF-VIDA-251 | **Transição gradual:** ao mudar de era, as casas são reformadas uma a uma (RF-VIDA-203), com custo e construtores, e não todas de uma vez. Por um tempo a cidade mistura estilos (centro velho, periferia nova ou o contrário). O resultado final é o mesmo de RF-VIDA-111. | A fazer (Etapa D) |
+| RF-VIDA-252 | **Material da região:** a casa usa o que há perto. Pedra onde há rocha, madeira na floresta, tijolo perto de rio com barro, adobe no deserto, telhado de neve no frio. Dois assentamentos da mesma era podem ter cores diferentes. | A fazer (Etapa D) |
+| RF-VIDA-253 | **Hierarquia de ruas:** avenida (cidade em diante, a única rua que pode ter 2 tiles de largura), ruas principais e vielas. O calçamento melhora por era, por uso (RF-VIDA-233) e pela riqueza. | A fazer (Etapa D) |
+| RF-VIDA-254 | **Riqueza e decadência à vista:** assentamento rico tem casas melhores e mais enfeites; assentamento em crise (19.9) tem casas descuidadas e algumas abandonadas. | A fazer (Etapa D) |
+
+### 19.9 Caixa, falência e crise
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-260 | **Caixa do assentamento** em ouro, no estoque próprio (RF-VIDA-212). Receitas: mercado, feira, acordos, imposto dos moradores. Despesas: manutenção dos prédios (`UPKEEP`, por tipo), soldo dos soldados e guardas, obras. O tributo à capital (`KINGDOM_TAX`, 20% da sobra) e o de vassalos viajam de verdade, numa caravana de tributo que pode ser assaltada. (Antes nesta proposta: a sobra ia direto ao reino.) | A fazer (Etapa G) |
+| RF-VIDA-261 | **Falência de negócios:** mercado, oficina, haras, mina ou porto que fica `BANKRUPT_YEARS` (8) anos sem insumo ou sem comprador fecha. Os trabalhadores mudam de profissão, emigram ou viram bandidos (RF-VIDA-283). O prédio fica vazio e pode ser reaberto. | A fazer (Etapa G) |
+| RF-VIDA-262 | **Crise da cidade:** caixa negativa por `CRISIS_YEARS` (5) anos seguidos. Efeitos: obras param, soldados desertam (a força cai), estabilidade cai, gente emigra, casas ficam abandonadas, o nível pode cair (RF-VIDA-174) e pode haver revolta (RF-VIDA-137). Saídas: a capital socorre mandando uma caravana com bens do estoque dela, um vizinho rico compra a dívida e o assentamento vira vassalo, ou a cidade se recupera sozinha. | A fazer (Etapa G) |
+| RF-VIDA-263 | **Recuperação:** a crise termina com `CRISIS_YEARS` anos de caixa positiva. A crônica registra a queda e a volta ("Votek quebrou depois que a mina de ferro se esgotou"; "Votek se reergueu com o comércio de lã"). | A fazer (Etapa G) |
+| RF-VIDA-264 | **Só com causa real:** falência e crise vêm de uma causa visível (jazida esgotada sem outra, rota perdida, guerra longa, seca, peste), nunca de sorteio puro. | A fazer (Etapa G) |
+
+### 19.10 Eras por desenvolvimento (proposta nova)
+
+**Problema:** hoje a era depende só de tempo e de metal. Um povo pode ter terra boa, cavalos e comércio e avançar igual a um que não tem nada, e um recurso valioso parado não faz diferença nenhuma.
+
+**Proposta:** a era passa a depender de **marcos obrigatórios** (as condições de metal de hoje, preservadas) **mais pontos de desenvolvimento** ganhos em seis pilares. Cada assentamento avança pelo que faz de verdade.
+
+| Pilar | Rende pontos quando o assentamento... |
+|---|---|
+| Sustento | Tem comida sobrando, rebanhos, roças trabalhadas, necessidades atendidas |
+| Técnica | Minera, funde e forja (as condições de hoje entram aqui) |
+| Construção | Completa a estrutura de referência e faz reformas |
+| Comércio | Mantém acordos, caravanas, feira e porto ativos |
+| Cultura | Tem templo, monumentos, festas e crenças vivas |
+| Organização | Tem população, nível, estradas e reino estável |
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-270 | **Era = marcos obrigatórios + pontos.** Os marcos de hoje (bronze, ferro, pedra, carvão e aço, tabela de 9.2) continuam obrigatórios. Além deles, a era pede `ERA_POINTS[era]` pontos de desenvolvimento, com mínimo em pelo menos `ERA_PILLARS_MIN` (3) pilares. O ritmo continua de séculos por era (RF-VIDA-73); quem se desenvolve bem chega antes, quem estagna demora mais. | A fazer (Etapa H) |
+| RF-VIDA-271 | **Técnicas dentro da era:** uma árvore pequena de técnicas, cada uma liberando algo visível: cerâmica, tecelagem, domesticação, roda, arado, montaria, irrigação, moinho, escrita, moeda, cavalaria, moinho d'água, imprensa e vapor. A técnica vem do uso (quem cria ovelhas aprende tecelagem antes), de vizinhos e parceiros de comércio (RF-VIDA-74) e do jogador (ensinar, RF-VIDA-75). | A fazer (Etapa H) |
+| RF-VIDA-272 | **Recurso latente:** um recurso pode existir e até ser conhecido sem ser usado, porque falta a técnica (cavalos selvagens antes da domesticação, ferro antes da fundição, carvão antes da Era Medieval, barro antes da cerâmica). O painel mostra "recursos conhecidos, ainda sem uso", e o mapa só mostra o prédio do recurso quando ele é aproveitado. | A fazer (Etapa H) |
+| RF-VIDA-273 | **Recompensa pela especialização:** a vocação rende o dobro de pontos no pilar ligado a ela (Agrícola e gado em Sustento, Mineira em Técnica, Mercantil em Comércio...). Assentamentos do mesmo reino podem estar em eras diferentes; a capital puxa os outros com atraso (RF-VIDA-74). | A fazer (Etapa H) |
+| RF-VIDA-274 | **Todo avanço aparece:** cada técnica e cada era nova trazem pelo menos uma mudança no mapa (prédio, rua, sprite, rebanho, barco) e uma linha na crônica. | A fazer (Etapa H) |
+| RF-VIDA-275 | **Decadência rara:** um assentamento que sofre colapso (extermínio quase total, crise longa, peste) pode esquecer uma técnica que ninguém mais usa. A era nunca volta, só as técnicas. Chance baixa (`DECAY_RATE`). | A fazer (Etapa H) |
+
+### 19.11 Ideias complementares
+
+**Aprovadas pelo Joab em 20/10/2026: todas entram.** A coluna Etapa diz onde cada uma é feita (19.13). A segunda tabela traz ideias novas, ainda a decidir.
+
+| ID | Ideia | Encaixa em | Etapa |
+|---|---|---|---|
+| RF-VIDA-280 | **Estabilidade ligada às necessidades:** fome, roupa e moradia ruins, impostos e guerra longa baixam a estabilidade (RF-VIDA-136), que alimenta revoltas e emigração. | 19.4, 19.9 | C |
+| RF-VIDA-281 | **Migração interna:** moradores mudam para assentamentos do mesmo povo onde há trabalho e comida; cidades prósperas atraem, cidades em crise perdem gente. | 19.3, 19.9 | B |
+| RF-VIDA-282 | **Bens de luxo regionais:** sal na costa, uva e vinho no clima temperado, especiarias em bioma raro, tinta e seda. Valem muito e puxam caravanas longas e marítimas. O sal também conserva comida (RF-VIDA-219a). | 19.6 | E |
+| RF-VIDA-283 | **Bandidos:** desempregados de falências e soldados desertores viram bandos nas estradas, atacam caravanas e somem quando a cidade põe guardas ou a crise passa. | 19.6, 19.9 | G |
+| RF-VIDA-284 | **Saúde e saneamento:** cidade grande sem poço, aqueduto ou esgoto pega doenças com mais facilidade (liga RF-VIDA-182); a estrutura de referência da metrópole inclui saneamento. | 19.3 | B |
+| RF-VIDA-285 | **Eventos econômicos:** corrida do ouro (jazida de ouro achada atrai gente), praga no rebanho, quebra de safra, boom de uma rota nova. Usam o sistema de eventos do mundo e as taxas da 19.15. | 19.4, 19.9 | C e G |
+| RF-VIDA-286 | **Pedágio e pontes:** reinos cobram passagem em pontes e passos de montanha; motivo de tensão e de acordos. | 19.6, 19.7 | E |
+| RF-VIDA-287 | **Camadas de mapa** "Economia" (riqueza e crise) e "Vocação", na janela Mundo. | 19.5, 19.9 | C |
+| RF-VIDA-288 | **Brasão por reino** desenhado a partir da vocação da capital e do valor do povo, usado na bandeira da fortaleza e nos barcos. | 19.5 | D |
+| RF-VIDA-289 | **Pedidos da capital:** a capital pede às colônias o que falta a ela; atender (mandando uma caravana) melhora a estabilidade e a relação, recusar pesa na independência (RF-VIDA-81). | 19.4 | E |
+
+**Ideias novas**, de olhar o pedido de novo depois das respostas. **Aprovadas pelo Joab em 20/10/2026.**
+
+| ID | Ideia | Encaixa em | Etapa |
+|---|---|---|---|
+| RF-VIDA-290 | **Ano econômico com estações:** colheita no outono, estoque baixando no inverno, caravanas paradas na neve e tosquia na primavera (liga RF-VIDA-180). O estoque passa a ter um ciclo visível no ano. | 19.4 | C |
+| RF-VIDA-291 | **Moeda por era:** escambo (Pedra), lingotes e anéis de bronze, moeda de prata (Ferro), moeda cunhada pelo reino (Medieval) e papel (Industrial). Reino que cunha moeda fortalece o comércio interno. | 19.6, 19.9 | E |
+| RF-VIDA-292 | **Política do líder:** o traço do líder (RF-VIDA-72) escolhe impostos altos ou baixos, mercado aberto ou fechado, gasto com exército ou com obras; troca de líder pode mudar o rumo da cidade. | 19.9 | G |
+| RF-VIDA-293 | **Transumância:** pastores levam o rebanho para pastos de altitude no verão e voltam no inverno, cruzando terras de outros (motivo de acordos e de brigas). | 19.5, 19.7 | E |
+| RF-VIDA-294 | **Esgotamento da terra:** sobrepastoreio e roça no mesmo lugar por muito tempo baixam a fertilidade; desmatamento causa erosão. Liga a economia ao ecossistema e dá motivo para pousio, rotação e expansão. | 19.4 | C |
+| RF-VIDA-295 | **Mercenários:** reinos ricos contratam soldados de assentamentos pobres ou em crise; em guerra longa, o ouro vira força. | 19.7, 19.9 | F |
+| RF-VIDA-296 | **Dinastias e famílias:** líderes e comerciantes têm sobrenome de família; famílias ricas constroem casas melhores, e a crônica lembra as dinastias. | 19.9, 19.8 | G |
+| RF-VIDA-297 | **Guildas:** em cidades grandes, artesãos da mesma profissão formam guilda, que melhora a qualidade e o preço daquele bem e pode fazer greve em crise. | 19.4 | G |
+
+### 19.12 Parâmetros
+
+Todos ficam em `src/sim/balance.ts` (RF-VIDA-208). Os valores são o ponto de partida e serão ajustados medindo 250 anos de simulação, como foi feito na análise de sobrevivência.
+
+| Parâmetro | O que controla | Valor inicial |
+|---|---|---|
+| `STREET_GAP` | Distância mínima entre ruas diferentes | 3 tiles |
+| `ROAD_COST_EXISTING` / `ROAD_COST_BESIDE` | Custo do A* sobre rua existente / ao lado de uma rua | 0,3 / 4 |
+| `COLONY_RATE` | Chance anual base de mandar colonos (já existe) | 5% |
+| `COLONY_MIN_FACTOR` | Fração dessa chance com a planta incompleta | 0,2 |
+| `TIER_UP_COMPLETENESS` | Completude mínima para subir de nível | 70% |
+| `REFORM_RATE` | Reformas por ano por construtor | 0,5 |
+| `LABOR_SHIFT` | Fração dos adultos que podem mudar de setor por ano | 15% |
+| `VOCATION_BONUS` | Bônus de produção da vocação | 40% |
+| `VOCATION_INHERIT` | Chance de a colônia herdar a vocação da origem | 25% |
+| `VOCATION_CHANGE_YEARS` | Anos ruins antes de trocar de vocação | 20 |
+| `CAVALRY_STRENGTH` | Força do soldado montado | 2,0 |
+| `CARAVANS_PER_SETTLEMENT` / `CARAVANS_MAX` | Caravanas por assentamento / no mundo | 1 por nível (+1 mercantil) / 24 |
+| `WARS_MAX` | Guerras simultâneas no planeta | 1 a cada 6 reinos, mínimo 1 |
+| `WAR_COOLDOWN` | Anos sem declarar guerra depois de uma | 25 |
+| `EXTERMINATION_RATE` | Chance anual de guerra de extermínio por par elegível | 0,2% |
+| `UPKEEP` | Manutenção anual por tipo de prédio | 0,2 a 2 de ouro |
+| `KINGDOM_TAX` | Parte da sobra que vai ao reino | 20% |
+| `BANKRUPT_YEARS` / `CRISIS_YEARS` | Anos para um negócio fechar / para a cidade entrar ou sair da crise | 8 / 5 |
+| `ERA_POINTS` / `ERA_PILLARS_MIN` | Pontos por era / pilares com mínimo | a calibrar para manter séculos por era / 3 |
+| `DECAY_RATE` | Chance anual de esquecer uma técnica em colapso | 1% |
+| `STORE_BASE[nível]` | Teto base de cada recurso por nível (aldeia, vila, cidade, metrópole) | comida 40/120/300/700; madeira e pedra 30/80/200/450; minério e metal 10/30/80/200; ouro 20/60/200/600 |
+| `GRANARY_CAP` / `WAREHOUSE_CAP` / `TREASURY_CAP` | Quanto o celeiro, o armazém e o tesouro somam ao teto | comida +150 / materiais +120 / ouro +300 |
+| `PASTURE_PER_HEAD` | Tiles de pasto por animal no rebanho | 1,5 |
+| `CONSUME_FOOD` / `CONSUME_FUEL` / `CONSUME_CLOTH` | Consumo anual por morador | 1 / 0,4 (×2 no frio) / 0,2 |
+| `SPOIL_GRAIN` / `SPOIL_MEAT` / `SPOIL_WOOD` | Perda anual no estoque | 8% / 45% (20% com sal) / 3% |
+| `DIMINISHING` | Expoente do retorno decrescente perto do teto | 2 (produção × (1 − preenchimento²)) |
+| `PICK_RADIUS_PX` | Raio de escolha de criatura, em pixels de tela | 10 |
+| `CALIBRATION_SEEDS` / `CALIBRATION_YEARS` | Rodadas e anos da calibração Monte Carlo (19.15) | 20 / 250 |
+
+### 19.13 Sequência de implementação
+
+Cada etapa é um PR para a `development`, com testes e capturas de tela, e marca a coluna Situação dos requisitos que entrega. **Cada etapa entrega também a arte dos elementos que cria** (RF-VIDA-320), e a calibração da 19.15 roda antes de cada PR. Sequência combinada com o Joab em 20/10/2026 (a coluna Ordem); a tabela de etapas continua abaixo dela.
+
+| Ordem | Etapas | Inclui as ideias | Por que nesta posição |
+|---|---|---|---|
+| 1 | S e A juntas | — | A base estocástica muda todos os sorteios e a calibração passa a medir tudo; as ruas são um defeito visível |
+| 2 | B | 281, 284 | O crescimento controlado define onde e como o resto é construído |
+| 3 | C | 280, 285, 287, 290, 294 | O estoque próprio e a vocação são a base do comércio, da guerra por bens e da falência |
+| 4 | I | — | Com a economia, a janela do assentamento passa a ter o que mostrar |
+| 5 | D | 288 | Arquitetura por era e material da região usam as reformas da B |
+| 6 | E | 282, 286, 289, 291, 293 | Caravanas dependem do estoque próprio e das vocações |
+| 7 | F | 295 | Guerras por bens e cavalaria dependem do comércio e dos cavalos |
+| 8 | G | 283, 292, 296, 297 | Falência depende de receitas e despesas de comércio e guerra |
+| 9 | H | — | As eras por desenvolvimento somam pontos de todos os pilares anteriores |
+| 10 | V | — | Acabamento visual dos elementos que já existiam; a arte dos novos vem em cada etapa |
+
+| Etapa | O que entra | Requisitos | Critério de aceite |
+|---|---|---|---|
+| S | Base estocástica: biblioteca de sorteios, taxas por ano em todo o código atual, fluxos de sorteio separados, calibração Monte Carlo | RF-VIDA-300 a 311 | Mesmos resultados médios de hoje com passos de tempo diferentes (1x e 5x); relatório da calibração com as faixas-alvo da 19.15 |
+| A | Corrigir as ruas em grade e em escada | RF-VIDA-190 a 196 | Zero blocos 2×2 de rua fora das praças em 250 anos (sementes 42 e 7); captura de tela de uma cidade sem ruas duplas |
+| B | Parâmetros centrais, estrutura de referência, ordem de crescimento, reformas | RF-VIDA-200 a 208 | Em 250 anos, menos assentamentos e maiores do que hoje (pelo menos uma cidade), completude média ≥ 60% |
+| C | Necessidades, cadeias curtas, rebanhos, vocação, profissões novas | RF-VIDA-210 a 224 | Pelo menos 4 vocações diferentes num mundo de 250 anos; rebanhos e pastos visíveis; nenhuma espécie a mais extinta do que hoje (análise de sobrevivência) |
+| D | Arquitetura por era gradual, material da região, hierarquia de ruas | RF-VIDA-250 a 254 | Captura de tela de uma cidade em transição de era com estilos misturados |
+| E | Caravanas, preços, acordos, feiras, barcos mercantes | RF-VIDA-230 a 236 | Caravanas visíveis nas estradas; estradas de rota comercial calçadas antes das outras |
+| F | Guerras com motivo, cavalaria, logística, consequências | RF-VIDA-240 a 244 | No máximo `WARS_MAX` guerras simultâneas; crônica com o motivo de cada guerra |
+| G | Caixa, falência e crise | RF-VIDA-260 a 264 | Pelo menos uma falência com causa registrada em 250 anos, e recuperação possível |
+| I | Seleção de criaturas e janela do assentamento (as abas ganham campos a cada etapa) | RF-VIDA-330 a 349b | Selecionar e seguir uma criatura numa aldeia cheia; abrir a janela do assentamento pelo rótulo com uma criatura passando por cima; capturas de tela de cada aba |
+| V | Melhorias visuais dos elementos que já existem | RF-VIDA-321, 323 a 326 | Capturas de tela antes e depois de cada elemento da tabela de 19.16, sem perder nenhum elemento existente (RNF-14) |
+| H | Eras por desenvolvimento e técnicas | RF-VIDA-270 a 275 | Assentamentos com vocações diferentes chegam a eras em momentos diferentes; Era Industrial ainda perto do ano 1.300 em média |
+
+### 19.14 Decisões do Joab
+
+Todas respondidas em 20/10/2026.
+
+1. **Estoque:** cada assentamento tem o seu, nada compartilhado; é isso que faz o comércio acontecer. Cada recurso tem teto, e o que está estocado precisa ser consumido (RF-VIDA-212, 218, 219). (A sugestão era manter o estoque do reino para madeira, pedra e metal.)
+2. **Extermínio:** só entre povos inteligentes. Pode ser da mesma espécie quando são assentamentos ou reinos diferentes com interesses diferentes. Entre animais não há guerra: a mesma espécie não tem conflito de interesse, e entre espécies existe a predação (RF-VIDA-241).
+3. **Vocação no rótulo:** ícone simples no rótulo e também no painel (RF-VIDA-224, 349).
+4. **Ideias complementares:** todas entram (19.11).
+
+### 19.15 Base de simulação estocástica
+
+Pedido do Joab: todo evento e acontecimento é tratado como **simulação estocástica**, isto é, um sistema que evolui por acontecimentos aleatórios com probabilidades conhecidas. Uma rodada é uma história possível. Muitas rodadas com sementes diferentes mostram a distribuição do que pode acontecer, e é essa distribuição que se calibra, não uma história só.
+
+**Como é hoje:** o código já sorteia quase tudo (39 sorteios só em `ecosystem.ts`), quase sempre como `rnd() < taxa × dt`. Isso é uma aproximação de primeira ordem: fica errada com passos grandes (velocidade 5x, simulação agregada fora da tela), as taxas ficam espalhadas pelo código, e não existe nenhuma forma de medir a distribuição dos resultados além do arquivo temporário que usei na análise de sobrevivência.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-300 | **Todo acontecimento tem uma taxa por ano** (λ) com nome em `src/sim/balance.ts`. A chance num passo de tempo é `1 − e^(−λ·dt)`, de modo que o resultado médio não muda com a velocidade do jogo nem com o tamanho do passo (processo de Poisson). Vale para nascimento, morte, colônia, porto, incidente, guerra, paz, falência, evento do mundo, descoberta e todo o resto. | Parcial: `chance(λ, dt)` nos acontecimentos contínuos (nascimentos, casas, roças, porto, pesca, colonos, andarilhos, minas, barcos, desembarques); os sorteios anuais (relações, incidentes, eventos) já são chances por ano |
+| RF-VIDA-301 | **Taxa que depende do estado** (função de risco): `λ = λ₀ × fator₁ × fator₂ × ...`, cada fator com nome e explicação (fome, estabilidade, relação, era, vocação, cansaço de guerra). Transições suaves por curva logística em vez de limites secos onde for possível ("chance cresce perto de −40" em vez de "só abaixo de −40"). | Parcial: taxas com fatores nomeados; as curvas logísticas entram com as etapas B a H |
+| RF-VIDA-302 | **Distribuição certa para cada coisa:** contagens (filhotes, mortes num grupo, produção de uma oficina) por Poisson ou binomial; quantidades (colheita, carga de caravana, tamanho de jazida) por lognormal ou gama, sempre positivas e com cauda; tempos de espera (viagem, obra, gestação) por gama; escolhas (vocação, motivo de guerra, destino da caravana, profissão) por sorteio com pesos. Tudo num módulo só, `src/sim/stochastic.ts`, testado. | Implementado (Fase 0): `src/sim/stochastic.ts` com testes; o uso cresce a cada etapa |
+| RF-VIDA-303 | **Estados como cadeia de Markov:** a relação entre dois reinos (paz, tensão, guerra, trégua, aliança), a situação econômica de um assentamento (próspero, estável, em crise, falido) e a vocação mudam de estado com taxas que dependem do estado atual. Cada cadeia é documentada com a tabela de transições. | Parcial: as relações já mudam de estado; as cadeias documentadas entram nas Etapas F e G |
+| RF-VIDA-304 | **Ruído com retorno à média** (processo de Ornstein-Uhlenbeck) para o que varia de ano em ano: clima do ano, produtividade da terra, preço de cada bem. Há anos bons e ruins, mas nada deriva para o infinito. Junto com os tetos (RF-VIDA-218), é o que segura a economia. | Implementado (Fase 0): clima do ano por região muda a colheita e o rebrotar da vegetação |
+| RF-VIDA-305 | **Acontecimentos ligados:** seca, inverno duro e praga atingem uma região inteira de uma vez (choque regional compartilhado) e se espalham para os vizinhos com chance pela distância, em vez de cada assentamento sortear sozinho. | Parcial: clima com parte comum ao planeta e parte regional, e secas na crônica; falta o contágio de pragas entre vizinhos (Etapa C) |
+| RF-VIDA-306 | **Determinismo por fluxos:** gerador com semente por planeta e um fluxo de sorteio separado para cada subsistema (vida animal, inteligentes, clima, economia, guerra, eventos). Acrescentar um sistema novo não muda a sequência dos outros, o que facilita reproduzir defeitos e sincronizar o coop (RNF-VIDA-06). | Implementado (Fase 0): fluxos vida, povos, política, mundo, terreno e clima |
+| RF-VIDA-307 | **Fora da tela, os mesmos processos:** a simulação agregada (RNF-VIDA-05, RF-VIDA-171) usa as mesmas taxas em passos grandes, sorteando quantos eventos de cada tipo aconteceram no intervalo (Poisson com `λ·Δt`, o chamado tau-leaping). Assim o planeta não observado evolui do mesmo jeito que o observado. | Parcial: o sorteio de Poisson está pronto; a simulação agregada é da Fase 5 |
+| RF-VIDA-308 | **Calibração Monte Carlo:** um comando (`npm run calibrar`) roda `CALIBRATION_SEEDS` sementes por `CALIBRATION_YEARS` anos sem tela e gera um relatório em Markdown com média, mediana e faixa de 10% a 90% de cada indicador, comparando com as faixas-alvo da tabela abaixo. Os testes automáticos conferem as faixas com poucas sementes. | Implementado (Fase 0): `npm run calibrar` gera [CALIBRACAO.md](CALIBRACAO.md) |
+| RF-VIDA-309 | **Raro de verdade:** acontecimento raro (extermínio, maravilha, colapso, praga grande) tem taxa baixa **e** intervalo mínimo entre ocorrências, para não haver sequências absurdas na mesma partida. | Parcial: secas com intervalo mínimo; os outros raros entram com as suas etapas |
+| RF-VIDA-310 | **Probabilidade à vista para quem testa:** no modo de depuração, o painel do assentamento mostra as taxas do momento ("colônia: 3,2% ao ano; crise: 0,4%") e o fator que mais pesa. A crônica continua dizendo a causa de cada acontecimento. | Implementado (Fase 0): `?debug` no endereço mostra as taxas no painel do assentamento |
+| RF-VIDA-311 | **Faixas-alvo** da calibração (tabela abaixo). Uma mudança que tira um indicador da faixa precisa de motivo registrado no registro de decisões. | Parcial: o relatório confere as faixas que já dá para medir |
+
+| Indicador (Terra, 250 anos) | Faixa-alvo (10% a 90% das rodadas) |
+|---|---|
+| Espécies extintas | 0 a 2 |
+| Assentamentos vivos | 12 a 40, com pelo menos 1 cidade |
+| Completude média da planta (RF-VIDA-201) | 50% a 85% |
+| Preenchimento médio dos estoques | 30% a 80% |
+| Guerras ao mesmo tempo (média no período) | até 1 a cada 6 reinos |
+| Guerras de extermínio | 0 a 1 |
+| Falências de assentamento | 1 a 4 |
+| Assentamentos em crise ao mesmo tempo | até 10% |
+| Ano da Era Industrial (simulação longa, 1.500 anos) | 1.100 a 1.500 |
+
+### 19.16 Visual: melhorias nos elementos existentes e arte dos novos
+
+Pedido do Joab: além das lógicas, os elementos que já existem melhoram e os novos chegam com arte própria. Tudo segue a seção 14.2 (16 bits simples, contorno escuro, 3 a 4 tons, luz de cima à esquerda), a escala de 8 pixels de arte por tile do chão e 16 pixels nos objetos, e o desenho em Canvas 2D (RNF-VIDA-07).
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-320 | **Toda lógica tem visual.** Nenhuma mecânica desta seção é marcada Implementada sem a sua arte (sprite, animação ou ícone) e uma captura de tela no PR. | A fazer (todas as etapas) |
+| RF-VIDA-321 | **Melhorias nos elementos existentes** (tabela 1 abaixo). | A fazer (Etapa V) |
+| RF-VIDA-322 | **Arte dos elementos novos** (tabela 2 abaixo), entregue junto com a etapa que cria cada um. | A fazer (Etapas A a H) |
+| RF-VIDA-323 | **Estado à vista sem abrir painel:** celeiro com sacos conforme o estoque, casas descuidadas e janelas tapadas na crise, mercado com barracas vazias na falência, bandeira de guerra na fortaleza, fumaça de saque, rebanho magro na seca. | A fazer (Etapa V e G) |
+| RF-VIDA-324 | **Animações leves** de 2 a 3 quadros: pás do moinho, faísca da ferraria, tear, bandeira ao vento, fumaça de chaminé e de forno, roda d'água, ondas no cais, cavalos e ovelhas pastando. Só se anima o que está na tela. | A fazer (Etapa V) |
+| RF-VIDA-325 | **Legível em todo zoom:** de longe, cores e ícones (vocação, guerra, crise); de perto, sprites. Camadas novas (Economia, Vocação, Rotas comerciais) na janela Mundo. | A fazer (Etapa V e C) |
+| RF-VIDA-326 | **Desempenho:** sprites num atlas único, desenhados só na área visível, dentro do orçamento de quadro do 2D (RNF-VIDA-01). | A fazer (Etapa V) |
+
+**Tabela 1: elementos que já existem e o que melhora**
+
+| Elemento | Melhoria |
+|---|---|
+| Casas | Material da região (RF-VIDA-252), variação de telhado e porta, quintal com horta ou lenha, chaminé com fumaça no frio, andaime durante a reforma |
+| Praça | Poço, depois fonte; barracas no dia de feira; estátua no centro da cidade |
+| Fogueira | Faíscas subindo; brasas apagadas em aldeia abandonada |
+| Roças | Fileiras de plantio, estação do ano (RF-VIDA-180), espantalho, feixes na colheita, pousio quando a terra cansa (RF-VIDA-294) |
+| Ruas e estradas | Degraus desenhados como curva (RF-VIDA-192), cruzamentos limpos, cascalho, meio-fio, avenida com árvores, marcas de roda nas rotas comerciais |
+| Porto e barcos | Cais com caixas e redes, guindaste na Era Industrial, barcos mercantes com vela listrada na cor do reino |
+| Minas e jazidas | Pilha de rejeito, trilho com carrinho, lanterna na entrada da caverna |
+| Prédios especiais | Ferraria com bigorna e faísca, templo com a forma da crença, mercado com toldos, quartel com estandarte, fortaleza com brasão (RF-VIDA-288) |
+| Inteligentes | Ferramenta da profissão na mão, roupa por era e por material (lã, couro, linho), cavaleiro montado |
+| Animais | Rebanho doméstico diferente do selvagem (cor mais clara, sino, cerca por perto) |
+| Territórios e rótulos | Ícone da vocação e do estado (crise, guerra) ao lado do nome, brasão do reino |
+| Ruínas | Paredes quebradas, mato crescendo aos poucos nas três etapas (RF-VIDA-108) |
+
+**Tabela 2: elementos novos**
+
+| Elemento | Etapa |
+|---|---|
+| Pasto com cerca, curral, haras, ovelhas, gado, cabras, cavalos e camelos domésticos, pastor e tratador | C |
+| Olaria com forno, moinho de vento e roda d'água, tear, armazém, celeiro cheio ou vazio | C |
+| Ícones de vocação e camadas Economia e Vocação | C |
+| Andaime de obra, poço, fonte, avenida, muralha e portões por era, pontes e torres | B e D |
+| Casas por material da região e por era, com estilos misturados na transição | D |
+| Caravana (comerciante, burro, cavalo ou camelo, carroça por era), barco mercante, barracas da feira, pedágio | E |
+| Cavalaria, exército em marcha com bandeira, roças queimadas, fumaça de saque, refugiados com trouxas | F |
+| Casas abandonadas com tábuas, mercado fechado, bandidos com acampamento | G |
+| Prédio característico de cada técnica (escrita, moeda, imprensa, vapor) | H |
+
+### 19.17 Seleção de criaturas e informações do assentamento
+
+Pedido do Joab em 20/10/2026: melhorar a seleção de criaturas e a forma de ver as informações de um assentamento.
+
+**Como é hoje** (`src/client/surface/SurfaceMode.ts`):
+- Passar o mouse mostra uma ficha da criatura mais perto do cursor, num raio de 6 pixels de tela (ou 0,8 tile de perto). Clicar fixa a ficha, que segue a criatura enquanto ela viver. Esc ou um clique no vazio soltam a ficha.
+- Ficha da criatura: espécie, profissão ou fase da vida, assentamento, era, reino, idade e energia.
+- A ficha do assentamento só aparece quando não há criatura perto do cursor. Ela mostra nome, nível, reino, povo, valor, crença, estoque do reino, o que falta para a próxima era, guerra e aliados, tudo em linhas de texto dentro da mesma ficha do tile.
+
+**Problemas:**
+- Dentro de uma aldeia há gente em todo lugar, então é difícil chegar à ficha do assentamento.
+- Nada marca no mapa quem está selecionado, e não dá para escolher entre criaturas sobrepostas nem seguir uma com a câmera.
+- A ficha do assentamento é curta demais para a economia, as pessoas e as construções que a seção 19 traz.
+
+**Seleção de criaturas**
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-330 | **Alvo claro antes do clique:** a criatura que seria escolhida ganha um contorno claro ao passar o mouse. O raio de escolha é medido em pixels de tela (`PICK_RADIUS_PX`, 10), igual em qualquer zoom, e ganha a criatura mais perto do cursor. | Parcial: escolhe a mais perto, sem realce |
+| RF-VIDA-331 | **Criaturas amontoadas:** clicar de novo no mesmo ponto passa para a próxima criatura sob o cursor. Com mais de 3 criaturas ali, aparece uma lista pequena ("5 aqui: Humano, caçador · Humano, criança · Lobo...") para escolher. | A fazer (Etapa I) |
+| RF-VIDA-332 | **Marcador da seleção:** um anel pulsante na cor do reino (ou branco para animais) fica sobre a criatura selecionada, visível em qualquer zoom, com uma seta na borda da tela quando ela sai da vista. | A fazer (Etapa I) |
+| RF-VIDA-333 | **Seguir com a câmera:** botão "Seguir" na ficha e tecla F; a câmera acompanha a criatura até o jogador arrastar o mapa ou a criatura morrer. A morte gera um aviso ("Enka morreu de velhice aos 61 anos"). | A fazer (Etapa I) |
+| RF-VIDA-334 | **Nome próprio:** inteligentes têm nome gerado no estilo do povo e sobrenome de família (liga RF-VIDA-296). Animais aparecem pela espécie, com "filhote", "adulto" ou "velho". | A fazer (Etapa I) |
+| RF-VIDA-335 | **Ficha completa da criatura:** nome, espécie, idade e fase da vida, energia e saúde em barras, doença se houver, profissão e **o que está fazendo agora** ("indo caçar", "voltando com peixe", "construindo uma casa", "fugindo de um lobo"), assentamento e casa (clique leva até lá), família (pais e filhos vivos), o que carrega (ferramenta, arma, carga) e uma história curta ("nasceu em Orlu, mudou para Tekva no ano 212"). Animais mostram dieta, bando ou cardume e predador por perto. | Parcial: espécie, profissão, assentamento, era, reino, idade e energia |
+| RF-VIDA-336 | **Seleção de grupo:** arrastar com Shift desenha um retângulo; a ficha mostra o resumo do grupo (quantos de cada espécie e profissão, energia média). | A fazer (Etapa I) |
+| RF-VIDA-337 | **Selecionar a partir do painel:** clicar numa espécie na lista de população destaca todos os indivíduos dela no mapa, e cliques seguidos levam a câmera de um a outro. Na ficha do assentamento, clicar numa profissão faz o mesmo com quem tem aquela profissão (RF-VIDA-343). | A fazer (Etapa I) |
+
+**Informações do assentamento**
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-340 | **Selecionar o assentamento sem disputar com as pessoas:** clicar no rótulo, na praça ou num prédio do assentamento abre a ficha dele. A ficha da criatura continua no clique sobre ela fora desses pontos. | A fazer (Etapa I) |
+| RF-VIDA-341 | **Janela do assentamento**, separada da ficha do tile, fixa até ser fechada, com abas: Resumo, Economia, Pessoas, Construções, Relações e História. Só a aba visível é atualizada, no máximo 4 vezes por segundo. | A fazer (Etapa I) |
+| RF-VIDA-342 | **Resumo:** nome, nível e vocação com ícone; era e progresso por pilar (19.10); população com seta de tendência; líder com nome e traço; reino e capital; povo, valor e crença; estabilidade; situação econômica (próspero, estável, em crise, falido); completude da planta com o que falta (RF-VIDA-201). | A fazer (Etapa I; os campos novos chegam com cada etapa) |
+| RF-VIDA-343 | **Pessoas:** crianças, adultos e idosos; profissões com ícone e contagem; nascimentos, mortes e as causas no último ano; quem chegou e quem saiu. Clicar numa profissão destaca essas pessoas no mapa. | A fazer (Etapa I) |
+| RF-VIDA-344 | **Economia:** para cada recurso, barra de estoque e teto (RF-VIDA-218), produção e consumo por ano, saldo e preço local; caixa; acordos e caravanas em curso; destaque para o que falta e o que sobra. | A fazer (chega com as Etapas C, E e G) |
+| RF-VIDA-345 | **Construções:** casas por padrão, prédios especiais, obras em andamento com porcentagem, minas e porto. Clicar num item leva a câmera até ele. | A fazer (Etapa I) |
+| RF-VIDA-346 | **Relações:** reino, vizinhos com a relação em barra de −100 a +100, guerras, alianças, acordos e rancores. | A fazer (Etapa I) |
+| RF-VIDA-347 | **História:** a crônica só desse assentamento e gráficos pequenos de população e de estoque ao longo do tempo. | A fazer (Etapa I) |
+| RF-VIDA-348 | **Destaque no mapa** enquanto a janela está aberta: área tingida, prédios contornados, minas, porto e rotas das caravanas ligadas ao assentamento. | A fazer (Etapa I) |
+| RF-VIDA-349 | **Passar o mouse continua leve:** um balão curto com nome, nível, população, vocação e ícones de estado (guerra, crise, fome); o detalhe fica na janela. O rótulo no mapa mostra o ícone simples da vocação ao lado do nome e os ícones de estado (decisão do Joab, RF-VIDA-224). | A fazer (Etapa I) |
+| RF-VIDA-349a | **Comparar assentamentos:** janela Assentamentos com uma tabela ordenável (população, era, vocação, riqueza, estabilidade, completude); clicar numa linha leva até o lugar. | A fazer (Etapa I) |
+| RF-VIDA-349b | **Leitura fácil:** todo número com unidade, barras com cor e texto (não só cor, liga RNF-13), textos em português, nada de rolagem para o lado, Esc fecha a janela. | A fazer (Etapa I) |

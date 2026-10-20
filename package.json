@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "data": "python3 tools/pipeline/build_hyg_chunks.py"
+    "data": "python3 tools/pipeline/build_hyg_chunks.py",
+    "calibrar": "vitest run --config vitest.calib.config.ts"
   },
   "dependencies": {
     "three": "^0.186.1"
