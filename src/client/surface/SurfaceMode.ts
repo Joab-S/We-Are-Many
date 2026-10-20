@@ -15,7 +15,7 @@ import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
 import { CATEGORIES, ITEMS, MATERIALS } from '../../sim/items';
 import { CHILD } from '../../sim/roles';
-import { TIER_NAMES } from '../../sim/settlement';
+import { TIER_NAMES, TIER_RADIUS } from '../../sim/settlement';
 import { earthCatalog, EARTH_ID, habitatOf, nativeSpecies, type Species } from '../../sim/species';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
@@ -181,7 +181,7 @@ const fragmentShader = /* glsl */ `
     ivec2 f = gp - t * 16;
     vec4 me = at(t);
     int k = kindOf(me);
-    if (k == 15 || k == 7) return Px(me, t);
+    if (k >= 7) return Px(me, t);
     int ex = f.x < 8 ? f.x : 15 - f.x;
     int ey = f.y < 8 ? f.y : 15 - f.y;
     bool vertical = ex < ey;
@@ -190,7 +190,7 @@ const fragmentShader = /* glsl */ `
     ivec2 off = vertical ? ivec2(f.x < 8 ? -1 : 1, 0) : ivec2(0, f.y < 8 ? -1 : 1);
     vec4 nb = at(t + off);
     int nk = kindOf(nb);
-    if (nk == 15 || nk == 7) return Px(me, t);
+    if (nk >= 7) return Px(me, t);
     // Deslocamento da fronteira, igual para os dois lados: positivo empurra para o tile de menor índice.
     float line = vertical ? float(t.x + max(off.x, 0)) * 3.7 + 11.0 : float(t.y + max(off.y, 0)) * 5.3 + 47.0;
     float along = vertical ? float(gp.y) : float(gp.x);
@@ -202,6 +202,82 @@ const fragmentShader = /* glsl */ `
   }
 
   bool waterPx(ivec2 gp) { return isWater(artPx(gp).texel.rgb); }
+
+  // Ruas e estradas (enfeites 8 a 10): faixa no meio do tile que se liga às
+  // ruas vizinhas, com cantos arredondados; fora da faixa aparece o chão.
+  bool isRoad(vec4 tx) { int k = kindOf(tx); return k >= 8 && k <= 10; }
+
+  bool onRoad(ivec2 f, int lo, int hi, bool rn, bool rs, bool rw, bool re) {
+    bool midX = f.x >= lo && f.x <= hi;
+    bool midY = f.y >= lo && f.y <= hi;
+    if (midX && midY) {
+      // Canto arredondado onde nenhuma rua chega pelos dois lados.
+      bool cx = f.x == lo || f.x == hi;
+      bool cy = f.y == lo || f.y == hi;
+      if (cx && cy) {
+        bool v = f.y == lo ? rn : rs;
+        bool h = f.x == lo ? rw : re;
+        return v || h;
+      }
+      return true;
+    }
+    if (midX && f.y < lo) return rn;
+    if (midX && f.y > hi) return rs;
+    if (midY && f.x < lo) return rw;
+    if (midY && f.x > hi) return re;
+    return false;
+  }
+
+  vec3 roadPx(ivec2 t, ivec2 f, int kind, vec3 base) {
+    bool rn = isRoad(at(t + ivec2(0, -1)));
+    bool rs = isRoad(at(t + ivec2(0, 1)));
+    bool rw = isRoad(at(t + ivec2(-1, 0)));
+    bool re = isRoad(at(t + ivec2(1, 0)));
+    ivec2 gp = t * 16 + f;
+    float grain = hash(vec2(gp) * 0.71 + 5.0);
+    if (kind == 10) {
+      // Praça: lajes grandes com rejunte e borda.
+      bool edge = (f.y == 0 && !rn) || (f.y == 15 && !rs) || (f.x == 0 && !rw) || (f.x == 15 && !re);
+      if (edge) return base * 0.7;
+      ivec2 slab = gp / 6;
+      if (gp.x % 6 == 0 || gp.y % 6 == 0) return base * 0.78;
+      return base * (0.9 + 0.16 * hash(vec2(slab) + 2.0)) * (grain > 0.95 ? 0.9 : 1.0);
+    }
+    int lo = kind == 9 ? 2 : 3;
+    int hi = 15 - lo;
+    if (!onRoad(f, lo, hi, rn, rs, rw, re)) {
+      // Chão do vizinho que não é rua; pisado logo ao lado da rua.
+      vec4 n = at(t + ivec2(0, -1));
+      vec4 s = at(t + ivec2(0, 1));
+      vec4 w = at(t + ivec2(-1, 0));
+      vec4 e = at(t + ivec2(1, 0));
+      vec3 ground = !rn ? n.rgb : !rs ? s.rgb : !rw ? w.rgb : !re ? e.rgb : base * 1.1;
+      if (isWater(ground)) ground = vec3(0.55, 0.62, 0.32);
+      ground *= 0.9 + 0.12 * hash(floor(vec2(gp) / 3.0) + 0.37);
+      bool near = onRoad(f + ivec2(1, 0), lo, hi, rn, rs, rw, re) || onRoad(f - ivec2(1, 0), lo, hi, rn, rs, rw, re)
+        || onRoad(f + ivec2(0, 1), lo, hi, rn, rs, rw, re) || onRoad(f - ivec2(0, 1), lo, hi, rn, rs, rw, re);
+      return near ? ground * 0.82 : ground;
+    }
+    bool border = !onRoad(f + ivec2(1, 0), lo, hi, rn, rs, rw, re) || !onRoad(f - ivec2(1, 0), lo, hi, rn, rs, rw, re)
+      || !onRoad(f + ivec2(0, 1), lo, hi, rn, rs, rw, re) || !onRoad(f - ivec2(0, 1), lo, hi, rn, rs, rw, re);
+    if (kind == 9) {
+      // Calçamento de pedra: paralelepípedos em fiadas desencontradas e meio-fio claro.
+      if (border) return base * 1.18;
+      int row = gp.y / 3;
+      int off = (row % 2) * 2;
+      if (gp.y % 3 == 0 || (gp.x + off) % 4 == 0) return base * 0.7;
+      return base * (0.9 + 0.18 * hash(vec2((gp.x + off) / 4, row) + 9.0));
+    }
+    // Terra batida: borda escura, sulcos das carroças e pedrinhas.
+    if (border) return base * 0.78;
+    bool horiz = (rw || re) && !(rn || rs);
+    bool vert = (rn || rs) && !(rw || re);
+    if ((horiz && (f.y == lo + 2 || f.y == hi - 2)) || (vert && (f.x == lo + 2 || f.x == hi - 2))) return base * 0.86;
+    vec3 c = base * (0.94 + 0.1 * hash(floor(vec2(gp) / 2.0) + 1.3));
+    if (grain > 0.94) c *= 1.18;
+    else if (grain < 0.04) c *= 0.8;
+    return c;
+  }
 
   void main() {
     vec2 tile = uCenter + (vUv * uResolution - uResolution * 0.5) / uZoom;
@@ -264,6 +340,7 @@ const fragmentShader = /* glsl */ `
       }
       texel = px.texel;
     }
+    if (uZoom >= 4.0 && kind >= 8 && kind <= 10) c = roadPx(t, f, kind, texel.rgb);
     if (uZoom >= 5.0 && kind > 0 && kind <= 7) {
       // Arte 16x16 do enfeite (art.ts): alfa cheio é cor, alfa parcial é sombra.
       vec4 d = texelFetch(uDecor, ivec2((kind - 1) * 16 + f.x, f.y), 0);
@@ -332,6 +409,7 @@ export class SurfaceMode {
   /** Ficha fixada com um clique da mão vazia: uma criatura (segue ela) ou um lugar. */
   private pinned: { creature: number } | { x: number; y: number } | null = null;
   private folded = false;
+  private showTerritory = true;
   private lastMini = 0;
   private miniBase: HTMLCanvasElement | null = null;
   private textureChanged = true;
@@ -593,9 +671,9 @@ export class SurfaceMode {
     const road = this.eco.road[i];
     const n = tileHash(i) * 0.12 - 0.06;
     let c: [number, number, number] | null = null;
-    if (road === 1) c = [146, 112, 74];
-    else if (road === 2) c = (i + Math.floor(i / this.map.width)) % 2 ? [150, 150, 158] : [128, 128, 138];
-    else if (road === 3) c = [178, 148, 104];
+    if (road === 1) c = [150, 114, 74];
+    else if (road === 2) c = [146, 144, 150];
+    else if (road === 3) c = [184, 160, 120];
     else if (road === 4) c = [122, 86, 48];
     if (c) {
       px[o] = clamp(c[0] * (1 + n), 0, 255);
@@ -606,8 +684,10 @@ export class SurfaceMode {
       px[o] = clamp(px[o] * 1.05 + 10, 0, 255);
       px[o + 1] = clamp(px[o + 1] * 0.98, 0, 255);
     }
-    // Plantação leva o enfeite de trigo (7); ruas e casas, o 15 (nem enfeite nem grama).
-    px[o + 3] = road === 4 ? 7 * 16 + 15 : 255;
+    // Plantação leva o enfeite de trigo (7); terra batida, pedra e praça, os
+    // enfeites 8, 9 e 10 (desenhados no shader); casas, o 15 (nem enfeite nem grama).
+    const kind = road === 4 ? 7 : road === 1 ? 8 : road === 2 ? 9 : road === 3 ? 10 : 15;
+    px[o + 3] = kind * 16 + 15;
   }
 
   // Interface ----------------------------------------------------------------
@@ -639,6 +719,7 @@ export class SurfaceMode {
 
   private buildUi(): void {
     this.root.innerHTML = `
+      <canvas class="wb-terr" data-terr></canvas>
       <div class="wb-labels" data-l></div>
       <div class="wb-top">
         <button class="wb-back" data-a="back">⟵ Órbita</button>
@@ -676,7 +757,8 @@ export class SurfaceMode {
           <span><kbd>Direito</kbd><kbd>WASD</kbd> movem o mapa · <kbd>Roda</kbd> zoom</span>
           <span><kbd>Espaço</kbd> pausa · <kbd>1</kbd>–<kbd>4</kbd> velocidade</span>
           <span><kbd>[</kbd><kbd>]</kbd> tamanho do pincel · <kbd>Esc</kbd> guarda a ferramenta, fecha a janela ou volta à órbita</span>
-          <span><kbd>C</kbd> crônica · <kbd>R</kbd> reinos · <kbd>E</kbd> espécies · <kbd>I</kbd> itens · <kbd>P</kbd> painel · <kbd>H</kbd> esta ajuda</span>
+          <span><kbd>C</kbd> crônica · <kbd>R</kbd> reinos · <kbd>E</kbd> espécies · <kbd>I</kbd> itens · <kbd>P</kbd> painel · <kbd>T</kbd> territórios · <kbd>H</kbd> esta ajuda</span>
+          <span>Cada reino tem uma cor: a área dos assentamentos e a faixa do nome mostram de quem é. Borda cheia é a capital; tracejada, os outros assentamentos do reino.</span>
           <span>No minimapa, clique ou arraste para levar a câmera.</span>
         </div>
       </div>`;
@@ -859,6 +941,7 @@ export class SurfaceMode {
     else if (opt.startsWith('rate:')) eco.eventRate = Number(opt.slice(5));
     else if (opt === 'minor') this.showMinor = !this.showMinor;
     else if (opt === 'labels') this.showLabels = !this.showLabels;
+    else if (opt === 'territory') this.showTerritory = !this.showTerritory;
     else if (opt === 'now') this.surprise();
     this.lastWinHtml = '';
     this.lastPanelHtml = '';
@@ -1079,7 +1162,7 @@ export class SurfaceMode {
       <div class="wb-note">Cometas, terremotos, vulcões, incêndios, secas, pestes, povos nômades, espécies novas e reaparecimentos acontecem de vez em quando. Se ${QUIET_YEARS} anos passam sem nada importante, um deles sacode o mundo. Agora: ${quiet} anos desde o último acontecimento importante.</div>
       <div class="wb-filters"><button data-opt="now">🎲 Provocar um evento agora</button></div>
       <div class="wb-section">Exibição</div>
-      <div class="wb-filters"><button data-opt="labels" class="${on(this.showLabels)}">Nomes no mapa</button><button data-opt="minor" class="${on(this.showMinor)}">Acontecimentos menores no painel</button></div>
+      <div class="wb-filters"><button data-opt="labels" class="${on(this.showLabels)}">Nomes no mapa</button><button data-opt="territory" class="${on(this.showTerritory)}">Territórios coloridos (T)</button><button data-opt="minor" class="${on(this.showMinor)}">Acontecimentos menores no painel</button></div>
       <div class="wb-section">Atalhos</div>
       <div class="wb-note">Espaço pausa · 1 a 4 mudam a velocidade · C crônica · R reinos · E espécies · I itens · Esc fecha a janela ou volta à órbita.</div>`;
   }
@@ -1118,6 +1201,10 @@ export class SurfaceMode {
     if (input.hit('Space')) this.speed = this.speed ? 0 : 1;
     for (let k = 0; k < SPEEDS.length; k++) if (input.hit(`Digit${k + 1}`)) this.speed = k;
     if (input.hit('KeyH')) this.toggleHelp();
+    if (input.hit('KeyT')) {
+      this.showTerritory = !this.showTerritory;
+      this.lastView = '';
+    }
     if (input.hit('KeyP')) this.fold();
     for (const [code, step] of [['BracketLeft', -2], ['BracketRight', 2]] as const) {
       if (!input.hit(code)) continue;
@@ -1174,7 +1261,44 @@ export class SurfaceMode {
     const cy = this.center.y;
     if (shake) this.center.set(cx + (Math.random() - 0.5) * shake, cy + (Math.random() - 0.5) * shake);
     this.renderView(now);
+    this.drawTerritory();
     this.center.set(cx, cy);
+  }
+
+  /**
+   * Território de cada assentamento na cor do seu reino: área tingida e borda.
+   * Assentamentos do mesmo reino têm a mesma cor; povos independentes, outra.
+   */
+  private drawTerritory(): void {
+    const canvas = this.root.querySelector<HTMLCanvasElement>('[data-terr]')!;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, w, h);
+    if (!this.showTerritory || this.zoom < 1) return;
+    const z = this.zoom;
+    for (const v of this.eco.villages) {
+      if (v.abandoned) continue;
+      const [sx, gy] = this.toScreen(v.x, v.y, z, w, h);
+      const sy = h - gy;
+      const r = TIER_RADIUS[v.tier] * z;
+      if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
+      const c = v.color.join(',');
+      const capital = v.kingdom === v.id;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${c},0.18)`;
+      ctx.fill();
+      ctx.lineWidth = Math.max(1.5, z * (capital ? 0.35 : 0.22));
+      ctx.setLineDash(capital ? [] : [z * 0.8, z * 0.5]);
+      ctx.strokeStyle = `rgba(${c},0.9)`;
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
   }
 
   private renderView(now: number): void {
@@ -1462,6 +1586,9 @@ export class SurfaceMode {
           ? `♛ Reino de ${v.name} · ${v.population}`
           : `${TIER_NAMES[v.tier]} ${v.name} · ${v.population}`;
       if (el.textContent !== text) el.textContent = text;
+      const color = `rgb(${v.color.join(',')})`;
+      if (el.style.borderLeftColor !== color) el.style.borderLeftColor = color;
+      el.title = v.kingdom === v.id ? `Povo ${v.culture.name}` : `Reino de ${this.eco.capitalOf(v).name} · povo ${v.culture.name}`;
       el.style.transform = `translate(${sx}px, ${h - sy}px) translate(-50%, -100%)`;
     }
   }

@@ -144,7 +144,24 @@ const KINGDOM_COLORS: [number, number, number][] = [
   [36, 170, 176],
   [226, 196, 56],
   [210, 84, 150],
+  [240, 240, 240],
+  [120, 60, 30],
+  [150, 210, 60],
+  [30, 60, 140],
+  [250, 150, 170],
+  [100, 100, 110],
+  [170, 30, 90],
+  [90, 220, 200],
 ];
+
+/** Cor em HSL (0–1) para RGB, para reinos além da paleta. */
+function hsl(h: number, s: number, l: number): [number, number, number] {
+  const f = (n: number) => {
+    const k = (n + h * 12) % 12;
+    return Math.round(255 * (l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+  };
+  return [f(0), f(8), f(4)];
+}
 
 /** Construções especiais, na ordem em que um assentamento costuma erguê-las. */
 export const BUILDINGS = ['granary', 'smithy', 'market', 'windmill', 'temple', 'barracks', 'factory', 'statue', 'wonder'] as const;
@@ -1179,13 +1196,35 @@ export class Ecosystem {
     this.lineRoad(a.x, a.y, b.x, b.y);
   }
 
+  /**
+   * Estrada de terra entre dois pontos: uma curva suave (o meio desvia para
+   * um lado, sempre o mesmo para o mesmo par de pontos), sem passos na
+   * diagonal, para a estrada desenhada ficar contínua. Não passa por água.
+   */
   private lineRoad(ax: number, ay: number, bx: number, by: number): void {
     const dx = wrapDx(bx - ax, this.map.width);
     const dy = by - ay;
-    const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
-    for (let k = 0; k <= n; k++) {
-      const t = this.tileAt(Math.floor(ax + (dx * k) / n), Math.floor(ay + (dy * k) / n));
+    const len = Math.hypot(dx, dy) || 1;
+    const bend = (plotSeed(ax + bx, ay + by) / 4294967296 - 0.5) * 0.5 * len;
+    const mx = ax + dx / 2 + (-dy / len) * bend;
+    const my = ay + dy / 2 + (dx / len) * bend;
+    const n = Math.max(2, Math.ceil(len * 2));
+    let px = Math.floor(ax);
+    let py = Math.floor(ay);
+    const put = (x: number, y: number) => {
+      const t = this.tileAt(x, y);
       if (t >= 0 && isLand(this.map, t)) this.setRoad(t, 1);
+    };
+    put(px, py);
+    for (let k = 1; k <= n; k++) {
+      const u = k / n;
+      const x = Math.floor((1 - u) * (1 - u) * ax + 2 * u * (1 - u) * mx + u * u * (ax + dx));
+      const y = Math.floor((1 - u) * (1 - u) * ay + 2 * u * (1 - u) * my + u * u * by);
+      if (x === px && y === py) continue;
+      if (x !== px && y !== py) put(x, py);
+      put(x, y);
+      px = x;
+      py = y;
     }
   }
 
@@ -1222,7 +1261,7 @@ export class Ecosystem {
       forgeWork: 0,
       forest: 0,
       rock: false,
-      color: from ? from.color : KINGDOM_COLORS[(this.villages.filter((o) => o.kingdom === o.id).length + Math.floor(rnd() * 3)) % KINGDOM_COLORS.length],
+      color: from ? from.color : this.freshColor(),
       abandoned: false,
     };
     if (!from) village.culture = makeCulture(village.culture.id, village.name, rnd);
@@ -1234,6 +1273,14 @@ export class Ecosystem {
       this.spawn(s, x + (rnd() - 0.5) * 3, y + (rnd() - 0.5) * 3, village.id, sp.maturity + rnd() * 10);
     }
     return village;
+  }
+
+  /** Cor de reino que nenhum reino vivo usa (da paleta; acabando, uma cor gerada). */
+  private freshColor(): [number, number, number] {
+    const used = new Set(this.villages.filter((o) => !o.abandoned && o.kingdom === o.id).map((o) => o.color.join(',')));
+    const free = KINGDOM_COLORS.filter((c) => !used.has(c.join(',')));
+    if (free.length) return free[Math.floor(this.rnd() * Math.min(3, free.length))];
+    return hsl(this.rnd(), 0.65 + this.rnd() * 0.25, 0.4 + this.rnd() * 0.25);
   }
 
   private abandon(v: Village): void {
@@ -2056,7 +2103,7 @@ export class Ecosystem {
   private newKingdom(v: Village, old: Village): void {
     v.kingdom = v.id;
     v.culture = makeCulture(this.cultures++, v.name, this.rnd);
-    v.color = KINGDOM_COLORS[(KINGDOM_COLORS.indexOf(old.color) + 1 + Math.floor(this.rnd() * (KINGDOM_COLORS.length - 1))) % KINGDOM_COLORS.length];
+    v.color = this.freshColor();
     for (const o of this.villages) if (o.kingdom === v.id) o.color = v.color;
     v.stock = { ...emptyStock(), wood: old.stock.wood * 0.2, weapons: Math.floor(old.stock.weapons * 0.3) };
     old.stock.weapons -= v.stock.weapons;

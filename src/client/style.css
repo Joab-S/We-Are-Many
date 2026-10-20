@@ -85,7 +85,7 @@ kbd { display: inline-block; min-width: 20px; text-align: center; border: 1px so
 .wb-log { font-size: 11px; color: #d8c8a8; }
 .wb-empty { font-size: 11px; color: #b8a888; }
 .wb-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.wb-village { position: absolute; left: 0; top: 0; font-size: 11px; font-weight: 700; color: #fff; background: rgba(20, 12, 6, 0.7); padding: 1px 5px; white-space: nowrap; text-shadow: 1px 1px 0 #000; }
+.wb-village { position: absolute; left: 0; top: 0; font-size: 11px; font-weight: 700; color: #fff; background: rgba(20, 12, 6, 0.75); padding: 1px 5px; border-left: 5px solid #888; white-space: nowrap; text-shadow: 1px 1px 0 #000; }
 .wb-goto { display: flex; align-items: center; gap: 6px; font-family: inherit; font-size: 11px; color: #f5e6c8; background: none; border: none; padding: 1px 0 1px 10px; cursor: pointer; text-align: left; }
 .wb-goto:hover { color: #f0c860; }
 .wb-goto i { width: 8px; height: 8px; border: 1px solid #000; }
@@ -230,3 +230,4 @@ kbd { display: inline-block; min-width: 20px; text-align: center; border: 1px so
 .wb-cursor .wb-px, .wb-cursor span { height: 22px; font-size: 18px; }
 .wb-tabs button:hover { color: #f5e6c8; }
 @media (max-width: 1100px) { .wb-clock-text span { display: none; } .wb-stats { display: none; } }
+.wb-terr { position: absolute; inset: 0; pointer-events: none; image-rendering: pixelated; }
