@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { generateSurface, type PlanetParams } from '../procgen/surface';
-import { Ecosystem, isLand, isWater } from './ecosystem';
+import { BOATS, Ecosystem, isLand, isWater, YEAR_SECONDS } from './ecosystem';
+import { CHILD } from './roles';
 import { lotsFor, streetPlan, TIER_RADIUS } from './settlement';
-import { nativeLifeLevel, nativeLifeTier, nativeSpecies } from './species';
+import { isAquatic, nativeLifeLevel, nativeLifeTier, nativeSpecies } from './species';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
 const mars: PlanetParams = { id: 'sol-4', name: 'Marte', radiusEarth: 0.4, temperatureK: 210, water: 0.04, life: 0 };
@@ -20,8 +21,8 @@ const run = (eco: Ecosystem, seconds: number) => {
 };
 
 describe('espécies', () => {
-  it('a Terra tem peixes, cervos, lobos e humanos; Marte não tem vida', () => {
-    expect(nativeSpecies(earth).map((s) => s.name)).toEqual(['Peixe', 'Cervo', 'Lobo', 'Humano']);
+  it('a Terra tem peixes, cervos, lobos, humanos e tubarões; Marte não tem vida', () => {
+    expect(nativeSpecies(earth).map((s) => s.name)).toEqual(['Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão']);
     expect(nativeSpecies(mars)).toEqual([]);
   });
   it('vida nativa fora da Terra vem em três níveis raros', () => {
@@ -56,7 +57,7 @@ describe('ecossistema', () => {
     for (let i = 0; i < eco.count; i++) {
       if (!eco.alive[i]) continue;
       const t = Math.floor(eco.y[i]) * map.width + Math.floor(eco.x[i]);
-      if (eco.species[eco.kind[i]].kind === 'fish') expect(isWater(map, t)).toBe(true);
+      if (isAquatic(eco.species[eco.kind[i]].kind)) expect(isWater(map, t)).toBe(true);
       else expect(isLand(map, t)).toBe(true);
     }
   });
@@ -119,18 +120,19 @@ describe('assentamentos', () => {
         expect(Math.hypot(dx, a.y - b.y)).toBeGreaterThanOrEqual(TIER_RADIUS[a.tier]);
       }
     }
-    let houses = 0;
+    let tiles = 0;
     for (const v of live) {
-      houses += v.houses.length;
       for (const h of v.houses) {
-        for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+        const cells = h.kind === 'port' ? [[0, 0]] : [[0, 0], [1, 0], [0, 1], [1, 1]];
+        tiles += cells.length;
+        for (const [dx, dy] of cells) {
           const t = (h.y + dy) * map.width + ((h.x + dx) % map.width);
           expect(eco.road[t]).toBe(0);
           expect(eco.built[t]).toBe(1);
         }
       }
     }
-    expect(eco.built.reduce((n, b) => n + b, 0)).toBe(houses * 4);
+    expect(eco.built.reduce((n, b) => n + b, 0)).toBe(tiles);
     expect(eco.road.some((r) => r > 0)).toBe(true);
   });
 
@@ -147,5 +149,58 @@ describe('assentamentos', () => {
     expect(lotsFor(0).length).toBeLessThan(lotsFor(1).length);
     expect(lotsFor(1).length).toBeLessThan(lotsFor(2).length);
     expect(streetPlan(2).length).toBeGreaterThan(streetPlan(0).length);
+  });
+});
+
+describe('tempo, idade e mar', () => {
+  it('as eras avançam devagar: séculos por era', () => {
+    const { eco } = world();
+    const v = eco.villages[0];
+    run(eco, 50 * YEAR_SECONDS);
+    expect(v.tech).toBeLessThan(0.5);
+    expect(v.tech).toBeGreaterThan(0);
+  });
+
+  it('crianças nascem sem profissão e ganham uma ao crescer; os mais velhos morrem', () => {
+    const { eco } = world();
+    const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
+    const v = eco.villages[0];
+    const child = eco.spawn(s, v.x, v.y, v.id, 0);
+    expect(eco.role[child]).toBe(CHILD);
+    eco.age[child] = eco.species[s].maturity + 0.1;
+    run(eco, 1);
+    if (eco.alive[child]) expect(eco.role[child]).not.toBe(CHILD);
+    const old = eco.spawn(s, v.x, v.y, v.id, 200);
+    run(eco, 1);
+    // O índice pode ter sido reaproveitado por um recém-nascido.
+    expect(!eco.alive[old] || eco.age[old] < 100).toBe(true);
+  });
+
+  it('um assentamento preso numa ilha constrói porto e manda colonos de barco', () => {
+    const { map, eco } = world({ ...earth, radiusEarth: 1 });
+    const v = eco.villages[0];
+    v.tech = 2.2;
+    // Vira uma ilha pequena: só a área da aldeia fica de pé, e há outra ilha a leste.
+    const w = map.width;
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const dx = Math.abs(((x - Math.floor(v.x) + w * 1.5) % w) - w / 2);
+        const dy = Math.abs(y - Math.floor(v.y));
+        const island = dx <= 8 && dy <= 8;
+        const other = Math.abs(dx - 40) <= 10 && dy <= 10 && x > v.x;
+        map.elevation[i] = island || other ? 0.1 : -0.3;
+        if (island || other) map.vegetation[i] = 0.8;
+      }
+    }
+    // Força um porto e uma viagem.
+    const anyEco = eco as unknown as { buildPort(v: unknown): boolean; colonizeBySea(v: unknown): boolean };
+    expect(anyEco.buildPort(v)).toBe(true);
+    expect(v.port).toBeGreaterThanOrEqual(0);
+    while (v.population < 12) eco.spawn(eco.species.findIndex((sp) => sp.kind === 'sapient'), v.x, v.y, v.id, 20);
+    expect(anyEco.colonizeBySea(v)).toBe(true);
+    const boat = eco.boats.find((b) => b.purpose === 'colonize')!;
+    expect(BOATS[boat.kind].name).toBe('Veleiro');
+    expect(boat.passengers.length).toBeGreaterThanOrEqual(3);
   });
 });

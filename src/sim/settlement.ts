@@ -4,11 +4,11 @@
  * puras; o Ecosystem aplica o resultado ao mapa.
  */
 
-export const TIER_NAMES = ['Aldeia', 'Vila', 'Cidade'];
+export const TIER_NAMES = ['Aldeia', 'Vila', 'Cidade', 'Metrópole'];
 /** Raio da área de cada nível, em tiles. */
-export const TIER_RADIUS = [8, 12, 18];
+export const TIER_RADIUS = [8, 12, 18, 25];
 /** População mínima de cada nível. */
-export const TIER_POPULATION = [0, 25, 60];
+export const TIER_POPULATION = [0, 25, 60, 140];
 
 export function tierFor(population: number): number {
   let t = 0;
@@ -31,11 +31,11 @@ export interface Street {
  * para poder parar na água sem deixar pedaços soltos.
  */
 export function streetPlan(tier: number): Street[] {
-  const arm = [5, 9, 15][tier];
+  const arm = [5, 9, 15, 22][tier];
   const streets: Street[] = [];
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) streets.push({ x: dx * 2, y: dy * 2, dx, dy, len: arm - 1 });
-  const lines = tier === 0 ? [] : tier === 1 ? [6, -6] : [6, -6, 12, -12];
-  const span = tier === 1 ? 7 : 13;
+  const lines = [[], [6, -6], [6, -6, 12, -12], [6, -6, 12, -12, 18, -18]][tier];
+  const span = [0, 7, 13, 19][tier];
   for (const o of lines) {
     for (const d of [1, -1]) {
       streets.push({ x: 0, y: o, dx: d, dy: 0, len: span });
