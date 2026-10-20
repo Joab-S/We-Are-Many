@@ -688,7 +688,7 @@ O que foi implementado gerou requisitos novos e mudou a ordem do que falta. A li
 | 7 | **Recursos da nave pagam as ferramentas do 2D** | RF-SON-12, RF-VIDA-143, questão aberta 6 | 3 e 5 | Liga as duas metades do jogo: o que se extrai no espaço vira terraformação e ajuda aos povos. |
 | 8 | **Fabricação, cópias e base secreta** | RF-FAB, RF-PES, RF-COM, RF-BAS, RF-SON-08 | 3 | É o "We Are Many" de fato e ainda não começou. |
 | 9 | **Superfície:** camadas do mapa inteiro, clima global que evolui, gigantes gasosos, metano líquido | RF-SUP-04, 05, 07, 14 | 4 | Fecha o critério de saída da Fase 4. |
-| 10 | **Vida, o que falta:** domesticação, doenças por contato, proteger, curar, realocar, colonos humanos, estações, evolução por adaptação, descer de nível, comerciantes visíveis | REQUISITOS-VIDA.md, seção 16.1 | 5 e 6 | Detalhado no outro documento. |
+| 10 | **Vida, o que falta:** domesticação, doenças por contato, proteger, curar, realocar, colonos humanos, estações, evolução por adaptação, descer de nível, comerciantes visíveis; e a proposta de crescimento controlado, vocação, economia viva e eras por desenvolvimento, começando pela correção das ruas em grade | REQUISITOS-VIDA.md, seções 16.1 e 19 | 5 e 6 | Detalhado no outro documento. |
 | 11 | **Ameaças e narrativa:** sondas rivais, Enxame, combate, marcos, tutorial | RF-AME, RF-GUI-19, RF-UI-03 | 6 | |
 | 12 | **Coop** e **escala** | RF-ONL, RNF-08, 09, Fase 8 | 7 e 8 | |
 
