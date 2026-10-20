@@ -24,6 +24,7 @@ import { yearlyEvents } from './events';
 import { pickItem, pickPrimitive, TIER_MATERIAL, type Category, type Material } from './items';
 import { CHILD, pickRole, ROLE, ROLES, type RoleContext } from './roles';
 import { completeness, missingText, planItems, type PlanItem } from './plan';
+import { emptyVital, HISTORY_YEARS, type DeathCause, type Exit, type Sample, type Vital } from './people';
 import {
   foodCap,
   fullNeeds,
@@ -153,7 +154,7 @@ export interface Boat {
   step: number;
   /** Tile de terra onde os colonos vão desembarcar. */
   landing: number;
-  passengers: { age: number; role: number }[];
+  passengers: { age: number; role: number; who?: Identity }[];
   /** Segundos de pesca restantes (barcos de pesca). */
   timer: number;
   /** Segundos à deriva, perdido no mar. */
@@ -382,6 +383,30 @@ export interface Village {
   goldRush?: number;
   /** Tem água por perto (barro e poço). */
   wet?: boolean;
+  /** Nascimentos, mortes, chegadas e partidas do ano passado e do ano corrente (RF-VIDA-343). */
+  vital?: Vital;
+  vitalNow?: Vital;
+  /** Uma amostra por ano de população e estoque, para os gráficos (RF-VIDA-347). */
+  history?: Sample[];
+}
+
+/** Quem a pessoa é, guardado quando ela embarca e devolvido quando desembarca. */
+export interface Identity {
+  uid: number;
+  parent: number;
+  family: number;
+  bornAt: number;
+  bornYear: number;
+  movedAt: number;
+}
+
+/** Uma morte recente, para o aviso de quem estava sendo seguido (RF-VIDA-333). */
+export interface Death {
+  uid: number;
+  cause: DeathCause;
+  age: number;
+  x: number;
+  y: number;
 }
 
 /** Produção e consumo por recurso num ano. */
@@ -464,6 +489,19 @@ export class Ecosystem {
   village = new Int16Array(0);
   /** Profissão de cada indivíduo inteligente (índice em ROLES). */
   role = new Uint8Array(0);
+  /** Número único de cada indivíduo (o índice é reaproveitado depois da morte), para nome e seleção. */
+  uid = new Uint32Array(0);
+  /** `uid` de quem gerou (0 sem registro) e família (sobrenome) de cada um (RF-VIDA-334). */
+  parent = new Uint32Array(0);
+  family = new Uint32Array(0);
+  /** Assentamento onde nasceu (-1 no mato), ano do nascimento e ano da última mudança (-1 nunca). */
+  bornAt = new Int16Array(0);
+  bornYear = new Float32Array(0);
+  movedAt = new Float32Array(0);
+  private nextUid = 0;
+  private nextFamily = 0;
+  /** Últimas mortes, da mais nova para a mais antiga. */
+  readonly deaths: Death[] = [];
   readonly villages: Village[] = [];
   readonly boats: Boat[] = [];
   /** Jazidas de minério do planeta, e o índice delas por tile. */
@@ -722,7 +760,7 @@ export class Ecosystem {
   }
 
   private grow(capacity: number): void {
-    const copy = <T extends Float32Array | Uint8Array | Int16Array>(a: T, make: (n: number) => T): T => {
+    const copy = <T extends Float32Array | Uint8Array | Int16Array | Uint32Array>(a: T, make: (n: number) => T): T => {
       const b = make(capacity);
       b.set(a);
       return b;
@@ -738,6 +776,12 @@ export class Ecosystem {
     this.alive = copy(this.alive, (n) => new Uint8Array(n));
     this.village = copy(this.village, (n) => new Int16Array(n));
     this.role = copy(this.role, (n) => new Uint8Array(n));
+    this.uid = copy(this.uid, (n) => new Uint32Array(n));
+    this.parent = copy(this.parent, (n) => new Uint32Array(n));
+    this.family = copy(this.family, (n) => new Uint32Array(n));
+    this.bornAt = copy(this.bornAt, (n) => new Int16Array(n));
+    this.bornYear = copy(this.bornYear, (n) => new Float32Array(n));
+    this.movedAt = copy(this.movedAt, (n) => new Float32Array(n));
     // A grade pode estar em uso no meio de um passo: copiar, nunca zerar (zeros criariam um laço infinito).
     const next = new Int32Array(capacity).fill(-1);
     next.set(this.gridNext);
@@ -764,11 +808,20 @@ export class Ecosystem {
     this.kind[i] = s;
     this.alive[i] = 1;
     this.village[i] = village;
+    this.uid[i] = ++this.nextUid;
+    this.parent[i] = 0;
+    this.family[i] = ++this.nextFamily;
+    this.bornAt[i] = age === 0 ? village : -1;
+    this.bornYear[i] = this.year - age;
+    this.movedAt[i] = -1;
     this.population[s]++;
     this.everLived[s] = true;
     if (village >= 0) {
       const v = this.villages[village];
       v.population++;
+      const vital = (v.vitalNow ??= emptyVital());
+      if (age === 0) vital.births++;
+      else vital.arrived++;
       this.role[i] = age < this.species[s].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.rnd(), this.roleContext(v));
     }
     return i;
@@ -779,11 +832,23 @@ export class Ecosystem {
     return this.spawn(s, (tile % w) + this.rnd(), Math.floor(tile / w) + this.rnd(), village, age);
   }
 
-  /** Remove a criatura. `quiet` não registra a morte (ex.: colonos que embarcaram). */
-  kill(i: number, quiet = false): void {
+  /**
+   * Remove a criatura. `quiet` não registra a morte na crônica; `cause` diz
+   * como saiu (`partiu` é quem embarcou ou virou colono, não morreu).
+   */
+  kill(i: number, quiet = false, cause: Exit = 'outra'): void {
     if (!this.alive[i]) return;
     this.alive[i] = 0;
     const s = this.kind[i];
+    if (cause !== 'partiu') {
+      this.deaths.unshift({ uid: this.uid[i], cause, age: this.age[i], x: this.x[i], y: this.y[i] });
+      if (this.deaths.length > 64) this.deaths.pop();
+    }
+    if (this.village[i] >= 0) {
+      const vital = (this.villages[this.village[i]].vitalNow ??= emptyVital());
+      if (cause === 'partiu') vital.left++;
+      else vital.deaths[cause] = (vital.deaths[cause] ?? 0) + 1;
+    }
     this.population[s]--;
     this.expedition.delete(i);
     if (this.population[s] === 0 && this.species[s].kind !== 'sapient') {
@@ -943,6 +1008,7 @@ export class Ecosystem {
         if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD) continue;
         v.population--;
         this.village[i] = -1;
+        (v.vitalNow ??= emptyVital()).left++;
         this.join(i, best);
         this.note(`Gente de ${v.name} se mudou para ${best.name} em busca de ${hungry ? 'comida' : 'lugar'}`, 'povo', best, { key: `migra-${v.id}-${best.id}` });
         break;
@@ -965,7 +1031,7 @@ export class Ecosystem {
       for (let i = 0; i < this.count && toll > 0; i++) {
         if (!this.alive[i] || this.village[i] !== v.id || i === v.leader) continue;
         if (this.civRnd() < 0.5) continue;
-        this.kill(i, true);
+        this.kill(i, true, 'doença');
         toll--;
       }
       this.note(`Uma epidemia matou ${dead - toll} pessoas em ${v.name}${clean < 1 && clean > 0.3 ? '' : clean <= 0.3 ? ', mesmo com o aqueduto' : ': faltam poços e esgoto'}`, 'natureza', v);
@@ -996,6 +1062,11 @@ export class Ecosystem {
       this.clampStock(v);
       v.ledger = v.ledgerNow ?? {};
       v.ledgerNow = {};
+      v.vital = v.vitalNow ?? emptyVital();
+      v.vitalNow = emptyVital();
+      const history = (v.history ??= []);
+      history.push({ year: Math.floor(this.year), population: v.population, stock: Math.round(v.food + GOODS.reduce((n, g) => n + v.stock[g], 0)) });
+      if (history.length > HISTORY_YEARS) history.shift();
     }
     this.haul();
     this.revolts();
@@ -1558,7 +1629,7 @@ export class Ecosystem {
         // Bichos pequenos (roedores, insetos, carniça) cobrem parte da fome no mato; onívoros comem também frutos e raízes.
         if (map.vegetation[tile] > 0.2) e += (sp.omnivore ? 0.032 : 0.016) * dt;
         if (prey >= 0 && pd < 1.44 && e < 0.8) {
-          this.kill(prey);
+          this.kill(prey, false, 'predador');
           e += 0.6;
           this.wander(i, sp.speed * 0.3);
         } else if (prey >= 0 && e < 0.65 && !outside) {
@@ -1601,7 +1672,7 @@ export class Ecosystem {
           this.vy[i] = (dy / d) * sp.speed;
         } else if (prey >= 0 && pd < 2.25) {
           // Dá o bote a até 1,5 tile.
-          this.kill(prey);
+          this.kill(prey, false, 'predador');
           e += 0.9;
           this.wander(i, sp.speed * 0.3);
         } else if (prey >= 0 && e < 0.85 && !outside) {
@@ -1672,7 +1743,7 @@ export class Ecosystem {
               if (prey < 0 && this.species[k].kind === 'herbivore' && this.population[k] > this.caps[k] * 0.25) prey = j;
             });
             if (prey >= 0) {
-              this.kill(prey);
+              this.kill(prey, false, 'predador');
               e += 0.4;
               // A caça também dá peles (roupa na Idade da Pedra).
               this.gain(v, 'hides', 1);
@@ -1695,7 +1766,7 @@ export class Ecosystem {
     const old = this.age[i] > life * (0.85 + 0.3 * ((i * 2654435761) % 1000) / 1000);
     if (this.energy[i] <= 0 || old) {
       if (v >= 0 && this.villages[v].population === 1) this.villages[v].lastCause = this.energy[i] <= 0 ? 'de fome' : 'de velhice';
-      this.kill(i);
+      this.kill(i, false, this.energy[i] <= 0 ? 'fome' : 'velhice');
       return;
     }
     // Reprodução (idosos não têm filhos).
@@ -1719,7 +1790,11 @@ export class Ecosystem {
       const housed = v < 0 || this.villages[v].population < this.housing(this.villages[v]);
       if (crowd < b.crowd && housed) {
         const child = this.spawn(s, this.x[i] + (this.rnd() - 0.5), this.y[i] + (this.rnd() - 0.5), v);
-        if (child >= 0) this.energy[i] -= 0.3;
+        if (child >= 0) {
+          this.energy[i] -= 0.3;
+          this.parent[child] = this.uid[i];
+          this.family[child] = this.family[i];
+        }
       }
     }
   }
@@ -1914,6 +1989,8 @@ export class Ecosystem {
   /** Põe a criatura `i` (sem assentamento) no assentamento `v`, com uma profissão. */
   private join(i: number, v: Village): void {
     this.village[i] = v.id;
+    this.movedAt[i] = this.year;
+    (v.vitalNow ??= emptyVital()).arrived++;
     v.lastCause = undefined;
     v.population++;
     this.role[i] = this.age[i] < this.species[this.kind[i]].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.civRnd(), this.roleContext(v));
@@ -3170,7 +3247,7 @@ export class Ecosystem {
       if (st.weapons > 0) st.weapons--;
       if (st.armor > 0 && this.polRnd() < 0.5) st.armor--;
     }
-    this.kill(loser, true);
+    this.kill(loser, true, 'guerra');
   }
 
   /** Combate e marcha dos soldados; chamado no `decide` de cada inteligente. */
@@ -3282,13 +3359,16 @@ export class Ecosystem {
     for (let i = 0; i < this.count && passengers.length < type.capacity; i++) {
       if (!this.alive[i] || this.role[i] !== ROLE.soldier || this.village[i] < 0 || this.villages[this.village[i]].kingdom !== war.a) continue;
       if (this.distance(from, this.x[i], this.y[i]) > this.radius(from) + 6) continue;
-      passengers.push({ age: this.age[i], role: ROLE.soldier });
-      this.kill(i, true);
+      passengers.push({ age: this.age[i], role: ROLE.soldier, who: this.identity(i) });
+      this.kill(i, true, 'partiu');
     }
     if (passengers.length < 3) {
       for (const p of passengers) {
         const c = this.spawn(from.species, from.x + this.polRnd(), from.y + this.polRnd(), from.id, p.age);
-        if (c >= 0) this.role[c] = p.role;
+        if (c >= 0) {
+          this.role[c] = p.role;
+          this.restore(c, p.who, true);
+        }
       }
       return;
     }
@@ -3657,8 +3737,11 @@ export class Ecosystem {
       for (let i = 0; i < this.count && moved < 6; i++) {
         if (this.alive[i] && this.village[i] === v.id && i !== v.leader && this.role[i] !== CHILD) {
           this.village[i] = nv.id;
+          this.movedAt[i] = this.year;
           v.population--;
           nv.population++;
+          (v.vitalNow ??= emptyVital()).left++;
+          (nv.vitalNow ??= emptyVital()).arrived++;
           moved++;
         }
       }
@@ -3841,15 +3924,18 @@ export class Ecosystem {
     for (let i = 0; i < this.count && passengers.length < max; i++) {
       if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD) continue;
       if (this.age[i] >= elderAge(this.species[v.species], Math.floor(v.tech))) continue;
-      passengers.push({ age: this.age[i], role: this.role[i] });
-      this.kill(i, true);
+      passengers.push({ age: this.age[i], role: this.role[i], who: this.identity(i) });
+      this.kill(i, true, 'partiu');
     }
     if (passengers.length < 3) {
       // Gente de menos: desistem e voltam para casa.
       const w2 = map.width;
       for (const p of passengers) {
         const c = this.spawn(v.species, (v.port % w2) + this.civRnd(), Math.floor(v.port / w2) + this.civRnd(), v.id, p.age);
-        if (c >= 0) this.role[c] = p.role;
+        if (c >= 0) {
+          this.role[c] = p.role;
+          this.restore(c, p.who, true);
+        }
       }
       return false;
     }
@@ -3899,7 +3985,7 @@ export class Ecosystem {
     if (b.purpose === 'fish') {
       for (let i = 0; i < this.count; i++) {
         if (this.alive[i] && this.village[i] === v.id && this.role[i] === ROLE.fisher) {
-          this.kill(i, true);
+          this.kill(i, true, 'partiu');
           break;
         }
       }
@@ -4035,6 +4121,7 @@ export class Ecosystem {
       const c = this.spawn(from.species, lx + this.polRnd(), ly + this.polRnd(), from.id, p.age);
       if (c < 0) continue;
       this.role[c] = ROLE.soldier;
+      this.restore(c, p.who, true);
       this.expedition.add(c);
     }
     this.note(`Soldados de ${from.name} desembarcaram para a batalha`, 'guerra', { x: lx, y: ly });
@@ -4117,7 +4204,11 @@ export class Ecosystem {
     }
     for (const p of b.passengers) {
       const c = this.spawn(from.species, lx + this.civRnd(), ly + this.civRnd(), target.id, p.age);
-      if (c >= 0) this.role[c] = p.role;
+      if (c >= 0) {
+        this.role[c] = p.role;
+        this.restore(c, p.who);
+        this.movedAt[c] = this.year;
+      }
     }
   }
 
@@ -4219,7 +4310,7 @@ export class Ecosystem {
     let n = 0;
     this.forEachNear(x, y, r, (i) => {
       if (this.worldRnd() > chance) return;
-      this.kill(i, true);
+      this.kill(i, true, 'desastre');
       n++;
     });
     return n;
@@ -4261,7 +4352,7 @@ export class Ecosystem {
     this.buildGrid();
     let n = 0;
     this.forEachNear(x, y, radius, (i) => {
-      this.kill(i);
+      this.kill(i, false, 'jogador');
       n++;
     });
     return n;
@@ -4294,6 +4385,138 @@ export class Ecosystem {
       }
     }
     return taught;
+  }
+
+  /** Quem a pessoa é, para levar num barco. */
+  private identity(i: number): Identity {
+    return { uid: this.uid[i], parent: this.parent[i], family: this.family[i], bornAt: this.bornAt[i], bornYear: this.bornYear[i], movedAt: this.movedAt[i] };
+  }
+
+  /**
+   * Devolve a identidade a quem desembarcou. `back` é quem voltou ao mesmo
+   * assentamento sem partir de fato: a saída e a chegada se anulam.
+   */
+  private restore(c: number, who: Identity | undefined, back = false): void {
+    if (!who) return;
+    this.uid[c] = who.uid;
+    this.parent[c] = who.parent;
+    this.family[c] = who.family;
+    this.bornAt[c] = who.bornAt;
+    this.bornYear[c] = who.bornYear;
+    this.movedAt[c] = who.movedAt;
+    const v = this.villages[this.village[c]];
+    if (back && v?.vitalNow) {
+      v.vitalNow.arrived = Math.max(0, v.vitalNow.arrived - 1);
+      v.vitalNow.left = Math.max(0, v.vitalNow.left - 1);
+    }
+  }
+
+  /** Índice da criatura viva com esse `uid`, ou -1. */
+  findUid(uid: number): number {
+    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.uid[i] === uid) return i;
+    return -1;
+  }
+
+  /** Todas as criaturas a até `radius` de um ponto, da mais perto para a mais longe (RF-VIDA-331). */
+  pickAll(x: number, y: number, radius: number): number[] {
+    this.buildGrid();
+    const found: [number, number][] = [];
+    this.forEachNear(x, y, radius, (i, dx, dy) => found.push([dx * dx + dy * dy, i]));
+    return found.sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, i]) => i);
+  }
+
+  /** Criaturas dentro de um retângulo do mapa (seleção de grupo, RF-VIDA-336). */
+  pickRect(x0: number, y0: number, x1: number, y1: number): number[] {
+    const w = this.map.width;
+    const out: number[] = [];
+    const span = (((x1 - x0) % w) + w) % w || (x1 > x0 ? w : 0);
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || this.y[i] < y0 || this.y[i] > y1) continue;
+      if ((((this.x[i] - x0) % w) + w) % w <= span) out.push(i);
+    }
+    return out;
+  }
+
+  /** Pai ou mãe vivo e filhos vivos (ficha da criatura, RF-VIDA-335). */
+  familyOf(i: number): { parent: number; children: number[] } {
+    let parent = -1;
+    const children: number[] = [];
+    for (let j = 0; j < this.count; j++) {
+      if (!this.alive[j]) continue;
+      if (this.parent[i] && this.uid[j] === this.parent[i]) parent = j;
+      if (this.parent[j] === this.uid[i]) children.push(j);
+    }
+    return { parent, children };
+  }
+
+  /** O que a criatura está fazendo agora, em poucas palavras (RF-VIDA-335). */
+  activityOf(i: number): string {
+    const sp = this.species[this.kind[i]];
+    const moving = Math.hypot(this.vx[i], this.vy[i]) > 0.05;
+    const vi = this.village[i];
+    if (sp.kind !== 'sapient') {
+      if (this.energy[i] < 0.3) return sp.kind === 'predator' || sp.kind === 'shark' ? 'caçando, com fome' : 'procurando comida';
+      let threat = false;
+      if (sp.kind === 'herbivore' || sp.kind === 'fish') {
+        this.forEachNear(this.x[i], this.y[i], 4, (j) => {
+          const k = this.species[this.kind[j]].kind;
+          if (k === 'predator' || k === 'shark') threat = true;
+        });
+      }
+      if (threat && moving) return sp.kind === 'fish' ? 'fugindo de um tubarão' : 'fugindo de um predador';
+      return moving ? (sp.kind === 'fish' ? 'nadando' : 'andando') : sp.kind === 'herbivore' ? 'pastando' : 'descansando';
+    }
+    if (vi < 0) return moving ? 'andando sem rumo' : 'descansando no mato';
+    const v = this.villages[vi];
+    if (this.expedition.has(i)) return 'em campanha de guerra';
+    const role = ROLES[this.role[i]];
+    const d = this.distance(v, this.x[i], this.y[i]);
+    const inside = d <= this.radius(v);
+    const tile = this.tileOf(i);
+    if (this.role[i] === CHILD) return moving ? 'brincando' : 'em casa';
+    if (this.age[i] >= elderAge(sp, Math.floor(v.tech)) && this.role[i] < ROLE.leader) return 'descansando';
+    if (this.energy[i] < 0.3) return 'procurando comida';
+    const war = this.warOf(v.kingdom);
+    switch (role) {
+      case 'hunter':
+        return inside ? (moving ? 'voltando da caça' : 'limpando a caça') : 'indo caçar';
+      case 'gatherer':
+        return inside ? 'separando o que colheu' : 'colhendo frutos e raízes';
+      case 'farmer':
+        return this.road[tile] === 4 ? 'trabalhando na roça' : moving ? 'indo para a roça' : 'guardando a colheita';
+      case 'fisher':
+        return inside ? 'voltando com peixe' : 'pescando na costa';
+      case 'builder':
+        return v.houses.some((h) => (h.workUntil ?? 0) > this.year) ? 'construindo uma casa' : 'consertando casas';
+      case 'woodcutter':
+        return inside ? 'trazendo lenha' : 'cortando lenha';
+      case 'miner':
+        return v.mines.length ? 'trabalhando na mina' : 'procurando minério';
+      case 'blacksmith':
+        return 'trabalhando na forja';
+      case 'soldier':
+      case 'guard':
+        return war ? 'de guarda, em guerra' : 'de guarda';
+      case 'shepherd':
+        return 'cuidando do rebanho';
+      case 'horsekeeper':
+        return 'cuidando dos cavalos';
+      case 'weaver':
+        return 'tecendo';
+      case 'potter':
+        return 'fazendo tijolos';
+      case 'miller':
+        return 'moendo grão';
+      case 'merchant':
+        return inside ? 'negociando na praça' : 'levando mercadoria';
+      case 'priest':
+        return 'no templo';
+      case 'leader':
+      case 'king':
+        return war ? 'comandando a guerra' : 'cuidando do governo';
+      default:
+        return moving ? `andando por ${v.name}` : 'descansando';
+    }
   }
 
   /** Índice da criatura mais próxima de um ponto, ou -1. */

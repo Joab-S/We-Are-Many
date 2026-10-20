@@ -25,6 +25,13 @@ import { BODY_NAMES, makeDecorCanvas, ROLE_NAMES, ROLES, SPRITES } from './art';
 import { generateSurfaceAsync } from './generateAsync';
 import { SoftArt } from './softArt';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
+import { animalStage, DEATH_TEXT, familyName, personName } from '../../sim/people';
+import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, type CompareKey, type SettlementTab } from './settlementWindow';
+
+/** Raio de escolha de criaturas em pixels de tela, igual em qualquer zoom (RF-VIDA-330). */
+const PICK_RADIUS_PX = 10;
+/** Atualizações por segundo da janela do assentamento (RF-VIDA-341). */
+const VWIN_HZ = 4;
 
 /** Modo de depuração (`?debug` no endereço): mostra as taxas do momento nos painéis (RF-VIDA-310). */
 const DEBUG = typeof location !== 'undefined' && new URLSearchParams(location.search).has('debug');
@@ -114,11 +121,12 @@ const EVENT_TOOLS: Tool[] = (
   act: (ctx: SurfaceMode, x: number, y: number) => ctx.trigger(ev, x, y),
 }));
 
-type Win = 'chronicle' | 'kingdoms' | 'species' | 'items' | 'world';
+type Win = 'chronicle' | 'kingdoms' | 'settlements' | 'species' | 'items' | 'world';
 
 const WINDOWS: [Win, string][] = [
   ['chronicle', '📜 Crônica'],
   ['kingdoms', '👑 Reinos'],
+  ['settlements', '🏘 Assentamentos'],
   ['species', '🐾 Espécies'],
   ['items', '⚒ Itens'],
   ['world', '⚙ Mundo'],
@@ -169,8 +177,28 @@ export class SurfaceMode {
   private dragging: { x: number; y: number } | null = null;
   /** Onde começou o arraste da mão vazia, para separar clique de arraste. */
   private pressAt: { x: number; y: number } | null = null;
-  /** Ficha fixada com um clique da mão vazia: uma criatura (segue ela) ou um lugar. */
-  private pinned: { creature: number } | { x: number; y: number } | null = null;
+  /** Ficha fixada com um clique da mão vazia: uma criatura (com o `uid`, porque o índice é reaproveitado), um grupo ou um lugar. */
+  private pinned: { creature: number; uid: number } | { group: number[] } | { x: number; y: number } | null = null;
+  /** A câmera acompanha a criatura fixada (RF-VIDA-333). */
+  private follow = false;
+  /** Criatura que seria escolhida num clique agora, com contorno (RF-VIDA-330). */
+  private hoverPick = -1;
+  /** Último clique numa pilha de criaturas, para passar à próxima (RF-VIDA-331). */
+  private cycle: { x: number; y: number; list: number[]; k: number } | null = null;
+  /** Lista "N aqui" quando há mais de 3 criaturas sob o clique. */
+  private crowd: number[] | null = null;
+  /** Retângulo da seleção de grupo (Shift + arrastar, RF-VIDA-336), em pixels de tela. */
+  private box: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  /** Destaque no mapa: uma espécie inteira ou uma profissão de um assentamento (RF-VIDA-337). */
+  private highlight: { species: number } | { village: number; role: number } | null = null;
+  private highlightStep = 0;
+  /** Janela do assentamento aberta e a aba visível (RF-VIDA-341). */
+  private vwin: { id: number; tab: SettlementTab } | null = null;
+  private lastVwin = 0;
+  private lastVwinHtml = '';
+  /** Ordem da tabela de assentamentos (RF-VIDA-349a). */
+  private compareKey: CompareKey = 'population';
+  private compareDesc = true;
   private folded = false;
   private showTerritory = true;
   /** Camada das áreas coloridas: reinos, vocação ou economia (RF-VIDA-287). */
@@ -498,6 +526,13 @@ export class SurfaceMode {
         <div class="wb-win-head"><b data-win-title></b><button class="wb-x" data-close title="Fechar (Esc)">✕</button></div>
         <div class="wb-win-body" data-win-body></div>
       </div>
+      <div class="wb-vwin" data-vwin hidden>
+        <div class="wb-win-head"><b data-vwin-title></b><button class="wb-x" data-vclose title="Fechar (Esc)">✕</button></div>
+        <div class="wb-vtabs" data-vtabs>${SETTLEMENT_TABS.map(([id, label]) => `<button data-vtab="${id}">${label}</button>`).join('')}</div>
+        <div class="wb-win-body" data-vwin-body></div>
+      </div>
+      <div class="wb-crowd" data-crowd hidden></div>
+      <div class="wb-boxsel" data-box hidden></div>
       <div class="wb-toast" data-toast hidden></div>
       <div class="wb-dock">
         <div class="wb-tip" data-tip></div>
@@ -507,7 +542,8 @@ export class SurfaceMode {
       <div class="wb-help" data-help hidden>
         <div class="wb-win-head"><b>Controles</b><button class="wb-x" data-a="help" title="Fechar (H)">✕</button></div>
         <div class="wb-keys">
-          <span><kbd>Esquerdo</kbd> usa a ferramenta; de mão vazia arrasta o mapa e um clique fixa a ficha do que está embaixo</span>
+          <span><kbd>Esquerdo</kbd> usa a ferramenta; de mão vazia arrasta o mapa e um clique fixa a ficha do que está embaixo. Clicar de novo no mesmo ponto passa para a próxima criatura</span>
+          <span>Clique no nome, na praça ou num prédio para abrir a janela do assentamento · <kbd>Shift</kbd> + arrastar escolhe um grupo · <kbd>F</kbd> segue a criatura escolhida</span>
           <span><kbd>Direito</kbd><kbd>WASD</kbd> movem o mapa · <kbd>Roda</kbd> zoom</span>
           <span><kbd>Espaço</kbd> pausa · <kbd>1</kbd>–<kbd>4</kbd> velocidade</span>
           <span><kbd>[</kbd><kbd>]</kbd> tamanho do pincel · <kbd>Esc</kbd> guarda a ferramenta, fecha a janela ou volta à órbita</span>
@@ -555,7 +591,37 @@ export class SurfaceMode {
       }
       const village = el.closest<HTMLElement>('[data-village]');
       const v = village && this.eco.villages.find((it) => it.id === Number(village.dataset.village));
-      if (v) this.goTo(v.x, v.y);
+      if (v) {
+        this.goTo(v.x, v.y);
+        // Da tabela de assentamentos ou das relações, abre também a janela dele.
+        if (village.closest('[data-win-body]') && this.win === 'settlements') this.openSettlement(v.id);
+        else if (village.closest('[data-vwin-body]')) this.openSettlement(v.id);
+      }
+      const sort = el.closest<HTMLElement>('[data-sort]');
+      if (sort) {
+        const key = sort.dataset.sort as CompareKey;
+        this.compareDesc = key === this.compareKey ? !this.compareDesc : key !== 'name' && key !== 'vocation';
+        this.compareKey = key;
+        this.lastWinHtml = '';
+        this.updateWindow(true);
+      }
+      const species = el.closest<HTMLElement>('[data-species]');
+      if (species) this.highlightNext({ species: Number(species.dataset.species) });
+      const role = el.closest<HTMLElement>('[data-role]');
+      if (role && this.vwin) this.highlightNext({ village: this.vwin.id, role: Number(role.dataset.role) });
+      const who = el.closest<HTMLElement>('[data-uid]');
+      if (who) {
+        const i = this.eco.findUid(Number(who.dataset.uid));
+        if (i >= 0) this.select(i);
+      }
+      const act = el.closest<HTMLElement>('[data-act]');
+      if (act?.dataset.act === 'follow') this.toggleFollow();
+      const tab = el.closest<HTMLElement>('[data-vtab]');
+      if (tab && this.vwin) {
+        this.vwin.tab = tab.dataset.vtab as SettlementTab;
+        this.lastVwinHtml = '';
+        this.updateVwin(true);
+      }
       const filter = el.closest<HTMLElement>('[data-filter]');
       if (filter) {
         this.winFilter = filter.dataset.filter!;
@@ -580,12 +646,27 @@ export class SurfaceMode {
     this.root.querySelector('[data-p]')!.addEventListener('pointerdown', onPanel, { signal });
     this.root.querySelector('[data-win-body]')!.addEventListener('pointerdown', onPanel, { signal });
     this.root.querySelector('[data-clock]')!.addEventListener('pointerdown', onPanel, { signal });
+    this.root.querySelector('[data-i]')!.addEventListener('pointerdown', onPanel, { signal });
+    this.root.querySelector('[data-vwin]')!.addEventListener('pointerdown', onPanel, { signal });
+    this.root.querySelector('[data-vclose]')!.addEventListener('click', () => this.openSettlement(null), { signal });
+    // Rótulo do assentamento: clicar abre a janela dele (RF-VIDA-340).
+    this.root.querySelector('[data-l]')!.addEventListener('pointerdown', (e) => {
+      const label = (e.target as HTMLElement).closest<HTMLElement>('[data-vid]');
+      if (label) this.openSettlement(Number(label.dataset.vid));
+    }, { signal });
+    this.root.querySelector('[data-crowd]')!.addEventListener('pointerdown', (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>('[data-pickone]');
+      if (row) this.select(Number(row.dataset.pickone));
+      this.showCrowd(null);
+    }, { signal });
     this.selectTab('terrain');
 
     const canvas = this.renderer.domElement;
     canvas.addEventListener('contextmenu', (e) => e.preventDefault(), { signal });
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button === 0 && this.tool) {
+      if (e.button === 0 && !this.tool && e.shiftKey) {
+        this.box = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY };
+      } else if (e.button === 0 && this.tool) {
         this.painting = true;
         this.clicked = true;
       } else {
@@ -595,6 +676,11 @@ export class SurfaceMode {
       canvas.setPointerCapture(e.pointerId);
     }, { signal });
     canvas.addEventListener('pointerup', (e) => {
+      if (this.box) {
+        this.selectBox(this.box);
+        this.box = null;
+        this.root.querySelector<HTMLElement>('[data-box]')!.hidden = true;
+      }
       // Clique curto da mão vazia: fixa (ou solta) a ficha do que está embaixo.
       if (this.pressAt && Math.hypot(e.clientX - this.pressAt.x, e.clientY - this.pressAt.y) < 5) this.pin();
       this.pressAt = null;
@@ -602,6 +688,15 @@ export class SurfaceMode {
       this.dragging = null;
     }, { signal });
     canvas.addEventListener('pointermove', (e) => {
+      if (this.box) {
+        this.box.x1 = e.clientX;
+        this.box.y1 = e.clientY;
+        const el = this.root.querySelector<HTMLElement>('[data-box]')!;
+        el.hidden = false;
+        Object.assign(el.style, { left: `${Math.min(this.box.x0, this.box.x1)}px`, top: `${Math.min(this.box.y0, this.box.y1)}px`, width: `${Math.abs(this.box.x1 - this.box.x0)}px`, height: `${Math.abs(this.box.y1 - this.box.y0)}px` });
+      }
+      // Arrastar o mapa solta a câmera que seguia alguém.
+      if (this.dragging && this.follow && Math.hypot(e.clientX - this.dragging.x, e.clientY - this.dragging.y) > 2) this.follow = false;
       if (this.dragging) {
         this.center.x -= (e.clientX - this.dragging.x) / this.zoom;
         this.center.y += (e.clientY - this.dragging.y) / this.zoom;
@@ -627,15 +722,181 @@ export class SurfaceMode {
     this.root.querySelector('[data-fold]')!.textContent = this.folded ? '▸ Painel' : '▾ Painel';
   }
 
-  /** Fixa a ficha do que está sob o mouse; clicar no mesmo vazio de novo solta. */
+  /** Raio de escolha em tiles para o zoom atual. */
+  private pickRadius(): number {
+    return PICK_RADIUS_PX / this.zoom;
+  }
+
+  /**
+   * Clique da mão vazia (RF-VIDA-330, 331 e 340): na praça ou num prédio
+   * abre a janela do assentamento; sobre criaturas escolhe a mais perto, e
+   * clicar de novo no mesmo ponto passa para a próxima; no vazio do
+   * assentamento fixa a ficha do lugar; no resto solta a seleção.
+   */
   private pin(): void {
     const row = this.toRow(this.hover.y);
-    const picked = this.eco.pick(this.hover.x, row, Math.max(0.8, 6 / this.zoom));
-    if (picked >= 0) this.pinned = { creature: picked };
-    else if (this.eco.settlementAt(this.hover.x, row)) this.pinned = { x: this.hover.x, y: this.hover.y };
+    const tile = this.tileIndex(this.hover.x, this.hover.y);
+    const anchor = tile >= 0 ? this.anchorAt(tile) : null;
+    if (anchor) {
+      this.openSettlement(anchor.id);
+      return;
+    }
+    const list = this.eco.pickAll(this.hover.x, row, this.pickRadius());
+    this.showCrowd(null);
+    if (list.length) {
+      const m = this.mouse;
+      const same = this.cycle && m && Math.hypot(m.x - this.cycle.x, m.y - this.cycle.y) < 6 && list.length === this.cycle.list.length && list.every((i) => this.cycle!.list.includes(i));
+      const k = same ? (this.cycle!.k + 1) % list.length : 0;
+      this.cycle = m ? { x: m.x, y: m.y, list, k } : null;
+      this.select(same ? this.cycle!.list[k] : list[0], false);
+      if (!same && list.length > 3) this.showCrowd(list);
+      return;
+    }
+    this.cycle = null;
+    this.follow = false;
+    if (this.eco.settlementAt(this.hover.x, row)) this.pinned = { x: this.hover.x, y: this.hover.y };
     else this.pinned = null;
     this.lastInfoHtml = '';
     this.updateInfo();
+  }
+
+  /** Assentamento cuja praça ou prédio está neste tile (RF-VIDA-340). */
+  private anchorAt(i: number): Village | null {
+    const eco = this.eco;
+    const w = this.map.width;
+    const x = i % w;
+    const y = Math.floor(i / w);
+    if (eco.road[i] === 3) return eco.settlementAt(x + 0.5, y + 0.5);
+    if (!eco.built[i]) return null;
+    for (const v of eco.villages) {
+      if (v.abandoned) continue;
+      for (const h of v.houses) {
+        const size = h.kind === 'port' ? 0 : 1;
+        if (y >= h.y && y <= h.y + size && (x - h.x + w) % w <= size) return h.kind === 'house' ? null : v;
+      }
+    }
+    return null;
+  }
+
+  /** Escolhe uma criatura e fixa a ficha dela. */
+  private select(i: number, closeCrowd = true): void {
+    if (i < 0 || !this.eco.alive[i]) return;
+    if (closeCrowd) this.showCrowd(null);
+    if (!(this.pinned && 'creature' in this.pinned && this.pinned.uid === this.eco.uid[i])) this.follow = false;
+    this.pinned = { creature: i, uid: this.eco.uid[i] };
+    this.lastInfoHtml = '';
+    this.textureChanged = true;
+    this.updateInfo();
+  }
+
+  /** Lista pequena "N aqui" para escolher numa pilha de criaturas (RF-VIDA-331). */
+  private showCrowd(list: number[] | null): void {
+    this.crowd = list;
+    const el = this.root.querySelector<HTMLElement>('[data-crowd]')!;
+    if (!list || !this.mouse) {
+      el.hidden = true;
+      return;
+    }
+    const rows = list.slice(0, 12).map((i) => `<button data-pickone="${i}">${this.shortName(i)}</button>`).join('');
+    el.innerHTML = `<b>${list.length} aqui</b>${rows}${list.length > 12 ? `<span>e mais ${list.length - 12}</span>` : ''}`;
+    el.style.transform = `translate(${this.mouse.x + 16}px, ${this.mouse.y - 8}px)`;
+    el.hidden = false;
+  }
+
+  /** "Enka, caçador" ou "Lobo, adulto": o nome curto da lista e dos avisos. */
+  private shortName(i: number): string {
+    const eco = this.eco;
+    const sp = eco.species[eco.kind[i]];
+    if (sp.kind === 'sapient' && eco.village[i] >= 0) return `${personName(eco.uid[i], eco.villages[eco.village[i]].culture.id)}, ${this.lifeStage(i).toLowerCase()}`;
+    if (sp.kind === 'sapient') return `${sp.name}, sem assentamento`;
+    return `${sp.name}, ${animalStage(eco.age[i], sp.maturity, sp.maxAge)}`;
+  }
+
+  /** Shift + arrastar: seleciona as criaturas dentro do retângulo (RF-VIDA-336). */
+  private selectBox(b: { x0: number; y0: number; x1: number; y1: number }): void {
+    if (Math.abs(b.x1 - b.x0) < 4 || Math.abs(b.y1 - b.y0) < 4) return;
+    const toMap = (sx: number, sy: number) => [this.center.x + (sx - window.innerWidth / 2) / this.zoom, this.map.height - (this.center.y + (window.innerHeight / 2 - sy) / this.zoom)];
+    const [ax, ay] = toMap(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1));
+    const [bx, by] = toMap(Math.max(b.x0, b.x1), Math.max(b.y0, b.y1));
+    const list = this.eco.pickRect(ax, ay, bx, by);
+    this.pressAt = null;
+    this.follow = false;
+    this.pinned = list.length ? { group: list.map((i) => this.eco.uid[i]) } : null;
+    this.lastInfoHtml = '';
+    this.textureChanged = true;
+    this.updateInfo();
+  }
+
+  /** Liga ou desliga a câmera que segue a criatura fixada (botão Seguir e tecla F). */
+  private toggleFollow(): void {
+    if (!this.pinned || !('creature' in this.pinned)) return;
+    this.follow = !this.follow;
+    this.lastInfoHtml = '';
+  }
+
+  /**
+   * Destaca uma espécie ou uma profissão no mapa; cada clique seguido leva a
+   * câmera ao próximo indivíduo (RF-VIDA-337).
+   */
+  private highlightNext(h: { species: number } | { village: number; role: number }): void {
+    const same = JSON.stringify(h) === JSON.stringify(this.highlight);
+    this.highlight = h;
+    const list = this.highlighted();
+    if (!list.length) {
+      this.eco.hint = 'Ninguém assim no mapa agora';
+      return;
+    }
+    this.highlightStep = same ? (this.highlightStep + 1) % list.length : 0;
+    const i = list[this.highlightStep];
+    this.goTo(this.eco.x[i], this.eco.y[i]);
+    this.eco.hint = `${this.highlightStep + 1} de ${list.length} · clique de novo para o próximo · Esc tira o destaque`;
+    this.textureChanged = true;
+    this.lastPanelHtml = '';
+  }
+
+  /** Índices destacados agora. */
+  private highlighted(): number[] {
+    const h = this.highlight;
+    if (!h) return [];
+    const eco = this.eco;
+    const out: number[] = [];
+    for (let i = 0; i < eco.count; i++) {
+      if (!eco.alive[i]) continue;
+      if ('species' in h ? eco.kind[i] === h.species : eco.village[i] === h.village && eco.role[i] === h.role) out.push(i);
+    }
+    return out;
+  }
+
+  /** Abre (ou fecha, com null) a janela do assentamento. */
+  private openSettlement(id: number | null): void {
+    this.vwin = id === null ? null : { id, tab: this.vwin?.id === id ? this.vwin.tab : 'summary' };
+    if (id === null && this.highlight && 'village' in this.highlight) this.highlight = null;
+    this.lastVwinHtml = '';
+    this.root.querySelector<HTMLElement>('[data-vwin]')!.hidden = !this.vwin;
+    this.textureChanged = true;
+    this.updateVwin(true);
+  }
+
+  /** Só a aba visível é refeita, no máximo VWIN_HZ vezes por segundo (RF-VIDA-341). */
+  private updateVwin(force = false): void {
+    if (!this.vwin) return;
+    const now = performance.now();
+    if (!force && now - this.lastVwin < 1000 / VWIN_HZ) return;
+    this.lastVwin = now;
+    const v = this.eco.villages[this.vwin.id];
+    if (!v) return;
+    const tab = this.vwin.tab;
+    const html = settlementTabHtml(this.eco, v, tab, (e) => Ecosystem.describe(e));
+    const title = `${v.vocation ? `${VOCATION_ICONS[v.vocation]} ` : ''}${TIER_NAMES[v.tier]} ${v.name} ${stateIcons(this.eco, v)}`;
+    const head = this.root.querySelector<HTMLElement>('[data-vwin-title]')!;
+    if (head.textContent !== title) head.textContent = title;
+    this.root.querySelectorAll<HTMLElement>('[data-vtab]').forEach((b) => b.classList.toggle('on', b.dataset.vtab === tab));
+    if (html === this.lastVwinHtml) return;
+    this.lastVwinHtml = html;
+    const body = this.root.querySelector<HTMLElement>('[data-vwin-body]')!;
+    const scroll = body.scrollTop;
+    body.innerHTML = html;
+    body.scrollTop = scroll;
   }
 
   /** Minimapa: o mapa inteiro reduzido e o retângulo da vista. */
@@ -809,7 +1070,17 @@ export class SurfaceMode {
     this.lastWin = now;
     const title = WINDOWS.find(([id]) => id === this.win)![1];
     const body =
-      this.win === 'chronicle' ? this.chronicleHtml() : this.win === 'kingdoms' ? this.kingdomsHtml() : this.win === 'species' ? this.speciesHtml() : this.win === 'items' ? this.itemsHtml() : this.worldHtml();
+      this.win === 'chronicle'
+        ? this.chronicleHtml()
+        : this.win === 'kingdoms'
+          ? this.kingdomsHtml()
+          : this.win === 'settlements'
+            ? compareHtml(this.eco, this.compareKey, this.compareDesc)
+            : this.win === 'species'
+              ? this.speciesHtml()
+              : this.win === 'items'
+                ? this.itemsHtml()
+                : this.worldHtml();
     if (body === this.lastWinHtml) return;
     this.lastWinHtml = body;
     this.root.querySelector<HTMLElement>('[data-win-title]')!.textContent = title;
@@ -945,11 +1216,19 @@ export class SurfaceMode {
 
     const input = this.input;
     if (input.hit('Escape')) {
-      if (this.win) this.openWindow(null);
+      // Fecha o que estiver por cima primeiro (RF-VIDA-349b).
+      if (this.crowd) this.showCrowd(null);
+      else if (this.vwin) this.openSettlement(null);
+      else if (this.win) this.openWindow(null);
       else if (!this.root.querySelector<HTMLElement>('[data-help]')!.hidden) this.toggleHelp();
-      else if (this.pinned) {
+      else if (this.highlight) {
+        this.highlight = null;
+        this.textureChanged = true;
+      } else if (this.pinned) {
         this.pinned = null;
+        this.follow = false;
         this.lastInfoHtml = '';
+        this.textureChanged = true;
       } else if (this.tool) {
         this.tool = null;
         this.updateToolbar();
@@ -966,6 +1245,7 @@ export class SurfaceMode {
       this.lastView = '';
     }
     if (input.hit('KeyP')) this.fold();
+    if (input.hit('KeyF')) this.toggleFollow();
     for (const [code, step] of [['BracketLeft', -2], ['BracketRight', 2]] as const) {
       if (!input.hit(code)) continue;
       this.brush = clamp(this.brush + step, 1, 30);
@@ -981,7 +1261,12 @@ export class SurfaceMode {
     this.center.y = halfView * 2 < this.map.height ? clamp(this.center.y, halfView, this.map.height - halfView) : this.map.height / 2;
     this.center.x = ((this.center.x % this.map.width) + this.map.width) % this.map.width;
 
+    // Câmera seguindo a criatura fixada (RF-VIDA-333).
+    const pin = this.pinned;
+    if (this.follow && pin && 'creature' in pin && this.eco.alive[pin.creature] && this.eco.uid[pin.creature] === pin.uid) this.center.set(this.eco.x[pin.creature], this.map.height - this.eco.y[pin.creature]);
     this.updateHover();
+    // Quem seria escolhido num clique ganha contorno (RF-VIDA-330).
+    this.hoverPick = !this.tool && !this.box && this.hover.x > -1e5 ? this.eco.pick(this.hover.x, this.toRow(this.hover.y), this.pickRadius()) : -1;
     this.useTool(dt);
 
     // Simulação em passos de no máximo 0,1 s, multiplicados pela velocidade escolhida.
@@ -996,7 +1281,9 @@ export class SurfaceMode {
 
     // Parado e sem mudanças, não redesenha.
     const view = `${this.center.x},${this.center.y},${this.zoom},${this.hover.x},${this.hover.y},${this.tool?.id},${this.brush},${this.renderer.getPixelRatio()}`;
-    if (simDt > 0 || this.textureChanged || view !== this.lastView || this.eco.effects.length) {
+    // Seleção, destaque e janela do assentamento pulsam: redesenha mesmo parado.
+    const marked = !!this.pinned || !!this.highlight || !!this.vwin || this.hoverPick >= 0;
+    if (simDt > 0 || this.textureChanged || view !== this.lastView || this.eco.effects.length || marked) {
       this.lastView = view;
       this.textureChanged = false;
       this.render();
@@ -1007,6 +1294,7 @@ export class SurfaceMode {
       this.updatePanel();
       this.updateMinimap(now);
       this.updateWindow();
+      this.updateVwin();
       this.updateToast(now);
     }
     this.updateCursor();
@@ -1038,6 +1326,8 @@ export class SurfaceMode {
     }
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, w, h);
+    this.drawOpenSettlement(ctx, w, h);
+    this.drawSelection(ctx, w, h);
     if (!this.showTerritory || this.zoom < 1) return;
     const z = this.zoom;
     for (const v of this.eco.villages) {
@@ -1060,6 +1350,128 @@ export class SurfaceMode {
       ctx.stroke();
     }
     ctx.setLineDash([]);
+  }
+
+  /** Ponto de tela (canvas das áreas) de uma posição do mapa (x, linha). */
+  private screenOf(x: number, row: number, w: number, h: number): [number, number] {
+    const [sx, gy] = this.toScreen(x, row, this.zoom, w, h);
+    return [sx, h - gy];
+  }
+
+  /**
+   * Destaque do assentamento com a janela aberta (RF-VIDA-348): área
+   * tingida, prédios contornados, minas e porto.
+   */
+  private drawOpenSettlement(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    if (!this.vwin) return;
+    const v = this.eco.villages[this.vwin.id];
+    if (!v || v.abandoned) return;
+    const z = this.zoom;
+    const c = v.color.join(',');
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
+    const [cx, cy] = this.screenOf(v.x, v.y, w, h);
+    ctx.beginPath();
+    ctx.arc(cx, cy, this.eco.radius(v) * z, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${c},0.14)`;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(255,240,180,${(0.5 + 0.4 * pulse).toFixed(2)})`;
+    ctx.stroke();
+    if (z < 3) return;
+    ctx.lineWidth = Math.max(1, z * 0.12);
+    ctx.strokeStyle = 'rgba(255,240,180,0.85)';
+    for (const b of v.houses) {
+      const size = b.kind === 'port' ? 1 : 2;
+      const [x0, y0] = this.screenOf(b.x, b.y, w, h);
+      if (b.kind !== 'house') ctx.strokeRect(x0, y0, size * z, size * z);
+    }
+    ctx.strokeStyle = 'rgba(240,200,96,0.9)';
+    for (const id of v.mines) {
+      const d = this.eco.deposits[id];
+      if (!d) continue;
+      const [mx, my] = this.screenOf(d.x + 0.5, d.y + 0.5, w, h);
+      ctx.beginPath();
+      ctx.arc(mx, my, z * 1.2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  /**
+   * Marcadores (RF-VIDA-330, 332, 336 e 337): contorno de quem o clique
+   * escolheria, anel pulsante na cor do reino (branco para animais) sobre
+   * quem está selecionado, com seta na borda da tela quando sai da vista, e
+   * anéis pequenos nos destacados e no grupo.
+   */
+  private drawSelection(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const eco = this.eco;
+    const z = this.zoom;
+    const t = performance.now() / 1000;
+    const colorOf = (i: number) => (eco.village[i] >= 0 && eco.species[eco.kind[i]].kind === 'sapient' ? eco.villages[eco.village[i]].color.join(',') : '255,255,255');
+    const at = (i: number) => {
+      const [sx, sy] = this.screenOf(eco.x[i], eco.y[i], w, h);
+      // O desenho da criatura fica meio tile acima do ponto dela.
+      return [sx, sy - z * 0.5] as const;
+    };
+    const ring = (i: number, r: number, width: number, alpha: number) => {
+      const [sx, sy] = at(i);
+      if (sx < -20 || sx > w + 20 || sy < -20 || sy > h + 20) return;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.lineWidth = width;
+      ctx.strokeStyle = `rgba(${colorOf(i)},${alpha.toFixed(2)})`;
+      ctx.stroke();
+    };
+    const base = Math.max(6, z * 0.9);
+    for (const i of this.highlighted()) ring(i, base * 0.8, 1.5, 0.85);
+    const pin = this.pinned;
+    if (pin && 'group' in pin) {
+      const set = new Set(pin.group);
+      for (let i = 0; i < eco.count; i++) if (eco.alive[i] && set.has(eco.uid[i])) ring(i, base * 0.8, 1.5, 0.9);
+    }
+    if (this.hoverPick >= 0 && !(pin && 'creature' in pin && pin.creature === this.hoverPick)) {
+      const [sx, sy] = at(this.hoverPick);
+      ctx.beginPath();
+      ctx.arc(sx, sy, base, 0, Math.PI * 2);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.stroke();
+    }
+    if (!pin || !('creature' in pin) || !eco.alive[pin.creature] || eco.uid[pin.creature] !== pin.uid) return;
+    const i = pin.creature;
+    const [sx, sy] = at(i);
+    const pulse = 0.5 + 0.5 * Math.sin(t * 5);
+    const inside = sx >= 0 && sx <= w && sy >= 0 && sy <= h;
+    if (inside) {
+      ctx.beginPath();
+      ctx.arc(sx, sy, base * (1.1 + 0.25 * pulse), 0, Math.PI * 2);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(${colorOf(i)},${(0.7 + 0.3 * pulse).toFixed(2)})`;
+      ctx.stroke();
+      return;
+    }
+    // Fora da vista: seta na borda apontando para ela.
+    const a = Math.atan2(sy - h / 2, sx - w / 2);
+    const m = 24;
+    const k = Math.min((w / 2 - m) / Math.max(1e-6, Math.abs(Math.cos(a))), (h / 2 - m) / Math.max(1e-6, Math.abs(Math.sin(a))));
+    const ax = w / 2 + Math.cos(a) * k;
+    const ay = h / 2 + Math.sin(a) * k;
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.moveTo(12, 0);
+    ctx.lineTo(-8, -9);
+    ctx.lineTo(-8, 9);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(${colorOf(i)},0.95)`;
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    ctx.lineWidth = 2;
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** Cor do assentamento na camada escolhida: reino, vocação ou situação da economia. */
@@ -1379,20 +1791,23 @@ export class SurfaceMode {
       if (!el) {
         el = document.createElement('div');
         el.className = 'wb-village';
+        el.dataset.vid = String(v.id);
         container.appendChild(el);
         this.labels.set(v.id, el);
       }
       el.hidden = false;
-      // Ícone simples da vocação antes do nome (RF-VIDA-224).
+      // Ícone simples da vocação antes do nome e os ícones de estado depois (RF-VIDA-224 e 349).
       const icon = v.vocation ? `${VOCATION_ICONS[v.vocation]} ` : '';
+      const marks = stateIcons(this.eco, v);
       const text =
-        v.kingdom === v.id && this.eco.kingdomSize(v) > 1
+        (v.kingdom === v.id && this.eco.kingdomSize(v) > 1
           ? `♛ ${icon}Reino de ${v.name} · ${v.population}`
-          : `${icon}${TIER_NAMES[v.tier]} ${v.name} · ${v.population}`;
+          : `${icon}${TIER_NAMES[v.tier]} ${v.name} · ${v.population}`) + (marks ? ` ${marks}` : '');
+      el.classList.toggle('open', this.vwin?.id === v.id);
       if (el.textContent !== text) el.textContent = text;
       const color = `rgb(${v.color.join(',')})`;
       if (el.style.borderLeftColor !== color) el.style.borderLeftColor = color;
-      el.title = v.kingdom === v.id ? `Povo ${v.culture.name}` : `Reino de ${this.eco.capitalOf(v).name} · povo ${v.culture.name}`;
+      el.title = `${v.kingdom === v.id ? `Povo ${v.culture.name}` : `Reino de ${this.eco.capitalOf(v).name} · povo ${v.culture.name}`} · clique para abrir a janela`;
       el.style.transform = `translate(${sx}px, ${h - sy}px) translate(-50%, -100%)`;
     }
   }
@@ -1530,54 +1945,196 @@ export class SurfaceMode {
     return eco.age[i] >= elderAge(sp, Math.floor(v.tech)) ? (role >= ROLES.indexOf('leader') ? `${name} idoso` : 'Idoso') : name;
   }
 
+  /** Barras de energia e saúde (saúde: energia e o peso da idade). */
+  private vitals(i: number): string {
+    const eco = this.eco;
+    const sp = eco.species[eco.kind[i]];
+    const v = eco.village[i] >= 0 ? eco.villages[eco.village[i]] : null;
+    const life = sp.kind === 'sapient' ? sp.maxAge * (1 + 0.12 * Math.floor(v?.tech ?? 0)) : sp.maxAge;
+    const old = Math.max(0, (eco.age[i] - life * 0.6) / (life * 0.4));
+    const health = Math.max(0, Math.min(1, 0.4 + eco.energy[i] * 0.6) * (1 - 0.7 * Math.min(1, old)));
+    return `<span class="wb-line">Energia ${bar(eco.energy[i], `${Math.round(eco.energy[i] * 100)}%`)}</span>
+      <span class="wb-line">Saúde ${bar(health, `${Math.round(health * 100)}%`)}</span>`;
+  }
+
+  /** O que a pessoa leva: a ferramenta da profissão, armas se o assentamento tem. */
+  private carries(i: number): string {
+    const eco = this.eco;
+    const v = eco.villages[eco.village[i]];
+    const era = Math.floor(v.tech);
+    const role = ROLES[eco.role[i]];
+    const metal = era >= 1 && v.stock.tools > 0;
+    const tools: Partial<Record<typeof role, string>> = {
+      hunter: era >= 1 ? 'arco e flechas' : 'lança de pedra',
+      farmer: metal ? 'enxada de metal' : 'enxada de madeira',
+      woodcutter: metal ? 'machado de metal' : 'machado de pedra',
+      miner: metal ? 'picareta' : 'cunha de pedra',
+      builder: 'martelo',
+      blacksmith: 'martelo e tenaz',
+      fisher: 'rede',
+      shepherd: 'cajado',
+      merchant: 'mercadoria',
+      soldier: v.stock.weapons > 0 ? 'arma do arsenal' : 'lança de madeira',
+      guard: v.stock.weapons > 0 ? 'arma do arsenal' : 'porrete',
+      gatherer: 'cesto',
+    };
+    return tools[role] ?? '';
+  }
+
+  /** Ficha completa da criatura (RF-VIDA-335). */
+  private creatureCard(i: number): string {
+    const eco = this.eco;
+    const sp = eco.species[eco.kind[i]];
+    const vi = eco.village[i];
+    const v = vi >= 0 ? eco.villages[vi] : null;
+    const following = this.pinned && 'creature' in this.pinned && this.pinned.creature === i;
+    const follow = following ? `<button class="wb-btn" data-act="follow">${this.follow ? '⏹ Parar de seguir (F)' : '🎥 Seguir (F)'}</button>` : '';
+    const doing = `<span>Agora: ${eco.activityOf(i)}</span>`;
+    if (sp.kind !== 'sapient') {
+      const diet = sp.kind === 'herbivore' ? 'plantas' : sp.kind === 'fish' ? 'algas e plâncton' : sp.kind === 'shark' ? 'peixes' : sp.omnivore ? 'carne, frutos e raízes' : 'carne';
+      let group = 0;
+      let threat = '';
+      let td = Infinity;
+      for (const j of eco.pickAll(eco.x[i], eco.y[i], 8)) {
+        const o = eco.species[eco.kind[j]];
+        const d = Math.hypot(eco.x[j] - eco.x[i], eco.y[j] - eco.y[i]);
+        if (eco.kind[j] === eco.kind[i] && d <= 6) group++;
+        if (j !== i && (o.kind === 'predator' || o.kind === 'shark') && sp.kind !== 'predator' && sp.kind !== 'shark' && d < td) {
+          td = d;
+          threat = `${o.name} a ${Math.round(d)} tiles`;
+        }
+      }
+      const gname = sp.kind === 'fish' || sp.kind === 'shark' ? 'cardume' : sp.kind === 'predator' ? 'matilha' : 'bando';
+      return `
+        <b>${sp.name} · ${animalStage(eco.age[i], sp.maturity, sp.maxAge)}</b>
+        <span>Idade ${eco.age[i].toFixed(0)} de até ${Math.round(sp.maxAge)} anos</span>
+        ${this.vitals(i)}
+        ${doing}
+        <span>Come ${diet}</span>
+        <span>${group > 1 ? `Num ${gname} de ${group}` : 'Sozinho por aqui'}</span>
+        ${threat ? `<span class="bad">Predador por perto: ${threat}</span>` : ''}
+        ${follow}`;
+    }
+    const name = v ? fullName(eco, i) : sp.name;
+    const role = eco.role[i];
+    const job = v ? `${role === CHILD ? '🧒' : ROLE_ICONS[ROLES[role]]} ${this.lifeStage(i)}` : 'Sem assentamento';
+    const fam = eco.familyOf(i);
+    const person = (j: number) => `<button class="wb-link" data-uid="${eco.uid[j]}">${personName(eco.uid[j], v?.culture.id ?? 0)}</button>`;
+    const born = eco.bornAt[i] >= 0 ? eco.villages[eco.bornAt[i]] : null;
+    const story = [
+      born ? `nasceu em ${born.name} no ano ${Math.max(0, Math.floor(eco.bornYear[i]))}` : `chegou de fora${eco.bornYear[i] >= 0 ? `, nascido por volta do ano ${Math.floor(eco.bornYear[i])}` : ''}`,
+      v && eco.movedAt[i] >= 0 && (!born || born.id !== v.id) ? `mudou para ${v.name} no ano ${Math.floor(eco.movedAt[i])}` : '',
+    ].filter(Boolean).join(', ');
+    const carry = v && role !== CHILD ? this.carries(i) : '';
+    return `
+      <b>${name}</b>
+      <span>${sp.name} · ${job}</span>
+      <span>Idade ${eco.age[i].toFixed(0)} anos</span>
+      ${this.vitals(i)}
+      ${doing}
+      ${v ? `<span>Mora em <button class="wb-link" data-village="${v.id}">${TIER_NAMES[v.tier]} ${v.name}</button>${v.kingdom !== v.id ? ` · Reino de ${eco.capitalOf(v).name}` : ''}</span>` : ''}
+      ${v ? `<span>Família ${familyName(eco.family[i], v.culture.id)}${fam.parent >= 0 ? ` · filho(a) de ${person(fam.parent)}` : ''}${fam.children.length ? ` · filhos: ${fam.children.slice(0, 5).map(person).join(', ')}${fam.children.length > 5 ? ` e mais ${fam.children.length - 5}` : ''}` : ''}</span>` : ''}
+      ${carry ? `<span>Leva ${carry}</span>` : ''}
+      ${story ? `<span class="wb-dim">${story[0].toUpperCase()}${story.slice(1)}.</span>` : ''}
+      ${follow}`;
+  }
+
+  /** Resumo do grupo escolhido com Shift + arrastar (RF-VIDA-336). */
+  private groupCard(uids: number[]): string {
+    const eco = this.eco;
+    const set = new Set(uids);
+    const species = new Map<string, number>();
+    const jobs = new Map<string, number>();
+    let energy = 0;
+    let n = 0;
+    for (let i = 0; i < eco.count; i++) {
+      if (!eco.alive[i] || !set.has(eco.uid[i])) continue;
+      n++;
+      energy += eco.energy[i];
+      const sp = eco.species[eco.kind[i]];
+      species.set(sp.name, (species.get(sp.name) ?? 0) + 1);
+      if (sp.kind === 'sapient' && eco.village[i] >= 0) jobs.set(this.lifeStage(i), (jobs.get(this.lifeStage(i)) ?? 0) + 1);
+    }
+    if (!n) return '<b>Grupo</b><span>Ninguém do grupo está vivo.</span>';
+    const list = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([k, c]) => `${k} ${c}`).join(' · ');
+    return `
+      <b>Grupo de ${n}</b>
+      <span>${list(species)}</span>
+      ${jobs.size ? `<span>${list(jobs)}</span>` : ''}
+      <span class="wb-line">Energia média ${bar(energy / n, `${Math.round((energy / n) * 100)}%`)}</span>`;
+  }
+
+  /** Balão leve do assentamento sob o mouse (RF-VIDA-349); o detalhe fica na janela. */
+  private settlementHover(v: Village): string {
+    const st = economicState(v);
+    const marks = stateIcons(this.eco, v);
+    return `
+      <b>${TIER_NAMES[v.tier]} ${v.name}${marks ? ` ${marks}` : ''}</b>
+      <span>${v.population} moradores${v.vocation ? ` · ${VOCATION_ICONS[v.vocation]} ${VOCATION_NAMES[v.vocation]}` : ''} · <span class="${st.tone}">${st.label.toLowerCase()}</span></span>
+      <span class="wb-dim">Clique no nome, na praça ou num prédio para abrir a janela</span>
+      <hr>`;
+  }
+
   private updateInfo(): void {
     const el = this.root.querySelector<HTMLElement>('[data-i]')!;
+    const eco = this.eco;
     // Ficha fixada: segue a criatura (enquanto viver) ou fica no lugar clicado.
     let at = this.hover;
     let picked = -1;
     const pin = this.pinned;
     if (pin && 'creature' in pin) {
-      if (this.eco.alive[pin.creature]) {
+      if (eco.alive[pin.creature] && eco.uid[pin.creature] === pin.uid) {
         picked = pin.creature;
-        at = new THREE.Vector2(this.eco.x[picked], this.map.height - this.eco.y[picked]);
-      } else this.pinned = null;
-    } else if (pin) at = new THREE.Vector2(pin.x, pin.y);
-    const i = this.tileIndex(at.x, at.y);
-    if (i < 0) {
-      el.hidden = true;
-      return;
+        at = new THREE.Vector2(eco.x[picked], this.map.height - eco.y[picked]);
+      } else {
+        // Morreu: avisa e solta (RF-VIDA-333).
+        const d = eco.deaths.find((x) => x.uid === pin.uid);
+        if (d) {
+          const cause = DEATH_TEXT[d.cause];
+          eco.hint = `${this.lastName ?? 'Quem você seguia'} morreu${cause ? ` ${cause}` : ''} aos ${Math.floor(d.age)} anos`;
+        }
+        this.pinned = null;
+        this.follow = false;
+        this.textureChanged = true;
+      }
+    } else if (pin && 'x' in pin) at = new THREE.Vector2(pin.x, pin.y);
+    let html: string;
+    if (pin && 'group' in pin) {
+      html = this.groupCard(pin.group);
+    } else {
+      const i = this.tileIndex(at.x, at.y);
+      if (i < 0) {
+        el.hidden = true;
+        return;
+      }
+      if (!pin) picked = this.hoverPick;
+      if (picked >= 0) {
+        html = this.creatureCard(picked);
+        if (this.pinned && 'creature' in this.pinned) this.lastName = this.shortName(picked).split(',')[0];
+      } else {
+        const t = temperatureAt(this.map, i);
+        const place = this.placeAt(i);
+        const v = eco.settlementAt(at.x, this.toRow(at.y));
+        html = `
+          ${v ? (pin ? this.settlementInfo(v) : this.settlementHover(v)) : ''}
+          <b>${place ?? BIOME_NAMES[this.map.biome[i] as keyof typeof BIOME_NAMES]}</b>
+          <span>Altitude ${(this.map.elevation[i] * 100).toFixed(0)}</span>
+          <span>Temperatura ${(t - 273.15).toFixed(0)} °C</span>
+          <span>Umidade ${(this.map.moisture[i] * 100).toFixed(0)}%</span>
+          <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>`;
+      }
     }
     el.hidden = false;
     el.classList.toggle('pinned', !!this.pinned);
-    let html: string;
-    if (!pin || !('creature' in pin)) picked = this.eco.pick(at.x, this.toRow(at.y), Math.max(0.8, 6 / this.zoom));
-    if (picked >= 0) {
-      const sp = this.eco.species[this.eco.kind[picked]];
-      const v = this.eco.village[picked] >= 0 ? this.eco.villages[this.eco.village[picked]] : null;
-      html = `
-        <b>${sp.name}${v ? ` · ${this.lifeStage(picked)}` : ''}</b>
-        ${v ? `<span>${TIER_NAMES[v.tier]} ${v.name} · ${ERAS[Math.floor(v.tech)]}</span>` : ''}
-        ${v && v.kingdom !== v.id ? `<span>Reino de ${this.eco.capitalOf(v).name}</span>` : ''}
-        <span>Idade ${this.eco.age[picked].toFixed(0)} anos</span>
-        <span>Energia ${(this.eco.energy[picked] * 100).toFixed(0)}%</span>`;
-    } else {
-      const t = temperatureAt(this.map, i);
-      const place = this.placeAt(i);
-      const v = this.eco.settlementAt(at.x, this.toRow(at.y));
-      html = `
-        ${v ? this.settlementInfo(v) : ''}
-        <b>${place ?? BIOME_NAMES[this.map.biome[i] as keyof typeof BIOME_NAMES]}</b>
-        <span>Altitude ${(this.map.elevation[i] * 100).toFixed(0)}</span>
-        <span>Temperatura ${(t - 273.15).toFixed(0)} °C</span>
-        <span>Umidade ${(this.map.moisture[i] * 100).toFixed(0)}%</span>
-        <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>`;
-    }
     if (this.pinned) html = `<div class="wb-pin">📌 Fixado · Esc ou clique no vazio solta</div>${html}`;
     if (html !== this.lastInfoHtml) {
       this.lastInfoHtml = html;
       el.innerHTML = html;
     }
   }
+
+  /** Nome de quem está fixado, para o aviso da morte. */
+  private lastName: string | null = null;
 
   /** Quanto falta para a próxima era no assentamento mais avançado. */
   private progressLine(live: { tech: number }[]): string {
@@ -1597,7 +2154,7 @@ export class SurfaceMode {
     const alive = eco.species.map((sp, s) => ({ sp, n: eco.population[s] })).filter((r) => r.n > 0).sort((a, b) => b.n - a.n);
     const rows = alive
       .slice(0, 7)
-      .map(({ sp, n }) => `<div class="wb-pop"><i style="background:rgb(${sp.color.join(',')})"></i>${sp.name}<b>${n}</b></div>`)
+      .map(({ sp, n }) => `<button class="wb-goto wb-pop" data-species="${eco.species.indexOf(sp)}" title="Destacar no mapa; clique de novo para ir ao próximo"><i style="background:rgb(${sp.color.join(',')})"></i>${sp.name}<b>${n}</b></button>`)
       .join('');
     const more = alive.length > 7 ? `<button class="wb-goto" data-open="species">+ ${alive.length - 7} espécies…</button>` : '';
     const events = eco.chronicle.filter((e) => this.showMinor || e.major).slice(0, 6);
