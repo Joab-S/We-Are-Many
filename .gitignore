@@ -1,0 +1,7 @@
+node_modules/
+dist/
+tools/pipeline/.cache/
+__pycache__/
+*.log
+.DS_Store
+.scratch/

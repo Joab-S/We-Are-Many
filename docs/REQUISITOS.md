@@ -234,6 +234,8 @@ Identificadores: `RF-<área>-<n>`. A prioridade (MoSCoW) está na seção 7.
 | RF-SUP-11 | Eventos naturais: terremotos, vulcões, secas, eras glaciais, pragas, impactos. |
 | RF-SUP-12 | Indicador de habitabilidade do planeta (para humanos e para espécies nativas). |
 
+> A vida nos planetas (espécies, ecossistema, evolução, civilizações, assentamentos, guerra, diplomacia e arte em pixel) está detalhada em **[REQUISITOS-VIDA.md](REQUISITOS-VIDA.md)**.
+
 ### 4.8 Ameaças, conflito e narrativa (AME)
 
 | ID | Requisito |
@@ -574,3 +576,4 @@ Cada fase termina com algo jogável ou demonstrável. Fases 1 a 6 são **solo**,
 | 19/10/2026 | Sem monetização por enquanto; recursos pagos podem ser avaliados no futuro. |
 | 19/10/2026 | Solo como modo principal, coop opcional. Universo público com nascimento em pontos distantes fica para avaliar depois. |
 | 19/10/2026 | Termos genéricos (motor, propulsor, espécie primitiva) liberados; nomes específicos da obra (Deltanos, Bobiverse, Bob etc.) proibidos. |
+| 19/10/2026 | Vida nos planetas detalhada em [REQUISITOS-VIDA.md](REQUISITOS-VIDA.md): vida nativa rara em três níveis (25% vegetação, 8% animais, 1 em 10 destes inteligente), assentamentos com níveis, áreas, ruas e reinos, arte 16 bits. |
