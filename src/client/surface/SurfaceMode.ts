@@ -25,6 +25,9 @@ import { generateSurfaceAsync } from './generateAsync';
 import { SoftArt } from './softArt';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 
+/** Modo de depuração (`?debug` no endereço): mostra as taxas do momento nos painéis (RF-VIDA-310). */
+const DEBUG = typeof location !== 'undefined' && new URLSearchParams(location.search).has('debug');
+
 type Tab = 'terrain' | 'climate' | 'life' | 'civ' | 'events';
 
 const TABS: [Tab, string][] = [
@@ -1414,6 +1417,7 @@ export class SurfaceMode {
       ${need ? `<span>Para a próxima era: ${need}</span>` : ''}
       ${war ? `<span>⚔ Em guerra com ${enemy}</span>` : ''}
       ${allies.length ? `<span>❤ Aliado de ${allies.join(', ')}</span>` : ''}
+      ${DEBUG ? `<span class="wb-debug">${eco.rates(v).map((r) => `${r.name} ${r.perYear.toFixed(2).replace('.', ',')}`).join(' · ')}</span>` : ''}
       <hr>`;
   }
 

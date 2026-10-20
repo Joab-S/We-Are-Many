@@ -1,4 +1,6 @@
 import { mulberry32 } from '../core/rng';
+import * as B from './balance';
+import { happens, ouStep, streams } from './stochastic';
 import { Biome, classify, temperatureAt, type SurfaceMap } from '../procgen/surface';
 import {
   WONDER_NAMES,
@@ -19,7 +21,7 @@ import {
 import { yearlyEvents } from './events';
 import { pickItem, pickPrimitive, TIER_MATERIAL, type Category, type Material } from './items';
 import { CHILD, pickRole, ROLE, type RoleContext } from './roles';
-import { lotsFor, plotSeed, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
+import { lotsFor, plotSeed, pruneBlocks, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, habitatOf, type Species, type SpeciesKind } from './species';
 
 /**
@@ -41,7 +43,6 @@ export const ERAS = ['Idade da Pedra', 'Idade do Bronze', 'Idade do Ferro', 'Era
 export const ERA_YEARS = [300, 350, 450, 550];
 
 /** Chance por ano de um assentamento cheio mandar colonos. */
-const COLONY_RATE = 0.05;
 
 /**
  * Embarcações por era: mais rápidas, maiores, com mais alcance e mais seguras
@@ -342,6 +343,15 @@ export class Ecosystem {
   readonly wars: War[] = [];
   private cultures = 0;
   private yearClock = 0;
+  /**
+   * Clima do ano por região (RF-VIDA-304 e 305): 0 é um ano normal, negativo
+   * é seca ou frio fora de hora, positivo é ano bom. Parte é comum ao planeta
+   * inteiro e parte é de cada região; tudo volta ao normal com o tempo.
+   */
+  readonly climate = new Float32Array(B.CLIMATE_REGIONS[0] * B.CLIMATE_REGIONS[1]);
+  private climateShared = 0;
+  private readonly climateLocal = new Float32Array(B.CLIMATE_REGIONS[0] * B.CLIMATE_REGIONS[1]);
+  private readonly droughtNoted = new Float32Array(B.CLIMATE_REGIONS[0] * B.CLIMATE_REGIONS[1]).fill(-1e9);
   /** Soldados que desembarcaram numa invasão por mar: marcham até o alvo de qualquer distância. */
   readonly expedition = new Set<number>();
   /** Espécies extintas neste planeta (podem reaparecer). */
@@ -388,7 +398,16 @@ export class Ecosystem {
   /** Aviso curto para o jogador (ex.: lugar inválido), lido e limpo pela interface. */
   hint = '';
   private free: number[] = [];
+  /** Sorteios da vida animal e da vegetação (cada subsistema tem o seu fluxo, RF-VIDA-306). */
   private readonly rnd: () => number;
+  /** Sorteios dos povos: casas, colonos, barcos, produção. */
+  private readonly civRnd: () => number;
+  /** Sorteios da política: relações, incidentes, guerras. */
+  private readonly polRnd: () => number;
+  /** Sorteios dos eventos do mundo. */
+  private readonly worldRnd: () => number;
+  /** Sorteios do clima do ano. */
+  private readonly climateRnd: () => number;
   private gridHead = new Int32Array(0);
   private gridNext = new Int32Array(0);
   private cols: number;
@@ -402,14 +421,19 @@ export class Ecosystem {
     readonly map: SurfaceMap,
     seed: number,
   ) {
-    this.rnd = mulberry32(seed);
+    const rng = streams(seed);
+    this.rnd = rng.vida;
+    this.civRnd = rng.povos;
+    this.polRnd = rng.politica;
+    this.worldRnd = rng.mundo;
+    this.climateRnd = rng.clima;
     this.road = new Uint8Array(map.width * map.height);
     this.built = new Uint8Array(map.width * map.height);
     this.cols = Math.ceil(map.width / CELL);
     this.rows = Math.ceil(map.height / CELL);
     this.gridHead = new Int32Array(this.cols * this.rows);
     this.grow(512);
-    this.deposits = generateDeposits(map, this.rnd);
+    this.deposits = generateDeposits(map, streams(seed).terreno);
     this.depositAt = new Int32Array(map.width * map.height).fill(-1);
     for (const d of this.deposits) this.depositAt[d.y * map.width + d.x] = d.id;
   }
@@ -743,6 +767,61 @@ export class Ecosystem {
    * Clima e vegetação (RF-SUP-07): a vegetação se espalha para vizinhos com
    * clima favorável e morre onde o clima ficou hostil.
    */
+  /**
+   * Taxas do momento num assentamento, por ano (RF-VIDA-310): para depurar e
+   * calibrar, mostradas no painel com `?debug` no endereço.
+   */
+  rates(v: Village): { name: string; perYear: number }[] {
+    const homes = v.houses.filter((h) => h.kind === 'house').length;
+    const crowded = v.population >= 8 && v.population >= v.houses.length * 4 && !this.freeLot(v);
+    const curious = v.culture.value === 'comércio' || v.culture.value === 'conhecimento' ? 2 : 1;
+    return [
+      { name: 'casa nova', perYear: v.population > homes * 3 ? B.HOUSE_RATE : 0 },
+      { name: 'andarilho', perYear: B.WANDERER_RATE[v.population <= 3 ? 0 : v.population < 10 ? 1 : v.population < 30 ? 2 : 3] },
+      { name: 'colonos', perYear: v.population > 26 || crowded ? B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) : 0 },
+      { name: 'porto', perYear: v.port < 0 && v.tech >= 0.5 ? B.PORT_RATE : 0 },
+      { name: 'exploração', perYear: v.port >= 0 && v.tech >= 1 ? B.EXPLORE_RATE * curious : 0 },
+      { name: 'colheita (× ano normal)', perYear: this.harvest(v) },
+    ];
+  }
+
+  /** Região do clima do ano que contém o tile (x, y). */
+  private region(x: number, y: number): number {
+    const [cols, rows] = B.CLIMATE_REGIONS;
+    const rx = Math.min(cols - 1, Math.floor((x * cols) / this.map.width));
+    const ry = Math.min(rows - 1, Math.max(0, Math.floor((y * rows) / this.map.height)));
+    return ry * cols + rx;
+  }
+
+  /** Clima do ano no ponto (0 = normal). */
+  climateAt(x: number, y: number): number {
+    return this.climate[this.region(((Math.floor(x) % this.map.width) + this.map.width) % this.map.width, Math.floor(y))];
+  }
+
+  /** Quanto a colheita rende neste ano no assentamento (1 = ano normal). */
+  harvest(v: Village): number {
+    return Math.max(0.15, 1 + B.HARVEST_SENSITIVITY * this.climateAt(v.x, v.y));
+  }
+
+  /** Um ano de clima: ruído com retorno à média, comum e regional; secas fortes vão para a crônica. */
+  private updateClimate(): void {
+    const shared = Math.sqrt(B.CLIMATE_SHARED);
+    const local = Math.sqrt(1 - B.CLIMATE_SHARED);
+    this.climateShared = ouStep(this.climateRnd, this.climateShared, 1, B.CLIMATE_THETA, B.CLIMATE_SIGMA);
+    for (let r = 0; r < this.climate.length; r++) {
+      this.climateLocal[r] = ouStep(this.climateRnd, this.climateLocal[r], 1, B.CLIMATE_THETA, B.CLIMATE_SIGMA);
+      this.climate[r] = shared * this.climateShared + local * this.climateLocal[r];
+    }
+    for (let r = 0; r < this.climate.length; r++) {
+      if (this.climate[r] >= B.DROUGHT_LEVEL || this.year - this.droughtNoted[r] < B.DROUGHT_COOLDOWN) continue;
+      const hit = this.villages.filter((v) => !v.abandoned && this.region(Math.floor(v.x), Math.floor(v.y)) === r);
+      if (!hit.length) continue;
+      this.droughtNoted[r] = this.year;
+      const names = hit.slice(0, 3).map((v) => v.name);
+      this.note(`Uma seca castiga a região de ${names.join(', ')}${hit.length > 3 ? ' e arredores' : ''}: as colheitas minguam`, 'natureza', hit[0], { key: `drought-${r}` });
+    }
+  }
+
   private growVegetation(dt: number): void {
     const m = this.map;
     const n = m.width * m.height;
@@ -759,8 +838,9 @@ export class Ecosystem {
       const neighbour = ny >= 0 && ny < m.height ? m.vegetation[ny * m.width + nx] : 0;
       const before = m.vegetation[i];
       // Espalha a partir dos vizinhos; um tile pastado ainda rebrota devagar pelas raízes.
-      if (ok && neighbour > 0.3) m.vegetation[i] = Math.min(1, before + 0.05);
-      else if (ok && before > 0.02 && before < 0.35) m.vegetation[i] = before + 0.02;
+      const season = ok ? Math.max(0.2, 1 + B.HARVEST_SENSITIVITY * this.climate[this.region(x, y)]) : 1;
+      if (ok && neighbour > 0.3) m.vegetation[i] = Math.min(1, before + 0.05 * season);
+      else if (ok && before > 0.02 && before < 0.35) m.vegetation[i] = before + 0.02 * season;
       else if (!ok) m.vegetation[i] = Math.max(0, before - 0.05);
       if (m.vegetation[i] !== before) {
         m.biome[i] = classify(m, i);
@@ -1030,7 +1110,7 @@ export class Ecosystem {
     }
     // Reprodução (idosos não têm filhos).
     const fertile = this.age[i] >= sp.maturity && (sp.kind !== 'sapient' || this.age[i] < elderAge(sp, era));
-    if (fertile && this.energy[i] > 0.65 && this.rnd() < b.birthRate * dt * this.fertility(s, era)) {
+    if (fertile && this.energy[i] > 0.65 && happens(this.rnd, b.birthRate * this.fertility(s, era), dt)) {
       // Precisa de um parceiro adulto por perto (do mesmo assentamento, para os inteligentes).
       // Bichos acham o parceiro num raio maior (o cheiro e o chamado vão longe).
       let crowd = 0;
@@ -1168,7 +1248,7 @@ export class Ecosystem {
     const ty = Math.floor(this.y[i]);
     const tile = this.tileAt(tx, ty);
     if (tile >= 0 && this.goodSite(s, tile)) {
-      if (this.rnd() < 0.05 && this.canFound(tx, ty)) found(tx, ty);
+      if (this.civRnd() < 0.05 && this.canFound(tx, ty)) found(tx, ty);
       return undefined;
     }
     return this.betterSite(i);
@@ -1227,13 +1307,13 @@ export class Ecosystem {
   private wanderer(v: Village): void {
     const sp = this.species[v.species];
     for (let t = 0; t < 12; t++) {
-      const a = this.rnd() * Math.PI * 2;
-      const d = TIER_RADIUS[v.tier] + 3 + this.rnd() * 6;
+      const a = this.civRnd() * Math.PI * 2;
+      const d = TIER_RADIUS[v.tier] + 3 + this.civRnd() * 6;
       const x = v.x + Math.cos(a) * d;
       const y = v.y + Math.sin(a) * d;
       const tile = this.tileAt(x, Math.floor(y));
       if (tile < 0 || !this.habitable(v.species, tile) || !this.landPath(x, y, v.x, v.y)) continue;
-      this.spawn(v.species, ((x % this.map.width) + this.map.width) % this.map.width, y, -1, sp.maturity + this.rnd() * 10);
+      this.spawn(v.species, ((x % this.map.width) + this.map.width) % this.map.width, y, -1, sp.maturity + this.civRnd() * 10);
       return;
     }
   }
@@ -1243,7 +1323,7 @@ export class Ecosystem {
     this.village[i] = v.id;
     v.lastCause = undefined;
     v.population++;
-    this.role[i] = this.age[i] < this.species[this.kind[i]].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.rnd(), this.roleContext(v));
+    this.role[i] = this.age[i] < this.species[this.kind[i]].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.civRnd(), this.roleContext(v));
   }
 
   /**
@@ -1307,8 +1387,12 @@ export class Ecosystem {
   private setRoad(i: number, kind: number): void {
     if (this.road[i] >= kind || this.built[i]) return;
     this.road[i] = kind;
+    this.roadDirty.push(i);
     this.onTileChanged(i);
   }
+
+  /** Ruas pintadas desde a última limpeza anual (RF-VIDA-195). */
+  private roadDirty: number[] = [];
 
   /** Praça e ruas do nível atual; ruas de pedra a partir da Era Medieval. */
   private layStreets(v: Village): void {
@@ -1322,6 +1406,7 @@ export class Ecosystem {
       }
     }
     const seed = plotSeed(v.x, v.y);
+    const laid: number[] = [];
     for (const st of streetPlan(v.tier, seed)) {
       for (const p of st.pts) {
         const t = this.tileAt(cx + p.x, cy + p.y);
@@ -1329,9 +1414,22 @@ export class Ecosystem {
         if (this.road[t] === 3) continue;
         if (kind === 2 && this.road[t] === 1) this.road[t] = 0;
         this.setRoad(t, kind);
+        laid.push(t);
       }
     }
+    this.pruneRoads(laid);
     v.lots = lotsFor(v.tier, seed);
+  }
+
+  /** Lote 2x2 com canto em (x, y) tem rua a até 2 tiles (casa sempre na beira da rua, RF-VIDA-102). */
+  private besideStreet(x: number, y: number): boolean {
+    for (let dy = -2; dy <= 3; dy++) {
+      for (let dx = -2; dx <= 3; dx++) {
+        const t = this.tileAt(x + dx, y + dy);
+        if (t >= 0 && this.road[t] >= 1 && this.road[t] <= 3) return true;
+      }
+    }
+    return false;
   }
 
   /** Tiles do lote livre (casas: do centro para fora; plantações: de fora para dentro). */
@@ -1349,7 +1447,7 @@ export class Ecosystem {
           tiles.push(t);
         }
       }
-      if (tiles.length === 4) return tiles;
+      if (tiles.length === 4 && (fromEdge || this.besideStreet(cx + lot.x, cy + lot.y))) return tiles;
     }
     return null;
   }
@@ -1363,7 +1461,7 @@ export class Ecosystem {
       this.built[t] = 1;
       this.onTileChanged(t);
     }
-    v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.rnd() * 4) });
+    v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.civRnd() * 4) });
     if (kind === 'wonder') this.note(`${v.name} ergueu a ${WONDER_NAMES[v.culture.value]}, orgulho do povo ${v.culture.name}`, 'povo', v, { major: true });
     else if (kind === 'statue') this.note(`${v.name} ergueu uma estátua do seu líder`, 'povo', v);
     else if (kind !== 'house') this.note(`${v.name} construiu ${kind === 'smithy' || kind === 'factory' ? 'uma' : 'um'} ${BUILDING_NAMES[kind].toLowerCase()}`, 'economia', v);
@@ -1408,22 +1506,38 @@ export class Ecosystem {
     const sp = this.species[v.species];
     const young = adults.filter((i) => this.age[i] < elderAge(sp, Math.floor(v.tech)));
     const pool = young.length ? young : adults;
-    const pick = pool[Math.floor(this.rnd() * pool.length)];
+    const pick = pool[Math.floor(this.civRnd() * pool.length)];
     v.leader = pick;
     this.role[pick] = king ? ROLE.king : ROLE.leader;
   }
 
-  /** Estrada de terra em linha reta entre dois assentamentos, interrompida na água. */
+  /** Estrada de terra entre dois assentamentos (a mesma em qualquer ordem, RF-VIDA-194). */
   private connect(a: Village, b: Village): void {
     this.lineRoad(a.x, a.y, b.x, b.y);
   }
 
   /**
-   * Estrada de terra entre dois pontos: uma curva suave (o meio desvia para
-   * um lado, sempre o mesmo para o mesmo par de pontos), sem passos na
-   * diagonal, para a estrada desenhada ficar contínua. Não passa por água.
+   * Estrada de terra entre dois pontos pela rede viária (RF-VIDA-190): busca
+   * de caminho que anda barato sobre rua existente, paga caro para ficar ao
+   * lado de uma rua sem estar nela, não passa por água nem por casa e segue
+   * de perto uma curva suave entre os dois pontos. O resultado entra na rede
+   * já existente em vez de correr paralelo a ela. Sem caminho por terra, a
+   * estrada é desenhada em curva e para na água, como antes.
    */
   private lineRoad(ax: number, ay: number, bx: number, by: number): void {
+    // Ordem fixa: ligar A a B ou B a A dá o mesmo traçado.
+    if (ax > bx || (ax === bx && ay > by)) [ax, ay, bx, by] = [bx, by, ax, ay];
+    const path = this.roadPath(ax, ay, bx, by);
+    if (!path) {
+      this.curveRoad(ax, ay, bx, by);
+      return;
+    }
+    for (const t of path) if (!this.road[t] && !this.built[t]) this.setRoad(t, 1);
+    this.pruneRoads(path);
+  }
+
+  /** Tiles da curva-guia de uma estrada (a curva suave de sempre). */
+  private guideTiles(ax: number, ay: number, bx: number, by: number): { x: number; y: number }[] {
     const dx = wrapDx(bx - ax, this.map.width);
     const dy = by - ay;
     const len = Math.hypot(dx, dy) || 1;
@@ -1431,6 +1545,137 @@ export class Ecosystem {
     const mx = ax + dx / 2 + (-dy / len) * bend;
     const my = ay + dy / 2 + (dx / len) * bend;
     const n = Math.max(2, Math.ceil(len * 2));
+    const out: { x: number; y: number }[] = [];
+    for (let k = 0; k <= n; k++) {
+      const u = k / n;
+      out.push({
+        x: Math.floor((1 - u) * (1 - u) * ax + 2 * u * (1 - u) * mx + u * u * (ax + dx)),
+        y: Math.floor((1 - u) * (1 - u) * ay + 2 * u * (1 - u) * my + u * u * by),
+      });
+    }
+    return out;
+  }
+
+  /** Busca A* da estrada numa janela em volta dos dois pontos; devolve os tiles ou null. */
+  private roadPath(ax: number, ay: number, bx: number, by: number): number[] | null {
+    const map = this.map;
+    const w = map.width;
+    const dx = wrapDx(bx - ax, w);
+    const x0 = Math.floor(Math.min(ax, ax + dx)) - 16;
+    const y0 = Math.max(0, Math.floor(Math.min(ay, by)) - 16);
+    const gw = Math.ceil(Math.abs(dx)) + 33;
+    const gh = Math.min(map.height, Math.floor(Math.max(ay, by)) + 17) - y0;
+    const n = gw * gh;
+    if (n <= 0 || n > B.ROAD_SEARCH_MAX * 4) return null;
+    const tileOf = (k: number) => this.tileAt(x0 + (k % gw), y0 + Math.floor(k / gw));
+    const local = (x: number, y: number) => {
+      const lx = Math.floor(x) - x0;
+      const ly = Math.floor(y) - y0;
+      return lx < 0 || ly < 0 || lx >= gw || ly >= gh ? -1 : ly * gw + lx;
+    };
+    const start = local(ax, ay);
+    const goal = local(ax + dx, by);
+    if (start < 0 || goal < 0) return null;
+    // Distância até a curva-guia (busca em largura a partir dela, até 8 tiles).
+    const guide = new Uint8Array(n).fill(255);
+    let queue: number[] = [];
+    for (const p of this.guideTiles(ax, ay, bx, by)) {
+      const k = local(p.x, p.y);
+      if (k >= 0 && guide[k] !== 0) {
+        guide[k] = 0;
+        queue.push(k);
+      }
+    }
+    for (let d = 1; d <= 8 && queue.length; d++) {
+      const next: number[] = [];
+      for (const k of queue) {
+        const lx = k % gw;
+        for (const m of [lx > 0 ? k - 1 : -1, lx < gw - 1 ? k + 1 : -1, k - gw, k + gw]) {
+          if (m < 0 || m >= n || guide[m] !== 255) continue;
+          guide[m] = d;
+          next.push(m);
+        }
+      }
+      queue = next;
+    }
+    const isRoad = (t: number) => t >= 0 && this.road[t] >= 1 && this.road[t] <= 3;
+    const cost = (k: number): number => {
+      const t = tileOf(k);
+      if (t < 0 || !isLand(map, t)) return Infinity;
+      if (this.built[t] && k !== goal) return Infinity;
+      if (isRoad(t)) return B.ROAD_COST_EXISTING;
+      let c = B.ROAD_COST_GROUND + B.ROAD_COST_GUIDE * Math.min(guide[k], 12);
+      if (this.road[t] === 4) c += 5;
+      const x = t % w;
+      const y = (t - x) / w;
+      if (isRoad(this.tileAt(x + 1, y)) || isRoad(this.tileAt(x - 1, y)) || isRoad(this.tileAt(x, y + 1)) || isRoad(this.tileAt(x, y - 1))) c += B.ROAD_COST_BESIDE;
+      return c;
+    };
+    const g = new Float32Array(n).fill(Infinity);
+    const from = new Int32Array(n).fill(-1);
+    const heap: number[] = [];
+    const f = new Float32Array(n);
+    const gx = goal % gw;
+    const gy = Math.floor(goal / gw);
+    const h = (k: number) => (Math.abs((k % gw) - gx) + Math.abs(Math.floor(k / gw) - gy)) * B.ROAD_COST_EXISTING;
+    const push = (k: number) => {
+      heap.push(k);
+      let c = heap.length - 1;
+      while (c > 0) {
+        const p = (c - 1) >> 1;
+        if (f[heap[p]] <= f[heap[c]]) break;
+        [heap[p], heap[c]] = [heap[c], heap[p]];
+        c = p;
+      }
+    };
+    const pop = () => {
+      const top = heap[0];
+      const last = heap.pop()!;
+      if (heap.length) {
+        heap[0] = last;
+        let c = 0;
+        for (;;) {
+          const l = c * 2 + 1;
+          const r = l + 1;
+          let m = c;
+          if (l < heap.length && f[heap[l]] < f[heap[m]]) m = l;
+          if (r < heap.length && f[heap[r]] < f[heap[m]]) m = r;
+          if (m === c) break;
+          [heap[m], heap[c]] = [heap[c], heap[m]];
+          c = m;
+        }
+      }
+      return top;
+    };
+    g[start] = 0;
+    f[start] = h(start);
+    push(start);
+    let visited = 0;
+    while (heap.length) {
+      const k = pop();
+      if (k === goal) break;
+      if (++visited > B.ROAD_SEARCH_MAX) return null;
+      const lx = k % gw;
+      for (const m of [lx > 0 ? k - 1 : -1, lx < gw - 1 ? k + 1 : -1, k - gw, k + gw]) {
+        if (m < 0 || m >= n) continue;
+        const c = cost(m);
+        if (c === Infinity) continue;
+        const ng = g[k] + c;
+        if (ng >= g[m]) continue;
+        g[m] = ng;
+        from[m] = k;
+        f[m] = ng + h(m);
+        push(m);
+      }
+    }
+    if (g[goal] === Infinity) return null;
+    const out: number[] = [];
+    for (let k = goal; k >= 0; k = from[k]) out.push(tileOf(k));
+    return out.reverse();
+  }
+
+  /** Estrada em curva que para na água (o traçado antigo, usado quando não há caminho por terra). */
+  private curveRoad(ax: number, ay: number, bx: number, by: number): void {
     let px = Math.floor(ax);
     let py = Math.floor(ay);
     const put = (x: number, y: number) => {
@@ -1438,10 +1683,7 @@ export class Ecosystem {
       if (t >= 0 && isLand(this.map, t)) this.setRoad(t, 1);
     };
     put(px, py);
-    for (let k = 1; k <= n; k++) {
-      const u = k / n;
-      const x = Math.floor((1 - u) * (1 - u) * ax + 2 * u * (1 - u) * mx + u * u * (ax + dx));
-      const y = Math.floor((1 - u) * (1 - u) * ay + 2 * u * (1 - u) * my + u * u * by);
+    for (const { x, y } of this.guideTiles(ax, ay, bx, by)) {
       if (x === px && y === py) continue;
       if (x !== px && y !== py) put(x, py);
       put(x, y);
@@ -1450,15 +1692,52 @@ export class Ecosystem {
     }
   }
 
+  /**
+   * Limpeza da rede (RF-VIDA-195): tira tiles de rua que formam bloco 2x2
+   * quando a retirada não desliga nenhum vizinho. Olha os tiles dados e os
+   * vizinhos deles.
+   */
+  private pruneRoads(tiles: Iterable<number>): void {
+    const w = this.map.width;
+    const at = (x: number, y: number) => this.tileAt(x, y);
+    const near: [number, number][] = [];
+    for (const t of tiles) {
+      const x = t % w;
+      const y = (t - x) / w;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) near.push([x + dx, y + dy]);
+    }
+    pruneBlocks(
+      near,
+      (x, y) => {
+        const t = at(x, y);
+        return t >= 0 && (this.road[t] === 1 || this.road[t] === 2);
+      },
+      (x, y) => {
+        const t = at(x, y);
+        return t >= 0 && this.road[t] >= 1 && this.road[t] <= 3;
+      },
+      (x, y) => {
+        const t = at(x, y);
+        this.road[t] = 0;
+        this.onTileChanged(t);
+      },
+      (x, y) => {
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (this.built[at(x + dx, y + dy)]) return true;
+        return false;
+      },
+    );
+  }
+
+
   private uniqueName(): string {
-    let name = alienName(this.rnd, 2);
-    for (let t = 0; t < 20 && this.villages.some((v) => v.name === name); t++) name = alienName(this.rnd, 2 + (t > 10 ? 1 : 0));
+    let name = alienName(this.civRnd, 2);
+    for (let t = 0; t < 20 && this.villages.some((v) => v.name === name); t++) name = alienName(this.civRnd, 2 + (t > 10 ? 1 : 0));
     return name;
   }
 
   foundVillage(s: number, x: number, y: number, settlers: number, from?: Village): Village {
     const sp = this.species[s];
-    const rnd = this.rnd;
+    const rnd = this.civRnd;
     // Ruínas logo ali: o assentamento novo ocupa a antiga praça e aproveita as ruas e plantações que sobraram.
     const ruin = this.ruinNear(x + 0.5, y + 0.5, TIER_RADIUS[0] + 2, s);
     if (ruin) {
@@ -1512,8 +1791,8 @@ export class Ecosystem {
   private freshColor(): [number, number, number] {
     const used = new Set(this.villages.filter((o) => !o.abandoned && o.kingdom === o.id).map((o) => o.color.join(',')));
     const free = KINGDOM_COLORS.filter((c) => !used.has(c.join(',')));
-    if (free.length) return free[Math.floor(this.rnd() * Math.min(3, free.length))];
-    return hsl(this.rnd(), 0.65 + this.rnd() * 0.25, 0.4 + this.rnd() * 0.25);
+    if (free.length) return free[Math.floor(this.civRnd() * Math.min(3, free.length))];
+    return hsl(this.civRnd(), 0.65 + this.civRnd() * 0.25, 0.4 + this.civRnd() * 0.25);
   }
 
   private abandon(v: Village): void {
@@ -1639,33 +1918,33 @@ export class Ecosystem {
       if (workers[v.id]) this.produce(v, workers[v.id], adults[v.id].length, dt);
       // Constrói casas quando o assentamento cresce; às vezes uma construção especial.
       const homes = v.houses.filter((h) => h.kind === 'house').length;
-      if (v.population > homes * 3 && this.rnd() < 0.4) {
-        const special = homes >= 4 && this.rnd() < 0.35 ? this.nextBuilding(v) : null;
+      if (v.population > homes * 3 && happens(this.civRnd, B.HOUSE_RATE, dt / YEAR_SECONDS)) {
+        const special = homes >= 4 && this.civRnd() < B.SPECIAL_BUILDING_SHARE ? this.nextBuilding(v) : null;
         this.buildHouse(v, special ?? 'house');
       }
       // Lavouras trabalhadas por agricultores enchem o celeiro (cada porção mata a fome de um morador).
       if (v.fields > 0 && workers[v.id]) {
         const worked = Math.min(v.fields, Math.ceil(workers[v.id][ROLE.farmer] / 2) + 1);
-        v.food = Math.min(40 + v.fields * 6, v.food + worked * 3 * (dt / YEAR_SECONDS));
+        v.food = Math.min(40 + v.fields * 6, v.food + worked * B.FIELD_YIELD * this.harvest(v) * (dt / YEAR_SECONDS));
       }
       // Roças no fim da Idade da Pedra (uma para cada quatro casas); da Idade do Bronze em diante, uma para cada duas.
-      if (v.fields < homes / (Math.floor(v.tech) >= 1 ? 2 : 4) && v.tech >= 0.12 && this.rnd() < 0.3) this.plantField(v);
+      if (v.fields < homes / (Math.floor(v.tech) >= 1 ? 2 : 4) && v.tech >= 0.12 && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
       // De vez em quando aparece um andarilho do mesmo povo, mais fácil quando o lugar tem pouca gente.
-      const wander = v.population <= 3 ? 0.35 : v.population < 10 ? 0.15 : v.population < 30 ? 0.05 : 0.01;
-      if (this.rnd() < wander * (dt / YEAR_SECONDS)) this.wanderer(v);
+      const wander = B.WANDERER_RATE[v.population <= 3 ? 0 : v.population < 10 ? 1 : v.population < 30 ? 2 : 3];
+      if (happens(this.civRnd, wander, dt / YEAR_SECONDS)) this.wanderer(v);
       // Porto na costa a partir do fim da Idade da Pedra (canoas); barcos de pesca saem dele.
-      if (v.port < 0 && v.tech >= 0.5 && this.rnd() < 0.08 * dt) this.buildPort(v);
-      if (v.port >= 0 && fishers[v.id] > 0 && this.rnd() < 0.15 * dt) {
+      if (v.port < 0 && v.tech >= 0.5 && happens(this.civRnd, B.PORT_RATE, dt / YEAR_SECONDS)) this.buildPort(v);
+      if (v.port >= 0 && fishers[v.id] > 0 && happens(this.civRnd, B.FISH_TRIP_RATE, dt / YEAR_SECONDS)) {
         let out = 0;
         for (const b of this.boats) if (b.village === v.id && b.purpose === 'fish' && b.sunk < 0) out++;
         if (out < Math.min(3, 1 + Math.floor(fishers[v.id] / 3))) this.launch(v, 'fish');
       }
       // Exploradores por mar a partir do Bronze; povos comerciantes e sábios exploram mais.
       const curious = v.culture.value === 'comércio' || v.culture.value === 'conhecimento' ? 2 : 1;
-      if (v.port >= 0 && v.tech >= 1 && this.rnd() < (0.012 * curious * dt) / YEAR_SECONDS) this.explore(v);
+      if (v.port >= 0 && v.tech >= 1 && happens(this.civRnd, B.EXPLORE_RATE * curious, dt / YEAR_SECONDS)) this.explore(v);
       // Assentamentos cheios (ou sem espaço, como numa ilha) enviam colonos para fundar outro; mais em eras avançadas.
       const crowded = v.population >= 8 && v.population >= v.houses.length * 4 && !this.freeLot(v);
-      if ((v.population > 26 || crowded) && this.rnd() < (COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * dt) / YEAR_SECONDS && live < 100) {
+      if ((v.population > 26 || crowded) && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)), dt / YEAR_SECONDS) && live < 100) {
         if (!this.colonizeByLand(v)) this.colonizeBySea(v);
       }
     }
@@ -1723,8 +2002,8 @@ export class Ecosystem {
     let veg = 0;
     let rock = false;
     for (let k = 0; k < 40; k++) {
-      const a = this.rnd() * Math.PI * 2;
-      const d = Math.sqrt(this.rnd()) * r;
+      const a = this.civRnd() * Math.PI * 2;
+      const d = Math.sqrt(this.civRnd()) * r;
       const t = this.tileAt(v.x + Math.cos(a) * d, Math.floor(v.y + Math.sin(a) * d));
       if (t < 0) continue;
       veg += this.map.vegetation[t];
@@ -1741,15 +2020,15 @@ export class Ecosystem {
     const capital = this.villages[v.kingdom];
     const st = capital.stock;
     const made = capital.made;
-    if (this.rnd() < 0.05 * dt || v.forest === 0) this.survey(v);
+    if (happens(this.civRnd, B.SURVEY_RATE, yr) || v.forest === 0) this.survey(v);
     const tools = st.tools > 0 ? 1.4 : 1;
     // Lenha: quanto mais floresta por perto, mais madeira; o corte desbasta a mata.
     if (w[ROLE.woodcutter]) {
       const wood = w[ROLE.woodcutter] * 1.2 * yr * tools * Math.min(1, v.forest * 2 + 0.1);
       st.wood += wood;
-      if (this.rnd() < wood) {
-        const a = this.rnd() * Math.PI * 2;
-        const d = TIER_RADIUS[v.tier] * (0.8 + this.rnd() * 0.6);
+      if (this.civRnd() < wood) {
+        const a = this.civRnd() * Math.PI * 2;
+        const d = TIER_RADIUS[v.tier] * (0.8 + this.civRnd() * 0.6);
         const t = this.tileAt(v.x + Math.cos(a) * d, Math.floor(v.y + Math.sin(a) * d));
         if (t >= 0 && this.map.vegetation[t] > 0.35) {
           this.map.vegetation[t] -= 0.08;
@@ -1783,7 +2062,7 @@ export class Ecosystem {
     const era = Math.floor(v.tech);
     const soldiers = w[ROLE.soldier] + w[ROLE.guard];
     // Idade da Pedra: construtores e coletores lascam pedra e madeira (sem ferraria).
-    if (st.stone >= 1 && st.wood >= 1 && this.rnd() < (w[ROLE.builder] + w[ROLE.gatherer]) * 0.12 * yr) {
+    if (st.stone >= 1 && st.wood >= 1 && this.civRnd() < (w[ROLE.builder] + w[ROLE.gatherer]) * 0.12 * yr) {
       st.stone -= 1;
       st.wood -= 1;
       this.craft(v, st, this.needed(st, adults, soldiers, v), 'stone', era);
@@ -1794,7 +2073,7 @@ export class Ecosystem {
       v.forgeWork += w[ROLE.blacksmith] * 0.6 * yr * factory;
       while (v.forgeWork >= 1) {
         // Ouro vira joia de vez em quando (anéis, amuletos e a coroa do rei).
-        if (era >= 1 && st.gold >= 2 && this.rnd() < 0.2) {
+        if (era >= 1 && st.gold >= 2 && this.civRnd() < 0.2) {
           st.gold -= 2;
           v.forgeWork -= 1;
           this.craft(v, st, 'joia', 'gold', era);
@@ -1813,7 +2092,7 @@ export class Ecosystem {
     // Ferramentas se gastam com o uso.
     st.tools = Math.max(0, st.tools - st.tools * 0.02 * yr);
     // Abre uma mina numa jazida conhecida, de preferência do minério que falta para a próxima era.
-    if (w[ROLE.miner] && v.mines.length < 1 + v.tier && this.rnd() < 0.1 * dt) this.openMine(v);
+    if (w[ROLE.miner] && v.mines.length < 1 + v.tier && happens(this.civRnd, B.MINE_RATE, dt / YEAR_SECONDS)) this.openMine(v);
   }
 
   /** O que falta mais: ferramentas para quem trabalha, armas e armaduras para quem luta (antes, na guerra). */
@@ -1827,7 +2106,7 @@ export class Ecosystem {
 
   /** Um item do catálogo entra no estoque do reino; a primeira vez que alguém no mundo o faz vira notícia. */
   private craft(v: Village, st: Stock, category: Category, material: Material, era: number): void {
-    const item = material === 'stone' ? pickPrimitive(category, this.rnd()) : pickItem(material, category, era, this.rnd());
+    const item = material === 'stone' ? pickPrimitive(category, this.civRnd()) : pickItem(material, category, era, this.civRnd());
     if (!item) return;
     st.items[item.id] = (st.items[item.id] ?? 0) + 1;
     const tier = Math.max(0, TIER_MATERIAL.indexOf(material));
@@ -1963,13 +2242,13 @@ export class Ecosystem {
   private fight(i: number, j: number, war: War): void {
     const si = this.strength(i);
     const sj = this.strength(j);
-    const loser = this.rnd() < si / (si + sj) ? j : i;
+    const loser = this.polRnd() < si / (si + sj) ? j : i;
     const k = this.villages[this.village[loser]].kingdom;
     war.losses[k === war.a ? 0 : 1]++;
     const st = this.villages[k].stock;
     if (this.role[loser] === ROLE.soldier) {
       if (st.weapons > 0) st.weapons--;
-      if (st.armor > 0 && this.rnd() < 0.5) st.armor--;
+      if (st.armor > 0 && this.polRnd() < 0.5) st.armor--;
     }
     this.kill(loser, true);
   }
@@ -2028,7 +2307,7 @@ export class Ecosystem {
         this.wars.splice(k, 1);
         continue;
       }
-      if (war.naval && this.rnd() < 0.06 * dt) this.invadeBySea(war);
+      if (war.naval && happens(this.polRnd, B.NAVAL_LANDING_RATE, dt / YEAR_SECONDS)) this.invadeBySea(war);
     }
     this.rebuildEnemies();
   }
@@ -2088,7 +2367,7 @@ export class Ecosystem {
     }
     if (passengers.length < 3) {
       for (const p of passengers) {
-        const c = this.spawn(from.species, from.x + this.rnd(), from.y + this.rnd(), from.id, p.age);
+        const c = this.spawn(from.species, from.x + this.polRnd(), from.y + this.polRnd(), from.id, p.age);
         if (c >= 0) this.role[c] = p.role;
       }
       return;
@@ -2120,6 +2399,12 @@ export class Ecosystem {
 
   /** Uma vez por ano: diplomacia, lava esfriando, ruínas sumindo e eventos do mundo. */
   private yearly(): void {
+    this.updateClimate();
+    // Rede de ruas: o que escapou da limpeza na hora (ruas de dois assentamentos que se encostam) sai uma vez por ano.
+    if (this.roadDirty.length) {
+      this.pruneRoads(this.roadDirty);
+      this.roadDirty = [];
+    }
     for (const k of this.crises) this.succession(this.villages[k]);
     this.crises.clear();
     this.diplomacy();
@@ -2198,7 +2483,7 @@ export class Ecosystem {
         // Sem mercado, vizinhos amigos ainda fazem escambo.
         const market = (has(a.id, 'market') && has(b.id, 'market') && (border || (port(a.id) && port(b.id)))) || (border && rel > 20);
         if (!atWar && market && this.trade(a, b)) rel += 3 * (a.culture.value === 'comércio' || b.culture.value === 'comércio' ? 2 : 1);
-        if (!atWar && this.rnd() < 0.03) rel += this.incident(a, b, border);
+        if (!atWar && this.polRnd() < 0.03) rel += this.incident(a, b, border);
         rel = Math.max(-100, Math.min(100, rel));
         this.relations.set(key, rel);
         if (atWar) continue;
@@ -2210,8 +2495,8 @@ export class Ecosystem {
         const fb = force(b.id);
         const strong = Math.max(fa, fb) >= 2 * Math.max(1, Math.min(fa, fb)) && Math.floor(Math.max(a.tech, b.tech)) >= 2;
         const hostile = rel < (warlike ? -20 : -35);
-        const ambition = strong && rel < 0 && this.rnd() < 0.04;
-        if (!ambition && (!hostile || this.rnd() > 0.15 * (warlike ? 2 : 1))) continue;
+        const ambition = strong && rel < 0 && this.polRnd() < 0.04;
+        if (!ambition && (!hostile || this.polRnd() > 0.15 * (warlike ? 2 : 1))) continue;
         if (Math.max(fa, fb) < 4 || this.allied(a.id, b.id) || (this.truces.get(key) ?? 0) > this.year) continue;
         const [att, def, target] = fa >= fb ? [a, b, pb] : [b, a, pa];
         if (this.declareWar(att, def, target, members)) this.callAllies(att, def, members);
@@ -2221,7 +2506,7 @@ export class Ecosystem {
       const war = this.wars[k];
       war.years++;
       const dead = war.losses[0] + war.losses[1];
-      if (this.rnd() < 0.03 + dead / 150 + (war.years > 30 ? 0.1 : 0)) {
+      if (this.polRnd() < 0.03 + dead / 150 + (war.years > 30 ? 0.1 : 0)) {
         this.wars.splice(k, 1);
         this.relations.set(this.key(war.a, war.b), -10);
         this.truces.set(this.key(war.a, war.b), this.year + TRUCE_YEARS);
@@ -2268,10 +2553,10 @@ export class Ecosystem {
   private incident(a: Village, b: Village, border: boolean): number {
     const warlike = (a.culture.value === 'guerra' ? 1 : 0) + (b.culture.value === 'guerra' ? 1 : 0);
     const kind = (a.culture.value === 'fé' || b.culture.value === 'fé' || a.culture.value === 'comércio') ? 0.55 : 0.4;
-    const good = this.rnd() < kind - warlike * 0.12;
-    const [x, y] = this.rnd() < 0.5 ? [a, b] : [b, a];
+    const good = this.polRnd() < kind - warlike * 0.12;
+    const [x, y] = this.polRnd() < 0.5 ? [a, b] : [b, a];
     if (good) {
-      if (a.species === b.species && a.tier >= 1 && b.tier >= 1 && this.rnd() < 0.35) {
+      if (a.species === b.species && a.tier >= 1 && b.tier >= 1 && this.polRnd() < 0.35) {
         this.note(`Um casamento real uniu as famílias de ${a.name} e ${b.name}`, 'povo', a);
         return 12;
       }
@@ -2279,11 +2564,11 @@ export class Ecosystem {
       return 6;
     }
     const shared = this.deposits.find((d) => d.amount > 0 && d.known.has(a.id) && d.known.has(b.id) && this.distance(a, d.x, d.y) < 50 && this.distance(b, d.x, d.y) < 50);
-    if (shared && this.rnd() < 0.5) {
+    if (shared && this.polRnd() < 0.5) {
       this.note(`${a.name} e ${b.name} disputam a jazida de ${ORE_NAMES[shared.ore]}`, 'guerra', shared);
       return -7;
     }
-    if (border && this.rnd() < 0.5) {
+    if (border && this.polRnd() < 0.5) {
       this.note(`Escaramuça na fronteira entre ${a.name} e ${b.name}`, 'guerra', y);
       return -9;
     }
@@ -2300,7 +2585,7 @@ export class Ecosystem {
     const key = this.key(a.id, b.id);
     const since = this.alliances.get(key);
     if (since === undefined) {
-      if (rel > 50 && !this.warOf(a.id) && !this.warOf(b.id) && this.rnd() < 0.12) {
+      if (rel > 50 && !this.warOf(a.id) && !this.warOf(b.id) && this.polRnd() < 0.12) {
         this.alliances.set(key, this.year);
         this.note(`Aliança entre ${a.name} e ${b.name}`, 'povo', a, { major: true });
         this.effect('heart', a.x, a.y - 3, 20, 1);
@@ -2314,7 +2599,7 @@ export class Ecosystem {
       this.note(`A aliança entre ${a.name} e ${b.name} acabou`, 'povo', a, { major: true });
       return true;
     }
-    if (this.year - since > 50 && a.species === b.species && rel > 80 && this.rnd() < 0.03) {
+    if (this.year - since > 50 && a.species === b.species && rel > 80 && this.polRnd() < 0.03) {
       const [big, small] = this.kingdomSize(a) >= this.kingdomSize(b) ? [a, b] : [b, a];
       for (const o of this.villages) {
         if (o.abandoned || o.kingdom !== small.id) continue;
@@ -2337,7 +2622,7 @@ export class Ecosystem {
       if (v.abandoned || v.kingdom !== v.id || v.tier > 0 || (members.get(v.id)?.length ?? 0) > 1 || this.warOf(v.id)) continue;
       for (const c of this.villages) {
         if (c.abandoned || c === v || c.kingdom !== c.id || c.species !== v.species || (members.get(c.id)?.length ?? 0) < 2) continue;
-        if (this.distance(c, v.x, v.y) > 45 || this.relation(c.id, v.id) < 20 || this.rnd() > 0.03) continue;
+        if (this.distance(c, v.x, v.y) > 45 || this.relation(c.id, v.id) < 20 || this.polRnd() > 0.03) continue;
         v.kingdom = c.id;
         v.color = c.color;
         this.connect(c, v);
@@ -2353,7 +2638,7 @@ export class Ecosystem {
    * guerra civil.
    */
   private succession(capital: Village): void {
-    if (capital.abandoned || capital.kingdom !== capital.id || this.rnd() > 0.3) return;
+    if (capital.abandoned || capital.kingdom !== capital.id || this.civRnd() > 0.3) return;
     const others = this.villages.filter((o) => !o.abandoned && o.kingdom === capital.id && o !== capital);
     if (others.length < 3) return;
     others.sort((p, q) => this.distance(capital, q.x, q.y) - this.distance(capital, p.x, p.y));
@@ -2364,7 +2649,7 @@ export class Ecosystem {
     const key = this.key(capital.id, seat.id);
     this.relations.set(key, -60);
     this.note(`O rei de ${capital.name} morreu sem herdeiro aceito: ${seat.name} coroou outro rei e levou ${rebels.length} assentamentos`, 'povo', seat, { major: true });
-    if (!this.warOf(capital.id) && !this.warOf(seat.id) && this.rnd() < 0.6) {
+    if (!this.warOf(capital.id) && !this.warOf(seat.id) && this.civRnd() < 0.6) {
       this.wars.push({ a: seat.id, b: capital.id, target: capital.id, losses: [0, 0], years: 0, naval: !this.landPath(seat.x, seat.y, capital.x, capital.y) });
       this.note(`Guerra civil entre ${seat.name} e ${capital.name}`, 'guerra', capital, { major: true });
       this.effect('swords', capital.x, capital.y - 3, 30, 1);
@@ -2374,7 +2659,7 @@ export class Ecosystem {
   /** Torna `v` capital de um reino novo saído de `old`: cultura, cor, estoque inicial. */
   private newKingdom(v: Village, old: Village): void {
     v.kingdom = v.id;
-    v.culture = makeCulture(this.cultures++, v.name, this.rnd);
+    v.culture = makeCulture(this.cultures++, v.name, this.polRnd);
     v.color = this.freshColor();
     for (const o of this.villages) if (o.kingdom === v.id) o.color = v.color;
     v.stock = { ...emptyStock(), wood: old.stock.wood * 0.2, weapons: Math.floor(old.stock.weapons * 0.3) };
@@ -2393,7 +2678,7 @@ export class Ecosystem {
       const far = this.distance(capital, v.x, v.y);
       // Reinos grandes são difíceis de manter unidos.
       const size = Math.min(2, 1 + (this.kingdomSize(capital) - 4) * 0.1);
-      if (far < 40 || this.rnd() > 0.005 * (far / 40) * size * (capital.culture.tolerance < 0.3 ? 2 : 1)) continue;
+      if (far < 40 || this.polRnd() > 0.005 * (far / 40) * size * (capital.culture.tolerance < 0.3 ? 2 : 1)) continue;
       const old = v.kingdom;
       for (const o of this.villages) if (!o.abandoned && o.kingdom === old && this.distance(v, o.x, o.y) < 30) o.kingdom = v.id;
       this.newKingdom(v, capital);
@@ -2428,8 +2713,8 @@ export class Ecosystem {
   private colonizeByLand(v: Village): boolean {
     const map = this.map;
     for (let t = 0; t < 12; t++) {
-      const a = this.rnd() * Math.PI * 2;
-      const d = TIER_RADIUS[v.tier] + TIER_RADIUS[0] + 2 + this.rnd() * 22;
+      const a = this.civRnd() * Math.PI * 2;
+      const d = TIER_RADIUS[v.tier] + TIER_RADIUS[0] + 2 + this.civRnd() * 22;
       const nx = Math.floor(v.x + Math.cos(a) * d);
       const ny = Math.floor(v.y + Math.sin(a) * d);
       if (ny < 2 || ny >= map.height - 2) continue;
@@ -2578,12 +2863,12 @@ export class Ecosystem {
       x: (v.port % w) + 0.5,
       y: Math.floor(v.port / w) + 0.5,
       facing: 1,
-      heading: this.rnd() * Math.PI * 2,
+      heading: this.civRnd() * Math.PI * 2,
       path,
       step: 0,
       landing,
       passengers,
-      timer: purpose === 'fish' ? 20 + this.rnd() * 25 : 0,
+      timer: purpose === 'fish' ? 20 + this.civRnd() * 25 : 0,
       adrift: 0,
       sunk: -1,
     };
@@ -2616,7 +2901,7 @@ export class Ecosystem {
       return candidates.length >= 6;
     });
     if (!candidates.length) return false;
-    const pick = candidates[Math.floor(this.rnd() * candidates.length)];
+    const pick = candidates[Math.floor(this.civRnd() * candidates.length)];
     const path: number[] = [];
     for (let t = pick.water; t >= 0; t = this.searchParent[t]) path.push(t);
     path.reverse();
@@ -2633,7 +2918,7 @@ export class Ecosystem {
       // Gente de menos: desistem e voltam para casa.
       const w2 = map.width;
       for (const p of passengers) {
-        const c = this.spawn(v.species, (v.port % w2) + this.rnd(), Math.floor(v.port / w2) + this.rnd(), v.id, p.age);
+        const c = this.spawn(v.species, (v.port % w2) + this.civRnd(), Math.floor(v.port / w2) + this.civRnd(), v.id, p.age);
         if (c >= 0) this.role[c] = p.role;
       }
       return false;
@@ -2660,12 +2945,12 @@ export class Ecosystem {
 
   /** Um predador marinho ataca: barcos pequenos afundam, os grandes perdem alguém. */
   private sharkAttack(b: Boat, predator: string): void {
-    if (this.rnd() > 0.35 * (1 - b.kind * 0.2)) return;
+    if (this.civRnd() > 0.35 * (1 - b.kind * 0.2)) return;
     const v = this.villages[b.village];
     const type = BOATS[b.kind];
     const crew = { fish: '', colonize: ' de colonos', invade: ' de soldados', explore: ' de exploradores' }[b.purpose];
     const what = b.purpose === 'fish' ? `um barco de pesca de ${v.name}` : `${type.the}${crew} de ${v.name}`;
-    if (b.kind <= 1 && this.rnd() < 0.5) {
+    if (b.kind <= 1 && this.civRnd() < 0.5) {
       this.sink(b, `${predator}s afundaram ${b.purpose === 'fish' ? 'barcos de pesca' : what}`, b.purpose === 'fish' ? 'shark-fish' : undefined);
     } else if (b.passengers.length) {
       b.passengers.pop();
@@ -2717,7 +3002,7 @@ export class Ecosystem {
       if (b.adrift > 0) {
         b.adrift -= dt;
         b.x = (b.x + Math.cos(b.heading) * 0.2 * dt + w) % w;
-        if (b.passengers.length && this.rnd() < 0.08 * dt) {
+        if (b.passengers.length && happens(this.civRnd, B.ADRIFT_LOSS_RATE, dt / YEAR_SECONDS)) {
           b.passengers.pop();
           if (!b.passengers.length) this.sink(b, `${cap(type.the)} de ${v.name} se perdeu no mar e ninguém sobreviveu`);
         }
@@ -2743,13 +3028,13 @@ export class Ecosystem {
           tx = px;
           ty = py;
         } else {
-          b.heading += (this.rnd() - 0.5) * 2 * dt;
+          b.heading += (this.civRnd() - 0.5) * 2 * dt;
           tx = b.x + Math.cos(b.heading) * 3;
           ty = b.y + Math.sin(b.heading) * 3;
         }
-        if (this.rnd() < 0.5 * dt) {
+        if (happens(this.civRnd, B.FISHING_CAST_RATE, dt / YEAR_SECONDS)) {
           this.forEachNear(b.x, b.y, 2, (j) => {
-            if (this.species[this.kind[j]].kind === 'fish' && this.rnd() < 0.5) {
+            if (this.species[this.kind[j]].kind === 'fish' && this.civRnd() < 0.5) {
               this.kill(j);
               v.food = Math.min(40, v.food + 1);
             }
@@ -2766,7 +3051,7 @@ export class Ecosystem {
         const t = this.tileAt(nx, Math.floor(ny));
         if (t < 0 || !isWater(map, t)) {
           // Barco de pesca bateu na costa: vira.
-          b.heading += Math.PI * (0.5 + this.rnd());
+          b.heading += Math.PI * (0.5 + this.civRnd());
           nx = b.x;
           ny = b.y;
         }
@@ -2786,17 +3071,17 @@ export class Ecosystem {
       }
       // Perigos: tempestades (mais comuns nos barcos antigos), ficar à deriva e doenças em viagens longas.
       // Barcos de pesca ficam perto da costa e voltam com tempo ruim: risco bem menor.
-      if (this.rnd() < type.risk * move * (b.purpose === 'fish' ? 0.25 : 1)) {
+      if (this.civRnd() < type.risk * move * (b.purpose === 'fish' ? 0.25 : 1)) {
         if (b.purpose === 'fish') this.sink(b, 'Tempestades afundaram barcos de pesca', 'storm-fish');
         else this.sink(b, `Uma tempestade afundou ${type.the} de ${v.name}${b.passengers.length ? `: ${b.passengers.length} ${b.purpose === 'invade' ? 'soldados' : 'colonos'} morreram` : ''}`);
         continue;
       }
       if (b.purpose !== 'fish') {
-        if (this.rnd() < type.risk * 0.6 * move) {
-          b.adrift = 6 + this.rnd() * 10;
-          b.heading = this.rnd() * Math.PI * 2;
+        if (this.civRnd() < type.risk * 0.6 * move) {
+          b.adrift = 6 + this.civRnd() * 10;
+          b.heading = this.civRnd() * Math.PI * 2;
           this.note(`${cap(type.the)} de ${v.name} ficou à deriva`, 'mar', b);
-        } else if (b.step > 40 && this.rnd() < 0.0015 * move) {
+        } else if (b.step > 40 && this.civRnd() < 0.0015 * move) {
           b.passengers.pop();
           this.note(`Uma doença a bordo matou um colono de ${v.name}`, 'mar', b, { key: `sick:${v.id}` });
           if (!b.passengers.length) this.sink(b, `Ninguém sobreviveu ${type.on} de ${v.name}`);
@@ -2817,7 +3102,7 @@ export class Ecosystem {
     const lx = b.landing % w;
     const ly = Math.floor(b.landing / w);
     for (const p of b.passengers) {
-      const c = this.spawn(from.species, lx + this.rnd(), ly + this.rnd(), from.id, p.age);
+      const c = this.spawn(from.species, lx + this.polRnd(), ly + this.polRnd(), from.id, p.age);
       if (c < 0) continue;
       this.role[c] = ROLE.soldier;
       this.expedition.add(c);
@@ -2858,7 +3143,7 @@ export class Ecosystem {
     const type = BOATS[Math.min(BOATS.length - 1, Math.floor(v.tech))];
     const coasts: { water: number; land: number }[] = [];
     this.searchSea(v.port, 400000, type.range, (t, d) => {
-      if (d < type.range * 0.35 || this.rnd() > 0.05) return false;
+      if (d < type.range * 0.35 || this.civRnd() > 0.05) return false;
       const x = t % w;
       const y = (t - x) / w;
       for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -2871,7 +3156,7 @@ export class Ecosystem {
       return coasts.length >= 12;
     });
     if (!coasts.length) return false;
-    const pick = coasts[Math.floor(this.rnd() * coasts.length)];
+    const pick = coasts[Math.floor(this.civRnd() * coasts.length)];
     const path: number[] = [];
     for (let t = pick.water; t >= 0; t = this.searchParent[t]) path.push(t);
     path.reverse();
@@ -2901,7 +3186,7 @@ export class Ecosystem {
       return;
     }
     for (const p of b.passengers) {
-      const c = this.spawn(from.species, lx + this.rnd(), ly + this.rnd(), target.id, p.age);
+      const c = this.spawn(from.species, lx + this.civRnd(), ly + this.civRnd(), target.id, p.age);
       if (c >= 0) this.role[c] = p.role;
     }
   }
@@ -2910,7 +3195,7 @@ export class Ecosystem {
 
   /** Número aleatório da simulação (determinístico pela semente). */
   random(): number {
-    return this.rnd();
+    return this.worldRnd();
   }
 
   effect(kind: Effect['kind'], x: number, y: number, life: number, size = 1): void {
@@ -2966,7 +3251,7 @@ export class Ecosystem {
       if (v.abandoned || this.distance(v, x, y) > r + TIER_RADIUS[v.tier]) continue;
       for (let k = v.houses.length - 1; k >= 0; k--) {
         const h = v.houses[k];
-        if (Math.hypot(wrapDx(h.x + 1 - x, this.map.width), h.y + 1 - y) > r || this.rnd() > chance) continue;
+        if (Math.hypot(wrapDx(h.x + 1 - x, this.map.width), h.y + 1 - y) > r || this.worldRnd() > chance) continue;
         const size = h.kind === 'port' ? 1 : 2;
         for (let dy = 0; dy < size; dy++) {
           for (let dx = 0; dx < size; dx++) {
@@ -3003,7 +3288,7 @@ export class Ecosystem {
     this.buildGrid();
     let n = 0;
     this.forEachNear(x, y, r, (i) => {
-      if (this.rnd() > chance) return;
+      if (this.worldRnd() > chance) return;
       this.kill(i, true);
       n++;
     });
