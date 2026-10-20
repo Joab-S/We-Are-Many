@@ -7,8 +7,15 @@
  */
 
 const CHUNK = 32;
-/** Blocos guardados por resolução (pixels por tile): 4, 8 e 16. */
-const KEEP: Record<number, number> = { 8: 90, 16: 36 };
+/**
+ * Pixels de arte por tile: 8, a mesma escala das casas e criaturas (uma
+ * cabana de 2 tiles tem 16 pixels), para o chão não ficar mais miúdo que elas.
+ * As coordenadas internas continuam em 16 por tile, andando de 2 em 2.
+ */
+const ART = 8;
+const STEP = 16 / ART;
+/** Blocos guardados. */
+const KEEP = 140;
 /** Tempo máximo por quadro gasto refazendo blocos (ms). */
 const BUDGET = 12;
 
@@ -43,7 +50,7 @@ export class SoftArt {
 
   /** Resolução dos blocos para o zoom; 0 (mapa chapado) até chegar bem perto. */
   static levelFor(zoom: number): number {
-    return zoom < 8 ? 0 : zoom < 13 ? 8 : 16;
+    return zoom < 8 ? 0 : ART;
   }
 
   /** O tile `i` mudou (linha da textura, y para baixo): marca o bloco dele e os vizinhos que o enxergam. */
@@ -58,7 +65,7 @@ export class SoftArt {
       const k = `${cx},${cy}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      for (const level of [8, 16]) {
+      for (const level of [ART]) {
         const c = this.chunks.get(`${level}:${k}`);
         if (c) c.dirty = true;
       }
@@ -98,9 +105,9 @@ export class SoftArt {
 
   private trim(level: number): void {
     const mine = [...this.chunks.entries()].filter(([k]) => k.startsWith(`${level}:`));
-    if (mine.length <= KEEP[level]) return;
+    if (mine.length <= KEEP) return;
     mine.sort((a, b) => a[1].usedAt - b[1].usedAt);
-    for (let k = 0; k < mine.length - KEEP[level]; k++) this.chunks.delete(mine[k][0]);
+    for (let k = 0; k < mine.length - KEEP; k++) this.chunks.delete(mine[k][0]);
   }
 
   // Leitura da textura ----------------------------------------------------
@@ -173,15 +180,15 @@ export class SoftArt {
     const img = g.createImageData(n, n);
     const out = img.data;
     const step = 16 / level;
-    const zoom = level;
+    const zoom = 8;
     const rgb: [number, number, number] = [0, 0, 0];
     for (let py = 0; py < n; py++) {
       const ty = cy * CHUNK + Math.floor(py / level);
       if (ty >= this.height) break;
-      const fy = Math.floor(((py % level) + 0.5) * step);
+      const fy = (py % level) * step;
       for (let px = 0; px < n; px++) {
         const tx = cx * CHUNK + Math.floor(px / level);
-        const fx = Math.floor(((px % level) + 0.5) * step);
+        const fx = (px % level) * step;
         this.pixel(tx, ty, fx, fy, zoom, rgb);
         const o = (py * n + px) * 4;
         out[o] = rgb[0] * 255;
@@ -210,8 +217,8 @@ export class SoftArt {
     const st = src / 4;
     const ptx = st % this.width;
     const pty = (st - ptx) / this.width;
-    const blot = hash(Math.floor(gx / 3) + 0.37, Math.floor(gy / 3) + 0.37);
-    const grain = hash(gx * 1.13, gy * 1.13);
+    // Manchas de 3x3 pixels de arte (6 na grade de 16).
+    const blot = hash(Math.floor(gx / 6) + 0.37, Math.floor(gy / 6) + 0.37);
     let m = 0.97 + 0.06 * hash(ptx, pty);
     r *= m;
     gr *= m;
@@ -230,12 +237,13 @@ export class SoftArt {
       gr *= m;
       b *= m;
       if (zoom >= 4) {
-        const shore = !this.waterPx(gx + 1, gy) || !this.waterPx(gx - 1, gy) || !this.waterPx(gx, gy + 1) || !this.waterPx(gx, gy - 1);
+        const S = STEP;
+        const shore = !this.waterPx(gx + S, gy) || !this.waterPx(gx - S, gy) || !this.waterPx(gx, gy + S) || !this.waterPx(gx, gy - S);
         if (shore) {
           r = r * 0.4 + 0.93 * 0.6;
           gr = gr * 0.4 + 0.97 * 0.6;
           b = b * 0.4 + 0.6;
-        } else if (!this.waterPx(gx + 2, gy) || !this.waterPx(gx - 2, gy) || !this.waterPx(gx, gy + 2) || !this.waterPx(gx, gy - 2)) {
+        } else if (!this.waterPx(gx + 2 * S, gy) || !this.waterPx(gx - 2 * S, gy) || !this.waterPx(gx, gy + 2 * S) || !this.waterPx(gx, gy - 2 * S)) {
           r = r * 0.65 + 0.6 * 0.35;
           gr = gr * 0.65 + 0.86 * 0.35;
           b = b * 0.65 + 0.95 * 0.35;
@@ -244,17 +252,14 @@ export class SoftArt {
     } else {
       const green = gr > r && gr > b * 1.1;
       const sand = r > 0.55 && r >= gr && gr > b + 0.08;
-      // Textura leve: manchas suaves e poucos pontinhos, sem granulado.
-      if (green) {
-        m = (0.95 + 0.08 * blot) * (grain > 0.985 ? 1.08 : 1);
-      } else if (sand) {
-        m = (0.97 + 0.05 * blot) * (grain > 0.99 ? 0.9 : 1);
-      } else {
-        m = 0.95 + 0.08 * blot;
-      }
+      // Textura leve: só manchas suaves, sem granulado.
+      if (green) m = 0.96 + 0.06 * blot;
+      else if (sand) m = 0.98 + 0.03 * blot;
+      else m = 0.96 + 0.06 * blot;
       if (zoom >= 4) {
-        if (this.waterPx(gx, gy + 1) || this.waterPx(gx, gy + 2)) m *= 0.62;
-        else if (this.waterPx(gx + 1, gy) || this.waterPx(gx - 1, gy) || this.waterPx(gx, gy - 1)) m *= 0.85;
+        const S = STEP;
+        if (this.waterPx(gx, gy + S) || this.waterPx(gx, gy + 2 * S)) m *= 0.62;
+        else if (this.waterPx(gx + S, gy) || this.waterPx(gx - S, gy) || this.waterPx(gx, gy - S)) m *= 0.85;
       }
       r *= m;
       gr *= m;
@@ -266,7 +271,12 @@ export class SoftArt {
     }
     if (zoom >= (kind === 7 ? 3 : 5) && kind > 0 && kind <= 7) {
       // Arte 16x16 do enfeite: alfa cheio é cor, alfa parcial é sombra.
-      const d = (fy * this.decorW + (kind - 1) * 16 + fx) * 4;
+      // Cada pixel de arte cobre 2x2 do desenho de 16: vale o pixel mais opaco do bloco.
+      let d = (fy * this.decorW + (kind - 1) * 16 + fx) * 4;
+      for (const [ox, oy] of [[1, 1], [1, 0], [0, 1]]) {
+        const e = ((fy + oy) * this.decorW + (kind - 1) * 16 + fx + ox) * 4;
+        if (this.decor[e + 3] > this.decor[d + 3]) d = e;
+      }
       const a = this.decor[d + 3] / 255;
       if (a > 0.9) {
         const s = 0.94 + 0.12 * hash(tx + 7, ty + 7);
@@ -320,19 +330,21 @@ export class SoftArt {
     const re = this.isRoad(e);
     const gx = tx * 16 + fx;
     const gy = ty * 16 + fy;
-    const grain = hash(gx * 0.71 + 5, gy * 0.71 + 5);
+    const S = STEP;
     const set = (k: number) => {
       out[0] = br * k;
       out[1] = bg * k;
       out[2] = bb * k;
     };
     if (kind === 10) {
-      const edge = (fy === 0 && !rn) || (fy === 15 && !rs) || (fx === 0 && !rw) || (fx === 15 && !re);
+      // Praça: lajes de 4x4 pixels de arte com rejunte e borda.
+      const edge = (fy === 0 && !rn) || (fy >= 16 - S && !rs) || (fx === 0 && !rw) || (fx >= 16 - S && !re);
       if (edge) return set(0.7);
-      if (gx % 6 === 0 || gy % 6 === 0) return set(0.78);
-      return set(0.93 + 0.1 * hash(Math.floor(gx / 6) + 2, Math.floor(gy / 6) + 2));
+      if (gx % 8 === 0 || gy % 8 === 0) return set(0.8);
+      return set(0.93 + 0.1 * hash(Math.floor(gx / 8) + 2, Math.floor(gy / 8) + 2));
     }
-    const lo = kind === 9 ? 2 : 3;
+    // Faixa da rua: 6 pixels de arte na pedra, 4 na terra, centrada no tile.
+    const lo = kind === 9 ? 2 : 4;
     const hi = 15 - lo;
     const on = (x: number, y: number) => this.onRoad(x, y, lo, hi, rn, rs, rw, re);
     if (!on(fx, fy)) {
@@ -346,27 +358,24 @@ export class SoftArt {
         g = 0.62;
         b = 0.32;
       }
-      let k = 0.95 + 0.06 * hash(Math.floor(gx / 3) + 0.37, Math.floor(gy / 3) + 0.37);
-      if (on(fx + 1, fy) || on(fx - 1, fy) || on(fx, fy + 1) || on(fx, fy - 1)) k *= 0.82;
+      let k = 0.96 + 0.06 * hash(Math.floor(gx / 6) + 0.37, Math.floor(gy / 6) + 0.37);
+      if (on(fx + S, fy) || on(fx - S, fy) || on(fx, fy + S) || on(fx, fy - S)) k *= 0.85;
       out[0] = r * k;
       out[1] = g * k;
       out[2] = b * k;
       return;
     }
-    const border = !on(fx + 1, fy) || !on(fx - 1, fy) || !on(fx, fy + 1) || !on(fx, fy - 1);
+    const border = !on(fx + S, fy) || !on(fx - S, fy) || !on(fx, fy + S) || !on(fx, fy - S);
     if (kind === 9) {
-      if (border) return set(1.18);
-      const row = Math.floor(gy / 3);
-      const off = (row % 2) * 2;
-      if (gy % 3 === 0 || (gx + off) % 4 === 0) return set(0.7);
-      return set(0.92 + 0.12 * hash(Math.floor((gx + off) / 4) + 9, row + 9));
+      // Calçamento: pedras de 4x2 pixels de arte em fiadas desencontradas e meio-fio claro.
+      if (border) return set(1.15);
+      const row = Math.floor(gy / 4);
+      const off = (row % 2) * 4;
+      if (gy % 4 === 0 || (gx + off) % 8 === 0) return set(0.75);
+      return set(0.94 + 0.08 * hash(Math.floor((gx + off) / 8) + 9, row + 9));
     }
-    if (border) return set(0.78);
-    const horiz = (rw || re) && !(rn || rs);
-    const vert = (rn || rs) && !(rw || re);
-    if ((horiz && (fy === lo + 2 || fy === hi - 2)) || (vert && (fx === lo + 2 || fx === hi - 2))) return set(0.86);
-    let k = 0.96 + 0.06 * hash(Math.floor(gx / 4) + 1.3, Math.floor(gy / 4) + 1.3);
-    if (grain > 0.985) k *= 1.12;
-    set(k);
+    // Terra batida: borda escura e manchas suaves.
+    if (border) return set(0.8);
+    set(0.97 + 0.05 * hash(Math.floor(gx / 6) + 1.3, Math.floor(gy / 6) + 1.3));
   }
 }
