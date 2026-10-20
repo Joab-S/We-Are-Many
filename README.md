@@ -71,3 +71,11 @@ public/universe Chunks gerados
 
 - Estrelas: [HYG Database](https://github.com/astronexus/HYG-Database) v4.1, por David Nash (astronexus), licença CC BY-SA 4.0. Os chunks em `public/universe/` são derivados dele e seguem a mesma licença.
 - Sistema Solar: parâmetros orbitais e físicos da NASA/JPL.
+
+## Publicar na Vercel
+
+O jogo é um site estático (Vite), e o `vercel.json` já traz a configuração.
+
+1. Em vercel.com, entre com o GitHub e clique em **Add New → Project**.
+2. Importe o repositório `Joab-S/We-Are-Many`. A Vercel detecta Vite sozinha; não mude nada e clique em **Deploy**.
+3. A branch `main` vira o endereço principal; cada PR ganha um endereço de prévia.
