@@ -95,9 +95,9 @@ Itens marcados com **Implementado (Fase 0)** já existem no PR #1. O resto é re
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-30 | Cada indivíduo tem idade, energia e fase (filhote, adulto, velho). Só adultos com energia acima de um limiar se reproduzem. | Implementado (Fase 0), sem fase "velho" visível |
+| RF-VIDA-30 | Cada indivíduo tem idade, energia e fase (filhote, adulto, velho). Só adultos com energia acima de um limiar se reproduzem. Inteligentes: crianças (menores, sem profissão, ficam perto de casa) ganham profissão ao virar adultas; idosos (a partir de 75% da expectativa de vida) têm cabelo grisalho e bengala, andam devagar, não trabalham nem têm filhos. A expectativa de vida cresce 12% por era. A morte de reis e líderes de reinos entra nos acontecimentos com a idade. | Implementado (Fase 0) |
 | RF-VIDA-31 | Morte por idade máxima, fome, predação, frio/calor fora da faixa, afogamento (terrestre na água) ou encalhe (peixe em terra). | Implementado (Fase 0) |
-| RF-VIDA-32 | Reprodução por tipo: peixes desovam várias crias, herbívoros têm 1–2 filhotes, predadores ninhadas pequenas, inteligentes um filho por vez com intervalo longo. | Parcial |
+| RF-VIDA-32 | Reprodução por tipo: peixes desovam várias crias, herbívoros têm 1–2 filhotes, predadores ninhadas pequenas, inteligentes um filho por vez com intervalo longo (cerca de 0,13 filho por adulto por ano, para a história durar). | Parcial |
 | RF-VIDA-33 | Gestação/intervalo mínimo entre crias por espécie, para evitar explosões. | Fase 5 |
 | RF-VIDA-34 | Teto global de indivíduos simulados por planeta (orçamento, seção 15). Acima dele, a população é agregada (um indivíduo representa vários) sem mudar o comportamento visível. | Fase 5 |
 | RF-VIDA-35 | Filhotes seguem adultos do bando; inteligentes jovens ficam perto de casa. | Fase 5 |
@@ -112,7 +112,7 @@ Itens marcados com **Implementado (Fase 0)** já existem no PR #1. O resto é re
 | RF-VIDA-40 | Predadores procuram a presa mais próxima num raio, perseguem e matam; ganham energia ao comer. | Implementado (Fase 0) |
 | RF-VIDA-41 | Presas fogem de predadores próximos (raio de alerta por espécie). | Parcial |
 | RF-VIDA-42 | **Caçada em grupo:** predadores sociais (ex.: lobos) caçam em matilha, cercando a presa; a chance de sucesso cresce com o tamanho do grupo; podem abater presas maiores (megafauna). | Fase 5 |
-| RF-VIDA-43 | **Caça por inteligentes:** caçadores saem da aldeia, perseguem herbívoros e peixes (pesca na costa), voltam com comida. A eficiência cresce com a era (lança, arco, armadilha, rede, barco). | Parcial: caçadores abatem herbívoros por perto, sem pesca nem viagem de volta |
+| RF-VIDA-43 | **Caça por inteligentes:** caçadores saem da aldeia, perseguem herbívoros e peixes (pesca na costa), voltam com comida. A eficiência cresce com a era (lança, arco, armadilha, rede, barco). Caça sustentável: poupam a espécie quando ela cai abaixo de 25% do teto. | Parcial: caçadores abatem herbívoros por perto; pesca feita por barcos (seção 10.5) |
 | RF-VIDA-44 | Predadores atacam inteligentes isolados nas eras iniciais; aldeias se defendem em grupo e, a partir do Bronze, caçam predadores próximos para proteger rebanhos. | Fase 5 |
 | RF-VIDA-45 | Caça excessiva pode extinguir uma espécie localmente; a crônica registra a extinção local e global. | Fase 5 |
 | RF-VIDA-46 | Territórios de caça: bandos de predadores evitam o território de outros bandos da mesma espécie (disputas ocasionais). | Fase 6 |
@@ -155,7 +155,7 @@ O jogador nunca cria espécies. A evolução modifica espécies existentes de fo
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-70 | Cada inteligente pertence a um assentamento, tem idade, energia e uma profissão: coletor, caçador, pescador, agricultor, construtor, guerreiro, sacerdote, comerciante (as profissões liberam conforme a era). | Parcial: 11 profissões com aparência própria (coletor, caçador, agricultor, lenhador, construtor, minerador, ferreiro, soldado, guarda, líder, rei), liberadas por era e nível; faltam pescador, sacerdote e comerciante |
+| RF-VIDA-70 | Cada inteligente pertence a um assentamento, tem idade, energia e uma profissão: coletor, caçador, pescador, agricultor, construtor, guerreiro, sacerdote, comerciante (as profissões liberam conforme a era). | Parcial: 11 profissões com aparência própria (coletor, caçador, agricultor, lenhador, construtor, minerador, ferreiro, soldado, guarda, líder, rei), liberadas por era e nível, e pescador onde há porto (fica perto do porto); faltam sacerdote e comerciante |
 | RF-VIDA-71 | Comportamento base: trabalhar perto de casa durante o dia, voltar ao centro, fugir de predadores, procurar comida quando com fome. | Parcial |
 | RF-VIDA-72 | Líder por assentamento (chefe, rei, prefeito conforme a era), com traço de personalidade (pacífico, ambicioso, devoto, mercador) que influencia diplomacia e guerra. | Fase 6 |
 
@@ -168,12 +168,12 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 | Idade da Pedra | Cabanas de palha, coleta, caça com lança, fogo, aldeias pequenas |
 | Idade do Bronze | Casas de madeira com telhado, agricultura, domesticação, ferramentas melhores, comércio de troca, vilas |
 | Idade do Ferro | Casas de pedra, armas de ferro, exércitos organizados, estradas, cidades, muralhas de madeira |
-| Era Medieval | Castelos, muralhas de pedra, reinos, religião organizada, moedas, portos e barcos |
+| Era Medieval | Castelos, muralhas de pedra, reinos, religião organizada, moedas, caravelas |
 | Era Industrial | Fábricas, ferrovias, poluição (aquece e suja o planeta), crescimento populacional rápido |
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-73 | Cada assentamento tem progresso tecnológico próprio que cresce com a raiz da população; a era aparece no painel e muda a arte das casas. | Implementado (Fase 0) |
+| RF-VIDA-73 | Cada assentamento tem progresso tecnológico próprio; a era aparece no painel e muda a arte das casas. **Ritmo lento:** com 30 habitantes, cada era leva 300, 350, 450 e 550 anos (Industrial perto do ano 1.300); população e tamanho do reino aceleram no máximo 1,3× e 1,25×. O painel mostra o progresso rumo à próxima era. | Implementado (Fase 0) |
 | RF-VIDA-74 | Tecnologia se espalha: assentamentos vizinhos e parceiros comerciais avançam mais rápido; um reino compartilha a era da capital com atraso. | Fase 6 |
 | RF-VIDA-75 | O jogador pode **ensinar** (adiantar o progresso), com custo e com risco: ensinar demais causa instabilidade (ver RF-VIDA-131). | Implementado (Fase 0), sem custo e sem risco |
 | RF-VIDA-76 | Eras além da Industrial (Atômica, Espacial) ficam para depois e podem gerar uma espécie que vai ao espaço e se torna ator no 3D (contato, tratado, ameaça). | Futuro (Fase 6+) |
@@ -196,7 +196,7 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-90 | Níveis de assentamento pela população: **Aldeia** (< 25), **Vila** (25 a 59), **Cidade** (≥ 60). O nível sobe quando a população alcança o limite; descer de nível quando a população cai fica para depois. | Implementado (Fase 0), só sobe |
+| RF-VIDA-90 | Níveis de assentamento pela população: **Aldeia** (< 25), **Vila** (25 a 59), **Cidade** (60 a 139), **Metrópole** (≥ 140). O nível sobe quando a população alcança o limite; descer de nível quando a população cai fica para depois. | Implementado (Fase 0), só sobe |
 | RF-VIDA-91 | **Reino:** uma cidade capital mais os assentamentos subordinados a ela: colônias que ela fundou e aldeias que ficaram dentro da sua área. O reino tem nome, cor e líder; o rótulo da capital mostra o reino. | Implementado (Fase 0), sem líder |
 | RF-VIDA-92 | Quando a capital cai de nível (vira vila) ou é conquistada, o reino pode se desfazer ou mudar de capital para a maior cidade restante. | Fase 6 |
 | RF-VIDA-93 | Impérios (vários reinos sob um) e confederações ficam como evolução do sistema de alianças (seção 12). | Futuro |
@@ -205,12 +205,12 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-94 | Cada assentamento tem uma **área circular** com raio por nível: aldeia **8**, vila **12**, cidade **18** tiles. | Implementado (Fase 0) |
+| RF-VIDA-94 | Cada assentamento tem uma **área circular** com raio por nível: aldeia **8**, vila **12**, cidade **18**, metrópole **25** tiles. | Implementado (Fase 0) |
 | RF-VIDA-95 | **Nenhum assentamento pode ser fundado dentro da área de outro.** Colonos e o jogador (ferramenta de espécie inteligente) só fundam fora de todas as áreas existentes. | Implementado (Fase 0) |
 | RF-VIDA-96 | A área de uma **cidade pode crescer e conter aldeias**; essas aldeias passam a pertencer ao reino da cidade. **O contrário não acontece**: uma aldeia ou vila nunca contém uma cidade, e assentamentos que não são cidades não expandem a área sobre outros. | Implementado (Fase 0) |
 | RF-VIDA-97 | A área é visível como contorno suave com a cor do reino quando o jogador passa o mouse ou ativa a camada "Território". | Fase 5 |
 | RF-VIDA-98 | Fronteiras de reino: a união das áreas dos assentamentos do reino; tiles disputados entre dois reinos geram tensão (seção 12). | Fase 6 |
-| RF-VIDA-99 | Fundação inteligente: colonos preferem locais com água doce ou costa por perto, terra plana, vegetação e distância razoável do assentamento de origem; evitam montanha, gelo e deserto. | Parcial: escolhe terra habitável |
+| RF-VIDA-99 | Fundação inteligente: colonos preferem locais com água doce ou costa por perto, terra plana, vegetação e distância razoável do assentamento de origem; evitam montanha, gelo e deserto (a partir da Idade do Ferro, poços e irrigação abrem o deserto). Por terra, só vão a pé: não atravessam água. | Parcial: escolhe terra habitável e alcançável a pé |
 
 ### 10.3 Planta do assentamento
 
@@ -223,16 +223,31 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 | RF-VIDA-104 | Ruas paralelas formam uma malha: vilas ganham uma rua paralela de cada lado da cruz, cidades duas. Futuro: a malha cresce sob demanda, quando os lotes acabam. | Implementado (Fase 0), malha fixa por nível |
 | RF-VIDA-105 | **Campos cultivados** (seção 11) em volta das casas da periferia, a partir do Bronze. | Fase 5 |
 | RF-VIDA-106 | **Muralhas por era:** paliçada de madeira (Ferro), muralha de pedra com portões nas ruas (Medieval), contornando a área da cidade. | Fase 6 |
-| RF-VIDA-107 | **Edifícios especiais:** castelo/palácio na capital do reino, templo, mercado, quartel, celeiro, ferraria, porto (assentamentos na costa a partir do Medieval), pontes onde estradas cruzam rios estreitos, marcos (estátua, torre) que contam a história. | Fase 6 |
+| RF-VIDA-107 | **Edifícios especiais:** castelo/palácio na capital do reino, templo, mercado, quartel, celeiro, ferraria, moinho, fábrica (Industrial), porto (seção 10.5), pontes onde estradas cruzam rios estreitos, marcos (estátua, torre) que contam a história. | Parcial: faltam pontes e marcos |
 | RF-VIDA-108 | Assentamentos abandonados (população zero) deixam ruínas por um tempo; ruínas podem ser reocupadas. | Parcial: some, sem ruínas |
 
 ### 10.4 Crescimento
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-109 | Novas casas surgem quando a população passa da capacidade das casas existentes. | Implementado (Fase 0) |
-| RF-VIDA-110 | Assentamentos lotados enviam colonos para fundar novas aldeias fora de qualquer área existente; a nova aldeia pertence ao reino de origem. | Implementado (Fase 0) |
+| RF-VIDA-109 | Novas casas surgem quando a população passa da capacidade das casas existentes. Cada casa abriga 4 + era pessoas (sobrados e prédios abrigam mais), e o teto de inteligentes do planeta cresce 30% por era, para as cidades não pararem de crescer. | Implementado (Fase 0) |
+| RF-VIDA-110 | Assentamentos lotados (mais de 26 pessoas, ou sem lote livre, como numa ilha pequena) enviam colonos para fundar novas aldeias fora de qualquer área existente, por terra ou por mar; a nova aldeia pertence ao reino de origem. | Implementado (Fase 0) |
 | RF-VIDA-111 | Casas são reconstruídas no estilo da era quando o assentamento avança. | Implementado (Fase 0) |
+
+### 10.5 Mar: portos, barcos e perigos
+
+Povos presos numa ilha ou numa costa usam o mar para crescer, com barcos coerentes com a época.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-112 | **Porto:** a partir do fim da Idade da Pedra, um assentamento com costa para o mar (não para um lago) constrói um porto no tile de costa mais perto do centro, ligado à praça por uma rua. | Implementado (Fase 0) |
+| RF-VIDA-113 | **Barcos por era:** canoa (Pedra), barco a remo (Bronze), veleiro (Ferro), caravela (Medieval) e navio a vapor (Industrial). Cada um mais rápido, maior (4, 6, 8, 12 e 20 colonos), com mais alcance (35 a 700 tiles de mar) e mais seguro. Os barcos têm a cor do reino. | Implementado (Fase 0) |
+| RF-VIDA-114 | **Pesca:** com porto, surgem pescadores; até 3 barcos de pesca saem do porto, pescam em volta e voltam. O peixe fica guardado e alimenta quem tem fome. | Implementado (Fase 0) |
+| RF-VIDA-115 | **Colonização pelo mar:** quando não há onde fundar a pé, o assentamento procura pelo mar (busca de rota pela água, dentro do alcance do barco) uma costa livre e manda adultos que não sejam o líder; ao chegar, fundam uma aldeia do mesmo reino. | Implementado (Fase 0) |
+| RF-VIDA-116 | **Tempestades:** a cada tile navegado há chance de naufrágio, alta na canoa e quase nula no navio a vapor; todos a bordo morrem e os destroços boiam um pouco. | Implementado (Fase 0) |
+| RF-VIDA-117 | **Predadores marinhos** (tubarão na Terra; espécie própria em planetas com animais): caçam peixes e atacam barcos que passam perto. Canoas e barcos a remo podem afundar; barcos maiores perdem um colono. | Implementado (Fase 0) |
+| RF-VIDA-118 | **Outros riscos:** ficar à deriva (o barco para e a comida pode acabar) e doença a bordo em viagens longas. Todo naufrágio e morte no mar entra nos acontecimentos. | Implementado (Fase 0) |
+| RF-VIDA-119 | Futuro: comércio por mar entre portos, guerras navais, faróis e estaleiros. | Fase 6 |
 
 ---
 
@@ -320,7 +335,9 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 | RF-VIDA-162 | Casas mudam por era: **cabana de palha** (Pedra), **casa de madeira com telhado de palha** (Bronze), **casa enxaimel com telhado de telha** (Ferro), **casa de pedra com telhado de ardósia** (Medieval) e **sobrado de tijolo** (Industrial, e nas cidades já a partir da Medieval). Futuro: a cor do telhado ou de um detalhe identifica o reino. | Implementado (Fase 0), sem cor de reino nas casas |
 | RF-VIDA-163 | Árvores por bioma (folhosa, floresta tropical, pinheiro, acácia, cacto) e pedras, com o mesmo estilo, desenhadas sobre o tile no zoom alto. | Implementado (Fase 0) |
 | RF-VIDA-164 | Ruas e estradas como tiles de terra batida (pedra a partir da Era Medieval), com leve variação por tile; praça com fogueira animada. | Implementado (Fase 0), fogueira estática |
-| RF-VIDA-165 | Futuro: lavouras por estação, muralhas, castelo, templo, porto, barcos, ruínas, exércitos com bandeira na cor do reino, fumaça de fábricas. | Fase 5/6 |
+| RF-VIDA-165 | Futuro: lavouras por estação, muralhas, ruínas, exércitos com bandeira na cor do reino. | Fase 5/6 |
+| RF-VIDA-167 | **Terreno de perto (zoom médio e próximo):** a fronteira entre tiles diferentes ondula em vez de formar quadrados; manchas e grãos por material (grama com manchas e fios, areia com grãos); linha de espuma colada na costa, água rasa, areia molhada e barranco quando a água fica ao sul. | Implementado (Fase 0) |
+| RF-VIDA-168 | Sprites de porto, canoa, barco a remo, veleiro, caravela, navio a vapor (com fumaça), destroços, tubarão, crianças, idosos, pescador e fábrica, no mesmo estilo. | Implementado (Fase 0) |
 | RF-VIDA-166 | Paleta da flora alienígena derivada da estrela (RF-ART-04): plantas de estrela vermelha mais escuras/arroxeadas, de estrela azul mais claras. | Fase 5 |
 
 ---
@@ -382,4 +399,6 @@ Mapeado às fases do [REQUISITOS.md](REQUISITOS.md#8-plano-de-desenvolvimento-po
 | 19/10/2026 | Assentamentos com níveis (aldeia < 25, vila 25–59, cidade ≥ 60), áreas circulares (8/12/18 tiles), sem fundação dentro de outra área; cidade pode conter aldeias, nunca o contrário; reinos formados por capital e subordinados. |
 | 19/10/2026 | Planta com praça central, ruas em cruz, casas em lotes de frente para as ruas e estradas entre assentamentos do mesmo reino. |
 | 19/10/2026 | Arte em pixel no estilo 16 bits simples: contorno escuro, 3–4 tons por material, luz de cima à esquerda, elementos grandes ~16 px. |
+| 20/10/2026 | Eras bem mais lentas (séculos por era) e crescimento lento dos inteligentes; idade visível (crianças e idosos); portos e barcos por era; perigos no mar (tempestade, predador marinho, deriva, doença). |
+| 20/10/2026 | Cidades não estagnam: metrópole (≥ 140), mais gente por casa e por era, deserto colonizável a partir do Ferro e limite de 100 assentamentos vivos. |
 | 19/10/2026 | Evolução só modifica espécies existentes (adaptação, variantes, especiação lenta); inteligência nunca surge de espécies não inteligentes. |

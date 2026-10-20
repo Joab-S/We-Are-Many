@@ -127,6 +127,8 @@ export const ART = {
     '.m...m..',
   ],
   fish: ['.MMM.M', 'MEMMmM', '.mmm.m'],
+  // Barbatana e dorso de um predador marinho saindo da água.
+  shark: ['...K....', '..KMK...', '.KMMmK..', 'KmMMMmmK'],
   dot: ['M'],
 
   // Casas, uma por era (16x16).
@@ -220,6 +222,117 @@ export const ART = {
     'KKKKKKKKKKKKKKKK',
     '................',
   ],
+
+  // Fábrica de tijolos com chaminé fumegando (Era Industrial).
+  factory: [
+    '..........GG....',
+    '.........GggG...',
+    '..........gG....',
+    '..........KK....',
+    '.........KxXK...',
+    '.........KxXK...',
+    '.KK..KK..KxXK...',
+    'KMMKKMMKKKxXKKK.',
+    'KMmMKMmMKMmXMmK.',
+    'KXXXXXXXXXXXXXK.',
+    'KXOoXXOoXXOoXXK.',
+    'KXooXXooXXooXXK.',
+    'KxxxxxxxxxxxxxK.',
+    'KXXXXDDXXXXXXXK.',
+    'KxxxxDdxxxxxxxK.',
+    'KKKKKKKKKKKKKKK.',
+  ],
+
+  // Porto: galpão de barcos e píer de madeira.
+  port: [
+    '....KKKKKK......',
+    '...KMMMMMMK.....',
+    '..KMMMMMMMmK....',
+    '.KMMMMMMMMmmK...',
+    '..KPPPPPPPpK....',
+    '..KPpDDPPPpK....',
+    '..KPpDdPPPpK....',
+    'KKKKKKKKKKKKKKKK',
+    'KPpPpPpPpPpPpPpK',
+    'KKKKKKKKKKKKKKKK',
+    '.Kq...Kq...Kq...',
+    '.Kq...Kq...Kq...',
+  ],
+
+  // Embarcações, uma por era (de lado, proa para a direita).
+  canoe: [
+    '....KK......',
+    '....SS...q..',
+    '...MMMm.q...',
+    'PKKKKKKKqKKP',
+    'KPPPPPPPPPPK',
+    '.KppppppppK.',
+    '..KKKKKKKK..',
+  ],
+  rowboat: [
+    '...KK.....KK....',
+    '...SS.....SS....',
+    '..MMMm...MMMm...',
+    'KKKKKKKKKKKKKKKK',
+    'KPPPPPPPPPPPPPPK',
+    '.KMMMMMMMMMMMMK.',
+    '..KppppppppppK..',
+    '...KKKKKKKKKK...',
+  ],
+  sailboat: [
+    '.......K........',
+    '.......KMM......',
+    '.......KW.......',
+    '.......KWW......',
+    '.......KWWW.....',
+    '.......KWWWW....',
+    '.......KWWWWW...',
+    '.......KWWWWWw..',
+    '.......KWWWWWww.',
+    '.......KKKKKKKK.',
+    'KK.....K.......K',
+    'KPPPPPPPPPPPPPPK',
+    '.KMMMMMMMMMMMMK.',
+    '..KppppppppppK..',
+    '...KKKKKKKKKK...',
+  ],
+  caravel: [
+    '.....K.........K......',
+    '.....KMM.......KMM....',
+    '...KKKKKKK...KKKKKKK..',
+    '...KWWWWWK...KWWWWWK..',
+    '...KWWMWWK...KWWMWWK..',
+    '...KWMMMWK...KWMMMWK..',
+    '...KWWMWWK...KWWMWWK..',
+    '...KWWWWwK...KWWWWwK..',
+    '...KKKKKKK...KKKKKKK..',
+    '.....K.........K......',
+    'KKK..K.........K...KKK',
+    'KPPKKKKKKKKKKKKKKKKPPK',
+    'KPPPPPPPPPPPPPPPPPPPPK',
+    '.KpOpppOpppOpppOpppK..',
+    '..KMMMMMMMMMMMMMMMMK..',
+    '...KqqqqqqqqqqqqqqK...',
+    '....KKKKKKKKKKKKKK....',
+  ],
+  steamship: [
+    '.............GG.......',
+    '............GggG......',
+    '.............gG.......',
+    '............KMMK......',
+    '............KMmK......',
+    '............KKKK......',
+    '.....KKKKKKKKKKKKKK...',
+    '.....KWOWOWOWOWOWWK...',
+    '.....KWWWWWWWWWWWWK...',
+    'KKKKKKKKKKKKKKKKKKKKKK',
+    'KnnnnnnnnnnnnnnnnnnnnK',
+    '.KhhhhhhhhhhhhhhhhhhK.',
+    '..KnnnnnnnnnnnnnnnnK..',
+    '...KKKKKKKKKKKKKKKK...',
+  ],
+  // Destroços de um naufrágio.
+  wreck: ['..K......K..', '.KpK..KKpK..', 'KPPpKKPPpPK.', '.KKK..KKKK..'],
 
   // Centro do assentamento.
   bonfire: [
@@ -579,14 +692,24 @@ const LOOKS: Record<Role, RoleLook> = {
   builder: { head: 'u', extra: [...vline(9, 5, 9, 'q'), [8, 4, 'g'], [9, 4, 'n'], [10, 4, 'g']] },
   miner: { head: 'Y', extra: [[5, 2, 'F'], ...vline(9, 3, 9, 'q'), [7, 2, 'g'], [8, 2, 'g'], [9, 2, 'n'], [10, 2, 'g'], [10, 3, 'g']] },
   blacksmith: { head: 'K', apron: true, extra: [...vline(9, 4, 8, 'q'), [8, 3, 'n'], [9, 3, 'n'], [10, 3, 'n']] },
+  fisher: { head: 'Y', extra: [[3, 3, 'y'], [7, 3, 'y'], [8, 4, 'q'], [9, 3, 'q'], [9, 2, 'q'], [10, 1, 'q'], [10, 0, 'q'], [1, 7, 'V'], [1, 8, 'v'], [0, 8, 'V']] },
   soldier: { head: 'g', armor: true, extra: [[4, 1, 'n'], [5, 1, 'n'], [6, 1, 'n'], ...vline(9, 0, 4, 'G'), [8, 5, 'u'], [10, 5, 'u'], [9, 6, 'q'], [0, 5, 'p'], [1, 5, 'p'], [0, 6, 'p'], [1, 6, 'G'], [0, 7, 'p'], [1, 7, 'p'], [0, 8, 'p'], [1, 8, 'p']] },
   guard: { head: 'g', armor: true, extra: [[4, 1, 'n'], [5, 1, 'n'], [6, 1, 'n'], [9, 0, 'G'], [9, 1, 'G'], ...vline(9, 2, 10, 'q')] },
   leader: { head: 'K', extra: [[9, 1, 'F'], [9, 2, 'f'], ...vline(9, 3, 10, 'q'), [4, 7, 'F'], [5, 7, 'F']] },
   king: { head: 'F', extra: [[4, 1, 'F'], [6, 1, 'F'], [5, 1, 'R'], ...vline(1, 5, 9, 'R'), ...vline(9, 5, 9, 'r'), [4, 7, 'F'], [5, 7, 'F'], [6, 7, 'F']] },
 };
 
-function composeRole(body: 'human' | 'alien', role: Role): string[] {
-  const look = LOOKS[role];
+/** Idosos: cabelo grisalho e bengala. */
+const ELDER: RoleLook = { head: 'G', extra: [...vline(9, 6, 10, 'q'), [8, 6, 'q']] };
+
+/** Crianças: corpo menor (7x6), sem ferramenta. */
+const CHILDREN: Record<'human' | 'alien', string[]> = {
+  human: ['..KKK..', '..KSK..', '.SMMmS.', '..MMm..', '..B.B..', '..D.D..'],
+  alien: ['..$$$..', '.$E$E$.', '.$MMm$.', '..MMm..', '..%.%..', '..%.%..'],
+};
+
+function composeRole(body: 'human' | 'alien', role: Role | 'elder'): string[] {
+  const look = role === 'elder' ? ELDER : LOOKS[role];
   const grid = Array.from({ length: 11 }, () => Array<string>(11).fill('.'));
   BODIES[body].forEach((row, y) => {
     [...row].forEach((ch, x) => {
@@ -620,7 +743,13 @@ export const HOUSE_VARIANTS = 4;
 
 /** Todos os sprites: a arte base, as profissões e as variações das casas. */
 export const SPRITES: Record<string, string[]> = { ...ART };
-for (const body of ['human', 'alien'] as const) for (const role of ROLES) SPRITES[`${body}:${role}`] = composeRole(body, role);
+for (const body of ['human', 'alien'] as const) {
+  for (const role of ROLES) SPRITES[`${body}:${role}`] = composeRole(body, role);
+  SPRITES[`${body}:elder`] = composeRole(body, 'elder');
+  SPRITES[`${body}:child`] = CHILDREN[body];
+}
+/** Barcos e o tubarão também viram para a esquerda (`nome:l`). */
+for (const name of ['canoe', 'rowboat', 'sailboat', 'caravel', 'steamship', 'shark'] as const) SPRITES[`${name}:l`] = flip(ART[name]);
 for (const [name, walls] of Object.entries(WALLS)) {
   const base = ART[name as keyof typeof ART];
   SPRITES[`${name}:1`] = flip(base);

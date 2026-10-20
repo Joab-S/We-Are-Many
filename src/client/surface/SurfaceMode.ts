@@ -10,7 +10,8 @@ import {
   type PlanetParams,
   type SurfaceMap,
 } from '../../procgen/surface';
-import { BUILDING_NAMES, Ecosystem, ERAS, isLand, YEAR_SECONDS } from '../../sim/ecosystem';
+import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, isLand, YEAR_SECONDS } from '../../sim/ecosystem';
+import { CHILD } from '../../sim/roles';
 import { TIER_NAMES } from '../../sim/settlement';
 import { nativeSpecies, type Species } from '../../sim/species';
 import { Input } from '../input';
@@ -90,6 +91,46 @@ const fragmentShader = /* glsl */ `
     return texelFetch(uMap, t, 0);
   }
 
+  int kindOf(vec4 texel) { return int(texel.a * 255.0 + 0.5) / 16; }
+
+  // Ruído 1D suave ao longo de uma borda entre tiles.
+  float edgeNoise(float p, float line) {
+    float i = floor(p);
+    float u = fract(p);
+    return mix(hash(vec2(i, line)), hash(vec2(i + 1.0, line)), u * u * (3.0 - 2.0 * u));
+  }
+
+  struct Px { vec4 texel; ivec2 tile; };
+
+  // Pixel de arte global (16 por tile, y para baixo) com bordas orgânicas:
+  // a fronteira entre dois tiles diferentes ondula, em vez de formar quadrados.
+  Px artPx(ivec2 gp) {
+    ivec2 t = ivec2(floor(vec2(gp) / 16.0));
+    ivec2 f = gp - t * 16;
+    vec4 me = at(t);
+    int k = kindOf(me);
+    if (k == 15 || k == 7) return Px(me, t);
+    int ex = f.x < 8 ? f.x : 15 - f.x;
+    int ey = f.y < 8 ? f.y : 15 - f.y;
+    bool vertical = ex < ey;
+    int e = min(ex, ey);
+    if (e >= 4) return Px(me, t);
+    ivec2 off = vertical ? ivec2(f.x < 8 ? -1 : 1, 0) : ivec2(0, f.y < 8 ? -1 : 1);
+    vec4 nb = at(t + off);
+    int nk = kindOf(nb);
+    if (nk == 15 || nk == 7) return Px(me, t);
+    // Deslocamento da fronteira, igual para os dois lados: positivo empurra para o tile de menor índice.
+    float line = vertical ? float(t.x + max(off.x, 0)) * 3.7 + 11.0 : float(t.y + max(off.y, 0)) * 5.3 + 47.0;
+    float along = vertical ? float(gp.y) : float(gp.x);
+    float d = (edgeNoise(along / 5.0, line) - 0.5) * 9.0;
+    bool lowSide = vertical ? off.x > 0 : off.y > 0;
+    float push = lowSide ? d : -d;
+    if (push > float(e) + 0.5) return Px(nb, t + off);
+    return Px(me, t);
+  }
+
+  bool waterPx(ivec2 gp) { return isWater(artPx(gp).texel.rgb); }
+
   void main() {
     vec2 tile = uCenter + (vUv * uResolution - uResolution * 0.5) / uZoom;
     if (tile.y < 0.0 || tile.y >= uMapSize.y) { outColor = vec4(0.02, 0.03, 0.06, 1.0); return; }
@@ -98,32 +139,58 @@ const fragmentShader = /* glsl */ `
     vec4 texel = texelFetch(uMap, t, 0);
     vec3 c = texel.rgb;
     bool water = isWater(c);
-    int kind = int(texel.a * 255.0 + 0.5) / 16;
+    int kind = kindOf(texel);
     // Posição dentro do tile em pixels de arte (16x16), y para baixo.
     vec2 fp = vec2(fract(x), 1.0 - fract(tile.y)) * 16.0;
     ivec2 f = ivec2(fp);
     if (uZoom >= 3.0) {
-      // Variação suave por tile, como as texturas de chão do WorldBox.
-      c *= 0.95 + 0.1 * hash(vec2(t));
+      ivec2 gp = t * 16 + f;
+      Px px = artPx(gp);
+      c = px.texel.rgb;
+      water = isWater(c);
+      ivec2 pt = px.tile;
+      // Variação suave por tile e manchas de 3 px, como as texturas de chão do WorldBox.
+      float blot = hash(floor(vec2(gp) / 3.0) + 0.37);
+      float grain = hash(vec2(gp) * 1.13);
+      c *= 0.95 + 0.1 * hash(vec2(pt));
       if (water) {
-        // Água rasa e espuma perto da terra.
-        bool n = !isWater(at(t + ivec2(0, -1)).rgb);
-        bool s = !isWater(at(t + ivec2(0, 1)).rgb);
-        bool w = !isWater(at(t + ivec2(-1, 0)).rgb);
-        bool e = !isWater(at(t + ivec2(1, 0)).rgb);
-        if (n || s || w || e) c = mix(c, vec3(0.45, 0.78, 0.92), 0.35);
-        if (uZoom >= 5.0 && ((n && f.y < 2) || (s && f.y > 13) || (w && f.x < 2) || (e && f.x > 13))) c = mix(c, vec3(0.92, 0.97, 1.0), 0.55);
-        // Ondinhas que se movem devagar.
+        // Água rasa perto da terra, espuma colada na costa e ondinhas.
+        bool n = !isWater(at(pt + ivec2(0, -1)).rgb);
+        bool s = !isWater(at(pt + ivec2(0, 1)).rgb);
+        bool w = !isWater(at(pt + ivec2(-1, 0)).rgb);
+        bool e = !isWater(at(pt + ivec2(1, 0)).rgb);
+        if (n || s || w || e) c = mix(c, vec3(0.45, 0.78, 0.92), 0.3);
+        c *= 0.97 + 0.05 * blot;
         if (uZoom >= 4.0) {
-          float wave = mod(float(f.x + t.x * 16) + float(f.y + t.y * 16) * 3.0 + floor(uTime * 3.0), 23.0);
-          if (wave < 2.0 && hash(vec2(t) + floor(uTime * 0.5)) > 0.55) c += 0.06;
+          bool shore = !waterPx(gp + ivec2(1, 0)) || !waterPx(gp - ivec2(1, 0)) || !waterPx(gp + ivec2(0, 1)) || !waterPx(gp - ivec2(0, 1));
+          if (shore) c = mix(c, vec3(0.93, 0.97, 1.0), 0.6);
+          else if (!waterPx(gp + ivec2(2, 0)) || !waterPx(gp - ivec2(2, 0)) || !waterPx(gp + ivec2(0, 2)) || !waterPx(gp - ivec2(0, 2))) c = mix(c, vec3(0.6, 0.86, 0.95), 0.35);
+          float wave = mod(float(gp.x) + float(gp.y) * 3.0 + floor(uTime * 3.0), 23.0);
+          if (wave < 2.0 && hash(vec2(pt) + floor(uTime * 0.5)) > 0.55) c += 0.06;
         }
       } else {
-        // Borda de barranco: terra com água ao sul ganha uma face escura embaixo.
-        if (uZoom >= 4.0 && isWater(at(t + ivec2(0, 1)).rgb) && f.y >= 13) c *= 0.62;
-        // Textura de chão por pixel de arte.
-        if (uZoom >= 6.0) c *= 0.965 + 0.07 * hash(vec2(f) + vec2(t) * 17.0);
+        bool green = c.g > c.r && c.g > c.b * 1.1;
+        bool sand = c.r > 0.55 && c.r >= c.g && c.g > c.b + 0.08;
+        if (green) {
+          // Grama: manchas claras e escuras e alguns fios.
+          c *= 0.88 + 0.22 * blot;
+          if (grain > 0.92) c *= 1.12;
+          else if (grain < 0.06) c *= 0.8;
+        } else if (sand) {
+          // Areia: grãos escuros e claros espalhados.
+          c *= 0.95 + 0.08 * blot;
+          if (grain > 0.94) c *= 0.84;
+          else if (grain < 0.05) c *= 1.08;
+        } else {
+          c *= 0.92 + 0.14 * blot + 0.04 * grain;
+        }
+        if (uZoom >= 4.0) {
+          // Areia molhada na beira d'água e barranco quando a água fica ao sul.
+          if (waterPx(gp + ivec2(0, 1)) || waterPx(gp + ivec2(0, 2))) c *= 0.62;
+          else if (waterPx(gp + ivec2(1, 0)) || waterPx(gp - ivec2(1, 0)) || waterPx(gp - ivec2(0, 1))) c *= 0.85;
+        }
       }
+      texel = px.texel;
     }
     if (uZoom >= 5.0 && kind > 0 && kind <= 7) {
       // Arte 16x16 do enfeite (art.ts): alfa cheio é cor, alfa parcial é sombra.
@@ -283,6 +350,8 @@ export class SurfaceMode {
     this.buildUi();
     this.resize();
     this.ready = true;
+    // `?debug` deixa a cena acessível no console (testes e calibragem).
+    if (new URLSearchParams(location.search).has('debug')) (window as unknown as { surface: SurfaceMode }).surface = this;
     this.raf = requestAnimationFrame(this.frame);
   }
 
@@ -295,7 +364,7 @@ export class SurfaceMode {
         id: `spawn:${sp.id}`,
         tab: 'life' as Tab,
         label: sp.name,
-        icon: sp.kind === 'fish' ? '🐟' : sp.kind === 'predator' ? '🐺' : '🦌',
+        icon: { fish: '🐟', predator: '🐺', shark: '🦈', herbivore: '🦌', sapient: '' }[sp.kind],
         mode: 'click' as const,
         act: (ctx: SurfaceMode, x: number, y: number) => ctx.introduce(sp, x, y),
       }));
@@ -675,6 +744,13 @@ export class SurfaceMode {
       const style =
         era >= 4 || (era >= 3 && v.tier >= 2) ? 'townhouse' : era >= 3 ? 'stoneHouse' : era >= 2 ? 'house' : era >= 1 ? 'cottage' : 'hut';
       for (const house of v.houses) {
+        if (house.kind === 'port') {
+          // O píer fica virado para a água (variante 1: água a oeste).
+          const [px, py] = this.toScreen(house.x + 0.5, house.y + 1.1, z, w, h);
+          if (px < -margin || px > w + margin || py < -margin || py > h + margin) continue;
+          buildings.push({ sprite: 'port', sx: px, sy: py, h: z * 1.4, tint: v.color });
+          continue;
+        }
         const [sx, sy] = this.toScreen(house.x + 1, house.y + 2, z, w, h);
         if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
         const sprite = house.kind !== 'house' ? house.kind : house.variant ? `${style}:${house.variant}` : style;
@@ -691,6 +767,21 @@ export class SurfaceMode {
     // De cima para baixo, para as construções da frente cobrirem as de trás.
     buildings.sort((a, b) => b.sy - a.sy);
     for (const b of buildings) layer.push(b.sprite, b.sx, b.sy, b.h, b.tint);
+    // Barcos com a cor do reino; destroços ficam boiando um pouco depois do naufrágio.
+    const px = (z * 1.05) / 9;
+    for (const b of eco.boats) {
+      const [sx, sy] = this.toScreen(b.x, b.y, z, w, h);
+      if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+      const tint = eco.villages[b.village].color;
+      if (small) {
+        layer.push('dot', sx, sy, Math.max(2, z), tint);
+        continue;
+      }
+      const name = b.sunk >= 0 ? 'wreck' : BOATS[b.kind].sprite;
+      const rows = { wreck: 4, canoe: 7, rowboat: 8, sailboat: 15, caravel: 17, steamship: 14 }[name] ?? 8;
+      const bob = Math.sin((performance.now() / 1000) * 2 + b.x) * px * 0.6;
+      layer.push(b.sunk < 0 && b.facing < 0 ? `${name}:l` : name, sx, sy - z * 0.4 + bob, rows * px, tint, tint);
+    }
     for (let i = 0; i < eco.count; i++) {
       if (!eco.alive[i]) continue;
       const [sx, sy] = this.toScreen(eco.x[i], eco.y[i], z, w, h);
@@ -703,15 +794,22 @@ export class SurfaceMode {
         continue;
       }
       if (sp.kind === 'sapient') {
-        // Aparência pela profissão; a pele de espécies alienígenas é a cor da espécie.
+        // Aparência pela profissão e pela idade; a pele de espécies alienígenas é a cor da espécie.
         const body = sp.origin === 'sol-3' ? 'human' : 'alien';
-        const role = vi >= 0 ? ROLES[eco.role[i]] : 'gatherer';
-        layer.push(`${body}:${role}`, sx, sy - z * 0.5, z * 1.05 * (11 / 9), tint, sp.color);
+        const role = vi >= 0 ? eco.role[i] : 0;
+        const era = vi >= 0 ? Math.floor(eco.villages[vi].tech) : 0;
+        if (role === CHILD) {
+          layer.push(`${body}:child`, sx, sy - z * 0.5, z * 1.05 * (6 / 9), tint, sp.color);
+          continue;
+        }
+        const elder = eco.age[i] >= elderAge(sp, era) && role < ROLES.indexOf('leader');
+        layer.push(`${body}:${elder ? 'elder' : ROLES[role]}`, sx, sy - z * 0.5, z * 1.05 * (11 / 9), tint, sp.color);
         continue;
       }
-      const name: SpriteName = sp.kind === 'fish' ? 'fish' : sp.kind === 'herbivore' ? 'herbivore' : 'predator';
-      const height = sp.kind === 'fish' ? 0.5 : 0.85;
-      layer.push(name, sx, sy - z * 0.5, z * height, tint);
+      const name: SpriteName = { fish: 'fish', herbivore: 'herbivore', predator: 'predator', shark: 'shark' }[sp.kind];
+      const height = sp.kind === 'fish' ? 0.5 : sp.kind === 'shark' ? 0.55 : 0.85;
+      const flipped = sp.kind === 'shark' && eco.vx[i] < 0 ? `${name}:l` : name;
+      layer.push(flipped, sx, sy - z * 0.5, z * height, tint);
     }
     layer.end();
   }
@@ -822,10 +920,22 @@ export class SurfaceMode {
     const y = Math.floor(i / w);
     for (const v of this.eco.villages) {
       for (const h of v.houses) {
-        if (y >= h.y && y <= h.y + 1 && (x - h.x + w) % w <= 1) return `${BUILDING_NAMES[h.kind]} · ${v.name}`;
+        const size = h.kind === 'port' ? 0 : 1;
+        if (y >= h.y && y <= h.y + size && (x - h.x + w) % w <= size) return `${BUILDING_NAMES[h.kind]} · ${v.name}`;
       }
     }
     return null;
+  }
+
+  /** Profissão, ou a fase da vida de quem não trabalha. */
+  private lifeStage(i: number): string {
+    const eco = this.eco;
+    const role = eco.role[i];
+    if (role === CHILD) return 'Criança';
+    const sp = eco.species[eco.kind[i]];
+    const v = eco.villages[eco.village[i]];
+    const name = ROLE_NAMES[ROLES[role]];
+    return eco.age[i] >= elderAge(sp, Math.floor(v.tech)) ? (role >= ROLES.indexOf('leader') ? `${name} idoso` : 'Idoso') : name;
   }
 
   private updateInfo(): void {
@@ -842,7 +952,7 @@ export class SurfaceMode {
       const sp = this.eco.species[this.eco.kind[picked]];
       const v = this.eco.village[picked] >= 0 ? this.eco.villages[this.eco.village[picked]] : null;
       html = `
-        <b>${sp.name}${v ? ` · ${ROLE_NAMES[ROLES[this.eco.role[picked]]]}` : ''}</b>
+        <b>${sp.name}${v ? ` · ${this.lifeStage(picked)}` : ''}</b>
         ${v ? `<span>${TIER_NAMES[v.tier]} ${v.name} · ${ERAS[Math.floor(v.tech)]}</span>` : ''}
         ${v && v.kingdom !== v.id ? `<span>Reino de ${this.eco.capitalOf(v).name}</span>` : ''}
         <span>Idade ${this.eco.age[picked].toFixed(0)} anos</span>
@@ -863,6 +973,15 @@ export class SurfaceMode {
     }
   }
 
+  /** Quanto falta para a próxima era no assentamento mais avançado. */
+  private progressLine(live: { tech: number }[]): string {
+    if (!live.length) return '';
+    const top = Math.max(...live.map((v) => v.tech));
+    const era = Math.floor(top);
+    if (era >= ERAS.length - 1) return '<div class="wb-year">Última era conhecida</div>';
+    return `<div class="wb-year">Rumo à ${ERAS[era + 1]}: ${Math.floor((top - era) * 100)}%</div>`;
+  }
+
   /** Painel lateral: ano, era, velocidade do tempo, população por espécie e acontecimentos. */
   private updatePanel(): void {
     const eco = this.eco;
@@ -874,12 +993,14 @@ export class SurfaceMode {
       .join('');
     const html = `
       <div class="wb-era">${era}</div>
+      ${this.progressLine(live)}
       <div class="wb-year">Ano ${Math.floor(eco.year)}</div>
       <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === this.speed ? 'on' : ''}">${v === 0 ? 'II' : `${v}x`}</button>`).join('')}</div>
       <div class="wb-section">População</div>
       ${rows || '<div class="wb-empty">Nenhuma espécie. Leve uma pela aba Vida.</div>'}
       <div class="wb-pop">Assentamentos<b>${live.length}</b></div>
       ${kingdoms ? `<div class="wb-pop">Reinos<b>${kingdoms}</b></div>` : ''}
+      ${eco.boats.length ? `<div class="wb-pop">Barcos no mar<b>${eco.boats.filter((b) => b.sunk < 0).length}</b></div>` : ''}
       ${[...live].sort((a, b) => b.population - a.population).slice(0, 6).map((v) => `<button class="wb-goto" data-village="${v.id}"><i style="background:rgb(${v.color.join(',')})"></i>${TIER_NAMES[v.tier]} ${v.name}<b>${v.population}</b></button>`).join('')}
       ${eco.log.length ? `<div class="wb-section">Acontecimentos</div>${eco.log.slice(0, 5).map((l) => `<div class="wb-log">${l}</div>`).join('')}` : ''}`;
     if (html !== this.lastPanelHtml) {

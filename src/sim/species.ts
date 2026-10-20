@@ -6,7 +6,12 @@ import type { PlanetParams } from '../procgen/surface';
  * espécies existentes, mas nunca cria uma do zero.
  */
 
-export type SpeciesKind = 'fish' | 'herbivore' | 'predator' | 'sapient';
+export type SpeciesKind = 'fish' | 'herbivore' | 'predator' | 'shark' | 'sapient';
+
+/** Espécies que vivem na água. */
+export function isAquatic(kind: SpeciesKind): boolean {
+  return kind === 'fish' || kind === 'shark';
+}
 
 export interface Species {
   id: string;
@@ -39,6 +44,7 @@ const TEMPLATES: Record<SpeciesKind, Omit<Species, 'id' | 'name' | 'origin' | 'c
   fish: { kind: 'fish', tempMin: 268, tempMax: 310, speed: 1.6, maxAge: 6, maturity: 1 },
   herbivore: { kind: 'herbivore', tempMin: 255, tempMax: 315, speed: 1.4, maxAge: 12, maturity: 2 },
   predator: { kind: 'predator', tempMin: 250, tempMax: 312, speed: 2.1, maxAge: 14, maturity: 3 },
+  shark: { kind: 'shark', tempMin: 262, tempMax: 316, speed: 1.9, maxAge: 25, maturity: 5 },
   sapient: { kind: 'sapient', tempMin: 255, tempMax: 318, speed: 1.1, maxAge: 60, maturity: 15 },
 };
 
@@ -86,6 +92,7 @@ export function nativeSpecies(planet: PlanetParams): Species[] {
       make('herbivore', 'Cervo', [170, 110, 60]),
       make('predator', 'Lobo', [130, 130, 140]),
       make('sapient', 'Humano', [230, 70, 60]),
+      make('shark', 'Tubarão', [112, 126, 142]),
     ];
   }
   const tier = nativeLifeTier(planet.id, planet.life);
@@ -95,5 +102,6 @@ export function nativeSpecies(planet: PlanetParams): Species[] {
   const list = [make('fish', alienName(rnd), color()), make('herbivore', alienName(rnd), color())];
   if (planet.life > 0.4) list.push(make('predator', alienName(rnd), color()));
   if (tier === 'sapient') list.push(make('sapient', alienName(rnd), color()));
+  if (planet.life > 0.4) list.push(make('shark', alienName(rnd), color()));
   return list;
 }
