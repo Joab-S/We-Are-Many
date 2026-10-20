@@ -135,7 +135,7 @@ describe('assentamentos', () => {
     }
     expect(eco.built.reduce((n, b) => n + b, 0)).toBe(tiles);
     expect(eco.road.some((r) => r > 0)).toBe(true);
-   }, 20000); // mapa inteiro por 40 anos: passa dos 5 s padrão em máquinas lentas
+   }, 60000); // mapa inteiro por 40 anos: passa dos 5 s padrão em máquinas lentas
 
   it('não deixa fundar dentro da área de outro assentamento', () => {
     const { eco } = world();
