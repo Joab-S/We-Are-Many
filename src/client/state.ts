@@ -3,6 +3,8 @@ import type { SurfaceMap } from '../procgen/surface';
 import type { IndexedManifest } from '../universe/manifest';
 import type { Ecosystem } from '../sim/ecosystem';
 import type { Species } from '../sim/species';
+import type { NavState } from '../nav/guide';
+import type { ProbeState } from '../explore/probes';
 
 /**
  * Estado lógico que sobrevive às trocas de modo 3D/2D. As cenas são
@@ -24,4 +26,8 @@ export interface GameState {
   ecosystems: Map<string, Ecosystem>;
   /** Espécies que o jogador já conheceu e pode levar a outros planetas. */
   knownSpecies: Map<string, Species>;
+  /** Alvo, marcadores, descobertas e diário de bordo do GUIA. */
+  nav: NavState;
+  /** Sondas, missões de extração e porão da nave. */
+  probes: ProbeState;
 }

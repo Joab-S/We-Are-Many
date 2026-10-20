@@ -34,7 +34,16 @@ npm run data
 | Q / E | Gira a nave |
 | Tab | Turbo (energia limitada, recarrega sozinha) |
 | Roda do mouse | Potência do motor |
+| C | Cruzeiro: mantém a velocidade sem segurar W |
 | F | Observar a superfície (em órbita de um planeta rochoso) |
+| G | Painel do GUIA: sugestões, sistema atual, estrelas, pontos de interesse, marcadores, busca e diário de bordo |
+| T | Trava como alvo o que estiver na mira |
+| N | Aceita a próxima sugestão do GUIA como alvo |
+| J | Liga ou desliga o piloto automático até o alvo (qualquer comando manual desliga) |
+| V | Varredura de longo alcance (revela pontos de interesse e o que há nos sistemas num raio de 4 pc) |
+| M / R | Envia uma sonda de extração ao corpo mais próximo / aos anéis |
+| B | Salva um marcador na posição atual |
+| H / X | Alvo: casa (Terra) / limpar alvo |
 | 1 / 2 / 3 | Atalhos de teste: Terra, Alfa Centauri, Sirius |
 
 | Superfície 2D | |

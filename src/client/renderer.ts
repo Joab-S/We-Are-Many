@@ -147,6 +147,7 @@ export class SoftRenderer implements GameRenderer {
     scene.traverseVisible((o) => {
       if ((o as THREE.Points).isPoints) {
         if ((o as THREE.Points).geometry.getAttribute('absmag')) points.push(o as THREE.Points);
+        else if (o.userData.rocks) this.collectRocks(o as THREE.Points, items, view, project, near);
       } else if ((o as THREE.Sprite).isSprite) {
         this.collectSprite(o as THREE.Sprite, items, view, project, focal, near);
       } else if ((o as THREE.Line).isLine) {
@@ -248,6 +249,48 @@ export class SoftRenderer implements GameRenderer {
         }
       }
     }
+  }
+
+  /** Pedras dos anéis: quadradinhos de 2 pixels, desenhados junto com o planeta. */
+  private collectRocks(
+    p: THREE.Points,
+    items: Item[],
+    view: THREE.Matrix4,
+    project: (x: number, y: number, z: number) => [number, number],
+    near: number,
+  ): void {
+    const e = this.mv.multiplyMatrices(view, p.matrixWorld).elements.slice();
+    const pos = p.geometry.getAttribute('position');
+    const col = p.geometry.getAttribute('color');
+    const center = this.v.setFromMatrixPosition(p.matrixWorld).applyMatrix4(view);
+    if (center.z >= -near) return;
+    const W = this.domElement.width;
+    const H = this.domElement.height;
+    // As pedras atrás do planeta são desenhadas antes dele, as da frente depois.
+    const front: number[] = [];
+    const back: number[] = [];
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      const vz = e[2] * x + e[6] * y + e[10] * z + e[14];
+      if (vz >= -near) continue;
+      const [sx, sy] = project(e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], vz);
+      if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue;
+      (vz > center.z ? front : back).push(sx, sy, i);
+    }
+    const ctx = this.context;
+    const s = Math.max(1, Math.round(1.5 * this.ratio));
+    const draw = (pts: number[]) => () => {
+      ctx.globalAlpha = 0.9;
+      for (let k = 0; k < pts.length; k += 3) {
+        const i = pts[k + 2];
+        ctx.fillStyle = `rgb(${(col.getX(i) * 255) | 0},${(col.getY(i) * 255) | 0},${(col.getZ(i) * 255) | 0})`;
+        ctx.fillRect(pts[k] - s / 2, pts[k + 1] - s / 2, s, s);
+      }
+    };
+    if (back.length) items.push({ depth: -center.z + 2e-9, draw: draw(back) });
+    if (front.length) items.push({ depth: -center.z - 1e-9, draw: draw(front) });
   }
 
   private collectSprite(

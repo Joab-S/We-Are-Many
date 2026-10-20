@@ -1,6 +1,6 @@
 # We Are Many: Documento de Requisitos e Plano de Desenvolvimento
 
-> Versão 0.2 · 19/10/2026 · incorpora as decisões do Joab sobre escala, controles, arte, base secreta, multiplayer e nomes (ver [Registro de decisões](#12-registro-de-decisões))
+> Versão 0.3 · 20/10/2026 · incorpora as decisões do Joab sobre escala, controles, arte, base secreta, multiplayer e nomes, e agora o GUIA (assistente de navegação), a velocidade revista e as sondas de extração (ver [Registro de decisões](#12-registro-de-decisões))
 > Jogo de navegador em three.js inspirado na temática de *Somos Legião, Somos Bob* (Dennis E. Taylor).
 
 ---
@@ -140,6 +140,15 @@ Na escala real, a estrela mais próxima (Proxima Centauri) fica a 4,2 anos-luz; 
 - Não há dilatação temporal nem relógio "real" da viagem: o tempo do jogo é único para simplificar a simulação e o coop.
 - Regiões com poucas estrelas catalogadas recebem estrelas e pontos de interesse procedurais para manter a densidade de coisas para fazer.
 
+**Regras de velocidade implementadas (20/10/2026):**
+
+- Teto de velocidade = 0,4 × distância "efetiva" ao obstáculo mais limitante, por segundo (antes 0,3).
+- **Velocidade direcional:** um corpo à frente conta pela distância real; um corpo ao lado ou atrás conta até 4 vezes mais longe. A nave sai depressa de planetas e estrelas e só freia para o que está no caminho. Entram na conta a estrela e os planetas do sistema, as 12 estrelas mais próximas e os pontos de interesse grandes (planetas errantes, anãs marrons); cometas, destroços e sinais são pequenos demais para segurar a nave (a colisão continua valendo).
+- **Cruzeiro (C):** a nave mantém a velocidade sem segurar W; S continua freando.
+- **Piloto automático:** o próprio alvo vira obstáculo, então a nave chega freando sozinha, sem passar do ponto. Na reta final até um corpo que se move (planeta, cometa), a nave acompanha o movimento dele.
+- **Passo de simulação até 0,25 s:** em PCs lentos ou sem placa de vídeo a viagem não fica em câmera lenta.
+- Medido no navegador: Sol → Alfa Centauri (1,34 pc) em cerca de 55 s com o piloto automático; Saturno → Marte em menos de 30 s.
+
 ---
 
 ## 4. Requisitos funcionais
@@ -162,6 +171,8 @@ Identificadores: `RF-<área>-<n>`. A prioridade (MoSCoW) está na seção 7.
 | RF-NAV-10 | Informações do corpo celeste ao selecionar: nome, tipo, dados reais (fonte citada) ou rótulo "não catalogado". |
 | RF-NAV-11 | Piloto automático opcional: selecionar um alvo no mapa e a nave voa até ele (útil para trajetos longos), podendo ser interrompido a qualquer momento por WASD. |
 
+Situação em 20/10/2026: RF-NAV-09 e RF-NAV-11 implementados pelo GUIA (seção 4.13). RF-NAV-08 implementado em parte: painel com busca por nome e listas por categoria; a vista "de cima" do mapa estelar ainda falta.
+
 ### 4.2 Sistemas estelares e corpos (SYS)
 
 | ID | Requisito |
@@ -174,6 +185,14 @@ Identificadores: `RF-<área>-<n>`. A prioridade (MoSCoW) está na seção 7.
 | RF-SYS-06 | Classificação de habitabilidade: zona habitável calculada pela luminosidade da estrela. |
 | RF-SYS-07 | Distâncias e tamanhos dentro do sistema são exibidos em escala comprimida (seção 3.5); o painel de informações mostra os valores reais. |
 
+Situação em 20/10/2026:
+
+- **RF-SYS-01 (feito em parte):** toda estrela do catálogo tem um sistema gerado pelo id (`src/nav/systemGen.ts`): número de planetas, órbitas, tipo (rochoso, gigante gasoso, gigante de gelo), raio, temperatura de equilíbrio, água, atmosfera e anéis coerentes com a luminosidade, a zona habitável e a linha de gelo. Cerca de 1 em 6 estrelas não tem planetas; estrelas muito quentes têm poucos. Vizinhas com exoplanetas confirmados usam os planetas reais: Proxima Centauri (b, d), Estrela de Barnard (b), Ross 128 (b), Wolf 1061 (b, c, d), Lalande 21185 (b, c), Estrela de Luyten (b, c) e Ran/Épsilon Eridani (Ægir). A integração completa com o NASA Exoplanet Archive no pipeline continua na Fase 2.
+- **RF-SYS-03 (feito em parte):** cometas em órbitas elípticas com cauda apontando para longe da estrela e órbita desenhada; anéis com pedras e blocos de gelo visíveis de perto. Luas e cinturões de asteroides ainda faltam.
+- **Cometas visitantes:** a cada janela de 8 minutos de jogo, cada sistema tem 60% de chance de receber um cometa de órbita muito alongada, que passa perto da estrela no meio da janela. O GUIA avisa quando ele entra. Sorteado pelo id da estrela e pela janela, então é igual para todos.
+- **RF-SYS-06 (feito):** a zona habitável aparece como duas linhas verdes no sistema e entra nas informações de cada planeta.
+- **Vida nativa:** o potencial de vida dos planetas gerados sai da temperatura e da água; o nível (vegetação, animais, inteligente) segue as chances de [REQUISITOS-VIDA.md](REQUISITOS-VIDA.md). Planetas rochosos gerados podem ser observados em 2D (F) como os do Sistema Solar.
+
 ### 4.3 Recursos e mineração (RES)
 
 | ID | Requisito |
@@ -184,6 +203,8 @@ Identificadores: `RF-<área>-<n>`. A prioridade (MoSCoW) está na seção 7.
 | RF-RES-04 | Nave tem capacidade de carga; recursos podem ser processados (refino) em material utilizável. |
 | RF-RES-05 | Varredura (scan) revela recursos de um corpo; scans melhores dão mais detalhe. |
 | RF-RES-06 | Depósitos/estações orbitais podem armazenar recursos em um sistema. |
+
+Situação em 20/10/2026: RF-RES-02, 03 e 05 implementados em parte pelas sondas (seção 4.14); refino, capacidade de carga e depósitos orbitais continuam na Fase 2.
 
 ### 4.4 Fabricação e replicação (FAB)
 
@@ -294,6 +315,54 @@ O jogo é **solo por padrão**. O multiplayer é **cooperativo e opcional**, e v
 | RF-UI-04 | Créditos das fontes de dados científicos exibidos no jogo (exigido pelas licenças). |
 | RF-UI-05 | Suporte a mouse/teclado; suporte a toque desejável. |
 | RF-UI-06 | Internacionalização (pt-BR e en no início). |
+
+### 4.13 GUIA: assistente de navegação (GUI)
+
+O GUIA (Gerenciador Unificado de Inteligência e Astronavegação) é a inteligência de bordo que ajuda o jogador a não se perder e a decidir para onde ir. É inspirado no assistente da nave do livro, mas com nome próprio, para respeitar a regra de não usar nomes da obra. Ele fala por mensagens curtas no topo da tela e tem radar, marcadores, painel e piloto automático. Tudo é DOM e Canvas 2D, então funciona igual com ou sem placa de vídeo.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-GUI-01 | **Radar** no canto inferior direito, visto de cima e girando com a nave (a frente é para cima). Escala logarítmica de 0,01 UA a ~50 pc, com anéis em 1 UA, 100 UA, 1 ano-luz e 10 anos-luz, para que planetas e estrelas caibam no mesmo disco. Cada ponto tem uma haste que indica se o objeto está acima ou abaixo do plano da nave. Cores por tipo (estrelas na cor real, planetas por tipo, pontos de interesse, marcadores, casa); sugestões têm anel amarelo e o alvo, anel branco. Cone de visão desenhado. | Feito |
+| RF-GUI-02 | **Alvo:** o jogador escolhe um alvo pelo painel, pela mira (**T** trava o que estiver perto da cruz), pelas sugestões (**N**) ou pela casa (**H**). **X** limpa o alvo. | Feito |
+| RF-GUI-03 | **Marcador do alvo na tela:** colchete com nome e distância; fora da tela, uma seta na borda aponta para o lado em que ele está. | Feito |
+| RF-GUI-04 | **Cartão do alvo:** nome, descrição, distância, tempo estimado de chegada e modo de pilotagem (manual, cruzeiro, automático). Sem alvo, mostra a melhor sugestão. | Feito |
+| RF-GUI-05 | **Estimativa de chegada** coerente com a velocidade adaptativa: cresce com o logaritmo da distância e inclui o tempo para se afastar do corpo de onde a nave sai. | Feito |
+| RF-GUI-06 | **Piloto automático (J):** a nave vira suavemente para o alvo, acelera quando está alinhada, desvia da colisão como no voo manual, freia sozinha e para na distância de chegada (sistema inteiro à vista, órbita do planeta, borda da nebulosa etc.). Qualquer comando manual (W, S, A, D, Q, E, Espaço, Shift, mouse forte) devolve o controle. O turbo pode ser usado durante o piloto. | Feito |
+| RF-GUI-07 | **Rota em duas etapas:** um planeta ou cometa de outro sistema leva primeiro ao sistema e, quando o sistema aparece, segue direto para o corpo. | Feito |
+| RF-GUI-08 | **Cruzeiro (C):** mantém a velocidade sem segurar W. | Feito |
+| RF-GUI-09 | **Varredura de longo alcance (V):** onda no radar; num raio de 4 pc revela os pontos de interesse e o que existe nos sistemas (planetas, zona habitável, sinais de vida). Recarga de 5 s. Estrelas a menos de 0,3 pc e o sistema em que a nave entra são varridos sozinhos. | Feito |
+| RF-GUI-10 | **Sugestões:** o GUIA ordena o que vale visitar por interesse dividido pelo tempo de viagem. Interesse: vida inteligente > animais > vegetação > mundo na zona habitável > planetas > desconhecido > visitado; sinais e destroços valem mais que cometas e planetas errantes; "voltar para casa" aparece quando a nave está longe. Cada sugestão diz o motivo. | Feito |
+| RF-GUI-11 | **Ajuda proativa:** sem alvo e sem novidade por 45 s, o GUIA sugere um destino e diz como aceitar (N e depois J). Ao detectar algo por perto, avisa. | Feito |
+| RF-GUI-12 | **Painel de navegação (G):** sugestões, corpos do sistema atual, marcadores, pontos de interesse e estrelas próximas, cada um com tipo, informações, distância e botão **Ir**; busca por nome (inclui estrelas com nome entre as carregadas); diário de bordo. Teclado: ↑/↓ escolhe, Enter vai. O painel solta o mouse para clicar. | Feito |
+| RF-GUI-13 | **Marcadores do jogador (B):** salva a posição atual com nome; aparecem no radar, na tela e no painel, onde podem ser apagados. A casa (Terra) é um marcador fixo. | Feito |
+| RF-GUI-14 | **Diário de bordo:** primeira visita a cada sistema, órbitas, pontos visitados, detecções da varredura, sinais de vida e cargas das sondas, com hora de jogo. | Feito |
+| RF-GUI-15 | **Marcador de rumo:** círculo verde onde a nave está de fato indo (o vetor velocidade), para entender a deriva nas curvas. | Feito |
+| RF-GUI-16 | **Anúncio de sistema:** ao entrar num sistema, o GUIA resume o que há nele (planetas, rochosos, zona habitável, vida, cometas) e se os planetas são de catálogo real. | Feito |
+| RF-GUI-17 | **Pontos de interesse no espaço profundo** (`src/nav/poi.ts`): o espaço é dividido em células de 2 pc e cada célula gera de 0 a 2 pontos pelo próprio índice: nebulosas (vistas de até 3 pc), planetas errantes, cometas interestelares, destroços com história, sinais desconhecidos e anãs marrons. Nada é guardado; a mesma célula sempre gera os mesmos pontos. Ficam ocultos até a varredura ou até a nave chegar a 0,15 pc; visitá-los mostra a descrição e vai para o diário. Um sinal fixo na Nuvem de Oort ensina o piloto automático no começo. | Feito |
+| RF-GUI-18 | Mapa estelar em vista de cima, com zoom e rotas desenhadas. | A fazer |
+| RF-GUI-19 | Alertas de perigo (Enxame, radiação, estrelas instáveis) quando as ameaças existirem (Fase 6). | A fazer |
+| RF-GUI-20 | Salvar alvo, marcadores, diário e descobertas junto com o save (Fase 2, primeiro save/load). Hoje duram a sessão inteira, inclusive na ida e volta à superfície 2D. | A fazer |
+| RF-GUI-21 | Melhorias do GUIA como progressão: alcance maior da varredura, sugestões mais detalhadas, varredura que revela recursos à distância. | A fazer |
+
+**Teclas do GUIA:** G painel · T trava alvo na mira · N próxima sugestão · J piloto automático · C cruzeiro · V varredura · B marcador · H casa · X limpa alvo · M/R sonda.
+
+### 4.14 Sondas de extração (SON)
+
+No livro, as naves enviam sondas para explorar e extrair matéria-prima de planetas rochosos, anéis e cometas. No jogo, a nave começa com 3 sondas (`src/explore/probes.ts`).
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-SON-01 | **Fontes:** planetas rochosos (em órbita), anéis de planetas, cometas dos sistemas (inclusive visitantes), cometas interestelares, planetas errantes e destroços. Gigantes gasosos e de gelo só pelos anéis. | Feito |
+| RF-SON-02 | **Recursos:** metais, silicatos, gelo (água), voláteis e elementos raros, em quantidades que dependem da fonte (cometas têm gelo e voláteis; anéis, gelo e silicatos; rochosos, metais e silicatos, mais gelo se tiverem água; destroços, sucata de metais e raros). | Feito |
+| RF-SON-03 | **Depósitos finitos e determinísticos:** cada corpo tem um total gerado pelo id; o jogo guarda só o quanto já foi extraído (diff, RNF-10). Um corpo esgotado não rende mais nada. | Feito |
+| RF-SON-04 | **Missão:** viagem (6 s), prospecção (6 s, revela o que há), extração (até 30 s ou 60 t, na proporção do que existe) e volta (6 s). A carga vai para o porão da nave. | Feito |
+| RF-SON-05 | **Comandos:** **M** envia uma sonda ao corpo mais próximo ao alcance, **R** aos anéis. O menu de órbita mostra o que resta em cada corpo depois da prospecção. | Feito |
+| RF-SON-06 | **Painel de sondas:** sondas livres, missões com barra de progresso, o que está ao alcance e o porão. O GUIA avisa prospecção, retorno e esgotamento; as cargas vão para o diário. | Feito |
+| RF-SON-07 | **Visual:** cada sonda é um ponto verde que voa até o corpo, circula enquanto trabalha e volta para a nave. Os anéis mostram pedras e blocos de gelo de perto (também no modo sem placa de vídeo). | Feito |
+| RF-SON-08 | Fabricar mais sondas e melhorar capacidade e velocidade (Fase 3). | A fazer |
+| RF-SON-09 | Refino e uso dos recursos na fabricação; limite de carga do porão (Fase 2). | A fazer |
+| RF-SON-10 | Sondas que continuam trabalhando enquanto a nave vai embora ou o jogador está na superfície, calculadas por evento ("começou em T, termina em T+Δ", seção 6.5). Hoje elas param enquanto o jogador está no 2D. | A fazer |
+| RF-SON-11 | Luas e cinturões de asteroides como fontes (com RF-SYS-03). | A fazer |
 
 ---
 
@@ -576,4 +645,8 @@ Cada fase termina com algo jogável ou demonstrável. Fases 1 a 6 são **solo**,
 | 19/10/2026 | Sem monetização por enquanto; recursos pagos podem ser avaliados no futuro. |
 | 19/10/2026 | Solo como modo principal, coop opcional. Universo público com nascimento em pontos distantes fica para avaliar depois. |
 | 19/10/2026 | Termos genéricos (motor, propulsor, espécie primitiva) liberados; nomes específicos da obra (Deltanos, Bobiverse, Bob etc.) proibidos. |
+| 20/10/2026 | Navegação revista: velocidade direcional (só freia para o que está à frente), ganho 0,4, cruzeiro e passo de simulação maior para PCs lentos. |
+| 20/10/2026 | Assistente de navegação com nome próprio, **GUIA**, em vez do nome do livro: radar, alvos, piloto automático, sugestões, varredura, marcadores e diário (seção 4.13). |
+| 20/10/2026 | Toda estrela tem sistema planetário gerado pelo id; vizinhas com exoplanetas confirmados usam os reais. Pontos de interesse procedurais no espaço profundo e cometas visitantes garantem algo interessante sempre por perto. |
+| 20/10/2026 | Sondas de extração adiantadas da Fase 2: planetas rochosos, anéis, cometas e destroços, com recursos finitos por corpo (seção 4.14). |
 | 19/10/2026 | Vida nos planetas detalhada em [REQUISITOS-VIDA.md](REQUISITOS-VIDA.md): vida nativa rara em três níveis (25% vegetação, 8% animais, 1 em 10 destes inteligente), assentamentos com níveis, áreas, ruas e reinos, arte 16 bits. |
