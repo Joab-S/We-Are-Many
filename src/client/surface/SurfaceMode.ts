@@ -15,7 +15,7 @@ import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
 import { CATEGORIES, ITEMS, MATERIALS } from '../../sim/items';
 import { CHILD } from '../../sim/roles';
-import { TIER_NAMES, TIER_RADIUS } from '../../sim/settlement';
+import { TIER_NAMES } from '../../sim/settlement';
 import { earthCatalog, EARTH_ID, habitatOf, nativeSpecies, type Species } from '../../sim/species';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
@@ -1027,7 +1027,7 @@ export class SurfaceMode {
       if (v.abandoned) continue;
       const [sx, gy] = this.toScreen(v.x, v.y, z, w, h);
       const sy = h - gy;
-      const r = TIER_RADIUS[v.tier] * z;
+      const r = this.eco.radius(v) * z;
       if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
       const c = v.color.join(',');
       const capital = v.kingdom === v.id;
@@ -1159,8 +1159,8 @@ export class SurfaceMode {
       if (v.abandoned) continue;
       const era = Math.floor(v.tech);
       // Uma casa por era; cidades medievais já têm sobrados.
-      const style =
-        era >= 4 || (era >= 3 && v.tier >= 2) ? 'townhouse' : era >= 3 ? 'stoneHouse' : era >= 2 ? 'house' : era >= 1 ? 'cottage' : 'hut';
+      const styles = ['hut', 'cottage', 'house', 'stoneHouse', 'townhouse'];
+      const base = era >= 4 || (era >= 3 && v.tier >= 2) ? 4 : era;
       for (const house of v.houses) {
         if (house.kind === 'port') {
           // O píer fica virado para a água (variante 1: água a oeste).
@@ -1171,8 +1171,12 @@ export class SurfaceMode {
         }
         const [sx, sy] = this.toScreen(house.x + 1, house.y + 2, z, w, h);
         if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+        // Casa reformada ganha um andar: usa o estilo seguinte (sobrado), sem passar do último.
+        const style = styles[Math.min(styles.length - 1, base + (house.level ?? 0))];
         const sprite = house.kind !== 'house' ? house.kind : house.variant ? `${style}:${house.variant}` : style;
         buildings.push({ sprite, sx, sy, h: Math.max(3, z * 2), tint: v.color });
+        // Obra em andamento (construção ou reforma): andaime por cima.
+        if (!small && (house.workUntil ?? 0) > eco.year) buildings.push({ sprite: 'scaffold', sx, sy: sy - 0.01, h: z * 1.75, tint: v.color });
         // Na Idade da Pedra, algumas cabanas têm uma fogueira no quintal.
         if (!small && era === 0 && house.kind === 'house' && house.variant === 1) {
           const [cx, cy] = this.toScreen(house.x + 2.3, house.y + 2, z, w, h);
@@ -1413,6 +1417,7 @@ export class SurfaceMode {
     return `
       <b>${TIER_NAMES[v.tier]} ${v.name}${capital !== v ? ` · Reino de ${capital.name}` : ''}</b>
       <span>Povo ${c.name} · valoriza ${c.value} · crê n${c.belief.startsWith('a') ? 'a' : 'o'}${c.belief.startsWith('os') || c.belief.startsWith('as') ? 's' : ''} ${c.belief.split(' ').slice(1).join(' ')}</span>
+      ${v.completeness !== undefined ? `<span>Planta ${Math.round(v.completeness * 100)}%${v.missing ? ` · falta ${v.missing}` : ' · completa'}</span>` : ''}
       ${stock ? `<span>${stock}</span>` : ''}
       ${need ? `<span>Para a próxima era: ${need}</span>` : ''}
       ${war ? `<span>⚔ Em guerra com ${enemy}</span>` : ''}

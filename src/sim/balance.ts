@@ -72,3 +72,29 @@ export const CALIBRATION_YEARS = 250;
 export const ADRIFT_LOSS_RATE = 0.48;
 /** Lances de rede por ano de um barco de pesca (antes: 50% por segundo). */
 export const FISHING_CAST_RATE = 3;
+
+// Crescimento controlado (seção 19.3) ------------------------------------------
+
+/** Fração da chance de colonos quando a planta está incompleta (completa = 1). */
+export const COLONY_MIN_FACTOR = 0.2;
+/** Moradores a partir dos quais um assentamento pensa em mandar colonos mesmo com lote livre. */
+export const COLONY_MIN_POP = 40;
+/** Completude mínima da planta para subir de nível. */
+export const TIER_UP_COMPLETENESS = 0.7;
+/** Reformas por ano por construtor (casa que melhora de padrão). */
+export const REFORM_RATE = 0.5;
+/** Anos que uma obra (reforma ou construção) fica com andaime. */
+export const WORK_YEARS = 2;
+/** Pessoas a mais que cada andar extra de uma casa abriga. */
+export const LEVEL_HOUSING = 2;
+/** Crescimento das ruas por ano quando os lotes acabam (1 = ruas do nível seguinte, metade da área). */
+export const STREET_GROW_RATE = 0.25;
+/** Mudanças de moradores por ano de um assentamento apertado para um vizinho do mesmo povo (RF-VIDA-281). */
+export const MIGRATION_RATE = 0.4;
+/** Epidemias por ano numa cidade grande sem saneamento, por 100 moradores (RF-VIDA-284). */
+export const EPIDEMIC_RATE = 0.02;
+/** Parte dos moradores que uma epidemia atinge. */
+export const EPIDEMIC_SHARE = 0.06;
+/** Peso da chance de colonos quando ainda há espaço (lote, reforma ou rua para crescer) e quando não há. */
+export const COLONY_PRESSURE_ROOM = 0.2;
+export const COLONY_PRESSURE_CROWDED = 2;

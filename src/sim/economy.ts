@@ -178,6 +178,8 @@ export function forge(stock: Stock, era: number): { tier: number; kind: 'bronze'
 /** Custo de cada construção em madeira, pedra e ouro. */
 export function buildCost(kind: string, era: number): { wood: number; stone: number; gold: number } {
   if (kind === 'house') return era >= 3 ? { wood: 1, stone: 4, gold: 0 } : { wood: 4, stone: 0, gold: 0 };
+  if (kind === 'reform') return era >= 3 ? { wood: 1, stone: 3, gold: 0 } : { wood: 3, stone: era >= 2 ? 1 : 0, gold: 0 };
+  if (kind === 'aqueduct') return { wood: 6, stone: 30, gold: 2 };
   if (kind === 'port') return { wood: 12, stone: 0, gold: 0 };
   if (kind === 'mine') return { wood: 6, stone: 0, gold: 0 };
   if (kind === 'wonder') return { wood: 40, stone: 120, gold: 8 };
