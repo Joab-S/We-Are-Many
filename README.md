@@ -2,8 +2,9 @@
 
 Jogo de navegador de exploração espacial, replicação de sondas e terraformação, feito com three.js e inspirado na temática de *Somos Legião, Somos Bob*. As estrelas estão nas posições reais, vindas de catálogos astronômicos públicos.
 
-- Requisitos e plano de desenvolvimento: [docs/REQUISITOS.md](docs/REQUISITOS.md)
-- Estado atual: **Fase 0** (provas técnicas)
+- Requisitos e plano de desenvolvimento: [docs/REQUISITOS.md](docs/REQUISITOS.md) e vida nos planetas: [docs/REQUISITOS-VIDA.md](docs/REQUISITOS-VIDA.md). Cada requisito tem a sua situação (feito, parcial, a fazer).
+- Estado atual: **Fase 0** concluída e ampliada (navegação com o GUIA, sondas e quase toda a vida nos planetas já existem); próximos passos na [seção 8.1](docs/REQUISITOS.md#81-backlog-revisado-em-20102026-próximos-passos).
+- Regra do projeto: nada que já foi implementado é removido sem necessidade ou pedido, e toda remoção é registrada com o motivo ([seção 0](docs/REQUISITOS.md#0-como-manter-este-documento)).
 
 ## Rodando
 
@@ -88,6 +89,16 @@ O `netlify.toml` já traz a configuração (build `npm run build`, pasta `dist`,
 1. Em app.netlify.com, entre com o GitHub e clique em **Add new site → Import an existing project**.
 2. Escolha o GitHub e o repositório `Joab-S/We-Are-Many`, branch `main`. Não mude nada e clique em **Deploy**.
 3. O Netlify dá um endereço `https://<nome>.netlify.app`; cada push na `main` publica de novo.
+
+### Fluxo de branches (poupa créditos do Netlify)
+
+Cada publicação na `main` gasta créditos do plano grátis do Netlify (15 por deploy de produção).
+
+1. Toda mudança vai num PR para a branch `development`. PRs e a `development` não compilam no Netlify.
+2. Teste a `development` localmente: `git checkout development && git pull && npm install && npm run dev`.
+3. Quando estiver bom, abra um PR da `development` para a `main`. Só esse merge publica, uma vez, juntando várias mudanças.
+
+Na `main`, um push que só muda documentação (`docs/`, `README.md`) também não compila.
 
 ## Publicar na Vercel
 
