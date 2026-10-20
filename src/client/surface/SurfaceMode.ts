@@ -1100,14 +1100,14 @@ export class SurfaceMode {
     // Bem de perto, a arte detalhada, pintada aos poucos em blocos guardados.
     const level = SoftArt.levelFor(z);
     if (level) {
-      this.softArt ??= new SoftArt(this.pixels, mw, mh, this.decorCanvas);
+      this.softArt ??= new SoftArt(this.pixels, mw, mh);
       const r0 = Math.max(0, Math.floor(mh - this.center.y - h / 2 / z));
       const r1 = Math.min(mh - 1, Math.ceil(mh - this.center.y + h / 2 / z));
       // Blocos que ainda faltam saem nos próximos quadros.
       if (!this.softArt.draw(ctx, level, z, x0, x1, r0, r1, top, this.center.x, w)) this.textureChanged = true;
     }
-    if (z >= 5 && level < 8) {
-      // Enfeites (árvores, pedras, trigo) por cima do mapa chapado.
+    if (z >= 5) {
+      // Enfeites (árvores, pedras, trigo) por cima do chão, sempre com a arte original de 16 pixels.
       const r0 = Math.max(0, Math.floor(mh - this.center.y - h / 2 / z));
       const r1 = Math.min(mh - 1, Math.ceil(mh - this.center.y + h / 2 / z));
       const c0 = Math.floor(x0);

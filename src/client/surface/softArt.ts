@@ -1,7 +1,8 @@
 /**
- * Arte do mapa de perto, em Canvas 2D (a superfície não usa placa de vídeo):
- * bordas onduladas entre tiles, espuma na costa, ruas, plantações e enfeites,
- * com uma textura leve no chão. Pintada na CPU em blocos de 32x32 tiles
+ * Chão do mapa de perto, em Canvas 2D (a superfície não usa placa de vídeo):
+ * bordas onduladas entre tiles, espuma na costa e ruas, com uma textura leve.
+ * Árvores, pedras e trigo não entram aqui: SurfaceMode os desenha por cima,
+ * com a arte original de 16 pixels. Pintada na CPU em blocos de 32x32 tiles
  * guardados em cache; cada bloco só é refeito quando um tile dele muda, e no
  * máximo a cada 1,5 s. De longe o mapa fica chapado (um pixel por tile).
  */
@@ -31,8 +32,6 @@ const hash = (x: number, y: number) => fract(Math.sin(x * 127.1 + y * 311.7) * 4
 
 export class SoftArt {
   private readonly chunks = new Map<string, Chunk>();
-  private readonly decor: Uint8ClampedArray;
-  private readonly decorW: number;
   private readonly cols: number;
   private readonly rows: number;
 
@@ -40,10 +39,7 @@ export class SoftArt {
     private readonly pixels: Uint8Array,
     private readonly width: number,
     private readonly height: number,
-    decorCanvas: HTMLCanvasElement,
   ) {
-    this.decor = decorCanvas.getContext('2d')!.getImageData(0, 0, decorCanvas.width, decorCanvas.height).data;
-    this.decorW = decorCanvas.width;
     this.cols = Math.ceil(width / CHUNK);
     this.rows = Math.ceil(height / CHUNK);
   }
@@ -268,26 +264,6 @@ export class SoftArt {
     if (kind >= 8 && kind <= 10) {
       this.road(tx, ty, fx, fy, kind, p[src] / 255, p[src + 1] / 255, p[src + 2] / 255, out);
       return this.clamp(out);
-    }
-    if (zoom >= (kind === 7 ? 3 : 5) && kind > 0 && kind <= 7) {
-      // Arte 16x16 do enfeite: alfa cheio é cor, alfa parcial é sombra.
-      // Cada pixel de arte cobre 2x2 do desenho de 16: vale o pixel mais opaco do bloco.
-      let d = (fy * this.decorW + (kind - 1) * 16 + fx) * 4;
-      for (const [ox, oy] of [[1, 1], [1, 0], [0, 1]]) {
-        const e = ((fy + oy) * this.decorW + (kind - 1) * 16 + fx + ox) * 4;
-        if (this.decor[e + 3] > this.decor[d + 3]) d = e;
-      }
-      const a = this.decor[d + 3] / 255;
-      if (a > 0.9) {
-        const s = 0.94 + 0.12 * hash(tx + 7, ty + 7);
-        r = (this.decor[d] / 255) * s;
-        gr = (this.decor[d + 1] / 255) * s;
-        b = (this.decor[d + 2] / 255) * s;
-      } else if (a > 0.2) {
-        r *= 0.62;
-        gr *= 0.62;
-        b *= 0.62;
-      }
     }
     out[0] = r;
     out[1] = gr;
