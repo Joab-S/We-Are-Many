@@ -10,7 +10,8 @@ import {
   type PlanetParams,
   type SurfaceMap,
 } from '../../procgen/surface';
-import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, isLand, YEAR_SECONDS, type ChronicleKind, type Village } from '../../sim/ecosystem';
+import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, HERD_NAMES, isLand, YEAR_SECONDS, type ChronicleKind, type Village } from '../../sim/ecosystem';
+import { NEED_NAMES, NEEDS, SEASONS, VOCATION_COLORS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../sim/needs';
 import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from '../../sim/economy';
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
 import { CATEGORIES, ITEMS, MATERIALS } from '../../sim/items';
@@ -59,6 +60,10 @@ interface Tool {
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 const ORE_ICONS: Record<Ore, string> = { copper: '🟠', tin: '⚪', iron: '🟤', gold: '🟡', coal: '⚫' };
+
+/** Sprite e cor de cada animal de rebanho. */
+const HERD_SPRITES: Record<string, string> = { sheep: 'sheep', cattle: 'cow', goat: 'goat', horse: 'horse', camel: 'camel' };
+const HERD_TINT: Record<string, [number, number, number]> = { sheep: [238, 234, 222], cattle: [150, 96, 62], goat: [196, 176, 146], horse: [128, 82, 48], camel: [204, 164, 104] };
 
 /** Ferramentas de terraformação e clima (RF-SUP-06). */
 const TERRAIN_TOOLS: Tool[] = [
@@ -168,6 +173,8 @@ export class SurfaceMode {
   private pinned: { creature: number } | { x: number; y: number } | null = null;
   private folded = false;
   private showTerritory = true;
+  /** Camada das áreas coloridas: reinos, vocação ou economia (RF-VIDA-287). */
+  private layer: 'kingdoms' | 'vocation' | 'economy' = 'kingdoms';
   private lastMini = 0;
   private miniBase: HTMLCanvasElement | null = null;
   private textureChanged = true;
@@ -421,6 +428,7 @@ export class SurfaceMode {
     else if (road === 2) c = [146, 144, 150];
     else if (road === 3) c = [184, 160, 120];
     else if (road === 4) c = [196, 160, 78];
+    else if (road === 5) c = [118, 168, 74];
     if (c) {
       px[o] = clamp(c[0] * (1 + n), 0, 255);
       px[o + 1] = clamp(c[1] * (1 + n), 0, 255);
@@ -688,6 +696,11 @@ export class SurfaceMode {
     else if (opt === 'minor') this.showMinor = !this.showMinor;
     else if (opt === 'labels') this.showLabels = !this.showLabels;
     else if (opt === 'territory') this.showTerritory = !this.showTerritory;
+    else if (opt.startsWith('layer:')) {
+      this.layer = opt.slice(6) as typeof this.layer;
+      this.showTerritory = true;
+      this.lastView = '';
+    }
     else if (opt === 'now') this.surprise();
     this.lastWinHtml = '';
     this.lastPanelHtml = '';
@@ -832,7 +845,8 @@ export class SurfaceMode {
       .map((k) => {
         const members = eco.villages.filter((v) => !v.abandoned && v.kingdom === k.id);
         const pop = members.reduce((n, v) => n + v.population, 0);
-        const st = k.stock;
+        // Cada assentamento tem o próprio estoque; aqui aparece a soma do reino.
+        const st = eco.kingdomStock(k.id);
         const stock = STOCK_NAMES.filter(([key]) => st[key] >= 1).map(([key, name]) => `${name} ${Math.floor(st[key])}`).join(' · ');
         const c = k.culture;
         const rels = capitals
@@ -909,6 +923,9 @@ export class SurfaceMode {
       <div class="wb-filters"><button data-opt="now">🎲 Provocar um evento agora</button></div>
       <div class="wb-section">Exibição</div>
       <div class="wb-filters"><button data-opt="labels" class="${on(this.showLabels)}">Nomes no mapa</button><button data-opt="territory" class="${on(this.showTerritory)}">Territórios coloridos (T)</button><button data-opt="minor" class="${on(this.showMinor)}">Acontecimentos menores no painel</button></div>
+      <div class="wb-section">Camada do mapa</div>
+      <div class="wb-filters">${[['kingdoms', 'Reinos'], ['vocation', 'Vocação'], ['economy', 'Economia']].map(([k, l]) => `<button data-opt="layer:${k}" class="${on(this.layer === k)}">${l}</button>`).join('')}</div>
+      <div class="wb-note">${this.layer === 'vocation' ? Object.entries(VOCATION_NAMES).map(([k, n]) => `<span style="color:rgb(${VOCATION_COLORS[k as keyof typeof VOCATION_COLORS].join(',')})">■</span> ${VOCATION_ICONS[k as keyof typeof VOCATION_ICONS]} ${n}`).join(' · ') : this.layer === 'economy' ? 'Verde: necessidades atendidas e estoque cheio · amarelo: apertado · vermelho: em crise.' : 'Cada reino com a sua cor; capitais com linha cheia.'}</div>
       <div class="wb-section">Atalhos</div>
       <div class="wb-note">Espaço pausa · 1 a 4 mudam a velocidade · C crônica · R reinos · E espécies · I itens · Esc fecha a janela ou volta à órbita.</div>`;
   }
@@ -1029,12 +1046,13 @@ export class SurfaceMode {
       const sy = h - gy;
       const r = this.eco.radius(v) * z;
       if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
-      const c = v.color.join(',');
+      const c = this.layerColor(v).join(',');
       const capital = v.kingdom === v.id;
       ctx.beginPath();
       ctx.arc(sx, sy, r, 0, Math.PI * 2);
       // De perto o véu quase some, para não apagar a arte das casas, ruas e plantações.
-      ctx.fillStyle = `rgba(${c},${Math.min(0.18, Math.max(0.03, 0.7 / z)).toFixed(3)})`;
+      const strong = this.layer === 'kingdoms' ? 1 : 2;
+      ctx.fillStyle = `rgba(${c},${Math.min(0.18 * strong, Math.max(0.03, (0.7 * strong) / z)).toFixed(3)})`;
       ctx.fill();
       ctx.lineWidth = Math.min(capital ? 4 : 3, Math.max(1.5, z * (capital ? 0.35 : 0.22)));
       ctx.setLineDash(capital ? [] : [z * 0.8, z * 0.5]);
@@ -1042,6 +1060,17 @@ export class SurfaceMode {
       ctx.stroke();
     }
     ctx.setLineDash([]);
+  }
+
+  /** Cor do assentamento na camada escolhida: reino, vocação ou situação da economia. */
+  private layerColor(v: Village): readonly number[] {
+    if (this.layer === 'vocation') return v.vocation ? VOCATION_COLORS[v.vocation] : [160, 160, 160];
+    if (this.layer === 'economy') {
+      const w = v.needs ? welfare(v.needs) : 1;
+      const t = Math.max(0, Math.min(1, (w - 0.4) / 0.55));
+      return [Math.round(230 - 150 * t), Math.round(70 + 140 * t), 60];
+    }
+    return v.color;
   }
 
   private renderView(): void {
@@ -1175,12 +1204,36 @@ export class SurfaceMode {
         const style = styles[Math.min(styles.length - 1, base + (house.level ?? 0))];
         const sprite = house.kind !== 'house' ? house.kind : house.variant ? `${style}:${house.variant}` : style;
         buildings.push({ sprite, sx, sy, h: Math.max(3, z * 2), tint: v.color });
+        // Olaria acesa: fumaça saindo da chaminé.
+        if (!small && house.kind === 'pottery') buildings.push({ sprite: flame ? 'smoke' : 'smoke2', sx: sx + z * 0.45, sy: sy + z * 2.05, h: z * 0.5, tint: v.color });
         // Obra em andamento (construção ou reforma): andaime por cima.
         if (!small && (house.workUntil ?? 0) > eco.year) buildings.push({ sprite: 'scaffold', sx, sy: sy - 0.01, h: z * 1.75, tint: v.color });
         // Na Idade da Pedra, algumas cabanas têm uma fogueira no quintal.
         if (!small && era === 0 && house.kind === 'house' && house.variant === 1) {
           const [cx, cy] = this.toScreen(house.x + 2.3, house.y + 2, z, w, h);
           buildings.push({ sprite: flame ? 'campfire' : 'campfire2', sx: cx, sy: cy, h: z * 0.6, tint: v.color });
+        }
+      }
+      // Cercados de pasto e o rebanho pastando dentro deles (RF-VIDA-215 e 216).
+      if (!small && v.pens) {
+        const animal = v.herd ? HERD_SPRITES[v.herd.kind] : '';
+        let left = v.herd?.head ?? 0;
+        const now = performance.now() / 1000;
+        for (const pen of v.pens) {
+          const [px, py] = this.toScreen(pen.x + 1, pen.y + 2, z, w, h);
+          if (px < -margin || px > w + margin || py < -margin || py > h + margin) continue;
+          buildings.push({ sprite: 'pen', sx: px, sy: py + 0.02, h: z * 2, tint: v.color });
+          // Até 3 bichos por cercado, andando devagar de um lado para o outro.
+          const shown = animal ? Math.min(3, left) : 0;
+          for (let k = 0; k < shown; k++) {
+            const seed = (pen.x * 7 + pen.y * 13 + k * 31) % 17;
+            const ox = 0.45 + 1.1 * (0.5 + 0.5 * Math.sin(now * 0.25 + seed));
+            const oy = 0.55 + 0.35 * k + 0.1 * Math.sin(now * 0.4 + seed * 2);
+            const [ax, ay] = this.toScreen(pen.x + ox, pen.y + oy + 0.5, z, w, h);
+            const facing = Math.cos(now * 0.25 + seed) < 0 && SPRITES[`${animal}:l`] ? `${animal}:l` : animal;
+            buildings.push({ sprite: facing, sx: ax, sy: ay, h: z * 0.62, tint: HERD_TINT[v.herd!.kind] });
+          }
+          left -= shown;
         }
       }
       if (!small) {
@@ -1330,10 +1383,12 @@ export class SurfaceMode {
         this.labels.set(v.id, el);
       }
       el.hidden = false;
+      // Ícone simples da vocação antes do nome (RF-VIDA-224).
+      const icon = v.vocation ? `${VOCATION_ICONS[v.vocation]} ` : '';
       const text =
         v.kingdom === v.id && this.eco.kingdomSize(v) > 1
-          ? `♛ Reino de ${v.name} · ${v.population}`
-          : `${TIER_NAMES[v.tier]} ${v.name} · ${v.population}`;
+          ? `♛ ${icon}Reino de ${v.name} · ${v.population}`
+          : `${icon}${TIER_NAMES[v.tier]} ${v.name} · ${v.population}`;
       if (el.textContent !== text) el.textContent = text;
       const color = `rgb(${v.color.join(',')})`;
       if (el.style.borderLeftColor !== color) el.style.borderLeftColor = color;
@@ -1388,6 +1443,10 @@ export class SurfaceMode {
     }
     const road = this.eco.road[i];
     if (road === 4) return 'Plantação';
+    if (road === 5) {
+      const v = this.eco.settlementAt(i % this.map.width + 0.5, Math.floor(i / this.map.width) + 0.5) ?? this.eco.villages.find((o) => o.pens?.some((p) => (p.x === i % this.map.width || p.x + 1 === i % this.map.width) && (p.y === Math.floor(i / this.map.width) || p.y + 1 === Math.floor(i / this.map.width))));
+      return v?.herd ? `Pasto · ${v.herd.head} ${HERD_NAMES[v.herd.kind]} de ${v.name}` : 'Pasto cercado';
+    }
     if (road === 3) return 'Praça';
     if (road) return 'Rua';
     if (!this.eco.built[i]) return null;
@@ -1417,13 +1476,47 @@ export class SurfaceMode {
     return `
       <b>${TIER_NAMES[v.tier]} ${v.name}${capital !== v ? ` · Reino de ${capital.name}` : ''}</b>
       <span>Povo ${c.name} · valoriza ${c.value} · crê n${c.belief.startsWith('a') ? 'a' : 'o'}${c.belief.startsWith('os') || c.belief.startsWith('as') ? 's' : ''} ${c.belief.split(' ').slice(1).join(' ')}</span>
+      ${v.vocation ? `<span>${VOCATION_ICONS[v.vocation]} Vocação ${VOCATION_NAMES[v.vocation].toLowerCase()}${v.herd ? ` · rebanho de ${v.herd.head} ${HERD_NAMES[v.herd.kind]}` : ''}</span>` : ''}
       ${v.completeness !== undefined ? `<span>Planta ${Math.round(v.completeness * 100)}%${v.missing ? ` · falta ${v.missing}` : ' · completa'}</span>` : ''}
+      ${this.economyLines(v)}
       ${stock ? `<span>${stock}</span>` : ''}
       ${need ? `<span>Para a próxima era: ${need}</span>` : ''}
       ${war ? `<span>⚔ Em guerra com ${enemy}</span>` : ''}
       ${allies.length ? `<span>❤ Aliado de ${allies.join(', ')}</span>` : ''}
       ${DEBUG ? `<span class="wb-debug">${eco.rates(v).map((r) => `${r.name} ${r.perYear.toFixed(2).replace('.', ',')}`).join(' · ')}</span>` : ''}
       <hr>`;
+  }
+
+  /**
+   * Necessidades, estabilidade e a balança do ano passado (painel de
+   * economia, RF-VIDA-217): o que mais se produziu, o que mais se gastou e
+   * o que está faltando.
+   */
+  private economyLines(v: Village): string {
+    if (!v.needs) return '';
+    const eco = this.eco;
+    const n = v.needs;
+    const low = NEEDS.filter((k) => n[k] < 0.7);
+    const needs = `<span>Necessidades ${Math.round(welfare(n) * 100)}%${low.length ? ` · falta ${low.map((k) => NEED_NAMES[k]).join(', ')}` : ' · tudo atendido'} · estabilidade ${Math.round((v.stability ?? 1) * 100)}%</span>`;
+    const names = new Map<string, string>([...STOCK_NAMES.map(([k, l]) => [k, l.toLowerCase()] as [string, string]), ['food', 'comida']]);
+    const rows = Object.entries(v.ledger ?? {}).filter(([k]) => names.has(k));
+    const top = (i: 0 | 1) =>
+      rows
+        .filter(([, e]) => e[i] >= 1)
+        .sort((a, b) => b[1][i] - a[1][i])
+        .slice(0, 3)
+        .map(([k, e]) => `${names.get(k)} ${Math.round(e[i])}`)
+        .join(', ');
+    const made = top(0);
+    const used = top(1);
+    const full = rows.filter(([k]) => {
+      const have = k === 'food' ? v.food : v.stock[k as keyof typeof v.stock];
+      return typeof have === 'number' && have >= eco.capOf(v, k as never) * 0.95;
+    });
+    const season = SEASONS[eco.season()];
+    return `${needs}
+      ${made || used ? `<span>Ano passado: fez ${made || 'nada'} · gastou ${used || 'nada'}${full.length ? ` · sobra ${full.map(([k]) => names.get(k)).join(', ')}` : ''}</span>` : ''}
+      <span>Agora é ${season}</span>`;
   }
 
   /** Profissão, ou a fase da vida de quem não trabalha. */

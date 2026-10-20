@@ -104,7 +104,8 @@ describe('soltar uma criatura', () => {
     const i = eco.introduceOne(s, x, y);
     expect(i).toBeGreaterThanOrEqual(0);
     expect(eco.village[i]).toBe(-1);
-    years(eco, 8);
+    // Ele anda até achar um lugar bom e funda quando decide (sorteio), dentro de alguns anos.
+    for (let k = 0; k < 20 && eco.villages.length === villages; k++) years(eco, 1);
     expect(eco.villages.length).toBe(villages + 1);
     const v = eco.villages[villages];
     expect(eco.village[i]).toBe(v.id);

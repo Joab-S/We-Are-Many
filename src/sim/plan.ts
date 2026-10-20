@@ -23,6 +23,9 @@ export interface PlanContext {
   built: ReadonlySet<string>;
   /** Construções especiais que o assentamento já pode erguer neste nível e era. */
   buildable: readonly string[];
+  /** Prédio característico da vocação: entra na planta a partir de vila (RF-VIDA-221). */
+  vocationBuilding?: string;
+  era?: number;
 }
 
 export interface PlanItem {
@@ -43,6 +46,12 @@ const LABELS: Record<string, string> = {
   factory: 'fábrica',
   statue: 'estátua',
   aqueduct: 'aqueduto',
+  warehouse: 'armazém',
+  pottery: 'olaria',
+  loom: 'tear',
+  corral: 'curral',
+  stable: 'haras',
+  sawmill: 'serraria',
 };
 
 /** Itens da estrutura de referência do nível atual. */
@@ -58,7 +67,7 @@ export function planItems(c: PlanContext): PlanItem[] {
     // Monumentos e a grande obra são orgulho, não estrutura; a estátua só entra na metrópole.
     if (b === 'wonder' || (b === 'statue' && c.tier < 3)) continue;
     // A vila só precisa do básico; o resto entra na cidade.
-    if (c.tier === 1 && !['granary', 'market', 'temple', 'smithy'].includes(b)) continue;
+    if (c.tier === 1 && !['granary', 'market', 'temple', 'smithy'].includes(b) && b !== c.vocationBuilding) continue;
     if (c.tier === 0) continue;
     items.push({ id: b, label: LABELS[b] ?? b, ok: c.built.has(b) });
   }

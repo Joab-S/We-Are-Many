@@ -6,6 +6,8 @@
 
 import { generateSurface, type PlanetParams } from '../procgen/surface';
 import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
+import { GOODS } from './economy';
+import { welfare } from './needs';
 import { roadBlocks } from './settlement';
 import { nativeSpecies } from './species';
 
@@ -29,6 +31,18 @@ export interface Indicators {
   completeness: number;
   /** Casas com andar a mais (reformas). */
   reformed: number;
+  /** Vocações diferentes entre os assentamentos vivos (RF-VIDA-220). */
+  vocations: number;
+  /** Assentamentos com rebanho (RF-VIDA-215). */
+  herds: number;
+  /** Atendimento médio das necessidades (RF-VIDA-210). */
+  welfare: number;
+  /** Preenchimento médio dos estoques do que o assentamento produz além do que gasta (RF-VIDA-219b). */
+  stockFill: number;
+  /** Recursos acima do teto no fim (deve ser zero, RF-VIDA-218). */
+  overCap: number;
+  /** Estabilidade média (RF-VIDA-280). */
+  stability: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -83,6 +97,22 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       if (!near) off++;
     }
   }
+  let fill = 0;
+  let fills = 0;
+  let over = 0;
+  for (const v of live) {
+    for (const g of [...GOODS, 'food'] as const) {
+      const cap = eco.capOf(v, g);
+      const have = g === 'food' ? v.food : v.stock[g];
+      if (have > cap + 1e-6) over++;
+      // Só o que sobra no ano (feito > gasto) forma estoque; o resto é consumido ao chegar.
+      const l = v.ledger?.[g];
+      if (l && l[0] > l[1]) {
+        fill += have / cap;
+        fills++;
+      }
+    }
+  }
   return {
     eco,
     indicators: {
@@ -100,6 +130,12 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       housesOffStreet: off,
       completeness: live.reduce((n, v) => n + (v.completeness ?? 1), 0) / Math.max(1, live.length),
       reformed: live.reduce((n, v) => n + v.houses.filter((h) => (h.level ?? 0) > 0).length, 0),
+      vocations: new Set(live.map((v) => v.vocation)).size,
+      herds: live.filter((v) => v.herd && v.herd.head > 0).length,
+      welfare: live.reduce((n, v) => n + (v.needs ? welfare(v.needs) : 1), 0) / Math.max(1, live.length),
+      stockFill: fills ? fill / fills : 0,
+      overCap: over,
+      stability: live.reduce((n, v) => n + (v.stability ?? 1), 0) / Math.max(1, live.length),
     },
   };
 }
@@ -113,6 +149,9 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
   { key: 'roadBlocks', label: 'Blocos 2x2 de rua fora das praças', min: 0, max: 0 },
   { key: 'housesOffStreet', label: 'Casas longe de rua', min: 0, max: 0 },
   { key: 'completeness', label: 'Completude média da planta', min: 0.5, max: 1 },
+  { key: 'vocations', label: 'Vocações diferentes', min: 4, max: 8 },
+  { key: 'stockFill', label: 'Preenchimento médio dos estoques', min: 0.3, max: 0.8 },
+  { key: 'overCap', label: 'Recursos acima do teto', min: 0, max: 0 },
 ];
 
 /** Nome de cada indicador no relatório. */
@@ -122,6 +161,9 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   era: 'Maior era (0 = Pedra, 1 = Bronze...)',
   droughts: 'Secas na crônica',
   reformed: 'Casas reformadas (com andar a mais)',
+  herds: 'Assentamentos com rebanho',
+  welfare: 'Atendimento médio das necessidades',
+  stability: 'Estabilidade média',
 };
 
 /** Média, mediana e faixa de 10% a 90% de uma lista. */

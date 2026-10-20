@@ -105,3 +105,97 @@ export const EPIDEMIC_SHARE = 0.06;
 /** Peso da chance de colonos quando ainda há espaço (lote, reforma ou rua para crescer) e quando não há. */
 export const COLONY_PRESSURE_ROOM = 0.2;
 export const COLONY_PRESSURE_CROWDED = 2;
+
+// Economia local: estoque próprio, tetos, consumo e perecimento (seção 19.4) ------
+
+/** Teto base de cada grupo de recurso por nível (aldeia, vila, cidade, metrópole). */
+export const STORE_BASE = {
+  food: [20, 60, 150, 350],
+  material: [30, 80, 200, 450],
+  ore: [10, 30, 80, 200],
+  goods: [10, 30, 80, 200],
+  gold: [10, 30, 100, 300],
+};
+/** Quanto cada construção soma ao teto: celeiro (comida), armazém (materiais), mercado como tesouro (ouro), cada mina (minério). */
+export const GRANARY_CAP = 80;
+export const WAREHOUSE_CAP = 120;
+export const TREASURY_CAP = 150;
+export const MINE_STORE_CAP = 40;
+/** Porções de comida de reserva que cada morador deveria ter guardadas (um ano). */
+export const CONSUME_FOOD = 1;
+/** Lenha por morador por ano (o dobro no frio) e roupa por morador por ano. */
+export const CONSUME_FUEL = 0.25;
+export const CONSUME_CLOTH = 0.15;
+/** Temperatura (K) abaixo da qual o lugar é frio e gasta o dobro de lenha. */
+export const COLD_K = 280;
+/** Perda anual no estoque: grão no celeiro, comida sem celeiro (carne e peixe), madeira. */
+export const SPOIL_GRAIN = 0.06;
+export const SPOIL_MEAT = 0.45;
+export const SPOIL_WOOD = 0.02;
+/** Expoente do retorno decrescente perto do teto: produção × (1 − preenchimento^DIMINISHING). */
+export const DIMINISHING = 2;
+/** Ouro acima desta parte do teto perde valor (inflação leve), a esta taxa por ano. */
+export const GOLD_INFLATION_FILL = 0.8;
+export const GOLD_INFLATION = 0.05;
+/** Estoque de um assentamento acima desta parte do teto vai de carroça para um vizinho do mesmo reino abaixo de HAUL_LOW. */
+export const HAUL_HIGH = 0.5;
+export const HAUL_LOW = 0.2;
+/** Carga de uma carroça por recurso e alcance, em tiles. */
+export const HAUL_LOAD = 12;
+export const HAUL_RANGE = 60;
+
+// Trabalho, vocação e estabilidade (seção 19.5 e RF-VIDA-280) ----------------------
+
+/** Fração dos adultos que podem mudar de setor por ano (RF-VIDA-214). */
+export const LABOR_SHIFT = 0.15;
+/** Parte máxima dos adultos numa mesma profissão depois da mudança de setor. */
+export const LABOR_ROLE_MAX = 0.35;
+/** Bônus de produção da vocação (RF-VIDA-221). */
+export const VOCATION_BONUS = 0.4;
+/** Chance de uma colônia herdar a vocação da origem (RF-VIDA-220). */
+export const VOCATION_INHERIT = 0.25;
+/** Anos ruins seguidos antes de trocar de vocação (RF-VIDA-222). */
+export const VOCATION_CHANGE_YEARS = 20;
+/** Quanto a estabilidade anda por ano rumo ao valor que as condições pedem. */
+export const STABILITY_PULL = 0.25;
+/** Estabilidade abaixo da qual um assentamento que não é capital pode se revoltar, e a taxa da revolta. */
+export const REVOLT_STABILITY = 0.25;
+export const REVOLT_RATE = 0.04;
+
+// Rebanhos (RF-VIDA-215) ---------------------------------------------------------
+
+/** Domesticação por ano, a partir do fim da Idade da Pedra, com herbívoros por perto. */
+export const DOMESTICATE_RATE = 0.4;
+/** Tiles de pasto por animal; cada cercado pasta a área dele e a volta (PEN_AREA tiles). */
+export const PASTURE_PER_HEAD = 1.5;
+export const PEN_AREA = 9;
+/** Crescimento do rebanho por ano (logístico até o teto do pasto). */
+export const HERD_GROWTH = 0.3;
+/** Cercados novos por ano quando o rebanho encosta no teto. */
+export const PEN_RATE = 0.8;
+/** Ataques de predador por ano para cada predador perto do pasto. */
+export const HERD_PREDATION = 0.5;
+/** Praga no rebanho por ano, e chance de pular para cada rebanho vizinho a até HERD_PLAGUE_RANGE tiles. */
+export const HERD_PLAGUE_RATE = 0.012;
+export const HERD_PLAGUE_SPREAD = 0.5;
+export const HERD_PLAGUE_RANGE = 45;
+
+// Eventos econômicos e terra (RF-VIDA-285 e 294) -------------------------------------
+
+/** Anos de corrida do ouro depois que uma jazida de ouro é achada (mais andarilhos chegando). */
+export const GOLD_RUSH_YEARS = 12;
+export const GOLD_RUSH_WANDERERS = 0.6;
+/** Colheita abaixo desta fração do normal é quebra de safra na crônica. */
+export const CROP_FAILURE = 0.55;
+/** Desgaste do solo por ano com todas as roças trabalhadas, e recuperação por ano em pousio. */
+export const SOIL_WEAR = 0.006;
+export const SOIL_RECOVER = 0.02;
+/** Solo mínimo: abaixo disso o assentamento deixa roças em pousio. */
+export const SOIL_FALLOW = 0.55;
+
+// Ano econômico com estações (RF-VIDA-290) --------------------------------------------
+
+/** Peso da colheita, da tosquia e da lenha em cada estação (primavera, verão, outono, inverno); a média de cada linha é 1. */
+export const SEASON_HARVEST = [0.2, 0.8, 2.6, 0.4];
+export const SEASON_WOOL = [3.2, 0.4, 0.2, 0.2];
+export const SEASON_FUEL = [0.8, 0.4, 0.8, 2];
