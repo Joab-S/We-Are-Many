@@ -282,10 +282,10 @@ interface Behaviour {
 }
 
 const BEHAVIOUR: Record<SpeciesKind, Behaviour> = {
-  fish: { metabolism: 0.03, birthRate: 0.12, cap: 2500, crowd: 6 },
+  fish: { metabolism: 0.03, birthRate: 0.12, cap: 1400, crowd: 6 },
   herbivore: { metabolism: 0.09, birthRate: 0.14, cap: 1600, crowd: 8 },
-  predator: { metabolism: 0.026, birthRate: 0.08, cap: 400, crowd: 4 },
-  shark: { metabolism: 0.012, birthRate: 0.08, cap: 150, crowd: 3 },
+  predator: { metabolism: 0.026, birthRate: 0.1, cap: 500, crowd: 4 },
+  shark: { metabolism: 0.012, birthRate: 0.1, cap: 220, crowd: 3 },
   // Inteligentes crescem devagar: poucos filhos por ano, para a história durar.
   sapient: { metabolism: 0.045, birthRate: 0.022, cap: 6000, crowd: 40 },
 };
@@ -302,6 +302,10 @@ export function elderAge(sp: Species, era: number): number {
 
 const CELL = 8;
 const THINK_INTERVAL = 0.4;
+/** Teto mínimo de qualquer espécie: abaixo disso, um azar qualquer acaba com ela. */
+const MIN_CAP = 30;
+/** Até onde um adulto procura parceiro (tiles); bem mais longe quando a espécie está rara. */
+const MATE_RANGE = 24;
 
 export function isWater(map: SurfaceMap, i: number): boolean {
   return map.elevation[i] < 0 && map.biome[i] !== Biome.Ice && map.biome[i] !== Biome.Lava;
@@ -483,13 +487,15 @@ export class Ecosystem {
       if (mode === 2 ? water || isLand(map, i) : mode === 1 ? water : isLand(map, i)) area += 4;
     }
     // Inteligentes: o teto é largo; quem limita cada assentamento são as casas.
-    const per = { fish: 140, herbivore: 150, predator: 1400, shark: 5000, sapient: 80 }[sp.kind];
+    // Tiles por indivíduo: o peixe precisa de bem mais mar do que antes (o mar não é infinito),
+    // e bichos de terra e predadores ganham mais espaço, para nenhuma espécie ficar com meia dúzia.
+    const per = { fish: 260, herbivore: 90, predator: 600, shark: 2600, sapient: 80 }[sp.kind];
     const sameKind = this.species.filter((o) => o.kind === sp.kind).length;
-    // O pasto (ou a caça) é o mesmo: a soma das espécies do tipo fica perto do teto de uma só.
-    const share = sp.kind === 'sapient' ? 1 : 1.4 / (sameKind + 0.4);
-    // Anfíbios ficam na costa: uma fração pequena da área.
-    const coast = mode === 2 ? 0.15 : 1;
-    return Math.max(20, Math.min(BEHAVIOUR[sp.kind].cap * share, Math.round((area / per) * share * coast)));
+    // O pasto (ou a caça) é o mesmo: a soma das espécies do tipo fica um pouco acima do teto de uma só.
+    const share = sp.kind === 'sapient' ? 1 : 2 / (sameKind + 1);
+    // Anfíbios ficam na costa: uma fração da área.
+    const coast = mode === 2 ? 0.3 : 1;
+    return Math.max(MIN_CAP, Math.min(BEHAVIOUR[sp.kind].cap * share, Math.round((area / per) * share * coast)));
   }
 
   /** Se a espécie `s` pode estar no tile (terra, água ou, para anfíbios, a costa). */
@@ -515,10 +521,16 @@ export class Ecosystem {
     green *= 4;
     this.species.forEach((sp, s) => {
       const target = { fish: water / 220, herbivore: green / 260, predator: green / 2200, shark: water / 9000, sapient: 0 }[sp.kind];
-      const amount = Math.min(this.caps[s] * 0.6, Math.round(target));
-      for (let k = 0; k < amount; k++) {
+      const amount = sp.kind === 'sapient' ? 0 : Math.min(this.caps[s] * 0.6, Math.max(Math.round(target), Math.min(12, this.caps[s] * 0.4)));
+      // Em bandos, cardumes e matilhas: sozinhos espalhados, os bichos nunca se achavam para ter filhotes.
+      const group = { fish: 6, herbivore: 5, predator: 3, shark: 2, sapient: 1 }[sp.kind];
+      for (let k = 0; k < amount; k += group) {
         const tile = this.findTile(s, Math.floor(this.rnd() * n), 40);
-        if (tile >= 0) this.spawnAtTile(s, tile, -1, this.rnd() * sp.maxAge * 0.6);
+        if (tile < 0) continue;
+        for (let g = 0; g < group && k + g < amount; g++) {
+          const near = this.tileAt((tile % map.width) + Math.floor((this.rnd() - 0.5) * 5), Math.floor(tile / map.width) + Math.floor((this.rnd() - 0.5) * 5));
+          this.spawnAtTile(s, near >= 0 && this.habitable(s, near) ? near : tile, -1, this.rnd() * sp.maxAge * 0.6);
+        }
       }
       if (sp.kind === 'sapient') {
         const villages = Math.max(2, Math.min(6, Math.round(green / 60000)));
@@ -761,6 +773,12 @@ export class Ecosystem {
     const a = this.rnd() * Math.PI * 2;
     let dx = Math.cos(a);
     let dy = Math.sin(a);
+    // Sem destino, segue mais ou menos na mesma direção: explora o mapa em vez de rodar no lugar.
+    const v = Math.hypot(this.vx[i], this.vy[i]);
+    if (!bias && v > 0.05) {
+      dx = dx * 0.45 + (this.vx[i] / v) * 0.55;
+      dy = dy * 0.45 + (this.vy[i] / v) * 0.55;
+    }
     if (bias) {
       dx = dx * 0.4 + bias.x * 0.6;
       dy = dy * 0.4 + bias.y * 0.6;
@@ -783,14 +801,36 @@ export class Ecosystem {
     // O habitat pode ter mudado por baixo da criatura (terraformação).
     if (!this.canStand(s, tile)) e -= 0.6 * dt;
 
+    // Fora do clima da espécie (ou na beirada dele), todo bicho procura um lugar melhor.
+    const outside = temp < sp.tempMin || temp > sp.tempMax;
+    const comfort = temp < sp.tempMin + 2 || temp > sp.tempMax - 2 ? this.comfortBias(i, temp) : undefined;
+    // Adulto bem alimentado e sem parceiro por perto vai atrás de um (às vezes, para poupar tempo).
+    const mate = sp.kind !== 'sapient' && e > 0.55 && this.age[i] >= sp.maturity && this.rnd() < 0.35 ? this.seekMate(i) : undefined;
+
     switch (sp.kind) {
-      case 'fish':
-        if (isWater(map, tile)) e += 0.05 * dt;
-        this.wander(i, sp.speed);
+      case 'fish': {
+        // Plâncton: o mar alimenta bem um peixe sozinho e mal um cardume apertado,
+        // então a população fica abaixo do teto e oscila com tubarões, pesca e clima.
+        if (isWater(map, tile)) {
+          let school = 0;
+          this.forEachNear(this.x[i], this.y[i], 3, (j) => {
+            if (this.species[this.kind[j]].kind === 'fish') school++;
+          });
+          e += (0.075 * dt) / (1 + school / 5);
+        }
+        this.wander(i, sp.speed, comfort ?? mate);
         break;
+      }
       case 'herbivore': {
         // Anfíbios (tartaruga, sapo, caranguejo, pinguim) também comem na água.
-        if (this.habitat[s] === 2 && isWater(map, tile)) e += 0.06 * dt;
+        // Na água comem algas e bichinhos; como no mar dos peixes, rende menos quando estão amontoados.
+        if (this.habitat[s] === 2 && isWater(map, tile)) {
+          let crowd = 0;
+          this.forEachNear(this.x[i], this.y[i], 3, (j) => {
+            if (this.kind[j] === s) crowd++;
+          });
+          e += (0.12 * dt) / (1 + crowd / 4);
+        }
         const veg = map.vegetation[tile];
         if (veg > 0.12) {
           const bite = Math.min(veg - 0.1, 0.025);
@@ -798,24 +838,31 @@ export class Ecosystem {
           e += bite * 9;
           this.onTileChanged(tile);
         }
-        // Vai para onde há mais vegetação por perto, e foge de predadores.
+        // Com fome, procura pasto: olha mais longe quanto mais fome tem. Foge de predadores.
         let best = { x: 0, y: 0 };
         let bestVeg = veg;
-        for (let k = 0; k < 3; k++) {
+        const hungry = e < 0.75;
+        const looks = hungry ? 10 : 3;
+        for (let k = 0; k < looks; k++) {
           const a = this.rnd() * Math.PI * 2;
-          const tx = Math.floor(this.x[i] + Math.cos(a) * 4);
-          const ty = Math.floor(this.y[i] + Math.sin(a) * 4);
-          if (ty < 0 || ty >= map.height) continue;
-          const t = ty * map.width + (((tx % map.width) + map.width) % map.width);
-          if (isLand(map, t) && map.vegetation[t] > bestVeg) {
-            bestVeg = map.vegetation[t];
+          const r = hungry ? 3 + this.rnd() * (e < 0.4 ? 14 : 7) : 4;
+          const t = this.tileAt(this.x[i] + Math.cos(a) * r, Math.floor(this.y[i] + Math.sin(a) * r));
+          if (t < 0 || !this.canStand(s, t)) continue;
+          const tt = temperatureAt(map, t);
+          if (tt < sp.tempMin || tt > sp.tempMax) continue;
+          // Pasto um pouco melhor não compensa uma caminhada longa.
+          const value = map.vegetation[t] - r * 0.01;
+          if (value > bestVeg) {
+            bestVeg = value;
             best = { x: Math.cos(a), y: Math.sin(a) };
           }
         }
+        let flee: { x: number; y: number } | undefined;
         this.forEachNear(this.x[i], this.y[i], 5, (j, dx, dy) => {
-          if (this.species[this.kind[j]].kind === 'predator') best = { x: -dx, y: -dy };
+          if (this.species[this.kind[j]].kind === 'predator') flee = { x: -dx, y: -dy };
         });
-        this.wander(i, sp.speed, best.x || best.y ? best : undefined);
+        const food = best.x || best.y ? best : undefined;
+        this.wander(i, sp.speed, flee ?? comfort ?? (hungry ? food : (mate ?? food)));
         break;
       }
       case 'predator': {
@@ -825,12 +872,15 @@ export class Ecosystem {
         let pdy = 0;
         // Predadores anfíbios (crocodilo) também pegam peixes.
         const fishToo = this.habitat[s] === 2;
-        this.forEachNear(this.x[i], this.y[i], 20, (j, dx, dy) => {
+        // Com muita fome, procura presa bem mais longe.
+        const reach = e < 0.35 ? 36 : 20;
+        this.forEachNear(this.x[i], this.y[i], reach, (j, dx, dy) => {
           const k = this.species[this.kind[j]].kind;
-          if (k !== 'herbivore' && !(fishToo && k === 'fish')) return;
+          const d = dx * dx + dy * dy;
+          // Qualquer predador pesca o peixe que passa na beira d'água (urso no rio); os anfíbios, em qualquer lugar.
+          if (k !== 'herbivore' && !(k === 'fish' && (fishToo || d < 4))) return;
           // Presas raras se escondem melhor: a espécie não some de uma vez.
           if (this.population[this.kind[j]] < this.caps[this.kind[j]] * 0.15) return;
-          const d = dx * dx + dy * dy;
           if (d < pd) {
             pd = d;
             prey = j;
@@ -838,18 +888,19 @@ export class Ecosystem {
             pdy = dy;
           }
         });
-        // Bichos pequenos (roedores, insetos, carniça) cobrem parte da fome no mato.
-        if (map.vegetation[tile] > 0.2) e += 0.016 * dt;
+        // Bichos pequenos (roedores, insetos, carniça) cobrem parte da fome no mato; onívoros comem também frutos e raízes.
+        if (map.vegetation[tile] > 0.2) e += (sp.omnivore ? 0.032 : 0.016) * dt;
         if (prey >= 0 && pd < 1.44 && e < 0.8) {
           this.kill(prey);
           e += 0.6;
           this.wander(i, sp.speed * 0.3);
-        } else if (prey >= 0 && e < 0.65) {
+        } else if (prey >= 0 && e < 0.65 && !outside) {
           const len = Math.sqrt(pd) || 1;
           this.vx[i] = (pdx / len) * sp.speed;
           this.vy[i] = (pdy / len) * sp.speed;
         } else {
-          this.wander(i, sp.speed * 0.6);
+          // Sem presa à vista e com fome, anda mais rápido para onde é mais verde (onde a caça pasta); satisfeito, procura parceiro.
+          this.wander(i, sp.speed * (e < 0.5 ? 0.9 : 0.6), comfort ?? (e < 0.5 ? this.greener(i, 12) : mate));
         }
         break;
       }
@@ -860,7 +911,7 @@ export class Ecosystem {
         let pd = Infinity;
         let pdx = 0;
         let pdy = 0;
-        this.forEachNear(this.x[i], this.y[i], 12, (j, dx, dy) => {
+        this.forEachNear(this.x[i], this.y[i], e < 0.4 ? 24 : 12, (j, dx, dy) => {
           if (this.species[this.kind[j]].kind !== 'fish') return;
           const d = dx * dx + dy * dy;
           if (d < pd) {
@@ -886,12 +937,12 @@ export class Ecosystem {
           this.kill(prey);
           e += 0.9;
           this.wander(i, sp.speed * 0.3);
-        } else if (prey >= 0 && e < 0.85) {
+        } else if (prey >= 0 && e < 0.85 && !outside) {
           const len = Math.sqrt(pd) || 1;
           this.vx[i] = (pdx / len) * sp.speed;
           this.vy[i] = (pdy / len) * sp.speed;
         } else {
-          this.wander(i, sp.speed * 0.5);
+          this.wander(i, sp.speed * (e < 0.5 ? 0.8 : 0.5), comfort ?? (e < 0.5 ? undefined : mate));
         }
         break;
       }
@@ -944,8 +995,8 @@ export class Ecosystem {
             range = 2;
           }
           if (dx * dx + dy * dy > range * range) bias = { x: dx, y: dy };
-          // Caçadores abatem herbívoros por perto.
-          if (role === ROLE.hunter && working && e < 0.8) {
+          // Caçadores abatem herbívoros por perto; com fome e sem comida no celeiro, qualquer adulto caça.
+          if (((role === ROLE.hunter && working) || (this.role[i] !== CHILD && e < 0.4 && v.food < 1)) && e < 0.8) {
             let prey = -1;
             this.forEachNear(this.x[i], this.y[i], 3, (j) => {
               // Caça sustentável: poupa a espécie quando ela fica rara.
@@ -958,6 +1009,10 @@ export class Ecosystem {
             }
           }
         }
+        // Sozinho e com fome: procura onde há o que comer (verde ou água), como os outros bichos.
+        if (!v && e < 0.5) bias = this.betterSite(i) ?? bias;
+        // Fora do clima, mesmo com assentamento, primeiro se protege.
+        if (comfort && (!v || e < 0.4)) bias = comfort;
         this.wander(i, sp.speed * (this.role[i] === CHILD ? 0.8 : elder ? 0.55 : 1), bias);
         break;
       }
@@ -975,13 +1030,15 @@ export class Ecosystem {
     }
     // Reprodução (idosos não têm filhos).
     const fertile = this.age[i] >= sp.maturity && (sp.kind !== 'sapient' || this.age[i] < elderAge(sp, era));
-    if (fertile && this.energy[i] > 0.65 && this.rnd() < b.birthRate * dt) {
+    if (fertile && this.energy[i] > 0.65 && this.rnd() < b.birthRate * dt * this.fertility(s, era)) {
       // Precisa de um parceiro adulto por perto (do mesmo assentamento, para os inteligentes).
+      // Bichos acham o parceiro num raio maior (o cheiro e o chamado vão longe).
       let crowd = 0;
       let mates = 0;
-      this.forEachNear(this.x[i], this.y[i], CELL, (j) => {
+      const reach = sp.kind === 'sapient' ? CELL : CELL * 1.5;
+      this.forEachNear(this.x[i], this.y[i], reach, (j, dx, dy) => {
         if (this.kind[j] !== s) return;
-        crowd++;
+        if (dx * dx + dy * dy <= CELL * CELL) crowd++;
         if (j !== i && this.age[j] >= sp.maturity && (sp.kind !== 'sapient' || this.village[j] === v)) mates++;
       });
       if (!mates || (sp.kind === 'sapient' && v < 0)) return;
@@ -992,6 +1049,76 @@ export class Ecosystem {
         if (child >= 0) this.energy[i] -= 0.3;
       }
     }
+  }
+
+  /**
+   * Controle da natalidade: perto do teto quase não nascem filhotes (o
+   * pasto e o espaço ficam disputados); uma espécie rara tem mais filhotes,
+   * para conseguir se recuperar. Inteligentes têm o teto da era.
+   */
+  fertility(s: number, era = 0): number {
+    const cap = this.caps[s] * (this.species[s].kind === 'sapient' ? 1 + 0.3 * era : 1);
+    const fill = this.population[s] / Math.max(1, cap);
+    if (fill < 0.2) return 2.2;
+    return Math.max(0.08, 1.15 * (1 - fill * fill));
+  }
+
+  /** Direção do adulto da mesma espécie mais perto, se não houver um já ao lado; mais longe quando a espécie está rara. */
+  private seekMate(i: number): { x: number; y: number } | undefined {
+    const s = this.kind[i];
+    const sp = this.species[s];
+    const range = this.population[s] < this.caps[s] * 0.2 ? MATE_RANGE * 2 : MATE_RANGE;
+    let bd = Infinity;
+    let best: { x: number; y: number } | undefined;
+    this.forEachNear(this.x[i], this.y[i], range, (j, dx, dy) => {
+      if (j === i || this.kind[j] !== s || this.age[j] < sp.maturity) return;
+      const d = dx * dx + dy * dy;
+      if (d < bd) {
+        bd = d;
+        best = { x: dx, y: dy };
+      }
+    });
+    return bd < 9 ? undefined : best;
+  }
+
+  /** Direção de um tile mais verde (e no clima da espécie) a até `range` tiles, se houver. */
+  private greener(i: number, range: number): { x: number; y: number } | undefined {
+    const s = this.kind[i];
+    const sp = this.species[s];
+    let bestVeg = this.map.vegetation[this.tileOf(i)] + 0.05;
+    let best: { x: number; y: number } | undefined;
+    for (let k = 0; k < 8; k++) {
+      const a = this.rnd() * Math.PI * 2;
+      const r = 3 + this.rnd() * (range - 3);
+      const t = this.tileAt(this.x[i] + Math.cos(a) * r, Math.floor(this.y[i] + Math.sin(a) * r));
+      if (t < 0 || !this.canStand(s, t)) continue;
+      const tt = temperatureAt(this.map, t);
+      if (tt < sp.tempMin || tt > sp.tempMax || this.map.vegetation[t] <= bestVeg) continue;
+      bestVeg = this.map.vegetation[t];
+      best = { x: Math.cos(a), y: Math.sin(a) };
+    }
+    return best;
+  }
+
+  /** Direção de um lugar com temperatura melhor para a espécie, a até 10 tiles. */
+  private comfortBias(i: number, temp: number): { x: number; y: number } | undefined {
+    const s = this.kind[i];
+    const sp = this.species[s];
+    const mid = (sp.tempMin + sp.tempMax) / 2;
+    let bestGap = Math.abs(temp - mid);
+    let best: { x: number; y: number } | undefined;
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + this.rnd() * 0.6;
+      const r = 4 + this.rnd() * 6;
+      const t = this.tileAt(this.x[i] + Math.cos(a) * r, Math.floor(this.y[i] + Math.sin(a) * r));
+      if (t < 0 || !this.canStand(s, t)) continue;
+      const gap = Math.abs(temperatureAt(this.map, t) - mid);
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = { x: Math.cos(a), y: Math.sin(a) };
+      }
+    }
+    return best;
   }
 
   /**
@@ -1094,6 +1221,21 @@ export class Ecosystem {
       best = v;
     }
     return best;
+  }
+
+  /** Um adulto do povo de `v` chega andando de fora da área; ao entrar, se junta (ver `loner`). */
+  private wanderer(v: Village): void {
+    const sp = this.species[v.species];
+    for (let t = 0; t < 12; t++) {
+      const a = this.rnd() * Math.PI * 2;
+      const d = TIER_RADIUS[v.tier] + 3 + this.rnd() * 6;
+      const x = v.x + Math.cos(a) * d;
+      const y = v.y + Math.sin(a) * d;
+      const tile = this.tileAt(x, Math.floor(y));
+      if (tile < 0 || !this.habitable(v.species, tile) || !this.landPath(x, y, v.x, v.y)) continue;
+      this.spawn(v.species, ((x % this.map.width) + this.map.width) % this.map.width, y, -1, sp.maturity + this.rnd() * 10);
+      return;
+    }
   }
 
   /** Põe a criatura `i` (sem assentamento) no assentamento `v`, com uma profissão. */
@@ -1501,8 +1643,16 @@ export class Ecosystem {
         const special = homes >= 4 && this.rnd() < 0.35 ? this.nextBuilding(v) : null;
         this.buildHouse(v, special ?? 'house');
       }
-      // Plantações a partir da Idade do Bronze, uma para cada duas casas.
-      if (Math.floor(v.tech) >= 1 && v.fields < homes / 2 && this.rnd() < 0.3) this.plantField(v);
+      // Lavouras trabalhadas por agricultores enchem o celeiro (cada porção mata a fome de um morador).
+      if (v.fields > 0 && workers[v.id]) {
+        const worked = Math.min(v.fields, Math.ceil(workers[v.id][ROLE.farmer] / 2) + 1);
+        v.food = Math.min(40 + v.fields * 6, v.food + worked * 3 * (dt / YEAR_SECONDS));
+      }
+      // Roças no fim da Idade da Pedra (uma para cada quatro casas); da Idade do Bronze em diante, uma para cada duas.
+      if (v.fields < homes / (Math.floor(v.tech) >= 1 ? 2 : 4) && v.tech >= 0.12 && this.rnd() < 0.3) this.plantField(v);
+      // De vez em quando aparece um andarilho do mesmo povo, mais fácil quando o lugar tem pouca gente.
+      const wander = v.population <= 3 ? 0.35 : v.population < 10 ? 0.15 : v.population < 30 ? 0.05 : 0.01;
+      if (this.rnd() < wander * (dt / YEAR_SECONDS)) this.wanderer(v);
       // Porto na costa a partir do fim da Idade da Pedra (canoas); barcos de pesca saem dele.
       if (v.port < 0 && v.tech >= 0.5 && this.rnd() < 0.08 * dt) this.buildPort(v);
       if (v.port >= 0 && fishers[v.id] > 0 && this.rnd() < 0.15 * dt) {

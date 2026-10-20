@@ -83,10 +83,10 @@ Itens marcados com **Implementado (Fase 0)** já existem no PR #1. O resto é re
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-20 | Cadeia alimentar básica: vegetação → herbívoros → predadores; plâncton implícito → peixes; inteligentes comem peixes, caça e plantações. | Implementado (Fase 0), sem plâncton nem plantações |
+| RF-VIDA-20 | Cadeia alimentar básica: vegetação → herbívoros → predadores; plâncton implícito → peixes; inteligentes comem peixes, caça e plantações. | Implementado (Fase 0). Plâncton implícito: o peixe ganha menos energia quanto mais apertado o cardume (raio de 3 tiles). Plantações a partir do fim da Idade da Pedra enchem o celeiro. Urso e raposa são onívoros. Detalhes em [ANALISE-SOBREVIVENCIA.md](ANALISE-SOBREVIVENCIA.md). |
 | RF-VIDA-21 | Herbívoros consomem a vegetação do tile; vegetação comida demora a voltar. Superpopulação gera desertificação local. | Parcial: consumo existe, desertificação não |
 | RF-VIDA-22 | Capacidade de suporte por espécie calculada pelo habitat disponível (área de água ou terra com clima tolerável), recalculada quando o terreno muda. | Implementado (Fase 0) |
-| RF-VIDA-23 | Ciclos predador–presa emergentes (populações oscilam), sem extinção imediata de nenhum lado em condições normais. | Implementado (Fase 0), equilíbrio a ajustar |
+| RF-VIDA-23 | Ciclos predador–presa emergentes (populações oscilam), sem extinção imediata de nenhum lado em condições normais. Extinção rara, mas possível: na Terra sem interferência, de 0 a 1 espécie em 200 anos (antes, 8 de 14). | Implementado (Fase 0) |
 | RF-VIDA-24 | Decompositores implícitos: corpos de animais mortos enriquecem a fertilidade do tile por um tempo. | Fase 5 |
 | RF-VIDA-25 | Fertilidade do solo como camada própria (nova camada de visualização), afetada por vegetação, cinzas vulcânicas, erosão e agricultura. | Fase 5 |
 | RF-VIDA-26 | Espécies invasoras: uma espécie introduzida sem predador natural pode explodir e desequilibrar o ecossistema; o jogo avisa quando a população passa de 2× a capacidade prevista. | Fase 5 |
@@ -104,6 +104,10 @@ Itens marcados com **Implementado (Fase 0)** já existem no PR #1. O resto é re
 | RF-VIDA-34 | Teto global de indivíduos simulados por planeta (orçamento, seção 15). Acima dele, a população é agregada (um indivíduo representa vários) sem mudar o comportamento visível. | Fase 5 |
 | RF-VIDA-35 | Filhotes seguem adultos do bando; inteligentes jovens ficam perto de casa. | Fase 5 |
 | RF-VIDA-36 | Reprodução sazonal opcional por espécie (seção 8). | Fase 5 |
+| RF-VIDA-37 | **Natalidade controlada:** a chance de filhote cai com o quadrado do quanto a espécie ocupa do teto (perto dele, 8% do normal); abaixo de 20% do teto, 2,2 vezes o normal, para a espécie se recuperar. | Implementado (Fase 0) |
+| RF-VIDA-38 | **Procurar parceiro:** adultos bem alimentados andam até o adulto da mesma espécie mais perto (24 tiles; 48 quando a espécie está rara); bichos acham parceiro a até 12 tiles. Bichos começam o mundo em bandos (cardumes de 6, manadas de 5, matilhas de 3, pares de tubarões). | Implementado (Fase 0) |
+| RF-VIDA-39 | **Evitar a fome e o clima ruim:** toda espécie busca comida antes de morrer de fome: herbívoros procuram pasto mais longe quanto mais fome têm; predadores procuram presa até 36 tiles e, sem presa, vão para onde é mais verde; qualquer predador pesca na beira d'água; anfíbios comem na água; inteligentes caçam (qualquer adulto, com fome e sem comida no celeiro) e plantam. Na beirada ou fora da faixa de temperatura, todo bicho anda para um lugar melhor. Sem destino, seguem num rumo em vez de rodar no lugar. Morrer de fome continua possível quando não há saída. | Implementado (Fase 0) |
+| RF-VIDA-39a | **Andarilhos:** de vez em quando um adulto do mesmo povo chega andando a um assentamento e se junta a ele; chance por ano de 35% com até 3 moradores, 15% com menos de 10, 5% com menos de 30 e 1% acima disso. | Implementado (Fase 0) |
 
 ---
 
@@ -223,7 +227,7 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-100 | Todo assentamento tem uma **praça central** com fogueira (Pedra) ou poço (Bronze em diante); a praça de uma cidade ganha uma fortaleza com a bandeira do reino. | Implementado (Fase 0) |
+| RF-VIDA-100 | Todo assentamento tem uma **praça central** com fogueira (Pedra) ou poço (Bronze em diante); a praça de uma cidade ganha, da Idade do Bronze em diante, uma fortaleza com a bandeira do reino. | Implementado (Fase 0) |
 | RF-VIDA-101 | **Ruas orgânicas:** de 3 a 5 ruas principais saem da praça em direções sorteadas e serpenteiam; o comprimento cresce com o nível (aldeia curta, cidade longa). Cada assentamento tem sua planta própria e estável: o nível seguinte só estende as ruas. Ruas são tiles de terra batida pintados no mapa e não passam por água. | Implementado (Fase 0) |
 | RF-VIDA-102 | **Casas em lotes ao longo das ruas**, dos dois lados, a cada 3 tiles com uma pequena folga irregular, ocupando primeiro os lotes mais perto da praça. Casas nunca ficam na água nem sobre a rua. | Implementado (Fase 0) |
 | RF-VIDA-103 | **Estradas de terra** ligam assentamentos do mesmo reino, contornando água quando possível. Desenho em pixel: faixa contínua com cantos arredondados que se liga às vizinhas, borda e sulcos de carroça na terra batida, paralelepípedos com meio-fio a partir da Era Medieval e lajes na praça; o chão em volta aparece dos lados. | Implementado (Fase 0): estrada em curva suave, interrompida na água |
@@ -375,7 +379,7 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 | RF-VIDA-161 | Criaturas pequenas: de longe são 1 pixel na cor da espécie (peixe = 1 pixel), de perto viram sprites; o humano segue a referência do WorldBox (corpo simples, roupa na cor do reino). | Implementado (Fase 0) |
 | RF-VIDA-162 | Casas mudam por era: **cabana de palha** (Pedra), **casa de madeira com telhado de palha** (Bronze), **casa enxaimel com telhado de telha** (Ferro), **casa de pedra com telhado de ardósia** (Medieval) e **sobrado de tijolo** (Industrial, e nas cidades já a partir da Medieval). Futuro: a cor do telhado ou de um detalhe identifica o reino. | Implementado (Fase 0), sem cor de reino nas casas |
 | RF-VIDA-163 | Árvores por bioma (folhosa, floresta tropical, pinheiro, acácia, cacto) e pedras, com o mesmo estilo, desenhadas sobre o tile no zoom alto. | Implementado (Fase 0) |
-| RF-VIDA-164 | Ruas e estradas como tiles de terra batida (pedra a partir da Era Medieval), com leve variação por tile; praça com fogueira animada. | Implementado (Fase 0), fogueira estática |
+| RF-VIDA-164 | Ruas e estradas como tiles de terra batida (pedra a partir da Era Medieval), com leve variação por tile; praça com fogueira animada (chamas em dois quadros) em todo assentamento da Idade da Pedra, mesmo cidades, e fogueiras pequenas no quintal de algumas cabanas. Ruas e plantações desenhadas em pixel art a partir do zoom 3; plantação dourada em qualquer zoom; o véu do território quase some de perto. | Implementado (Fase 0) |
 | RF-VIDA-165 | Futuro: lavouras por estação, muralhas, ruínas, exércitos com bandeira na cor do reino. | Fase 5/6 |
 | RF-VIDA-167 | **Terreno de perto (zoom médio e próximo):** a fronteira entre tiles diferentes ondula em vez de formar quadrados; manchas e grãos por material (grama com manchas e fios, areia com grãos); linha de espuma colada na costa, água rasa, areia molhada e barranco quando a água fica ao sul. | Implementado (Fase 0) |
 | RF-VIDA-168 | Sprites de porto, canoa, barco a remo, veleiro, caravela, navio a vapor (com fumaça), destroços, tubarão, crianças, idosos, pescador e fábrica, no mesmo estilo. | Implementado (Fase 0) |
@@ -450,4 +454,5 @@ Mapeado às fases do [REQUISITOS.md](REQUISITOS.md#8-plano-de-desenvolvimento-po
 | 20/10/2026 | O jogador solta uma criatura por clique; inteligentes chegam sozinhos e decidem onde viver; reprodução exige um parceiro. Começa de mão vazia. |
 | 20/10/2026 | Territórios e rótulos com a cor do reino; estradas em pixel art (terra batida, calçamento, praça) e em curva. |
 | 20/10/2026 | Solitários fundam só onde conseguem viver (antes morriam de fome e a aldeia sumia); ruínas somem aos poucos ou são reocupadas por quem chega perto. |
+| 20/10/2026 | Rebalanceamento da vida: natalidade logística, procura de parceiro, bandos, fuga do clima ruim, busca ativa de comida, plâncton para os peixes, onívoros, tetos revistos e andarilhos. Roças e fogueiras voltam a aparecer cedo. |
 | 19/10/2026 | Evolução só modifica espécies existentes (adaptação, variantes, especiação lenta); inteligência nunca surge de espécies não inteligentes. |
