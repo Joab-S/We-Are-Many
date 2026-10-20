@@ -297,6 +297,7 @@ Situação em 20/10/2026: RF-RES-02, 03 e 05 implementados em parte pelas sondas
 | RF-SUP-10 | Colonização humana: naves de transporte trazem colonos humanos (de uma Terra em crise) para planetas habitáveis ou terraformados. | A fazer (Fase 5) |
 | RF-SUP-11 | Eventos naturais: terremotos, vulcões, secas, eras glaciais, pragas, impactos. | Parcial: cometa, terremoto, vulcão, ilha vulcânica, incêndio, seca, peste e tempestades no mar (RF-VIDA-68); eras glaciais e pragas na Fase 5 |
 | RF-SUP-12 | Indicador de habitabilidade do planeta (para humanos e para espécies nativas). | A fazer (Fase 5, RF-VIDA-07) |
+| RF-SUP-15 | **Limite do resfriar/aquecer e terraformação térmica.** Hoje "Resfriar" e "Aquecer" só mexem no `heat` do tile, travado em −150 a +400 K (`SurfaceMode.ts`, ferramentas `heat` e `cool`), somado à temperatura base do planeta (`temperatureK`, em `temperatureAt`, `procgen/surface.ts`), que nunca muda. Resultado: num planeta de ~440 K (tipo Mercúrio) o equador esfria no máximo a ~312 K e continua Barren (> 340 K, ou Rock/Barren com pouca vegetação), e num de ~737 K (tipo Vênus) só chega a ~609 K, ainda acima do limite de Lava (600 K). O jogador acha que a ferramenta "não funciona". A terraformação térmica precisa: (a) mostrar o limite alcançável ("mínimo possível aqui: X °C") no painel de temperatura e na dica da ferramenta; (b) ter um caminho real para mudar a temperatura média do planeta (espelhos/sombrinhas orbitais, ajuste de atmosfera e efeito estufa, cometas de gelo, remoção de CO₂), com custo e evolução lenta (RF-SUP-07), em vez de só pincelar tiles; (c) decidir se o piso de −150 K continua um limite por tile ou passa a depender do planeta; (d) rebalancear os limiares de bioma de `classify` (Lava > 600 K, Barren > 340 K, Snow < 255 K) conforme o que for decidido. | A fazer (Fase 4, ao focar em terraformação; ver questão aberta 8) |
 
 > A vida nos planetas (espécies, ecossistema, evolução, civilizações, assentamentos, guerra, diplomacia e arte em pixel) está detalhada em **[REQUISITOS-VIDA.md](REQUISITOS-VIDA.md)**.
 
@@ -726,6 +727,7 @@ O que foi implementado gerou requisitos novos e mudou a ordem do que falta. A li
 5. **Universo público:** confirmar, mais adiante, se vale a pena além do coop por convite.
 6. **Custo das ferramentas do 2D:** sair dos recursos que as sondas trazem (RF-SON-12), da energia da nave ou de uma recarga por tempo? (Também no REQUISITOS-VIDA.md, seção 17.)
 7. **Ordem do backlog** (seção 8.1): a sugestão é começar pelo save, que protege tudo o que já foi construído.
+8. **Limite térmico da terraformação** (RF-SUP-15): resfriar e aquecer devem continuar limitados por tile (−150 a +400 K), passar a depender da temperatura base do planeta, ou só ser vencidos por mudanças globais (espelhos orbitais, atmosfera, cometas)? Sugestão: manter o limite por tile como "ajuste local" e exigir ações globais, pagas e lentas, para mover a temperatura média; mostrar sempre o limite na interface.
 
 ---
 
