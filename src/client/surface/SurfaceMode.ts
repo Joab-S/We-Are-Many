@@ -130,248 +130,6 @@ function bodyOf(sp: Species): string {
   return sp.body && BODY_NAMES.includes(sp.body) ? sp.body : sp.origin === EARTH_ID ? 'human' : 'alien';
 }
 
-const vertexShader = /* glsl */ `
-  out vec2 vUv;
-  void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
-`;
-
-/**
- * Terreno em tela cheia. Longe: um pixel por tile. Perto: cada tile ganha
- * textura própria e o enfeite guardado no alfa (árvores, pinheiros, cactos,
- * pedras), desenhado numa grade de 8x8 pixels de arte, como no WorldBox.
- */
-const fragmentShader = /* glsl */ `
-  precision highp float;
-  uniform sampler2D uMap;
-  uniform vec2 uMapSize;
-  uniform vec2 uCenter;
-  uniform float uZoom;
-  uniform vec2 uResolution;
-  uniform vec2 uHover;
-  uniform float uBrush;
-  uniform float uTime;
-  uniform sampler2D uDecor;
-  in vec2 vUv;
-  out vec4 outColor;
-
-  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-
-  bool isWater(vec3 c) { return c.b > c.r + 0.25 && c.b > c.g; }
-
-  vec4 at(ivec2 t) {
-    t.x = (t.x + int(uMapSize.x)) % int(uMapSize.x);
-    t.y = clamp(t.y, 0, int(uMapSize.y) - 1);
-    return texelFetch(uMap, t, 0);
-  }
-
-  int kindOf(vec4 texel) { return int(texel.a * 255.0 + 0.5) / 16; }
-
-  // Ruído 1D suave ao longo de uma borda entre tiles.
-  float edgeNoise(float p, float line) {
-    float i = floor(p);
-    float u = fract(p);
-    return mix(hash(vec2(i, line)), hash(vec2(i + 1.0, line)), u * u * (3.0 - 2.0 * u));
-  }
-
-  struct Px { vec4 texel; ivec2 tile; };
-
-  // Pixel de arte global (16 por tile, y para baixo) com bordas orgânicas:
-  // a fronteira entre dois tiles diferentes ondula, em vez de formar quadrados.
-  Px artPx(ivec2 gp) {
-    ivec2 t = ivec2(floor(vec2(gp) / 16.0));
-    ivec2 f = gp - t * 16;
-    vec4 me = at(t);
-    int k = kindOf(me);
-    if (k >= 7) return Px(me, t);
-    int ex = f.x < 8 ? f.x : 15 - f.x;
-    int ey = f.y < 8 ? f.y : 15 - f.y;
-    bool vertical = ex < ey;
-    int e = min(ex, ey);
-    if (e >= 4) return Px(me, t);
-    ivec2 off = vertical ? ivec2(f.x < 8 ? -1 : 1, 0) : ivec2(0, f.y < 8 ? -1 : 1);
-    vec4 nb = at(t + off);
-    int nk = kindOf(nb);
-    if (nk >= 7) return Px(me, t);
-    // Deslocamento da fronteira, igual para os dois lados: positivo empurra para o tile de menor índice.
-    float line = vertical ? float(t.x + max(off.x, 0)) * 3.7 + 11.0 : float(t.y + max(off.y, 0)) * 5.3 + 47.0;
-    float along = vertical ? float(gp.y) : float(gp.x);
-    float d = (edgeNoise(along / 5.0, line) - 0.5) * 9.0;
-    bool lowSide = vertical ? off.x > 0 : off.y > 0;
-    float push = lowSide ? d : -d;
-    if (push > float(e) + 0.5) return Px(nb, t + off);
-    return Px(me, t);
-  }
-
-  bool waterPx(ivec2 gp) { return isWater(artPx(gp).texel.rgb); }
-
-  // Ruas e estradas (enfeites 8 a 10): faixa no meio do tile que se liga às
-  // ruas vizinhas, com cantos arredondados; fora da faixa aparece o chão.
-  bool isRoad(vec4 tx) { int k = kindOf(tx); return k >= 8 && k <= 10; }
-
-  bool onRoad(ivec2 f, int lo, int hi, bool rn, bool rs, bool rw, bool re) {
-    bool midX = f.x >= lo && f.x <= hi;
-    bool midY = f.y >= lo && f.y <= hi;
-    if (midX && midY) {
-      // Canto arredondado onde nenhuma rua chega pelos dois lados.
-      bool cx = f.x == lo || f.x == hi;
-      bool cy = f.y == lo || f.y == hi;
-      if (cx && cy) {
-        bool v = f.y == lo ? rn : rs;
-        bool h = f.x == lo ? rw : re;
-        return v || h;
-      }
-      return true;
-    }
-    if (midX && f.y < lo) return rn;
-    if (midX && f.y > hi) return rs;
-    if (midY && f.x < lo) return rw;
-    if (midY && f.x > hi) return re;
-    return false;
-  }
-
-  vec3 roadPx(ivec2 t, ivec2 f, int kind, vec3 base) {
-    bool rn = isRoad(at(t + ivec2(0, -1)));
-    bool rs = isRoad(at(t + ivec2(0, 1)));
-    bool rw = isRoad(at(t + ivec2(-1, 0)));
-    bool re = isRoad(at(t + ivec2(1, 0)));
-    ivec2 gp = t * 16 + f;
-    float grain = hash(vec2(gp) * 0.71 + 5.0);
-    if (kind == 10) {
-      // Praça: lajes grandes com rejunte e borda.
-      bool edge = (f.y == 0 && !rn) || (f.y == 15 && !rs) || (f.x == 0 && !rw) || (f.x == 15 && !re);
-      if (edge) return base * 0.7;
-      ivec2 slab = gp / 6;
-      if (gp.x % 6 == 0 || gp.y % 6 == 0) return base * 0.78;
-      return base * (0.9 + 0.16 * hash(vec2(slab) + 2.0)) * (grain > 0.95 ? 0.9 : 1.0);
-    }
-    int lo = kind == 9 ? 2 : 3;
-    int hi = 15 - lo;
-    if (!onRoad(f, lo, hi, rn, rs, rw, re)) {
-      // Chão do vizinho que não é rua; pisado logo ao lado da rua.
-      vec4 n = at(t + ivec2(0, -1));
-      vec4 s = at(t + ivec2(0, 1));
-      vec4 w = at(t + ivec2(-1, 0));
-      vec4 e = at(t + ivec2(1, 0));
-      vec3 ground = !rn ? n.rgb : !rs ? s.rgb : !rw ? w.rgb : !re ? e.rgb : base * 1.1;
-      if (isWater(ground)) ground = vec3(0.55, 0.62, 0.32);
-      ground *= 0.9 + 0.12 * hash(floor(vec2(gp) / 3.0) + 0.37);
-      bool near = onRoad(f + ivec2(1, 0), lo, hi, rn, rs, rw, re) || onRoad(f - ivec2(1, 0), lo, hi, rn, rs, rw, re)
-        || onRoad(f + ivec2(0, 1), lo, hi, rn, rs, rw, re) || onRoad(f - ivec2(0, 1), lo, hi, rn, rs, rw, re);
-      return near ? ground * 0.82 : ground;
-    }
-    bool border = !onRoad(f + ivec2(1, 0), lo, hi, rn, rs, rw, re) || !onRoad(f - ivec2(1, 0), lo, hi, rn, rs, rw, re)
-      || !onRoad(f + ivec2(0, 1), lo, hi, rn, rs, rw, re) || !onRoad(f - ivec2(0, 1), lo, hi, rn, rs, rw, re);
-    if (kind == 9) {
-      // Calçamento de pedra: paralelepípedos em fiadas desencontradas e meio-fio claro.
-      if (border) return base * 1.18;
-      int row = gp.y / 3;
-      int off = (row % 2) * 2;
-      if (gp.y % 3 == 0 || (gp.x + off) % 4 == 0) return base * 0.7;
-      return base * (0.9 + 0.18 * hash(vec2((gp.x + off) / 4, row) + 9.0));
-    }
-    // Terra batida: borda escura, sulcos das carroças e pedrinhas.
-    if (border) return base * 0.78;
-    bool horiz = (rw || re) && !(rn || rs);
-    bool vert = (rn || rs) && !(rw || re);
-    if ((horiz && (f.y == lo + 2 || f.y == hi - 2)) || (vert && (f.x == lo + 2 || f.x == hi - 2))) return base * 0.86;
-    vec3 c = base * (0.94 + 0.1 * hash(floor(vec2(gp) / 2.0) + 1.3));
-    if (grain > 0.94) c *= 1.18;
-    else if (grain < 0.04) c *= 0.8;
-    return c;
-  }
-
-  void main() {
-    vec2 tile = uCenter + (vUv * uResolution - uResolution * 0.5) / uZoom;
-    if (tile.y < 0.0 || tile.y >= uMapSize.y) { outColor = vec4(0.02, 0.03, 0.06, 1.0); return; }
-    float x = mod(tile.x, uMapSize.x);
-    ivec2 t = ivec2(int(x), int(uMapSize.y) - 1 - int(tile.y));
-    vec4 texel = texelFetch(uMap, t, 0);
-    vec3 c = texel.rgb;
-    bool water = isWater(c);
-    int kind = kindOf(texel);
-    // Posição dentro do tile em pixels de arte (16x16), y para baixo.
-    vec2 fp = vec2(fract(x), 1.0 - fract(tile.y)) * 16.0;
-    ivec2 f = ivec2(fp);
-    if (uZoom >= 3.0) {
-      ivec2 gp = t * 16 + f;
-      Px px = artPx(gp);
-      c = px.texel.rgb;
-      water = isWater(c);
-      ivec2 pt = px.tile;
-      // Variação suave por tile e manchas de 3 px, como as texturas de chão do WorldBox.
-      float blot = hash(floor(vec2(gp) / 3.0) + 0.37);
-      float grain = hash(vec2(gp) * 1.13);
-      c *= 0.95 + 0.1 * hash(vec2(pt));
-      if (water) {
-        // Água rasa perto da terra, espuma colada na costa e ondinhas.
-        bool n = !isWater(at(pt + ivec2(0, -1)).rgb);
-        bool s = !isWater(at(pt + ivec2(0, 1)).rgb);
-        bool w = !isWater(at(pt + ivec2(-1, 0)).rgb);
-        bool e = !isWater(at(pt + ivec2(1, 0)).rgb);
-        if (n || s || w || e) c = mix(c, vec3(0.45, 0.78, 0.92), 0.3);
-        c *= 0.97 + 0.05 * blot;
-        if (uZoom >= 4.0) {
-          bool shore = !waterPx(gp + ivec2(1, 0)) || !waterPx(gp - ivec2(1, 0)) || !waterPx(gp + ivec2(0, 1)) || !waterPx(gp - ivec2(0, 1));
-          if (shore) c = mix(c, vec3(0.93, 0.97, 1.0), 0.6);
-          else if (!waterPx(gp + ivec2(2, 0)) || !waterPx(gp - ivec2(2, 0)) || !waterPx(gp + ivec2(0, 2)) || !waterPx(gp - ivec2(0, 2))) c = mix(c, vec3(0.6, 0.86, 0.95), 0.35);
-          float wave = mod(float(gp.x) + float(gp.y) * 3.0 + floor(uTime * 3.0), 23.0);
-          if (wave < 2.0 && hash(vec2(pt) + floor(uTime * 0.5)) > 0.55) c += 0.06;
-        }
-      } else {
-        bool green = c.g > c.r && c.g > c.b * 1.1;
-        bool sand = c.r > 0.55 && c.r >= c.g && c.g > c.b + 0.08;
-        if (green) {
-          // Grama: manchas claras e escuras e alguns fios.
-          c *= 0.88 + 0.22 * blot;
-          if (grain > 0.92) c *= 1.12;
-          else if (grain < 0.06) c *= 0.8;
-        } else if (sand) {
-          // Areia: grãos escuros e claros espalhados.
-          c *= 0.95 + 0.08 * blot;
-          if (grain > 0.94) c *= 0.84;
-          else if (grain < 0.05) c *= 1.08;
-        } else {
-          c *= 0.92 + 0.14 * blot + 0.04 * grain;
-        }
-        if (uZoom >= 4.0) {
-          // Areia molhada na beira d'água e barranco quando a água fica ao sul.
-          if (waterPx(gp + ivec2(0, 1)) || waterPx(gp + ivec2(0, 2))) c *= 0.62;
-          else if (waterPx(gp + ivec2(1, 0)) || waterPx(gp - ivec2(1, 0)) || waterPx(gp - ivec2(0, 1))) c *= 0.85;
-        }
-      }
-      texel = px.texel;
-    }
-    if (uZoom >= 3.0 && kind >= 8 && kind <= 10) c = roadPx(t, f, kind, texel.rgb);
-    if (uZoom >= (kind == 7 ? 3.0 : 5.0) && kind > 0 && kind <= 7) {
-      // Arte 16x16 do enfeite (art.ts): alfa cheio é cor, alfa parcial é sombra.
-      vec4 d = texelFetch(uDecor, ivec2((kind - 1) * 16 + f.x, f.y), 0);
-      if (d.a > 0.9) c = d.rgb * (0.94 + 0.12 * hash(vec2(t) + 7.0));
-      else if (d.a > 0.2) c *= 0.62;
-    } else if (uZoom >= 5.0 && kind == 0 && !water && texel.g > texel.r && texel.g > texel.b * 1.1) {
-      // Tufos de grama e flores nos tiles verdes sem enfeite.
-      float h = hash(vec2(t) + 3.1);
-      ivec2 p = ivec2(3 + int(hash(vec2(t) + 1.7) * 10.0), 5 + int(hash(vec2(t) + 2.3) * 9.0));
-      if (h < 0.4) {
-        ivec2 d = f - p;
-        if ((d.y == 0 && abs(d.x) <= 1 && d.x != 0) || (d.y == -1 && d.x == 0) || (d.y == -1 && abs(d.x) == 2)) c *= 0.72;
-        if (d.y == -2 && abs(d.x) == 1) c *= 0.8;
-      }
-      if (h > 0.9) {
-        ivec2 d = f - p + ivec2(4, 3);
-        vec3 petals[4] = vec3[4](vec3(1.0, 0.95, 0.85), vec3(1.0, 0.85, 0.25), vec3(0.95, 0.5, 0.7), vec3(0.9, 0.3, 0.25));
-        vec3 petal = petals[int(hash(vec2(t) + 9.0) * 4.0)];
-        if (d == ivec2(0, 0)) c = petal;
-        else if (abs(d.x) + abs(d.y) == 1 && d.y <= 0) c = mix(c, petal, 0.55);
-        else if (d.x == 0 && d.y == 1) c *= 0.7;
-      }
-    }
-    vec2 dd = vec2(mod(tile.x - uHover.x + uMapSize.x * 0.5, uMapSize.x) - uMapSize.x * 0.5, tile.y - uHover.y);
-    float r = length(dd);
-    if (uBrush > 0.0 && abs(r - uBrush) < 0.6 / max(uZoom * 0.25, 1.0) + 0.15) c = mix(c, vec3(1.0), 0.6);
-    outColor = vec4(c, 1.0);
-  }
-`;
-
 const SPEEDS = [0, 1, 2, 5];
 
 /**
@@ -379,16 +137,12 @@ const SPEEDS = [0, 1, 2, 5];
  * este modo está ativo, nada do 3D fica carregado.
  */
 export class SurfaceMode {
-  private readonly scene = new THREE.Scene();
-  private readonly spriteScene = new THREE.Scene();
-  private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private map!: SurfaceMap;
   private eco!: Ecosystem;
   private pixels!: Uint8Array;
-  private texture!: THREE.DataTexture;
-  private material!: THREE.ShaderMaterial;
+  /** Muda a cada repintura de tile; o canvas do mapa chapado é refeito quando ela muda. */
+  private mapVersion = 0;
   private decorCanvas!: HTMLCanvasElement;
-  private decorTexture!: THREE.CanvasTexture;
   private atlas!: SpriteAtlas;
   private sprites!: SpriteLayer;
   private readonly input: Input;
@@ -426,13 +180,28 @@ export class SurfaceMode {
   private readonly labels = new Map<number, HTMLDivElement>();
   private readonly abort = new AbortController();
 
+  /**
+   * A superfície é 2D e não precisa de placa de vídeo: desenha sempre num
+   * Canvas 2D próprio (o canvas do 3D fica escondido enquanto isso), igual
+   * em qualquer computador.
+   */
+  private readonly renderer: SoftRenderer;
+
   constructor(
-    private readonly renderer: GameRenderer,
+    private readonly shared: GameRenderer,
     private readonly state: GameState,
     private readonly params: PlanetParams,
     hud: HTMLElement,
     private readonly onExit: () => void,
   ) {
+    if (shared instanceof SoftRenderer) this.renderer = shared;
+    else {
+      this.renderer = new SoftRenderer();
+      this.renderer.setPixelRatio(1);
+      shared.domElement.after(this.renderer.domElement);
+      shared.domElement.style.display = 'none';
+    }
+    const renderer = this.renderer;
     this.input = new Input(renderer.domElement, false);
     this.root = document.createElement('div');
     this.root.className = 'surface-hud';
@@ -479,40 +248,11 @@ export class SurfaceMode {
     this.pixels = new Uint8Array(map.width * map.height * 4);
     paintSurface(map, this.pixels);
     for (let i = 0; i < eco.road.length; i++) if (eco.road[i] || eco.built[i]) this.paintSettlement(i);
-    this.texture = new THREE.DataTexture(this.pixels, map.width, map.height);
-    this.texture.magFilter = THREE.NearestFilter;
-    this.texture.minFilter = THREE.NearestFilter;
-    this.texture.needsUpdate = true;
     this.center.set(map.width / 2, map.height / 2);
     this.zoom = Math.max(1, window.innerHeight / map.height);
     this.decorCanvas = makeDecorCanvas();
-    this.decorTexture = new THREE.CanvasTexture(this.decorCanvas);
-    this.decorTexture.flipY = false;
-    this.decorTexture.magFilter = THREE.NearestFilter;
-    this.decorTexture.minFilter = THREE.NearestFilter;
-    this.decorTexture.generateMipmaps = false;
-
-    this.material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        uMap: { value: this.texture },
-        uMapSize: { value: new THREE.Vector2(map.width, map.height) },
-        uCenter: { value: this.center },
-        uZoom: { value: this.zoom },
-        uResolution: { value: new THREE.Vector2() },
-        uHover: { value: this.hover },
-        uBrush: { value: this.brush },
-        uTime: { value: 0 },
-        uDecor: { value: this.decorTexture },
-      },
-      depthTest: false,
-    });
-    this.scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material));
     this.atlas = new SpriteAtlas();
     this.sprites = new SpriteLayer(this.atlas, 12000);
-    this.spriteScene.add(this.sprites.mesh);
 
     this.buildTools();
     this.buildUi();
@@ -662,6 +402,7 @@ export class SurfaceMode {
     paintTile(this.map, this.pixels, i);
     if (this.eco.road[i] || this.eco.built[i]) this.paintSettlement(i);
     this.softArt?.invalidate(i);
+    this.mapVersion++;
     this.textureChanged = true;
   }
 
@@ -687,7 +428,7 @@ export class SurfaceMode {
       px[o + 1] = clamp(px[o + 1] * 0.98, 0, 255);
     }
     // Plantação leva o enfeite de trigo (7); terra batida, pedra e praça, os
-    // enfeites 8, 9 e 10 (desenhados no shader); casas, o 15 (nem enfeite nem grama).
+    // enfeites 8, 9 e 10 (desenhados em softArt.ts); casas, o 15 (nem enfeite nem grama).
     const kind = road === 4 ? 7 : road === 1 ? 8 : road === 2 ? 9 : road === 3 ? 10 : 15;
     px[o + 3] = kind * 16 + 15;
   }
@@ -1171,9 +912,6 @@ export class SurfaceMode {
 
   private readonly resize = (): void => {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    if (this.material) {
-      (this.material.uniforms.uResolution.value as THREE.Vector2).copy(this.renderer.getDrawingBufferSize(new THREE.Vector2()));
-    }
     this.lastView = '';
   };
 
@@ -1236,13 +974,12 @@ export class SurfaceMode {
       }
     }
 
-    if (this.textureChanged) this.texture.needsUpdate = true;
     // Parado e sem mudanças, não redesenha.
     const view = `${this.center.x},${this.center.y},${this.zoom},${this.hover.x},${this.hover.y},${this.tool?.id},${this.brush},${this.renderer.getPixelRatio()}`;
     if (simDt > 0 || this.textureChanged || view !== this.lastView || this.eco.effects.length) {
       this.lastView = view;
       this.textureChanged = false;
-      this.render(now);
+      this.render();
     }
     if (now - this.lastInfo > 150) {
       this.lastInfo = now;
@@ -1256,13 +993,13 @@ export class SurfaceMode {
     input.endFrame();
   };
 
-  private render(now: number): void {
+  private render(): void {
     // Terremoto: a câmera treme enquanto dura.
     const shake = this.eco.shake > 0 ? Math.min(1, this.eco.shake) * 6 / this.zoom : 0;
     const cx = this.center.x;
     const cy = this.center.y;
     if (shake) this.center.set(cx + (Math.random() - 0.5) * shake, cy + (Math.random() - 0.5) * shake);
-    this.renderView(now);
+    this.renderView();
     this.drawTerritory();
     this.center.set(cx, cy);
   }
@@ -1304,25 +1041,9 @@ export class SurfaceMode {
     ctx.setLineDash([]);
   }
 
-  private renderView(now: number): void {
+  private renderView(): void {
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
-    const pr = this.renderer.getPixelRatio();
-    if (this.renderer instanceof SoftRenderer) {
-      this.renderSoft(this.renderer.context, size.x, size.y, this.zoom * pr);
-      this.updateLabels();
-      return;
-    }
-    const u = this.material.uniforms;
-    (u.uResolution.value as THREE.Vector2).copy(size);
-    u.uZoom.value = this.zoom * pr;
-    u.uBrush.value = this.usesBrush() ? this.brush : 0;
-    u.uTime.value = now / 1000;
-    this.renderer.autoClear = true;
-    this.renderer.render(this.scene, this.camera);
-    this.drawSprites(size.x, size.y, this.zoom * pr);
-    this.renderer.autoClear = false;
-    this.renderer.render(this.spriteScene, this.camera);
-    this.renderer.autoClear = true;
+    this.renderSoft(this.renderer.context, size.x, size.y, this.zoom * this.renderer.getPixelRatio());
     this.updateLabels();
   }
 
@@ -1332,9 +1053,9 @@ export class SurfaceMode {
   private softArt: SoftArt | null = null;
 
   /**
-   * Desenho sem WebGL: o mapa vira um canvas de um pixel por tile, ampliado
-   * sem suavização; de perto (zoom 3 em diante), por cima vai a arte completa
-   * do shader feita na CPU (softArt.ts). Os sprites são desenhados por cima.
+   * Desenho em Canvas 2D: o mapa vira um canvas de um pixel por tile,
+   * ampliado sem suavização; bem de perto (zoom 8 em diante), por cima vai a
+   * arte detalhada feita na CPU (softArt.ts). Os sprites são desenhados por cima.
    */
   private renderSoft(ctx: CanvasRenderingContext2D, w: number, h: number, z: number): void {
     const map = this.map;
@@ -1346,8 +1067,8 @@ export class SurfaceMode {
       this.softCanvas.height = mh;
       this.softImage = new ImageData(mw, mh);
     }
-    if (this.softVersion !== this.texture.version) {
-      this.softVersion = this.texture.version;
+    if (this.softVersion !== this.mapVersion) {
+      this.softVersion = this.mapVersion;
       const out = this.softImage!.data;
       const src = this.pixels;
       for (let i = 0; i < out.length; i += 4) {
@@ -1376,16 +1097,17 @@ export class SurfaceMode {
       const dx = (copy * mw + sa - this.center.x) * z + w / 2;
       ctx.drawImage(this.softCanvas, sa, 0, sb - sa, mh, dx, top, (sb - sa) * z, mh * z);
     }
-    // De perto, a arte completa (a mesma do shader), pintada aos poucos em blocos guardados.
+    // Bem de perto, a arte detalhada, pintada aos poucos em blocos guardados.
     const level = SoftArt.levelFor(z);
     if (level) {
       this.softArt ??= new SoftArt(this.pixels, mw, mh, this.decorCanvas);
       const r0 = Math.max(0, Math.floor(mh - this.center.y - h / 2 / z));
       const r1 = Math.min(mh - 1, Math.ceil(mh - this.center.y + h / 2 / z));
-      this.softArt.draw(ctx, level, z, x0, x1, r0, r1, top, this.center.x, w);
+      // Blocos que ainda faltam saem nos próximos quadros.
+      if (!this.softArt.draw(ctx, level, z, x0, x1, r0, r1, top, this.center.x, w)) this.textureChanged = true;
     }
     if (z >= 5 && level < 8) {
-      // Enfeites (árvores, pedras) com a mesma arte do shader.
+      // Enfeites (árvores, pedras, trigo) por cima do mapa chapado.
       const r0 = Math.max(0, Math.floor(mh - this.center.y - h / 2 / z));
       const r1 = Math.min(mh - 1, Math.ceil(mh - this.center.y + h / 2 / z));
       const c0 = Math.floor(x0);
@@ -1829,15 +1551,16 @@ export class SurfaceMode {
     this.input.dispose();
     if (this.ready) {
       this.eco.onTileChanged = () => {};
-      this.scene.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
-      this.material.dispose();
-      this.texture.dispose();
-      this.decorTexture.dispose();
       this.sprites.dispose();
       this.atlas.dispose();
     }
     this.root.remove();
-    this.renderer.setClearColor(0x000000);
-    this.renderer.renderLists.dispose();
+    // Devolve a tela ao renderizador do 3D.
+    if (this.renderer !== this.shared) {
+      this.renderer.domElement.remove();
+      this.shared.domElement.style.display = '';
+    }
+    this.shared.setClearColor(0x000000);
+    this.shared.renderLists.dispose();
   }
 }

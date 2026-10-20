@@ -1,16 +1,14 @@
 /**
- * Arte do mapa sem WebGL: a mesma pintura do shader da superfície (bordas
- * onduladas entre tiles, espuma na costa, textura de grama e areia, ruas,
- * plantações e enfeites), feita na CPU em blocos de 32x32 tiles e guardada
- * em cache. Cada bloco só é refeito quando um tile dele muda, e no máximo
- * a cada 1,5 s, então o custo fica no primeiro desenho de cada região.
- *
- * O código segue o fragmentShader de SurfaceMode.ts; ao mudar um, mude o outro.
+ * Arte do mapa de perto, em Canvas 2D (a superfície não usa placa de vídeo):
+ * bordas onduladas entre tiles, espuma na costa, ruas, plantações e enfeites,
+ * com uma textura leve no chão. Pintada na CPU em blocos de 32x32 tiles
+ * guardados em cache; cada bloco só é refeito quando um tile dele muda, e no
+ * máximo a cada 1,5 s. De longe o mapa fica chapado (um pixel por tile).
  */
 
 const CHUNK = 32;
 /** Blocos guardados por resolução (pixels por tile): 4, 8 e 16. */
-const KEEP: Record<number, number> = { 4: 220, 8: 90, 16: 36 };
+const KEEP: Record<number, number> = { 8: 90, 16: 36 };
 /** Tempo máximo por quadro gasto refazendo blocos (ms). */
 const BUDGET = 12;
 
@@ -43,9 +41,9 @@ export class SoftArt {
     this.rows = Math.ceil(height / CHUNK);
   }
 
-  /** Resolução dos blocos para o zoom; 0 abaixo do zoom em que o shader também não detalha. */
+  /** Resolução dos blocos para o zoom; 0 (mapa chapado) até chegar bem perto. */
   static levelFor(zoom: number): number {
-    return zoom < 3 ? 0 : zoom < 6 ? 4 : zoom < 11 ? 8 : 16;
+    return zoom < 8 ? 0 : zoom < 13 ? 8 : 16;
   }
 
   /** O tile `i` mudou (linha da textura, y para baixo): marca o bloco dele e os vizinhos que o enxergam. */
@@ -60,7 +58,7 @@ export class SoftArt {
       const k = `${cx},${cy}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      for (const level of [4, 8, 16]) {
+      for (const level of [8, 16]) {
         const c = this.chunks.get(`${level}:${k}`);
         if (c) c.dirty = true;
       }
@@ -70,11 +68,12 @@ export class SoftArt {
   /**
    * Desenha os blocos visíveis. `top` é o y na tela da linha 0 da textura e
    * `centerX` a coluna no centro da tela (o mapa se repete na horizontal).
-   * Blocos ainda não pintados ficam para os próximos quadros; o chamador já
-   * desenhou o mapa chapado por baixo.
+   * Blocos ainda não pintados ficam para os próximos quadros (devolve falso);
+   * o chamador já desenhou o mapa chapado por baixo.
    */
-  draw(ctx: CanvasRenderingContext2D, level: number, z: number, x0: number, x1: number, r0: number, r1: number, top: number, centerX: number, w: number): void {
+  draw(ctx: CanvasRenderingContext2D, level: number, z: number, x0: number, x1: number, r0: number, r1: number, top: number, centerX: number, w: number): boolean {
     const now = performance.now();
+    let complete = true;
     const start = now;
     const size = CHUNK * z;
     for (let cy = Math.max(0, Math.floor(r0 / CHUNK)); cy <= Math.min(this.rows - 1, Math.floor(r1 / CHUNK)); cy++) {
@@ -86,7 +85,7 @@ export class SoftArt {
         if (stale && performance.now() - start < BUDGET) {
           c = this.render(level, cx, cy, c);
           this.chunks.set(key, c);
-        }
+        } else if (stale) complete = false;
         if (!c) continue;
         c.usedAt = now;
         const dx = (gx * CHUNK - centerX) * z + w / 2;
@@ -94,6 +93,7 @@ export class SoftArt {
       }
     }
     this.trim(level);
+    return complete;
   }
 
   private trim(level: number): void {
@@ -128,7 +128,7 @@ export class SoftArt {
     return a + (b - a) * u * u * (3 - 2 * u);
   }
 
-  /** Tile cuja cor vale no pixel de arte (gx, gy), com a fronteira ondulada (artPx do shader). */
+  /** Tile cuja cor vale no pixel de arte (gx, gy), com a fronteira ondulada . */
   private artTile(gx: number, gy: number): number {
     const tx = Math.floor(gx / 16);
     const ty = Math.floor(gy / 16);
@@ -212,7 +212,7 @@ export class SoftArt {
     const pty = (st - ptx) / this.width;
     const blot = hash(Math.floor(gx / 3) + 0.37, Math.floor(gy / 3) + 0.37);
     const grain = hash(gx * 1.13, gy * 1.13);
-    let m = 0.95 + 0.1 * hash(ptx, pty);
+    let m = 0.97 + 0.06 * hash(ptx, pty);
     r *= m;
     gr *= m;
     b *= m;
@@ -225,7 +225,7 @@ export class SoftArt {
         gr = gr * 0.7 + 0.78 * 0.3;
         b = b * 0.7 + 0.92 * 0.3;
       }
-      m = 0.97 + 0.05 * blot;
+      m = 0.98 + 0.03 * blot;
       r *= m;
       gr *= m;
       b *= m;
@@ -244,12 +244,13 @@ export class SoftArt {
     } else {
       const green = gr > r && gr > b * 1.1;
       const sand = r > 0.55 && r >= gr && gr > b + 0.08;
+      // Textura leve: manchas suaves e poucos pontinhos, sem granulado.
       if (green) {
-        m = (0.88 + 0.22 * blot) * (grain > 0.92 ? 1.12 : grain < 0.06 ? 0.8 : 1);
+        m = (0.95 + 0.08 * blot) * (grain > 0.985 ? 1.08 : 1);
       } else if (sand) {
-        m = (0.95 + 0.08 * blot) * (grain > 0.94 ? 0.84 : grain < 0.05 ? 1.08 : 1);
+        m = (0.97 + 0.05 * blot) * (grain > 0.99 ? 0.9 : 1);
       } else {
-        m = 0.92 + 0.14 * blot + 0.04 * grain;
+        m = 0.95 + 0.08 * blot;
       }
       if (zoom >= 4) {
         if (this.waterPx(gx, gy + 1) || this.waterPx(gx, gy + 2)) m *= 0.62;
@@ -306,7 +307,7 @@ export class SoftArt {
     return false;
   }
 
-  /** Ruas: terra batida (8), pedra (9) e praça (10), como roadPx do shader. */
+  /** Ruas: terra batida (8), pedra (9) e praça (10). */
   private road(tx: number, ty: number, fx: number, fy: number, kind: number, br: number, bg: number, bb: number, out: [number, number, number]): void {
     const p = this.pixels;
     const n = this.idx(tx, ty - 1);
@@ -329,7 +330,7 @@ export class SoftArt {
       const edge = (fy === 0 && !rn) || (fy === 15 && !rs) || (fx === 0 && !rw) || (fx === 15 && !re);
       if (edge) return set(0.7);
       if (gx % 6 === 0 || gy % 6 === 0) return set(0.78);
-      return set((0.9 + 0.16 * hash(Math.floor(gx / 6) + 2, Math.floor(gy / 6) + 2)) * (grain > 0.95 ? 0.9 : 1));
+      return set(0.93 + 0.1 * hash(Math.floor(gx / 6) + 2, Math.floor(gy / 6) + 2));
     }
     const lo = kind === 9 ? 2 : 3;
     const hi = 15 - lo;
@@ -345,7 +346,7 @@ export class SoftArt {
         g = 0.62;
         b = 0.32;
       }
-      let k = 0.9 + 0.12 * hash(Math.floor(gx / 3) + 0.37, Math.floor(gy / 3) + 0.37);
+      let k = 0.95 + 0.06 * hash(Math.floor(gx / 3) + 0.37, Math.floor(gy / 3) + 0.37);
       if (on(fx + 1, fy) || on(fx - 1, fy) || on(fx, fy + 1) || on(fx, fy - 1)) k *= 0.82;
       out[0] = r * k;
       out[1] = g * k;
@@ -358,15 +359,14 @@ export class SoftArt {
       const row = Math.floor(gy / 3);
       const off = (row % 2) * 2;
       if (gy % 3 === 0 || (gx + off) % 4 === 0) return set(0.7);
-      return set(0.9 + 0.18 * hash(Math.floor((gx + off) / 4) + 9, row + 9));
+      return set(0.92 + 0.12 * hash(Math.floor((gx + off) / 4) + 9, row + 9));
     }
     if (border) return set(0.78);
     const horiz = (rw || re) && !(rn || rs);
     const vert = (rn || rs) && !(rw || re);
     if ((horiz && (fy === lo + 2 || fy === hi - 2)) || (vert && (fx === lo + 2 || fx === hi - 2))) return set(0.86);
-    let k = 0.94 + 0.1 * hash(Math.floor(gx / 2) + 1.3, Math.floor(gy / 2) + 1.3);
-    if (grain > 0.94) k *= 1.18;
-    else if (grain < 0.04) k *= 0.8;
+    let k = 0.96 + 0.06 * hash(Math.floor(gx / 4) + 1.3, Math.floor(gy / 4) + 1.3);
+    if (grain > 0.985) k *= 1.12;
     set(k);
   }
 }
