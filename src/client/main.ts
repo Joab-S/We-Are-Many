@@ -3,6 +3,8 @@ import { loadManifest, loadNames } from '../universe/loader';
 import { AdaptiveResolution } from './quality';
 import { SoftRenderer, webglAvailable, type GameRenderer } from './renderer';
 import { nativeSpecies } from '../sim/species';
+import { createNavState } from '../nav/guide';
+import { createProbeState } from '../explore/probes';
 import { planetParams, SOL_PLANETS, type PlanetData } from './space/bodies';
 import { SpaceMode } from './space/SpaceMode';
 import type { GameState } from './state';
@@ -84,6 +86,8 @@ async function boot(): Promise<void> {
     ecosystems: new Map(),
     // A nave saiu da Terra: as espécies terrestres já estão a bordo para levar a outros planetas.
     knownSpecies: new Map(nativeSpecies(planetParams(SOL_PLANETS[2])).map((sp) => [sp.id, sp])),
+    nav: createNavState(),
+    probes: createProbeState(),
   };
   const m = new THREE.Matrix4().lookAt(state.shipPos, new THREE.Vector3(), new THREE.Vector3(0, 0, 1));
   state.shipQuat.setFromRotationMatrix(m);

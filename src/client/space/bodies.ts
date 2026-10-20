@@ -61,7 +61,9 @@ export function planetParams(p: PlanetData): PlanetParams {
 /** Corpo com o qual a nave interage (colisão, órbita, velocidade adaptativa). */
 export interface Body {
   name: string;
-  kind: 'star' | PlanetKind;
+  kind: 'star' | PlanetKind | 'comet' | 'poi';
+  /** Id do cometa ou do ponto de interesse. */
+  id?: string;
   /** Posição no mundo, em UA (double). */
   pos: THREE.Vector3;
   /** Raio visual, em UA. */
@@ -207,6 +209,7 @@ export function createPlanetBody(p: PlanetData, surfaces: Map<string, SurfaceMap
     );
     ring.rotation.x = Math.PI / 2 - 0.45;
     group.add(ring);
+    group.add(createRingRocks(p, radius * 1.3, radius * 2.3, ring.rotation.x));
   }
   return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p };
 }
@@ -232,4 +235,107 @@ export function createOrbitLine(p: PlanetData): THREE.LineLoop {
     new THREE.BufferGeometry().setFromPoints(pts),
     new THREE.LineBasicMaterial({ color: 0x3a4f7a, transparent: true, opacity: 0.45, depthWrite: false }),
   );
+}
+
+/** Cometa: núcleo pequeno, coma brilhante e cauda apontando para longe da estrela. */
+export function createCometBody(id: string, name: string, radius: number): Body {
+  const group = new THREE.Group();
+  const nucleus = new THREE.Mesh(new THREE.SphereGeometry(radius, 12, 8), new THREE.MeshLambertMaterial({ color: 0x9aa4b0 }));
+  const coma = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: getGlowTexture(), color: 0xaee8ff, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }),
+  );
+  coma.name = 'glow';
+  const tail = new THREE.Line(
+    new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3)),
+    new THREE.LineBasicMaterial({ color: 0x9fdcff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  tail.name = 'tail';
+  tail.frustumCulled = false;
+  group.add(nucleus, coma, tail);
+  return { name, kind: 'comet', id, pos: new THREE.Vector3(), radius, object: group };
+}
+
+/** Linha fechada a partir de pontos (órbitas de cometas, zona habitável). */
+export function createPathLine(points: { x: number; y: number; z: number }[], color: number, opacity: number): THREE.LineLoop {
+  return new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints(points.map((p) => new THREE.Vector3(p.x, p.y, p.z))),
+    new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false }),
+  );
+}
+
+/** Círculo no plano das órbitas, com raio de cena `r`. */
+export function circlePoints(r: number, n = 128): { x: number; y: number; z: number }[] {
+  const pts: { x: number; y: number; z: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, z: 0 });
+  }
+  return pts;
+}
+
+export type PoiVisual = 'nebula' | 'rogue' | 'comet' | 'derelict' | 'signal' | 'brown-dwarf';
+
+/** Objeto 3D de um ponto de interesse do espaço profundo. */
+export function createPoiBody(id: string, name: string, kind: PoiVisual, pos: THREE.Vector3, radius: number, color: number): Body {
+  const group = new THREE.Group();
+  const glow = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: getGlowTexture(), color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: kind === 'nebula' ? 0.5 : 0.9 }),
+  );
+  glow.name = 'glow';
+  group.add(glow);
+  if (kind === 'rogue') {
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(radius, 32, 16), new THREE.MeshLambertMaterial({ color })));
+  } else if (kind === 'brown-dwarf') {
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(radius, 32, 16), new THREE.MeshBasicMaterial({ color: 0x7a2c1c })));
+  } else if (kind === 'comet') {
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(radius, 12, 8), new THREE.MeshLambertMaterial({ color: 0x9aa4b0 })));
+  } else if (kind === 'derelict') {
+    // Casco partido, low-poly: duas peças tortas.
+    const hull = new THREE.MeshStandardMaterial({ color: 0x8a8070, flatShading: true, metalness: 0.4, roughness: 0.7 });
+    const a = new THREE.Mesh(new THREE.BoxGeometry(radius * 2, radius * 0.6, radius * 0.6), hull);
+    const b = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.4, radius * 1.4, 5), hull);
+    b.position.set(radius * 1.5, radius * 0.4, 0);
+    b.rotation.z = 1.1;
+    group.add(a, b);
+  }
+  return { name, kind: 'poi', id, pos: pos.clone(), radius, object: group };
+}
+
+/**
+ * Pedras e blocos de gelo dos anéis, vistos de perto: pontos de poucos pixels
+ * em tons de rocha, gelo e minério. É de onde as sondas tiram gelo e silicatos.
+ */
+function createRingRocks(p: PlanetData, inner: number, outer: number, tilt: number): THREE.Points {
+  const rnd = mulberry32(seedFor(`${p.id}:ring-rocks`));
+  const n = 900;
+  const pos = new Float32Array(n * 3);
+  const col = new Float32Array(n * 3);
+  const tones = [
+    [0.85, 0.82, 0.74],
+    [0.7, 0.66, 0.6],
+    [0.92, 0.95, 1],
+    [0.62, 0.5, 0.4],
+    [0.78, 0.6, 0.38],
+  ];
+  for (let i = 0; i < n; i++) {
+    const a = rnd() * Math.PI * 2;
+    // Mais pedras no meio do anel do que nas bordas.
+    const r = inner + (outer - inner) * (0.5 + (rnd() + rnd() - 1) * 0.5);
+    pos[i * 3] = Math.cos(a) * r;
+    pos[i * 3 + 1] = Math.sin(a) * r;
+    pos[i * 3 + 2] = (rnd() - 0.5) * (outer - inner) * 0.03;
+    const t = tones[Math.floor(rnd() * tones.length)];
+    const shade = 0.75 + rnd() * 0.25;
+    col[i * 3] = t[0] * shade;
+    col[i * 3 + 1] = t[1] * shade;
+    col[i * 3 + 2] = t[2] * shade;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const rocks = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }));
+  rocks.rotation.x = tilt;
+  rocks.name = 'ring-rocks';
+  rocks.userData.rocks = true;
+  return rocks;
 }

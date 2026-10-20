@@ -14,7 +14,7 @@ export interface FlightTuning {
 }
 
 export const DEFAULT_TUNING: FlightTuning = {
-  gain: 0.3,
+  gain: 0.4,
   minSpeed: 2e-5,
   maxSpeed: 0.5 * 206264.806,
 };
@@ -22,6 +22,18 @@ export const DEFAULT_TUNING: FlightTuning = {
 export function adaptiveMaxSpeed(distanceToSurfaceAu: number, tuning: FlightTuning = DEFAULT_TUNING): number {
   const d = Math.max(distanceToSurfaceAu, 0);
   return Math.min(Math.max(d * tuning.gain, tuning.minSpeed), tuning.maxSpeed);
+}
+
+/**
+ * Distância "efetiva" de um obstáculo para o teto de velocidade: o que está
+ * à frente conta inteiro e o que ficou para trás ou ao lado conta até
+ * BEHIND_RELIEF vezes mais longe. Assim a nave sai depressa de um planeta
+ * ou estrela e só desacelera para o que está no caminho.
+ */
+export const BEHIND_RELIEF = 4;
+
+export function directionalDistance(distAu: number, cosAhead: number): number {
+  return distAu * (1 + (BEHIND_RELIEF - 1) * (1 - Math.max(0, Math.min(1, cosAhead))));
 }
 
 /**

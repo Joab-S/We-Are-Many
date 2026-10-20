@@ -18,7 +18,7 @@ describe('rng', () => {
 
 describe('velocidade adaptativa', () => {
   it('é proporcional à distância, com piso e teto', () => {
-    expect(adaptiveMaxSpeed(10)).toBeCloseTo(3);
+    expect(adaptiveMaxSpeed(10)).toBeCloseTo(10 * DEFAULT_TUNING.gain);
     expect(adaptiveMaxSpeed(0)).toBe(DEFAULT_TUNING.minSpeed);
     expect(adaptiveMaxSpeed(1e12)).toBe(DEFAULT_TUNING.maxSpeed);
   });

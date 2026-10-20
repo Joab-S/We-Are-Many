@@ -17,14 +17,18 @@ export interface ThrottleTuning {
 
 export const THROTTLE: ThrottleTuning = { accel: 0.55, brake: 1.1, coast: 0.25, reverse: 0.3 };
 
-/** Avança a fração de velocidade (-reverse..1) conforme W (+1), S (-1) ou nada (0). */
-export function stepSpeedFactor(current: number, input: -1 | 0 | 1, dt: number, t: ThrottleTuning = THROTTLE): number {
+/**
+ * Avança a fração de velocidade (-reverse..1) conforme W (+1), S (-1) ou nada (0).
+ * Com `cruise` (piloto de cruzeiro) a nave mantém a velocidade sem nada apertado.
+ */
+export function stepSpeedFactor(current: number, input: -1 | 0 | 1, dt: number, t: ThrottleTuning = THROTTLE, cruise = false): number {
   if (input > 0) {
     // Aceleração mais forte no começo e suave perto do máximo, para dar sensação de arrancada.
     const boost = current < 0 ? t.brake : t.accel * (1.4 - 0.8 * current);
     return Math.min(1, current + boost * dt);
   }
   if (input < 0) return Math.max(-t.reverse, current - t.brake * dt);
+  if (cruise) return current;
   const step = t.coast * dt;
   return Math.abs(current) <= step ? 0 : current - Math.sign(current) * step;
 }
