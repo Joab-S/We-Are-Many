@@ -85,3 +85,49 @@ describe('itens', () => {
     expect(eco.crafted.size).toBeGreaterThan(0);
   });
 });
+
+describe('soltar uma criatura', () => {
+  const landFar = (eco: Ecosystem, map: ReturnType<typeof generateSurface>, s: number) => {
+    for (let i = 0; i < map.width * map.height; i++) {
+      const x = (i % map.width) + 0.5;
+      const y = Math.floor(i / map.width) + 0.5;
+      if (y > map.height * 0.3 && y < map.height * 0.7 && eco.habitable(s, i) && eco.villages.every((v) => Math.hypot(v.x - x, v.y - y) > 60)) return { x, y };
+    }
+    throw new Error('sem lugar');
+  };
+
+  it('um inteligente sozinho e longe de todos funda um assentamento só com ele', () => {
+    const { map, eco } = world();
+    const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
+    const { x, y } = landFar(eco, map, s);
+    const villages = eco.villages.length;
+    const i = eco.introduceOne(s, x, y);
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(eco.village[i]).toBe(-1);
+    years(eco, 3);
+    expect(eco.villages.length).toBe(villages + 1);
+    const v = eco.villages[villages];
+    expect(eco.village[i]).toBe(v.id);
+    expect(v.population).toBe(1);
+  });
+
+  it('um inteligente solto perto de um assentamento do seu povo se junta a ele', () => {
+    const { eco } = world();
+    const v = eco.villages[0];
+    const before = v.population;
+    const i = eco.introduceOne(v.species, v.x + 2, v.y);
+    years(eco, 0.2);
+    expect(eco.village[i]).toBe(v.id);
+    expect(v.population).toBeGreaterThanOrEqual(before);
+  });
+
+  it('sozinho não tem filhos: precisa de pelo menos dois', () => {
+    const { map, eco } = world();
+    const s = eco.species.findIndex((sp) => sp.name === 'Bisão');
+    for (let i = 0; i < eco.count; i++) if (eco.alive[i] && eco.kind[i] === s) eco.kill(i, true);
+    const { x, y } = landFar(eco, map, s);
+    eco.introduceOne(s, x, y);
+    years(eco, 6);
+    expect(eco.population[s]).toBeLessThanOrEqual(1);
+  });
+});

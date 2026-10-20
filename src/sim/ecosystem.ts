@@ -144,7 +144,24 @@ const KINGDOM_COLORS: [number, number, number][] = [
   [36, 170, 176],
   [226, 196, 56],
   [210, 84, 150],
+  [240, 240, 240],
+  [120, 60, 30],
+  [150, 210, 60],
+  [30, 60, 140],
+  [250, 150, 170],
+  [100, 100, 110],
+  [170, 30, 90],
+  [90, 220, 200],
 ];
+
+/** Cor em HSL (0–1) para RGB, para reinos além da paleta. */
+function hsl(h: number, s: number, l: number): [number, number, number] {
+  const f = (n: number) => {
+    const k = (n + h * 12) % 12;
+    return Math.round(255 * (l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+  };
+  return [f(0), f(8), f(4)];
+}
 
 /** Construções especiais, na ordem em que um assentamento costuma erguê-las. */
 export const BUILDINGS = ['granary', 'smithy', 'market', 'windmill', 'temple', 'barracks', 'factory', 'statue', 'wonder'] as const;
@@ -868,6 +885,8 @@ export class Ecosystem {
         break;
       }
       case 'sapient': {
+        // Sozinho (solto pelo jogador): procura um assentamento do seu povo ou funda um.
+        const lone = this.village[i] < 0 ? this.loner(i) : undefined;
         const v = this.village[i] >= 0 ? this.villages[this.village[i]] : null;
         const era = Math.floor(v?.tech ?? 0);
         const veg = map.vegetation[tile];
@@ -882,7 +901,7 @@ export class Ecosystem {
         if (v && this.role[i] === CHILD && this.age[i] >= sp.maturity) this.role[i] = pickRole(era, v.tier, this.rnd(), this.roleContext(v));
         const elder = this.age[i] >= elderAge(sp, era);
         const working = this.role[i] !== CHILD && !elder;
-        let bias: { x: number; y: number } | undefined;
+        let bias: { x: number; y: number } | undefined = lone;
         if (v) {
           let dx = v.x - this.x[i];
           if (dx > map.width / 2) dx -= map.width;
@@ -945,10 +964,15 @@ export class Ecosystem {
     // Reprodução (idosos não têm filhos).
     const fertile = this.age[i] >= sp.maturity && (sp.kind !== 'sapient' || this.age[i] < elderAge(sp, era));
     if (fertile && this.energy[i] > 0.65 && this.rnd() < b.birthRate * dt) {
+      // Precisa de um parceiro adulto por perto (do mesmo assentamento, para os inteligentes).
       let crowd = 0;
+      let mates = 0;
       this.forEachNear(this.x[i], this.y[i], CELL, (j) => {
-        if (this.kind[j] === s) crowd++;
+        if (this.kind[j] !== s) return;
+        crowd++;
+        if (j !== i && this.age[j] >= sp.maturity && (sp.kind !== 'sapient' || this.village[j] === v)) mates++;
       });
+      if (!mates || (sp.kind === 'sapient' && v < 0)) return;
       // Casas de eras mais avançadas abrigam mais gente (sobrados, prédios).
       const housed = v < 0 || this.villages[v].population < this.villages[v].houses.length * (4 + era) + this.villages[v].fields * 2 + 4;
       if (crowd < b.crowd && housed) {
@@ -956,6 +980,58 @@ export class Ecosystem {
         if (child >= 0) this.energy[i] -= 0.3;
       }
     }
+  }
+
+  /**
+   * Um inteligente sem assentamento anda até o assentamento mais perto do
+   * seu povo (até 40 tiles) e se junta a ele; sem nenhum por perto, funda um
+   * novo onde está, se o lugar permitir. Devolve a direção para andar
+   * enquanto não chega.
+   */
+  private loner(i: number): { x: number; y: number } | undefined {
+    const s = this.kind[i];
+    let best: Village | null = null;
+    let bd = 40;
+    for (const v of this.villages) {
+      if (v.abandoned || v.species !== s) continue;
+      const d = this.distance(v, this.x[i], this.y[i]);
+      if (d < bd) {
+        bd = d;
+        best = v;
+      }
+    }
+    const name = this.species[s].name.toLowerCase();
+    if (best && bd < TIER_RADIUS[best.tier]) {
+      this.join(i, best);
+      this.note(`Um ${name} solitário se juntou a ${best.name}`, 'povo', best, { key: `join:${best.id}` });
+      return undefined;
+    }
+    if (best) return { x: wrapDx(best.x - this.x[i], this.map.width), y: best.y - this.y[i] };
+    const tx = ((Math.floor(this.x[i]) % this.map.width) + this.map.width) % this.map.width;
+    const ty = Math.floor(this.y[i]);
+    if (this.rnd() < 0.05 && this.canFound(tx, ty)) {
+      const v = this.foundVillage(s, tx, ty, 0);
+      this.join(i, v);
+      this.note(`Um ${name} solitário fundou ${v.name}`, 'povo', v, { major: true });
+    }
+    return undefined;
+  }
+
+  /** Põe a criatura `i` (sem assentamento) no assentamento `v`, com uma profissão. */
+  private join(i: number, v: Village): void {
+    this.village[i] = v.id;
+    v.population++;
+    this.role[i] = this.age[i] < this.species[this.kind[i]].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.rnd(), this.roleContext(v));
+  }
+
+  /**
+   * Solta uma única criatura (ferramenta do jogador). Inteligentes chegam
+   * sozinhos e decidem depois onde viver (ver `loner`). Devolve o índice ou -1.
+   */
+  introduceOne(s: number, x: number, y: number): number {
+    const tile = this.tileAt(x, Math.floor(y));
+    if (tile < 0 || !this.habitable(s, tile)) return -1;
+    return this.spawn(s, x, y, -1, this.species[s].maturity + this.rnd() * 5);
   }
 
   private nearWater(tile: number): boolean {
@@ -1120,13 +1196,35 @@ export class Ecosystem {
     this.lineRoad(a.x, a.y, b.x, b.y);
   }
 
+  /**
+   * Estrada de terra entre dois pontos: uma curva suave (o meio desvia para
+   * um lado, sempre o mesmo para o mesmo par de pontos), sem passos na
+   * diagonal, para a estrada desenhada ficar contínua. Não passa por água.
+   */
   private lineRoad(ax: number, ay: number, bx: number, by: number): void {
     const dx = wrapDx(bx - ax, this.map.width);
     const dy = by - ay;
-    const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
-    for (let k = 0; k <= n; k++) {
-      const t = this.tileAt(Math.floor(ax + (dx * k) / n), Math.floor(ay + (dy * k) / n));
+    const len = Math.hypot(dx, dy) || 1;
+    const bend = (plotSeed(ax + bx, ay + by) / 4294967296 - 0.5) * 0.5 * len;
+    const mx = ax + dx / 2 + (-dy / len) * bend;
+    const my = ay + dy / 2 + (dx / len) * bend;
+    const n = Math.max(2, Math.ceil(len * 2));
+    let px = Math.floor(ax);
+    let py = Math.floor(ay);
+    const put = (x: number, y: number) => {
+      const t = this.tileAt(x, y);
       if (t >= 0 && isLand(this.map, t)) this.setRoad(t, 1);
+    };
+    put(px, py);
+    for (let k = 1; k <= n; k++) {
+      const u = k / n;
+      const x = Math.floor((1 - u) * (1 - u) * ax + 2 * u * (1 - u) * mx + u * u * (ax + dx));
+      const y = Math.floor((1 - u) * (1 - u) * ay + 2 * u * (1 - u) * my + u * u * by);
+      if (x === px && y === py) continue;
+      if (x !== px && y !== py) put(x, py);
+      put(x, y);
+      px = x;
+      py = y;
     }
   }
 
@@ -1163,7 +1261,7 @@ export class Ecosystem {
       forgeWork: 0,
       forest: 0,
       rock: false,
-      color: from ? from.color : KINGDOM_COLORS[(this.villages.filter((o) => o.kingdom === o.id).length + Math.floor(rnd() * 3)) % KINGDOM_COLORS.length],
+      color: from ? from.color : this.freshColor(),
       abandoned: false,
     };
     if (!from) village.culture = makeCulture(village.culture.id, village.name, rnd);
@@ -1175,6 +1273,14 @@ export class Ecosystem {
       this.spawn(s, x + (rnd() - 0.5) * 3, y + (rnd() - 0.5) * 3, village.id, sp.maturity + rnd() * 10);
     }
     return village;
+  }
+
+  /** Cor de reino que nenhum reino vivo usa (da paleta; acabando, uma cor gerada). */
+  private freshColor(): [number, number, number] {
+    const used = new Set(this.villages.filter((o) => !o.abandoned && o.kingdom === o.id).map((o) => o.color.join(',')));
+    const free = KINGDOM_COLORS.filter((c) => !used.has(c.join(',')));
+    if (free.length) return free[Math.floor(this.rnd() * Math.min(3, free.length))];
+    return hsl(this.rnd(), 0.65 + this.rnd() * 0.25, 0.4 + this.rnd() * 0.25);
   }
 
   private abandon(v: Village): void {
@@ -1997,7 +2103,7 @@ export class Ecosystem {
   private newKingdom(v: Village, old: Village): void {
     v.kingdom = v.id;
     v.culture = makeCulture(this.cultures++, v.name, this.rnd);
-    v.color = KINGDOM_COLORS[(KINGDOM_COLORS.indexOf(old.color) + 1 + Math.floor(this.rnd() * (KINGDOM_COLORS.length - 1))) % KINGDOM_COLORS.length];
+    v.color = this.freshColor();
     for (const o of this.villages) if (o.kingdom === v.id) o.color = v.color;
     v.stock = { ...emptyStock(), wood: old.stock.wood * 0.2, weapons: Math.floor(old.stock.weapons * 0.3) };
     old.stock.weapons -= v.stock.weapons;

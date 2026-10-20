@@ -15,7 +15,7 @@ import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
 import { CATEGORIES, ITEMS, MATERIALS } from '../../sim/items';
 import { CHILD } from '../../sim/roles';
-import { TIER_NAMES } from '../../sim/settlement';
+import { TIER_NAMES, TIER_RADIUS } from '../../sim/settlement';
 import { earthCatalog, EARTH_ID, habitatOf, nativeSpecies, type Species } from '../../sim/species';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
@@ -181,7 +181,7 @@ const fragmentShader = /* glsl */ `
     ivec2 f = gp - t * 16;
     vec4 me = at(t);
     int k = kindOf(me);
-    if (k == 15 || k == 7) return Px(me, t);
+    if (k >= 7) return Px(me, t);
     int ex = f.x < 8 ? f.x : 15 - f.x;
     int ey = f.y < 8 ? f.y : 15 - f.y;
     bool vertical = ex < ey;
@@ -190,7 +190,7 @@ const fragmentShader = /* glsl */ `
     ivec2 off = vertical ? ivec2(f.x < 8 ? -1 : 1, 0) : ivec2(0, f.y < 8 ? -1 : 1);
     vec4 nb = at(t + off);
     int nk = kindOf(nb);
-    if (nk == 15 || nk == 7) return Px(me, t);
+    if (nk >= 7) return Px(me, t);
     // Deslocamento da fronteira, igual para os dois lados: positivo empurra para o tile de menor índice.
     float line = vertical ? float(t.x + max(off.x, 0)) * 3.7 + 11.0 : float(t.y + max(off.y, 0)) * 5.3 + 47.0;
     float along = vertical ? float(gp.y) : float(gp.x);
@@ -202,6 +202,82 @@ const fragmentShader = /* glsl */ `
   }
 
   bool waterPx(ivec2 gp) { return isWater(artPx(gp).texel.rgb); }
+
+  // Ruas e estradas (enfeites 8 a 10): faixa no meio do tile que se liga às
+  // ruas vizinhas, com cantos arredondados; fora da faixa aparece o chão.
+  bool isRoad(vec4 tx) { int k = kindOf(tx); return k >= 8 && k <= 10; }
+
+  bool onRoad(ivec2 f, int lo, int hi, bool rn, bool rs, bool rw, bool re) {
+    bool midX = f.x >= lo && f.x <= hi;
+    bool midY = f.y >= lo && f.y <= hi;
+    if (midX && midY) {
+      // Canto arredondado onde nenhuma rua chega pelos dois lados.
+      bool cx = f.x == lo || f.x == hi;
+      bool cy = f.y == lo || f.y == hi;
+      if (cx && cy) {
+        bool v = f.y == lo ? rn : rs;
+        bool h = f.x == lo ? rw : re;
+        return v || h;
+      }
+      return true;
+    }
+    if (midX && f.y < lo) return rn;
+    if (midX && f.y > hi) return rs;
+    if (midY && f.x < lo) return rw;
+    if (midY && f.x > hi) return re;
+    return false;
+  }
+
+  vec3 roadPx(ivec2 t, ivec2 f, int kind, vec3 base) {
+    bool rn = isRoad(at(t + ivec2(0, -1)));
+    bool rs = isRoad(at(t + ivec2(0, 1)));
+    bool rw = isRoad(at(t + ivec2(-1, 0)));
+    bool re = isRoad(at(t + ivec2(1, 0)));
+    ivec2 gp = t * 16 + f;
+    float grain = hash(vec2(gp) * 0.71 + 5.0);
+    if (kind == 10) {
+      // Praça: lajes grandes com rejunte e borda.
+      bool edge = (f.y == 0 && !rn) || (f.y == 15 && !rs) || (f.x == 0 && !rw) || (f.x == 15 && !re);
+      if (edge) return base * 0.7;
+      ivec2 slab = gp / 6;
+      if (gp.x % 6 == 0 || gp.y % 6 == 0) return base * 0.78;
+      return base * (0.9 + 0.16 * hash(vec2(slab) + 2.0)) * (grain > 0.95 ? 0.9 : 1.0);
+    }
+    int lo = kind == 9 ? 2 : 3;
+    int hi = 15 - lo;
+    if (!onRoad(f, lo, hi, rn, rs, rw, re)) {
+      // Chão do vizinho que não é rua; pisado logo ao lado da rua.
+      vec4 n = at(t + ivec2(0, -1));
+      vec4 s = at(t + ivec2(0, 1));
+      vec4 w = at(t + ivec2(-1, 0));
+      vec4 e = at(t + ivec2(1, 0));
+      vec3 ground = !rn ? n.rgb : !rs ? s.rgb : !rw ? w.rgb : !re ? e.rgb : base * 1.1;
+      if (isWater(ground)) ground = vec3(0.55, 0.62, 0.32);
+      ground *= 0.9 + 0.12 * hash(floor(vec2(gp) / 3.0) + 0.37);
+      bool near = onRoad(f + ivec2(1, 0), lo, hi, rn, rs, rw, re) || onRoad(f - ivec2(1, 0), lo, hi, rn, rs, rw, re)
+        || onRoad(f + ivec2(0, 1), lo, hi, rn, rs, rw, re) || onRoad(f - ivec2(0, 1), lo, hi, rn, rs, rw, re);
+      return near ? ground * 0.82 : ground;
+    }
+    bool border = !onRoad(f + ivec2(1, 0), lo, hi, rn, rs, rw, re) || !onRoad(f - ivec2(1, 0), lo, hi, rn, rs, rw, re)
+      || !onRoad(f + ivec2(0, 1), lo, hi, rn, rs, rw, re) || !onRoad(f - ivec2(0, 1), lo, hi, rn, rs, rw, re);
+    if (kind == 9) {
+      // Calçamento de pedra: paralelepípedos em fiadas desencontradas e meio-fio claro.
+      if (border) return base * 1.18;
+      int row = gp.y / 3;
+      int off = (row % 2) * 2;
+      if (gp.y % 3 == 0 || (gp.x + off) % 4 == 0) return base * 0.7;
+      return base * (0.9 + 0.18 * hash(vec2((gp.x + off) / 4, row) + 9.0));
+    }
+    // Terra batida: borda escura, sulcos das carroças e pedrinhas.
+    if (border) return base * 0.78;
+    bool horiz = (rw || re) && !(rn || rs);
+    bool vert = (rn || rs) && !(rw || re);
+    if ((horiz && (f.y == lo + 2 || f.y == hi - 2)) || (vert && (f.x == lo + 2 || f.x == hi - 2))) return base * 0.86;
+    vec3 c = base * (0.94 + 0.1 * hash(floor(vec2(gp) / 2.0) + 1.3));
+    if (grain > 0.94) c *= 1.18;
+    else if (grain < 0.04) c *= 0.8;
+    return c;
+  }
 
   void main() {
     vec2 tile = uCenter + (vUv * uResolution - uResolution * 0.5) / uZoom;
@@ -264,6 +340,7 @@ const fragmentShader = /* glsl */ `
       }
       texel = px.texel;
     }
+    if (uZoom >= 4.0 && kind >= 8 && kind <= 10) c = roadPx(t, f, kind, texel.rgb);
     if (uZoom >= 5.0 && kind > 0 && kind <= 7) {
       // Arte 16x16 do enfeite (art.ts): alfa cheio é cor, alfa parcial é sombra.
       vec4 d = texelFetch(uDecor, ivec2((kind - 1) * 16 + f.x, f.y), 0);
@@ -316,7 +393,8 @@ export class SurfaceMode {
   private readonly input: Input;
   private readonly root: HTMLDivElement;
   private tools: Tool[] = [...TERRAIN_TOOLS];
-  private tool: Tool | null = TERRAIN_TOOLS[0];
+  /** Ferramenta na mão; null é a mão vazia (só move o mapa e inspeciona). */
+  private tool: Tool | null = null;
   private brush = 6;
   private zoom = 3;
   private speed = 1;
@@ -326,10 +404,19 @@ export class SurfaceMode {
   private painting = false;
   private clicked = false;
   private dragging: { x: number; y: number } | null = null;
+  /** Onde começou o arraste da mão vazia, para separar clique de arraste. */
+  private pressAt: { x: number; y: number } | null = null;
+  /** Ficha fixada com um clique da mão vazia: uma criatura (segue ela) ou um lugar. */
+  private pinned: { creature: number } | { x: number; y: number } | null = null;
+  private folded = false;
+  private showTerritory = true;
+  private lastMini = 0;
+  private miniBase: HTMLCanvasElement | null = null;
   private textureChanged = true;
   private lastView = '';
   private lastInfo = 0;
   private lastInfoHtml = '';
+  private lastClockHtml = '';
   private lastPanelHtml = '';
   private raf = 0;
   private lastTime = performance.now();
@@ -450,7 +537,7 @@ export class SurfaceMode {
         label: sp.name,
         icon: `sprite:${spriteOf(sp)}`,
         tint: sp.color,
-        tip: `Solta ${sp.name.toLowerCase()}s aqui. Vive de ${(sp.tempMin - 273).toFixed(0)} a ${(sp.tempMax - 273).toFixed(0)} °C${habitatOf(sp) === 2 ? ', na costa' : habitatOf(sp) === 1 ? ', na água' : ''}.`,
+        tip: `Solta um(a) ${sp.name.toLowerCase()} por clique (para nascerem filhotes, precisa de pelo menos dois). Vive de ${(sp.tempMin - 273).toFixed(0)} a ${(sp.tempMax - 273).toFixed(0)} °C${habitatOf(sp) === 2 ? ', na costa' : habitatOf(sp) === 1 ? ', na água' : ''}.`,
         mode: 'click' as const,
         act: (ctx: SurfaceMode, x: number, y: number) => ctx.introduce(sp, x, y),
       }));
@@ -468,7 +555,7 @@ export class SurfaceMode {
         icon: `sprite:${bodyOf(sp)}:gatherer`,
         tint: [200, 160, 90],
         skin: sp.color,
-        tip: `Leva um grupo de ${sp.name.toLowerCase()}s para fundar um assentamento fora das áreas existentes.`,
+        tip: `Solta um(a) ${sp.name.toLowerCase()} por clique. Sozinho, ele procura um assentamento do seu povo ou funda um novo; para nascerem filhos, precisa de pelo menos dois.`,
         mode: 'click' as const,
         act: (ctx: SurfaceMode, x: number, y: number) => ctx.introduce(sp, x, y),
       }));
@@ -518,9 +605,9 @@ export class SurfaceMode {
 
   introduce(sp: Species, x: number, viewY: number): void {
     const s = this.eco.addSpecies(sp);
-    const born = this.eco.introduce(s, x, this.toRow(viewY), this.brush, sp.kind === 'sapient' ? 6 : 8);
-    if (!born && !this.eco.hint) this.eco.hint = `${sp.name}: o lugar não é habitável`;
-    else if (born && sp.kind !== 'sapient') this.eco.note(`Você soltou ${born} ${sp.name.toLowerCase()}${born > 1 ? 's' : ''}`, 'jogador', { x, y: this.toRow(viewY) }, { key: `spawn:${sp.id}` });
+    const born = this.eco.introduceOne(s, x, this.toRow(viewY));
+    if (born < 0) this.eco.hint = `${sp.name}: o lugar não é habitável`;
+    else this.eco.note(`Você soltou ${sp.name.toLowerCase()}`, 'jogador', { x, y: this.toRow(viewY) }, { key: `spawn:${sp.id}` });
   }
 
   placeOre(x: number, viewY: number, ore: Ore): void {
@@ -584,9 +671,9 @@ export class SurfaceMode {
     const road = this.eco.road[i];
     const n = tileHash(i) * 0.12 - 0.06;
     let c: [number, number, number] | null = null;
-    if (road === 1) c = [146, 112, 74];
-    else if (road === 2) c = (i + Math.floor(i / this.map.width)) % 2 ? [150, 150, 158] : [128, 128, 138];
-    else if (road === 3) c = [178, 148, 104];
+    if (road === 1) c = [150, 114, 74];
+    else if (road === 2) c = [146, 144, 150];
+    else if (road === 3) c = [184, 160, 120];
     else if (road === 4) c = [122, 86, 48];
     if (c) {
       px[o] = clamp(c[0] * (1 + n), 0, 255);
@@ -597,8 +684,10 @@ export class SurfaceMode {
       px[o] = clamp(px[o] * 1.05 + 10, 0, 255);
       px[o + 1] = clamp(px[o + 1] * 0.98, 0, 255);
     }
-    // Plantação leva o enfeite de trigo (7); ruas e casas, o 15 (nem enfeite nem grama).
-    px[o + 3] = road === 4 ? 7 * 16 + 15 : 255;
+    // Plantação leva o enfeite de trigo (7); terra batida, pedra e praça, os
+    // enfeites 8, 9 e 10 (desenhados no shader); casas, o 15 (nem enfeite nem grama).
+    const kind = road === 4 ? 7 : road === 1 ? 8 : road === 2 ? 9 : road === 3 ? 10 : 15;
+    px[o + 3] = kind * 16 + 15;
   }
 
   // Interface ----------------------------------------------------------------
@@ -630,17 +719,27 @@ export class SurfaceMode {
 
   private buildUi(): void {
     this.root.innerHTML = `
+      <canvas class="wb-terr" data-terr></canvas>
       <div class="wb-labels" data-l></div>
       <div class="wb-top">
         <button class="wb-back" data-a="back">⟵ Órbita</button>
         <div class="wb-title">${this.params.name}</div>
         <div class="wb-stats" data-s></div>
+        <div class="wb-clock" data-clock></div>
         <div class="wb-menu">
           ${WINDOWS.map(([id, label]) => `<button class="wb-back" data-w="${id}">${label}</button>`).join('')}
+          <button class="wb-back" data-a="help" title="Controles (H)">?</button>
         </div>
       </div>
       <div class="wb-info" data-i hidden></div>
-      <div class="wb-side" data-p></div>
+      <div class="wb-side" data-side>
+        <div class="wb-side-head">
+          <canvas class="wb-mini" data-mini width="200" height="100" title="Clique ou arraste para levar a câmera"></canvas>
+          <button class="wb-fold" data-fold title="Esconder ou mostrar o painel (P)">▾ Painel</button>
+        </div>
+        <div class="wb-side-body" data-p></div>
+      </div>
+      <div class="wb-cursor" data-cursor hidden></div>
       <div class="wb-window" data-win hidden>
         <div class="wb-win-head"><b data-win-title></b><button class="wb-x" data-close title="Fechar (Esc)">✕</button></div>
         <div class="wb-win-body" data-win-body></div>
@@ -651,9 +750,36 @@ export class SurfaceMode {
         <div class="wb-tabs">${TABS.map(([id, label]) => `<button data-tab="${id}">${label}</button>`).join('')}</div>
         <div class="wb-bar" data-bar></div>
       </div>
-      <div class="wb-help"><b>Esquerdo</b> usa a ferramenta · <b>Direito/meio</b> ou <b>WASD</b> move · <b>Roda</b> zoom · <b>Espaço</b> pausa · <b>1–4</b> velocidade · <b>C R E I</b> janelas</div>`;
+      <div class="wb-help" data-help hidden>
+        <div class="wb-win-head"><b>Controles</b><button class="wb-x" data-a="help" title="Fechar (H)">✕</button></div>
+        <div class="wb-keys">
+          <span><kbd>Esquerdo</kbd> usa a ferramenta; de mão vazia arrasta o mapa e um clique fixa a ficha do que está embaixo</span>
+          <span><kbd>Direito</kbd><kbd>WASD</kbd> movem o mapa · <kbd>Roda</kbd> zoom</span>
+          <span><kbd>Espaço</kbd> pausa · <kbd>1</kbd>–<kbd>4</kbd> velocidade</span>
+          <span><kbd>[</kbd><kbd>]</kbd> tamanho do pincel · <kbd>Esc</kbd> guarda a ferramenta, fecha a janela ou volta à órbita</span>
+          <span><kbd>C</kbd> crônica · <kbd>R</kbd> reinos · <kbd>E</kbd> espécies · <kbd>I</kbd> itens · <kbd>P</kbd> painel · <kbd>T</kbd> territórios · <kbd>H</kbd> esta ajuda</span>
+          <span>Cada reino tem uma cor: a área dos assentamentos e a faixa do nome mostram de quem é. Borda cheia é a capital; tracejada, os outros assentamentos do reino.</span>
+          <span>No minimapa, clique ou arraste para levar a câmera.</span>
+        </div>
+      </div>`;
     const signal = this.abort.signal;
     this.root.querySelector('[data-a="back"]')!.addEventListener('click', () => this.onExit(), { signal });
+    this.root.querySelectorAll('[data-a="help"]').forEach((b) => b.addEventListener('click', () => this.toggleHelp(), { signal }));
+    this.root.querySelector('[data-fold]')!.addEventListener('click', () => this.fold(), { signal });
+    const mini = this.root.querySelector<HTMLCanvasElement>('[data-mini]')!;
+    const jump = (e: PointerEvent) => {
+      const r = mini.getBoundingClientRect();
+      const x = ((e.clientX - r.left) / r.width) * this.map.width;
+      const row = ((e.clientY - r.top) / r.height) * this.map.height;
+      this.center.set(x, this.map.height - row);
+    };
+    mini.addEventListener('pointerdown', (e) => {
+      mini.setPointerCapture(e.pointerId);
+      jump(e);
+    }, { signal });
+    mini.addEventListener('pointermove', (e) => {
+      if (mini.hasPointerCapture(e.pointerId)) jump(e);
+    }, { signal });
     this.scrollable(this.root.querySelector<HTMLElement>('[data-bar]')!, signal);
     this.root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
       b.addEventListener('click', () => this.selectTab(b.dataset.tab as Tab), { signal });
@@ -699,18 +825,25 @@ export class SurfaceMode {
     };
     this.root.querySelector('[data-p]')!.addEventListener('pointerdown', onPanel, { signal });
     this.root.querySelector('[data-win-body]')!.addEventListener('pointerdown', onPanel, { signal });
+    this.root.querySelector('[data-clock]')!.addEventListener('pointerdown', onPanel, { signal });
     this.selectTab('terrain');
 
     const canvas = this.renderer.domElement;
     canvas.addEventListener('contextmenu', (e) => e.preventDefault(), { signal });
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button === 0) {
+      if (e.button === 0 && this.tool) {
         this.painting = true;
         this.clicked = true;
-      } else this.dragging = { x: e.clientX, y: e.clientY };
+      } else {
+        this.dragging = { x: e.clientX, y: e.clientY };
+        if (e.button === 0) this.pressAt = { x: e.clientX, y: e.clientY };
+      }
       canvas.setPointerCapture(e.pointerId);
     }, { signal });
-    canvas.addEventListener('pointerup', () => {
+    canvas.addEventListener('pointerup', (e) => {
+      // Clique curto da mão vazia: fixa (ou solta) a ficha do que está embaixo.
+      if (this.pressAt && Math.hypot(e.clientX - this.pressAt.x, e.clientY - this.pressAt.y) < 5) this.pin();
+      this.pressAt = null;
       this.painting = false;
       this.dragging = null;
     }, { signal });
@@ -722,7 +855,84 @@ export class SurfaceMode {
       }
       this.mouse = { x: e.clientX, y: e.clientY };
     }, { signal });
-    canvas.addEventListener('pointerleave', () => (this.mouse = null), { signal });
+    canvas.addEventListener('pointerleave', () => {
+      this.mouse = null;
+      this.root.querySelector<HTMLElement>('[data-cursor]')!.hidden = true;
+    }, { signal });
+  }
+
+  private toggleHelp(): void {
+    const el = this.root.querySelector<HTMLElement>('[data-help]')!;
+    el.hidden = !el.hidden;
+  }
+
+  /** Esconde o painel lateral (o minimapa fica). */
+  private fold(): void {
+    this.folded = !this.folded;
+    this.root.querySelector('[data-side]')!.classList.toggle('folded', this.folded);
+    this.root.querySelector('[data-fold]')!.textContent = this.folded ? '▸ Painel' : '▾ Painel';
+  }
+
+  /** Fixa a ficha do que está sob o mouse; clicar no mesmo vazio de novo solta. */
+  private pin(): void {
+    const row = this.toRow(this.hover.y);
+    const picked = this.eco.pick(this.hover.x, row, Math.max(0.8, 6 / this.zoom));
+    if (picked >= 0) this.pinned = { creature: picked };
+    else if (this.eco.settlementAt(this.hover.x, row)) this.pinned = { x: this.hover.x, y: this.hover.y };
+    else this.pinned = null;
+    this.lastInfoHtml = '';
+    this.updateInfo();
+  }
+
+  /** Minimapa: o mapa inteiro reduzido e o retângulo da vista. */
+  private updateMinimap(now: number): void {
+    const mini = this.root.querySelector<HTMLCanvasElement>('[data-mini]')!;
+    const { width: w, height: h } = this.map;
+    if (!this.miniBase || now - this.lastMini > 1000) {
+      this.lastMini = now;
+      this.miniBase ??= Object.assign(document.createElement('canvas'), { width: w, height: h });
+      const ctx = this.miniBase.getContext('2d')!;
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(this.pixels), w, h), 0, 0);
+    }
+    const ctx = mini.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.miniBase, 0, 0, mini.width, mini.height);
+    const sx = mini.width / w;
+    const sy = mini.height / h;
+    // Assentamentos como pontos na cor do reino.
+    for (const v of this.eco.villages) {
+      if (v.abandoned) continue;
+      ctx.fillStyle = `rgb(${v.color.join(',')})`;
+      const r = 1 + v.tier;
+      ctx.fillRect(v.x * sx - r / 2, v.y * sy - r / 2, r, r);
+    }
+    const vw = window.innerWidth / this.zoom;
+    const vh = window.innerHeight / this.zoom;
+    const x0 = this.center.x - vw / 2;
+    const y0 = h - this.center.y - vh / 2;
+    ctx.strokeStyle = '#f0c860';
+    ctx.lineWidth = 1.5;
+    for (const off of [-w, 0, w]) ctx.strokeRect((x0 + off) * sx, y0 * sy, vw * sx, vh * sy);
+  }
+
+  /** Soltar uma criatura é num ponto só: sem círculo de pincel. */
+  private usesBrush(): boolean {
+    return !!this.tool && !this.tool.id.startsWith('spawn:');
+  }
+
+  /** Ícone da ferramenta na mão, ao lado do cursor. */
+  private updateCursor(): void {
+    const el = this.root.querySelector<HTMLElement>('[data-cursor]')!;
+    if (!this.tool || !this.mouse) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.style.transform = `translate(${this.mouse.x + 14}px, ${this.mouse.y + 14}px)`;
+    if (el.dataset.t !== this.tool.id) {
+      el.dataset.t = this.tool.id;
+      el.innerHTML = this.toolIcon(this.tool);
+    }
   }
 
   private setOption(opt: string): void {
@@ -731,6 +941,7 @@ export class SurfaceMode {
     else if (opt.startsWith('rate:')) eco.eventRate = Number(opt.slice(5));
     else if (opt === 'minor') this.showMinor = !this.showMinor;
     else if (opt === 'labels') this.showLabels = !this.showLabels;
+    else if (opt === 'territory') this.showTerritory = !this.showTerritory;
     else if (opt === 'now') this.surprise();
     this.lastWinHtml = '';
     this.lastPanelHtml = '';
@@ -741,7 +952,7 @@ export class SurfaceMode {
     this.tab = tab;
     this.root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     const tools = this.tools.filter((t) => t.tab === tab);
-    if (!this.tool || this.tool.tab !== tab) this.tool = tools[0] ?? null;
+    if (this.tool && this.tool.tab !== tab) this.tool = null;
     const bar = this.root.querySelector<HTMLElement>('[data-bar]')!;
     let html = '';
     let group: string | undefined;
@@ -755,12 +966,14 @@ export class SurfaceMode {
     bar.innerHTML = `
       ${html}
       <div class="wb-group"></div>
-      <button class="wb-tool" data-t="inspect" title="Só olhar: passe o mouse para ver detalhes"><span>🔍</span>Inspecionar</button>
+      <button class="wb-tool" data-t="inspect" title="Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes, sem mexer em nada"><span>✋</span>Mão</button>
       <label class="wb-brush">Pincel <input type="range" min="1" max="30" value="${this.brush}" data-b /></label>`;
     const signal = this.abort.signal;
     bar.querySelectorAll<HTMLButtonElement>('[data-t]').forEach((b) => {
       b.addEventListener('click', () => {
-        this.tool = this.tools.find((t) => t.id === b.dataset.t) ?? null;
+        // Clicar de novo na ferramenta da mão a guarda (volta à mão vazia).
+        const t = this.tools.find((it) => it.id === b.dataset.t) ?? null;
+        this.tool = t && t !== this.tool ? t : null;
         this.updateToolbar();
       }, { signal });
     });
@@ -815,7 +1028,7 @@ export class SurfaceMode {
       b.classList.toggle('on', (this.tool?.id ?? 'inspect') === b.dataset.t);
     });
     const tip = this.root.querySelector<HTMLElement>('[data-tip]')!;
-    tip.textContent = this.tool ? `${this.tool.label}: ${this.tool.tip}` : 'Inspecionar: passe o mouse sobre o mapa para ver detalhes.';
+    tip.textContent = this.tool ? `${this.tool.label}: ${this.tool.tip} (clique de novo ou Esc para guardar)` : 'Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes. Escolha uma ferramenta para mexer no mundo.';
   }
 
   // Janelas ----------------------------------------------------------------
@@ -949,7 +1162,7 @@ export class SurfaceMode {
       <div class="wb-note">Cometas, terremotos, vulcões, incêndios, secas, pestes, povos nômades, espécies novas e reaparecimentos acontecem de vez em quando. Se ${QUIET_YEARS} anos passam sem nada importante, um deles sacode o mundo. Agora: ${quiet} anos desde o último acontecimento importante.</div>
       <div class="wb-filters"><button data-opt="now">🎲 Provocar um evento agora</button></div>
       <div class="wb-section">Exibição</div>
-      <div class="wb-filters"><button data-opt="labels" class="${on(this.showLabels)}">Nomes no mapa</button><button data-opt="minor" class="${on(this.showMinor)}">Acontecimentos menores no painel</button></div>
+      <div class="wb-filters"><button data-opt="labels" class="${on(this.showLabels)}">Nomes no mapa</button><button data-opt="territory" class="${on(this.showTerritory)}">Territórios coloridos (T)</button><button data-opt="minor" class="${on(this.showMinor)}">Acontecimentos menores no painel</button></div>
       <div class="wb-section">Atalhos</div>
       <div class="wb-note">Espaço pausa · 1 a 4 mudam a velocidade · C crônica · R reinos · E espécies · I itens · Esc fecha a janela ou volta à órbita.</div>`;
   }
@@ -973,13 +1186,31 @@ export class SurfaceMode {
     const input = this.input;
     if (input.hit('Escape')) {
       if (this.win) this.openWindow(null);
-      else {
+      else if (!this.root.querySelector<HTMLElement>('[data-help]')!.hidden) this.toggleHelp();
+      else if (this.pinned) {
+        this.pinned = null;
+        this.lastInfoHtml = '';
+      } else if (this.tool) {
+        this.tool = null;
+        this.updateToolbar();
+      } else {
         this.onExit();
         return;
       }
     }
     if (input.hit('Space')) this.speed = this.speed ? 0 : 1;
     for (let k = 0; k < SPEEDS.length; k++) if (input.hit(`Digit${k + 1}`)) this.speed = k;
+    if (input.hit('KeyH')) this.toggleHelp();
+    if (input.hit('KeyT')) {
+      this.showTerritory = !this.showTerritory;
+      this.lastView = '';
+    }
+    if (input.hit('KeyP')) this.fold();
+    for (const [code, step] of [['BracketLeft', -2], ['BracketRight', 2]] as const) {
+      if (!input.hit(code)) continue;
+      this.brush = clamp(this.brush + step, 1, 30);
+      this.root.querySelector<HTMLInputElement>('[data-b]')!.value = String(this.brush);
+    }
     for (const [code, win] of [['KeyC', 'chronicle'], ['KeyR', 'kingdoms'], ['KeyE', 'species'], ['KeyI', 'items']] as const) if (input.hit(code)) this.openWindow(win);
     const pan = 300 / this.zoom;
     this.center.x += ((input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0)) * pan * dt;
@@ -1015,9 +1246,11 @@ export class SurfaceMode {
       this.lastInfo = now;
       this.updateInfo();
       this.updatePanel();
+      this.updateMinimap(now);
       this.updateWindow();
       this.updateToast(now);
     }
+    this.updateCursor();
     input.endFrame();
   };
 
@@ -1028,7 +1261,44 @@ export class SurfaceMode {
     const cy = this.center.y;
     if (shake) this.center.set(cx + (Math.random() - 0.5) * shake, cy + (Math.random() - 0.5) * shake);
     this.renderView(now);
+    this.drawTerritory();
     this.center.set(cx, cy);
+  }
+
+  /**
+   * Território de cada assentamento na cor do seu reino: área tingida e borda.
+   * Assentamentos do mesmo reino têm a mesma cor; povos independentes, outra.
+   */
+  private drawTerritory(): void {
+    const canvas = this.root.querySelector<HTMLCanvasElement>('[data-terr]')!;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, w, h);
+    if (!this.showTerritory || this.zoom < 1) return;
+    const z = this.zoom;
+    for (const v of this.eco.villages) {
+      if (v.abandoned) continue;
+      const [sx, gy] = this.toScreen(v.x, v.y, z, w, h);
+      const sy = h - gy;
+      const r = TIER_RADIUS[v.tier] * z;
+      if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
+      const c = v.color.join(',');
+      const capital = v.kingdom === v.id;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${c},0.18)`;
+      ctx.fill();
+      ctx.lineWidth = Math.max(1.5, z * (capital ? 0.35 : 0.22));
+      ctx.setLineDash(capital ? [] : [z * 0.8, z * 0.5]);
+      ctx.strokeStyle = `rgba(${c},0.9)`;
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
   }
 
   private renderView(now: number): void {
@@ -1042,7 +1312,7 @@ export class SurfaceMode {
     const u = this.material.uniforms;
     (u.uResolution.value as THREE.Vector2).copy(size);
     u.uZoom.value = this.zoom * pr;
-    u.uBrush.value = this.tool ? this.brush : 0;
+    u.uBrush.value = this.usesBrush() ? this.brush : 0;
     u.uTime.value = now / 1000;
     this.renderer.autoClear = true;
     this.renderer.render(this.scene, this.camera);
@@ -1121,7 +1391,7 @@ export class SurfaceMode {
     }
     this.drawSprites(w, h, z);
     this.sprites.drawSoft(ctx, h);
-    if (this.tool && this.hover.x > -1e5) {
+    if (this.usesBrush() && this.hover.x > -1e5) {
       ctx.strokeStyle = 'rgba(255,255,255,0.7)';
       ctx.lineWidth = Math.max(1, z * 0.15);
       ctx.beginPath();
@@ -1316,6 +1586,9 @@ export class SurfaceMode {
           ? `♛ Reino de ${v.name} · ${v.population}`
           : `${TIER_NAMES[v.tier]} ${v.name} · ${v.population}`;
       if (el.textContent !== text) el.textContent = text;
+      const color = `rgb(${v.color.join(',')})`;
+      if (el.style.borderLeftColor !== color) el.style.borderLeftColor = color;
+      el.title = v.kingdom === v.id ? `Povo ${v.culture.name}` : `Reino de ${this.eco.capitalOf(v).name} · povo ${v.culture.name}`;
       el.style.transform = `translate(${sx}px, ${h - sy}px) translate(-50%, -100%)`;
     }
   }
@@ -1415,14 +1688,25 @@ export class SurfaceMode {
 
   private updateInfo(): void {
     const el = this.root.querySelector<HTMLElement>('[data-i]')!;
-    const i = this.tileIndex(this.hover.x, this.hover.y);
+    // Ficha fixada: segue a criatura (enquanto viver) ou fica no lugar clicado.
+    let at = this.hover;
+    let picked = -1;
+    const pin = this.pinned;
+    if (pin && 'creature' in pin) {
+      if (this.eco.alive[pin.creature]) {
+        picked = pin.creature;
+        at = new THREE.Vector2(this.eco.x[picked], this.map.height - this.eco.y[picked]);
+      } else this.pinned = null;
+    } else if (pin) at = new THREE.Vector2(pin.x, pin.y);
+    const i = this.tileIndex(at.x, at.y);
     if (i < 0) {
       el.hidden = true;
       return;
     }
     el.hidden = false;
+    el.classList.toggle('pinned', !!this.pinned);
     let html: string;
-    const picked = this.eco.pick(this.hover.x, this.toRow(this.hover.y), Math.max(0.8, 6 / this.zoom));
+    if (!pin || !('creature' in pin)) picked = this.eco.pick(at.x, this.toRow(at.y), Math.max(0.8, 6 / this.zoom));
     if (picked >= 0) {
       const sp = this.eco.species[this.eco.kind[picked]];
       const v = this.eco.village[picked] >= 0 ? this.eco.villages[this.eco.village[picked]] : null;
@@ -1435,7 +1719,7 @@ export class SurfaceMode {
     } else {
       const t = temperatureAt(this.map, i);
       const place = this.placeAt(i);
-      const v = this.eco.settlementAt(this.hover.x, this.toRow(this.hover.y));
+      const v = this.eco.settlementAt(at.x, this.toRow(at.y));
       html = `
         ${v ? this.settlementInfo(v) : ''}
         <b>${place ?? BIOME_NAMES[this.map.biome[i] as keyof typeof BIOME_NAMES]}</b>
@@ -1444,6 +1728,7 @@ export class SurfaceMode {
         <span>Umidade ${(this.map.moisture[i] * 100).toFixed(0)}%</span>
         <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>`;
     }
+    if (this.pinned) html = `<div class="wb-pin">📌 Fixado · Esc ou clique no vazio solta</div>${html}`;
     if (html !== this.lastInfoHtml) {
       this.lastInfoHtml = html;
       el.innerHTML = html;
@@ -1455,8 +1740,8 @@ export class SurfaceMode {
     if (!live.length) return '';
     const top = Math.max(...live.map((v) => v.tech));
     const era = Math.floor(top);
-    if (era >= ERAS.length - 1) return '<div class="wb-year">Última era conhecida</div>';
-    return `<div class="wb-year">Rumo à ${ERAS[era + 1]}: ${Math.floor((top - era) * 100)}%</div>`;
+    if (era >= ERAS.length - 1) return ' · última era';
+    return ` · rumo à ${ERAS[era + 1]}: ${Math.floor((top - era) * 100)}%`;
   }
 
   /** Painel lateral: ano, era, velocidade, população, povos, guerras e acontecimentos importantes. */
@@ -1472,11 +1757,14 @@ export class SurfaceMode {
       .join('');
     const more = alive.length > 7 ? `<button class="wb-goto" data-open="species">+ ${alive.length - 7} espécies…</button>` : '';
     const events = eco.chronicle.filter((e) => this.showMinor || e.major).slice(0, 6);
+    const clock = `
+      <div class="wb-clock-text"><b>${era}</b><span>Ano ${Math.floor(eco.year)}${this.progressLine(live)}</span></div>
+      <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === this.speed ? 'on' : ''}" title="${v === 0 ? 'Pausa (Espaço)' : `Velocidade ${v}x (${k + 1})`}">${v === 0 ? '❚❚' : `${v}x`}</button>`).join('')}</div>`;
+    if (clock !== this.lastClockHtml) {
+      this.lastClockHtml = clock;
+      this.root.querySelector<HTMLElement>('[data-clock]')!.innerHTML = clock;
+    }
     const html = `
-      <div class="wb-era">${era}</div>
-      ${this.progressLine(live)}
-      <div class="wb-year">Ano ${Math.floor(eco.year)}</div>
-      <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === this.speed ? 'on' : ''}">${v === 0 ? 'II' : `${v}x`}</button>`).join('')}</div>
       <div class="wb-section">População</div>
       ${rows || '<div class="wb-empty">Nenhuma espécie. Leve uma pela aba Vida.</div>'}
       ${more}
