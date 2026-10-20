@@ -155,7 +155,7 @@ O jogador nunca cria espécies. A evolução modifica espécies existentes de fo
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-70 | Cada inteligente pertence a um assentamento, tem idade, energia e uma profissão: coletor, caçador, pescador, agricultor, construtor, guerreiro, sacerdote, comerciante (as profissões liberam conforme a era). | Parcial: 11 profissões com aparência própria (coletor, caçador, agricultor, lenhador, construtor, minerador, ferreiro, soldado, guarda, líder, rei), liberadas por era e nível, e pescador onde há porto (fica perto do porto); faltam sacerdote e comerciante |
+| RF-VIDA-70 | Cada inteligente pertence a um assentamento, tem idade, energia e uma profissão: coletor, caçador, pescador, agricultor, construtor, guerreiro, sacerdote, comerciante (as profissões liberam conforme a era). | Parcial: 11 profissões com aparência própria (coletor, caçador, agricultor, lenhador, construtor, minerador, ferreiro, soldado, guarda, líder, rei), liberadas por era, nível e condições: minerador desde a Pedra (explora e trabalha nas minas), ferreiro só com ferraria, pescador só com porto, mais soldados em povos guerreiros; faltam sacerdote e comerciante |
 | RF-VIDA-71 | Comportamento base: trabalhar perto de casa durante o dia, voltar ao centro, fugir de predadores, procurar comida quando com fome. | Parcial |
 | RF-VIDA-72 | Líder por assentamento (chefe, rei, prefeito conforme a era), com traço de personalidade (pacífico, ambicioso, devoto, mercador) que influencia diplomacia e guerra. | Fase 6 |
 
@@ -165,15 +165,17 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 
 | Era | Desbloqueia |
 |---|---|
-| Idade da Pedra | Cabanas de palha, coleta, caça com lança, fogo, aldeias pequenas |
-| Idade do Bronze | Casas de madeira com telhado, agricultura, domesticação, ferramentas melhores, comércio de troca, vilas |
-| Idade do Ferro | Casas de pedra, armas de ferro, exércitos organizados, estradas, cidades, muralhas de madeira |
-| Era Medieval | Castelos, muralhas de pedra, reinos, religião organizada, moedas, caravelas |
-| Era Industrial | Fábricas, ferrovias, poluição (aquece e suja o planeta), crescimento populacional rápido |
+| Era | Desbloqueia | Condição para sair dela |
+|---|---|---|
+| Idade da Pedra | Cabanas de palha, coleta, caça com lança, fogo, aldeias pequenas, canoas | Fazer 5 peças de bronze (cobre + estanho numa ferraria) |
+| Idade do Bronze | Casas de madeira com telhado, agricultura, ferramentas melhores, comércio de troca, vilas, fundição de ferro | Fazer 8 peças de ferro |
+| Idade do Ferro | Casas de pedra, armas de ferro, exércitos organizados, estradas, cidades, deserto colonizável | Extrair 120 de pedra e fazer 30 peças de ferro |
+| Era Medieval | Castelos, reinos, religião organizada, caravelas, aço (ferro + carvão) | Extrair 60 de carvão e fazer 10 peças de aço |
+| Era Industrial | Fábricas, navios a vapor, cidades densas. Última era: os povos não vão ao espaço | — |
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-73 | Cada assentamento tem progresso tecnológico próprio; a era aparece no painel e muda a arte das casas. **Ritmo lento:** com 30 habitantes, cada era leva 300, 350, 450 e 550 anos (Industrial perto do ano 1.300); população e tamanho do reino aceleram no máximo 1,3× e 1,25×. O painel mostra o progresso rumo à próxima era. | Implementado (Fase 0) |
+| RF-VIDA-73 | Cada assentamento tem progresso tecnológico próprio; a era aparece no painel e muda a arte das casas. **Ritmo lento:** com 30 habitantes, cada era leva 300, 350, 450 e 550 anos (Industrial perto do ano 1.300); população e tamanho do reino aceleram no máximo 1,3× e 1,25×. O painel mostra o progresso rumo à próxima era. **Mudar de era exige condições, não só tempo** (tabela acima): sem os minérios achados e trabalhados, o progresso para em 99% e o painel do assentamento diz o que falta. Povos que valorizam conhecimento aprendem 20% mais rápido. | Implementado (Fase 0) |
 | RF-VIDA-74 | Tecnologia se espalha: assentamentos vizinhos e parceiros comerciais avançam mais rápido; um reino compartilha a era da capital com atraso. | Fase 6 |
 | RF-VIDA-75 | O jogador pode **ensinar** (adiantar o progresso), com custo e com risco: ensinar demais causa instabilidade (ver RF-VIDA-131). | Implementado (Fase 0), sem custo e sem risco |
 | RF-VIDA-76 | **Os povos não vão ao espaço por conta própria.** A Era Industrial é a última era; depois dela a história continua no planeta (crescimento das cidades, colonização pelo mar, relações entre povos). | Decidido |
@@ -181,12 +183,12 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 
 ### 9.3 Cultura e crenças
 
-| ID | Requisito |
-|---|---|
-| RF-VIDA-78 | Cada povo (cultura) tem nome, cor, idioma gerado (para nomes de lugares e líderes), um valor principal (guerra, comércio, fé, conhecimento) e tolerância a outros povos. |
-| RF-VIDA-79 | Crenças leves: um povo pode adorar fenômenos que viu (o "cometa", a "luz no céu" que é a nave do jogador). As intervenções do jogador alimentam essas crenças e mudam a cultura (ex.: um povo que recebeu ajuda após um desastre fica mais pacífico e devoto). |
-| RF-VIDA-80 | Templos e marcos culturais aparecem nas cidades conforme o valor principal. |
-| RF-VIDA-81 | Cisma: um assentamento distante da capital com cultura divergente pode fundar um novo povo. |
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-78 | Cada povo (cultura) tem nome (derivado do assentamento fundador, ex.: Tekvenses), cor, um valor principal (guerra, comércio, fé, conhecimento), tolerância a outros povos e uma crença. Colônias herdam o povo; assentamentos conquistados mantêm o seu. O valor muda o comportamento: guerra = mais soldados e relações piores; comércio = mercado desde aldeia e comércio em dobro; fé = templo desde o Bronze e relações melhores; conhecimento = eras 20% mais rápidas. | Implementado (Fase 0), sem idioma gerado |
+| RF-VIDA-79 | Crenças leves: um povo pode adorar fenômenos que viu (o "cometa", a "luz no céu" que é a nave do jogador). As intervenções do jogador alimentam essas crenças e mudam a cultura (ex.: um povo que recebeu ajuda após um desastre fica mais pacífico e devoto). | Parcial: cada povo tem uma crença (o Sol, o Mar, a Luz no Céu...), ainda sem efeito das intervenções |
+| RF-VIDA-80 | Templos e marcos culturais aparecem nas cidades conforme o valor principal. | Parcial: templo mais cedo em povos de fé |
+| RF-VIDA-81 | **Cisma e independência:** um assentamento grande (20+) e longe da capital (50+ tiles) pode declarar independência, levando os vizinhos próximos, e formar um povo novo com cultura e cor próprias. Capitais intolerantes perdem colônias com o dobro da chance. | Implementado (Fase 0) |
 
 ---
 
@@ -223,7 +225,7 @@ As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
 | RF-VIDA-104 | Ruas paralelas formam uma malha: vilas ganham uma rua paralela de cada lado da cruz, cidades duas. Futuro: a malha cresce sob demanda, quando os lotes acabam. | Implementado (Fase 0), malha fixa por nível |
 | RF-VIDA-105 | **Campos cultivados** (seção 11) em volta das casas da periferia, a partir do Bronze. | Fase 5 |
 | RF-VIDA-106 | **Muralhas por era:** paliçada de madeira (Ferro), muralha de pedra com portões nas ruas (Medieval), contornando a área da cidade. | Fase 6 |
-| RF-VIDA-107 | **Edifícios especiais:** castelo/palácio na capital do reino, templo, mercado, quartel, celeiro, ferraria, moinho, fábrica (Industrial), porto (seção 10.5), pontes onde estradas cruzam rios estreitos, marcos (estátua, torre) que contam a história. | Parcial: faltam pontes e marcos |
+| RF-VIDA-107 | **Edifícios especiais:** castelo/palácio na capital do reino, templo, mercado, quartel, celeiro, ferraria (exige metal no estoque), moinho, fábrica (Industrial), porto (seção 10.5), mina (seção 11.1), pontes onde estradas cruzam rios estreitos, marcos (estátua, torre) que contam a história. Toda construção custa madeira e pedra do estoque do reino (casa: 4 de madeira, ou 4 de pedra e 1 de madeira a partir da Era Medieval; especiais: 10 de madeira e 2 a 8 de pedra; porto: 12 de madeira; mina: 6 de madeira); sem material, a obra espera. | Parcial: faltam pontes e marcos |
 | RF-VIDA-108 | Assentamentos abandonados (população zero) deixam ruínas por um tempo; ruínas podem ser reocupadas. | Parcial: some, sem ruínas |
 
 ### 10.4 Crescimento
@@ -253,15 +255,31 @@ Povos presos numa ilha ou numa costa usam o mar para crescer, com barcos coerent
 
 ## 11. Agricultura, domesticação, economia e comércio
 
-| ID | Requisito |
-|---|---|
-| RF-VIDA-120 | **Plantação:** a partir do Bronze, agricultores criam campos (tiles marcados, com sprite de lavoura que muda com a estação) em solo fértil perto das casas. Campos produzem comida e reduzem a necessidade de caça. |
-| RF-VIDA-121 | Colheita sazonal; secas, pragas e frio reduzem a produção e podem causar fome. |
-| RF-VIDA-122 | Irrigação (Ferro em diante) permite campos mais longe da água. |
-| RF-VIDA-123 | **Domesticação:** herbívoros próximos podem ser domesticados; viram rebanho (sprites seguindo pastores), fornecem comida e tração. Rebanhos atraem predadores. |
-| RF-VIDA-124 | **Recursos do assentamento:** comida, madeira (corte de árvores próximas, que somem do mapa), pedra, metal (minas em montanhas a partir do Bronze), bens de luxo. Estoques simples por assentamento. |
-| RF-VIDA-125 | **Comércio:** assentamentos ligados por estrada ou costa trocam excedentes. Comerciantes viajam visivelmente pelas estradas; comércio aproxima povos e espalha tecnologia. |
-| RF-VIDA-126 | Desmatamento e mineração aparecem no mapa e afetam a vegetação e a fauna. |
+A economia faz parte do crescimento: o povo junta recursos, constrói com eles, troca o que sobra e só avança de era quando acha e trabalha os minérios certos. Não é questão de tempo, é questão de condições.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-120 | **Plantação:** a partir do Bronze, agricultores criam campos (tiles marcados, com sprite de lavoura que muda com a estação) em solo fértil perto das casas. Campos produzem comida e reduzem a necessidade de caça. | Parcial: campos de trigo, sem estação |
+| RF-VIDA-121 | Colheita sazonal; secas, pragas e frio reduzem a produção e podem causar fome. | Fase 5 |
+| RF-VIDA-122 | Irrigação (Ferro em diante) permite campos mais longe da água. | Parcial: deserto colonizável a partir do Ferro |
+| RF-VIDA-123 | **Domesticação:** herbívoros próximos podem ser domesticados; viram rebanho (sprites seguindo pastores), fornecem comida e tração. Rebanhos atraem predadores. | Fase 5 |
+| RF-VIDA-124 | **Estoque do reino** (guardado na capital, usado por todos os assentamentos do reino): madeira, pedra, cobre, estanho, ferro, carvão, ouro, ferramentas e armas, mais a comida dos barcos de pesca. Madeira e pedra têm limite de armazém (200 + 20 por habitante). O painel do assentamento (mouse sobre a área) mostra o estoque. | Implementado (Fase 0) |
+| RF-VIDA-124a | **Lenha:** lenhadores produzem madeira conforme a floresta em volta; o corte desbasta a vegetação perto do assentamento. | Implementado (Fase 0) |
+| RF-VIDA-124b | **Pedra:** mineradores sem mina e construtores tiram pedra, quatro vezes mais onde há rocha ou colina por perto. | Implementado (Fase 0) |
+| RF-VIDA-124c | **Ferraria:** cada ferreiro faz cerca de 0,6 peça por ano com o metal do estoque: bronze (2 cobre + 1 estanho), ferro (2 ferro, a partir do Bronze), aço (2 ferro + 1 carvão, a partir da Era Medieval). Primeiro ferramentas (até 30% dos adultos; aumentam a produção em 40% e se gastam), depois armas (definem a força na guerra). O que os ferreiros fazem depende do que foi minerado. | Implementado (Fase 0) |
+| RF-VIDA-125 | **Comércio:** uma vez por ano, reinos vizinhos em paz e com mercado trocam excedentes (quem tem mais de 25 manda 5 a quem tem menos de 5), pagando em ouro quando podem. Comércio melhora a relação (em dobro para povos comerciantes). Futuro: comerciantes visíveis nas estradas e espalhar tecnologia. | Parcial |
+| RF-VIDA-126 | Desmatamento e mineração aparecem no mapa e afetam a vegetação e a fauna. | Parcial: corte desbasta a vegetação; minas aparecem no mapa |
+
+### 11.1 Minérios, cavernas e minas
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-127a | **Jazidas limitadas:** o planeta nasce com jazidas de cobre, estanho (mais raro), ferro, ouro e carvão em rocha, montanha e colinas (cerca de uma a cada 2.200 tiles de terra), cada uma com 30 a 260 unidades. 60% são **cavernas** (entrada escura na rocha), o resto são **veios** na superfície; os pontos do sprite têm a cor do minério. | Implementado (Fase 0) |
+| RF-VIDA-127b | **Descoberta:** coletores, caçadores, lenhadores, construtores e mineradores que passam a até 2 tiles de uma jazida a descobrem para o reino ("Enka encontrou estanho numa caverna"). Caçadores e mineradores sem mina exploram mais longe de casa. | Implementado (Fase 0) |
+| RF-VIDA-127c | **Abrir mina:** um assentamento com mineradores abre mina numa jazida conhecida, alcançável a pé e a até seu raio + 25 tiles, pagando madeira; prefere o minério que falta para a próxima era. Até 1 + nível minas por assentamento. Uma estrada liga a mina ao centro, e o sprite vira entrada escorada com carrinho. | Implementado (Fase 0) |
+| RF-VIDA-127d | **Extração:** cada minerador tira cerca de 0,8 unidade por ano (mais com ferramentas) para o estoque do reino; quando a jazida acaba, a mina fecha ("A mina de cobre de Orlu se esgotou") e o povo precisa achar outra. | Implementado (Fase 0) |
+| RF-VIDA-127e | **Ajuda do jogador:** ferramentas de Terreno colocam um veio de cobre, estanho, ferro, ouro ou carvão (100 unidades) num tile de terra livre. É ajuda leve: o povo ainda precisa encontrar o veio e abrir a mina. | Implementado (Fase 0) |
+| RF-VIDA-127f | Futuro: minas profundas na Era Industrial (mais produção, mais risco de desabamento), minérios alienígenas em planetas com vida própria. | Fase 6 |
 
 ---
 
@@ -269,29 +287,31 @@ Povos presos numa ilha ou numa costa usam o mar para crescer, com barcos coerent
 
 ### 12.1 Diplomacia e união
 
-| ID | Requisito |
-|---|---|
-| RF-VIDA-127 | Cada par de reinos/povos tem uma relação de −100 (guerra) a +100 (aliança), alterada por fronteiras próximas, comércio, cultura parecida, incidentes e personalidade dos líderes. |
-| RF-VIDA-128 | Estados: paz, tensão, guerra, trégua, aliança. Mudanças de estado geram linha na crônica. |
-| RF-VIDA-129 | **União:** dois reinos aliados por muito tempo podem se fundir (casamento real, federação) num reino só. Aldeias isoladas podem pedir proteção a um reino vizinho e virar vassalas. |
-| RF-VIDA-130 | Povos diferentes (espécies diferentes no mesmo planeta, por exemplo humanos levados para um planeta com inteligentes nativos) têm relação inicial baixa e podem conviver, comerciar, se aliar ou guerrear. |
+As guerras são entre os povos: o jogador não as comanda e influencia pouco, só de forma leve e com as ferramentas de gestão do mundo (alimentar, ensinar, colocar minérios).
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-127 | Cada par de reinos vizinhos (assentamentos a até 60 tiles) tem uma relação de −100 a +100. Todo ano: fronteira −1,5; espécies diferentes −1; povos diferentes −0,5; cada povo guerreiro −1,5; cada povo de fé ou comerciante +0,5; tolerância dos dois soma até +2,4; comércio +3 (ou +6). Uma cidade que cresce sobre aldeias de outro reino piora a relação em 10. | Implementado (Fase 0) |
+| RF-VIDA-128 | Estados: paz, tensão, guerra, trégua, aliança. Mudanças de estado geram linha na crônica. | Parcial: paz e guerra, com linha nos acontecimentos |
+| RF-VIDA-129 | **União:** dois reinos aliados por muito tempo podem se fundir (casamento real, federação) num reino só. Aldeias isoladas podem pedir proteção a um reino vizinho e virar vassalas. | Parcial: aldeias independentes dentro da área de uma cidade da mesma espécie se juntam ao reino dela |
+| RF-VIDA-130 | Povos diferentes (espécies diferentes no mesmo planeta, por exemplo humanos levados para um planeta com inteligentes nativos) têm relação inicial baixa e podem conviver, comerciar, se aliar ou guerrear. | Implementado (Fase 0): relação inicial −30 |
 
 ### 12.2 Guerra
 
-| ID | Requisito |
-|---|---|
-| RF-VIDA-131 | Guerra declarada por disputa de território, recursos, fé ou ambição do líder. O reino forma um **exército**: guerreiros (sprites com arma da era) que marcham pelas estradas até o alvo. |
-| RF-VIDA-132 | **Combate:** unidades lutam ao se encontrar; força depende da era (Pedra < Bronze < Ferro < Medieval < Industrial), do número e da defesa (muralhas). |
-| RF-VIDA-133 | **Cerco e conquista:** um exército que domina a praça de um assentamento o conquista; o assentamento muda de reino (e de cor) e parte da população foge ou morre. Casas podem ser queimadas. |
-| RF-VIDA-134 | Fim de guerra por paz negociada, exaustão (perdas altas) ou conquista da capital. |
-| RF-VIDA-135 | Guerras afetam o ecossistema (incêndios, fome) e a cultura (povos vencidos guardam rancor). |
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-131 | **Declaração:** com relação abaixo de −40, os dois em paz e um caminho por terra entre eles, há 12% de chance por ano (24% se um povo for guerreiro) de guerra. Ataca quem tem mais força (soldados × armas, mínimo 4); o alvo é o assentamento inimigo mais perto. Os soldados do atacante a até 90 tiles marcham até o alvo. | Implementado (Fase 0) |
+| RF-VIDA-132 | **Combate:** soldados e guardas lutam com inimigos a até 1,5 tile; vence com chance proporcional à força (soldado 1,2, guarda 1,1, líder 0,8, civil 0,4; +15% por era; até +150% com armas de aço suficientes). Soldados armados que morrem perdem a arma. O painel lista as guerras com o número de mortos. | Implementado (Fase 0), sem muralhas |
+| RF-VIDA-133 | **Cerco e conquista:** 3 ou mais soldados atacantes na praça sem nenhum defensor armado por perto conquistam o assentamento: ele muda de reino e de cor, metade do estoque do reino vencido vai para o vencedor (saque), e se era capital, os outros assentamentos daquele reino ficam independentes. | Implementado (Fase 0), sem casas queimadas |
+| RF-VIDA-134 | Fim de guerra por conquista do alvo, ou paz: 3% por ano, mais 1% a cada 1,5 morto, mais 10% depois de 30 anos. Depois da paz a relação volta a −10. | Implementado (Fase 0) |
+| RF-VIDA-135 | Guerras afetam o ecossistema (incêndios, fome) e a cultura (povos vencidos guardam rancor). | Parcial: relação −20 depois de uma conquista |
 
 ### 12.3 Revoltas e instabilidade
 
 | ID | Requisito |
 |---|---|
 | RF-VIDA-136 | Cada assentamento tem estabilidade, reduzida por fome, doença, distância da capital, cultura diferente da capital, impostos/guerra longa e por **intervenção excessiva do jogador** (ensinar demais em pouco tempo). |
-| RF-VIDA-137 | Estabilidade baixa gera revolta: o assentamento declara independência e vira um reino novo, possivelmente em guerra com o antigo. |
+| RF-VIDA-137 | Estabilidade baixa gera revolta: o assentamento declara independência e vira um reino novo, possivelmente em guerra com o antigo. (Hoje a independência vem da distância da capital, RF-VIDA-81, e começa com relação −45.) |
 | RF-VIDA-138 | Guerras civis quando a capital perde o líder sem sucessor claro. |
 
 ---
@@ -301,7 +321,7 @@ Povos presos numa ilha ou numa costa usam o mar para crescer, com barcos coerent
 | ID | Requisito | Situação |
 |---|---|---|
 | RF-VIDA-140 | Ferramentas de vida: introduzir espécie conhecida (pincel), alimentar (pincel), reduzir população (clique). | Implementado (Fase 0) |
-| RF-VIDA-141 | Ferramentas de civilização: introduzir espécie inteligente conhecida (funda um assentamento fora das áreas existentes) e ensinar. | Implementado (Fase 0) |
+| RF-VIDA-141 | Ferramentas de civilização: introduzir espécie inteligente conhecida (funda um assentamento fora das áreas existentes) e ensinar (adianta o conhecimento, mas não pula a condição de era). Ferramentas de Terreno colocam veios de minério (RF-VIDA-127e). | Implementado (Fase 0) |
 | RF-VIDA-142 | Ferramentas futuras: **proteger** (área onde predadores e desastres não entram por um tempo), **curar** (encerra surto), **realocar** (captura um grupo e solta em outro lugar ou planeta, usando a nave), **inspirar** (sinal no céu que aumenta estabilidade ou fé), **semear discórdia/paz** (altera relações), **colher amostra** (adiciona espécie ao catálogo sem matá-la). | Fase 5/6 |
 | RF-VIDA-143 | Toda ferramenta de vida e civilização tem custo (energia, recursos da nave) e recarga, para que a interferência seja escolha, não spam. | Fase 5 |
 | RF-VIDA-144 | **Não criar do zero:** não existe ferramenta que crie espécie nova, mude o tipo de uma espécie ou crie inteligência. O jogador só usa o que encontrou ou trouxe. | Implementado (Fase 0) |
@@ -384,8 +404,7 @@ Mapeado às fases do [REQUISITOS.md](REQUISITOS.md#8-plano-de-desenvolvimento-po
 
 ## 17. Questões em aberto
 
-1. **Guerra controlável?** O jogador pode só observar e influenciar guerras (proposta atual) ou também comandar um povo diretamente em algum modo?
-2. **Custo das ferramentas de vida:** sair de energia da nave, dos recursos minerados ou de uma recarga por tempo?
+1. **Custo das ferramentas de vida:** sair de energia da nave, dos recursos minerados ou de uma recarga por tempo?
 
 ---
 
@@ -400,5 +419,8 @@ Mapeado às fases do [REQUISITOS.md](REQUISITOS.md#8-plano-de-desenvolvimento-po
 | 19/10/2026 | Arte em pixel no estilo 16 bits simples: contorno escuro, 3–4 tons por material, luz de cima à esquerda, elementos grandes ~16 px. |
 | 20/10/2026 | Eras bem mais lentas (séculos por era) e crescimento lento dos inteligentes; idade visível (crianças e idosos); portos e barcos por era; perigos no mar (tempestade, predador marinho, deriva, doença). |
 | 20/10/2026 | Os povos não vão ao espaço por conta própria: a Era Industrial é a última. |
+| 20/10/2026 | Guerras são entre os povos; o jogador não comanda e só ajuda de leve com ferramentas de gestão do mundo. |
+| 20/10/2026 | Avançar de era depende de condições (achar jazidas, abrir minas, trabalhar o metal), não de tempo. Minérios são limitados; o que os ferreiros fazem depende do que foi minerado; o jogador pode colocar veios. |
+| 20/10/2026 | Economia (estoque do reino, custo de construção, comércio), culturas com valor e crença, independência de colônias distantes. |
 | 20/10/2026 | Cidades não estagnam: metrópole (≥ 140), mais gente por casa e por era, deserto colonizável a partir do Ferro e limite de 100 assentamentos vivos. |
 | 19/10/2026 | Evolução só modifica espécies existentes (adaptação, variantes, especiação lenta); inteligência nunca surge de espécies não inteligentes. |

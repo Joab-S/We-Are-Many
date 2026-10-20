@@ -1,6 +1,21 @@
 import { mulberry32 } from '../core/rng';
 import { Biome, temperatureAt, type SurfaceMap } from '../procgen/surface';
-import { CHILD, pickRole, ROLE } from './roles';
+import {
+  buildCost,
+  emptyMade,
+  emptyStock,
+  ERA_NEEDS,
+  forge,
+  generateDeposits,
+  makeCulture,
+  ORE_NAMES,
+  type Culture,
+  type Deposit,
+  type Made,
+  type Ore,
+  type Stock,
+} from './economy';
+import { CHILD, pickRole, ROLE, type RoleContext } from './roles';
 import { lotsFor, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, isAquatic, type Species, type SpeciesKind } from './species';
 
@@ -39,6 +54,16 @@ export const BOATS = [
 ];
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+
+/** Guerra entre dois reinos (ids das capitais): `a` ataca o assentamento `target` de `b`. */
+export interface War {
+  a: number;
+  b: number;
+  target: number;
+  /** Mortos de cada lado em combate. */
+  losses: [number, number];
+  years: number;
+}
 
 export interface Boat {
   village: number;
@@ -92,17 +117,21 @@ export const BUILDING_NAMES: Record<BuildingKind, string> = {
   factory: 'Fábrica',
 };
 
-/** Se o assentamento já pode erguer a construção (era e nível). */
-function canBuild(kind: (typeof BUILDINGS)[number], era: number, tier: number): boolean {
+/**
+ * Se o assentamento já pode erguer a construção: era, nível e condições
+ * (a ferraria só faz sentido com metal no estoque; a cultura adianta templos e mercados).
+ */
+function canBuild(kind: (typeof BUILDINGS)[number], era: number, tier: number, metal: boolean, culture: Culture): boolean {
   switch (kind) {
     case 'granary':
       return era >= 1;
     case 'smithy':
-      return era >= 1;
+      return metal;
     case 'market':
-      return tier >= 1;
-    case 'windmill':
+      return tier >= 1 || culture.value === 'comércio';
     case 'temple':
+      return culture.value === 'fé' ? era >= 1 : era >= 2 && tier >= 1;
+    case 'windmill':
       return era >= 2 && tier >= 1;
     case 'barracks':
       return era >= 2 && tier >= 2;
@@ -144,6 +173,18 @@ export interface Village {
   port: number;
   /** Peixe trazido pelos barcos de pesca, ainda não comido. */
   food: number;
+  /** Estoque e produção histórica; valem os da capital do reino (ver `store`). */
+  stock: Stock;
+  made: Made;
+  /** Povo do assentamento (colônias herdam; conquistados mantêm o seu). */
+  culture: Culture;
+  /** Jazidas que o assentamento explora (ids em `deposits`). */
+  mines: number[];
+  /** Trabalho de ferraria acumulado, em peças. */
+  forgeWork: number;
+  /** Floresta e rocha por perto (lenha e pedra). */
+  forest: number;
+  rock: boolean;
   /** Cor das roupas dos moradores. */
   color: [number, number, number];
   abandoned: boolean;
@@ -209,6 +250,14 @@ export class Ecosystem {
   role = new Uint8Array(0);
   readonly villages: Village[] = [];
   readonly boats: Boat[] = [];
+  /** Jazidas de minério do planeta, e o índice delas por tile. */
+  readonly deposits: Deposit[];
+  readonly depositAt: Int32Array;
+  /** Relação entre reinos (chave "a:b", a < b), de -100 a 100. */
+  readonly relations = new Map<string, number>();
+  readonly wars: War[] = [];
+  private cultures = 0;
+  private yearClock = 0;
   /** Ruas por tile: 0 nenhuma, 1 terra, 2 pedra, 3 praça. */
   readonly road: Uint8Array;
   /** Tiles ocupados por casas. */
@@ -242,6 +291,9 @@ export class Ecosystem {
     this.rows = Math.ceil(map.height / CELL);
     this.gridHead = new Int32Array(this.cols * this.rows);
     this.grow(512);
+    this.deposits = generateDeposits(map, this.rnd);
+    this.depositAt = new Int32Array(map.width * map.height).fill(-1);
+    for (const d of this.deposits) this.depositAt[d.y * map.width + d.x] = d.id;
   }
 
   get total(): number {
@@ -369,7 +421,7 @@ export class Ecosystem {
     if (village >= 0) {
       const v = this.villages[village];
       v.population++;
-      this.role[i] = age < this.species[s].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.rnd(), v.port >= 0);
+      this.role[i] = age < this.species[s].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.rnd(), this.roleContext(v));
     }
     return i;
   }
@@ -622,7 +674,7 @@ export class Ecosystem {
           e += 0.35;
         }
         // Crianças ganham uma profissão ao virar adultas.
-        if (v && this.role[i] === CHILD && this.age[i] >= sp.maturity) this.role[i] = pickRole(era, v.tier, this.rnd(), v.port >= 0);
+        if (v && this.role[i] === CHILD && this.age[i] >= sp.maturity) this.role[i] = pickRole(era, v.tier, this.rnd(), this.roleContext(v));
         const elder = this.age[i] >= elderAge(sp, era);
         const working = this.role[i] !== CHILD && !elder;
         let bias: { x: number; y: number } | undefined;
@@ -638,6 +690,23 @@ export class Ecosystem {
             dx = wrapDx((v.port % map.width) + 0.5 - this.x[i], map.width);
             dy = Math.floor(v.port / map.width) + 0.5 - this.y[i];
             range = 4;
+          } else if (role === ROLE.miner && working && v.mines.length) {
+            // Mineradores trabalham na mina do assentamento.
+            const d = this.deposits[v.mines[i % v.mines.length]];
+            dx = wrapDx(d.x + 0.5 - this.x[i], map.width);
+            dy = d.y + 0.5 - this.y[i];
+            range = 2;
+          } else if (working && (role === ROLE.hunter || role === ROLE.miner)) {
+            // Caçadores e mineradores sem mina exploram longe de casa.
+            range = TIER_RADIUS[v.tier] * (role === ROLE.miner ? 2.5 : 1.8);
+          }
+          if (working && role <= ROLE.miner && this.rnd() < 0.3) this.discover(i, v);
+          const march = this.soldier(i, v);
+          if (!this.alive[i]) return;
+          if (march) {
+            dx = march.x;
+            dy = march.y;
+            range = 2;
           }
           if (dx * dx + dy * dy > range * range) bias = { x: dx, y: dy };
           // Caçadores abatem herbívoros por perto.
@@ -772,7 +841,7 @@ export class Ecosystem {
       for (let dy = 0; dy < 2; dy++) {
         for (let dx = 0; dx < 2; dx++) {
           const t = this.tileAt(cx + lot.x + dx, cy + lot.y + dy);
-          if (t < 0 || !isLand(this.map, t) || this.road[t] || this.built[t]) break;
+          if (t < 0 || !isLand(this.map, t) || this.road[t] || this.built[t] || this.depositAt[t] >= 0) break;
           tiles.push(t);
         }
       }
@@ -782,9 +851,9 @@ export class Ecosystem {
   }
 
   /** Constrói uma casa (ou construção especial) no lote livre mais perto do centro. */
-  private buildHouse(v: Village, kind: BuildingKind = 'house'): boolean {
+  private buildHouse(v: Village, kind: BuildingKind = 'house', free = false): boolean {
     const tiles = this.freeLot(v);
-    if (!tiles) return false;
+    if (!tiles || (!free && !this.pay(v, kind))) return false;
     const w = this.map.width;
     for (const t of tiles) {
       this.built[t] = 1;
@@ -798,7 +867,9 @@ export class Ecosystem {
   /** Próxima construção especial que o assentamento pode erguer, se houver. */
   private nextBuilding(v: Village): BuildingKind | null {
     const era = Math.floor(v.tech);
-    for (const b of BUILDINGS) if (canBuild(b, era, v.tier) && !v.houses.some((h) => h.kind === b)) return b;
+    const st = this.store(v);
+    const metal = st.copper + st.tin + st.iron > 0;
+    for (const b of BUILDINGS) if (canBuild(b, era, v.tier, metal, v.culture) && !v.houses.some((h) => h.kind === b)) return b;
     return null;
   }
 
@@ -876,12 +947,20 @@ export class Ecosystem {
       population: 0,
       port: -1,
       food: 0,
+      stock: emptyStock(),
+      made: emptyMade(),
+      culture: from ? from.culture : makeCulture(this.cultures++, '', rnd),
+      mines: [],
+      forgeWork: 0,
+      forest: 0,
+      rock: false,
       color: from ? from.color : KINGDOM_COLORS[(this.villages.filter((o) => o.kingdom === o.id).length + Math.floor(rnd() * 3)) % KINGDOM_COLORS.length],
       abandoned: false,
     };
+    if (!from) village.culture = makeCulture(village.culture.id, village.name, rnd);
     this.villages.push(village);
     this.layStreets(village);
-    this.buildHouse(village);
+    this.buildHouse(village, 'house', true);
     if (from) this.connect(from, village);
     for (let k = 0; k < settlers; k++) {
       this.spawn(s, x + (rnd() - 0.5) * 3, y + (rnd() - 0.5) * 3, village.id, sp.maturity + rnd() * 10);
@@ -906,6 +985,8 @@ export class Ecosystem {
     }
     v.houses.length = 0;
     v.port = -1;
+    for (const id of v.mines) this.deposits[id].mine = -1;
+    v.mines.length = 0;
     // Assentamentos do reino de uma capital abandonada ficam independentes.
     for (const o of this.villages) if (o.kingdom === v.id && o !== v) o.kingdom = o.id;
     this.log.unshift(`${v.name} foi abandonada`);
@@ -920,14 +1001,16 @@ export class Ecosystem {
     if (target < 2 && inside.length) return;
     if (target >= 2) {
       for (const o of inside) {
+        // Só aldeias e vilas independentes (ou do próprio reino) se juntam; as de outro reino ficam, e a fronteira esquenta.
         if (o.species !== v.species || o.tier >= 2) continue;
-        const old = o.kingdom;
-        for (const m of this.villages) {
-          if (m.kingdom === old) {
-            m.kingdom = v.kingdom;
-            m.color = v.color;
-          }
+        if (o.kingdom !== v.kingdom && this.kingdomSize(this.capitalOf(o)) > 1) {
+          const key = this.key(o.kingdom, v.kingdom);
+          this.relations.set(key, (this.relations.get(key) ?? 0) - 10);
+          continue;
         }
+        if (o.kingdom === v.kingdom) continue;
+        o.kingdom = v.kingdom;
+        o.color = v.color;
         this.connect(v, o);
         this.log.unshift(`${o.name} passou a fazer parte do reino de ${this.capitalOf(v).name}`);
       }
@@ -940,13 +1023,17 @@ export class Ecosystem {
   private updateVillages(dt: number): void {
     // Adultos de cada assentamento, para escolher líderes.
     const adults: number[][] = this.villages.map(() => []);
-    const fishers = this.villages.map(() => 0);
+    // Trabalhadores por profissão (adultos que ainda não são idosos).
+    const workers = this.villages.map(() => new Array<number>(ROLE.king + 1).fill(0));
     for (let i = 0; i < this.count; i++) {
       const v = this.village[i];
       if (v < 0 || !this.alive[i] || this.role[i] === CHILD) continue;
       adults[v].push(i);
-      if (this.role[i] === ROLE.fisher) fishers[v]++;
+      const village = this.villages[v];
+      if (this.age[i] < elderAge(this.species[this.kind[i]], Math.floor(village.tech))) workers[v][this.role[i]]++;
     }
+    const fishers = workers.map((w) => w[ROLE.fisher]);
+    fishers.length = this.villages.length;
     let live = 0;
     for (const v of this.villages) if (!v.abandoned) live++;
     for (const v of this.villages) {
@@ -960,7 +1047,8 @@ export class Ecosystem {
         // Cresce com a população e com o tamanho do reino (troca de ideias).
         const people = Math.min(1.3, Math.max(0.4, Math.sqrt(v.population / 30)));
         const kingdom = Math.min(1.25, 1 + 0.05 * (this.kingdomSize(this.capitalOf(v)) - 1));
-        v.tech = Math.min(ERAS.length - 1, v.tech + ((dt / YEAR_SECONDS) * people * kingdom) / ERA_YEARS[before]);
+        const wise = v.culture.value === 'conhecimento' ? 1.2 : 1;
+        this.advance(v, ((dt / YEAR_SECONDS) * people * kingdom * wise) / ERA_YEARS[before]);
       }
       if (Math.floor(v.tech) > before) {
         this.log.unshift(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`);
@@ -968,6 +1056,8 @@ export class Ecosystem {
       }
       this.growTier(v);
       this.updateLeader(v, adults[v.id] ?? []);
+      // Assentamentos fundados neste passo ainda não têm contagem.
+      if (workers[v.id]) this.produce(v, workers[v.id], adults[v.id].length, dt);
       // Constrói casas quando o assentamento cresce; às vezes uma construção especial.
       const homes = v.houses.filter((h) => h.kind === 'house').length;
       if (v.population > homes * 3 && this.rnd() < 0.4) {
@@ -989,7 +1079,441 @@ export class Ecosystem {
         if (!this.colonizeByLand(v)) this.colonizeBySea(v);
       }
     }
+    this.updateWars();
+    this.yearClock += dt;
+    if (this.yearClock >= YEAR_SECONDS) {
+      this.yearClock = 0;
+      this.diplomacy();
+    }
     if (this.log.length > 8) this.log.length = 8;
+  }
+
+  // Economia ---------------------------------------------------------------
+
+  /** Estoque do reino do assentamento (guardado na capital). */
+  store(v: Village): Stock {
+    return this.villages[v.kingdom].stock;
+  }
+
+  private roleContext(v: Village): RoleContext {
+    return { port: v.port >= 0, smithy: v.houses.some((h) => h.kind === 'smithy'), warlike: v.culture.value === 'guerra' };
+  }
+
+  /** Paga a construção com o estoque do reino; false se faltar material. */
+  private pay(v: Village, kind: string): boolean {
+    const st = this.store(v);
+    const c = buildCost(kind, Math.floor(v.tech));
+    if (st.wood < c.wood || st.stone < c.stone) return false;
+    st.wood -= c.wood;
+    st.stone -= c.stone;
+    return true;
+  }
+
+  /**
+   * Avança o conhecimento. Mudar de era exige condições (minérios achados e
+   * trabalhados, ERA_NEEDS), não só tempo: sem elas o progresso para em 99%.
+   */
+  private advance(v: Village, amount: number): void {
+    const era = Math.floor(v.tech);
+    let next = Math.min(ERAS.length - 1, v.tech + amount);
+    if (Math.floor(next) > era && !ERA_NEEDS[era].met(this.villages[v.kingdom].made)) next = Math.min(next, era + 0.999);
+    v.tech = next;
+  }
+
+  /** O que falta para o assentamento mudar de era, ou null. */
+  eraNeed(v: Village): string | null {
+    const era = Math.floor(v.tech);
+    if (era >= ERA_NEEDS.length || ERA_NEEDS[era].met(this.villages[v.kingdom].made)) return null;
+    return ERA_NEEDS[era].text;
+  }
+
+  /** Floresta e rocha em volta do assentamento (amostra), para lenha e pedra. */
+  private survey(v: Village): void {
+    const r = TIER_RADIUS[v.tier] + 6;
+    let veg = 0;
+    let rock = false;
+    for (let k = 0; k < 40; k++) {
+      const a = this.rnd() * Math.PI * 2;
+      const d = Math.sqrt(this.rnd()) * r;
+      const t = this.tileAt(v.x + Math.cos(a) * d, Math.floor(v.y + Math.sin(a) * d));
+      if (t < 0) continue;
+      veg += this.map.vegetation[t];
+      const b = this.map.biome[t] as Biome;
+      if (b === Biome.Rock || b === Biome.Mountain || this.map.elevation[t] > 0.35) rock = true;
+    }
+    v.forest = veg / 40;
+    v.rock = rock;
+  }
+
+  /** Um ano (proporcional) de trabalho: lenha, pedra, minas e ferraria. */
+  private produce(v: Village, w: number[], adults: number, dt: number): void {
+    const yr = dt / YEAR_SECONDS;
+    const capital = this.villages[v.kingdom];
+    const st = capital.stock;
+    const made = capital.made;
+    if (this.rnd() < 0.05 * dt || v.forest === 0) this.survey(v);
+    const tools = st.tools > 0 ? 1.4 : 1;
+    // Lenha: quanto mais floresta por perto, mais madeira; o corte desbasta a mata.
+    if (w[ROLE.woodcutter]) {
+      const wood = w[ROLE.woodcutter] * 1.2 * yr * tools * Math.min(1, v.forest * 2 + 0.1);
+      st.wood += wood;
+      if (this.rnd() < wood) {
+        const a = this.rnd() * Math.PI * 2;
+        const d = TIER_RADIUS[v.tier] * (0.8 + this.rnd() * 0.6);
+        const t = this.tileAt(v.x + Math.cos(a) * d, Math.floor(v.y + Math.sin(a) * d));
+        if (t >= 0 && this.map.vegetation[t] > 0.35) {
+          this.map.vegetation[t] -= 0.08;
+          this.onTileChanged(t);
+        }
+      }
+    }
+    // Minas: o minério sai da jazida (limitada) para o estoque do reino.
+    const mines = v.mines.map((id) => this.deposits[id]);
+    if (mines.length && w[ROLE.miner]) {
+      const each = (w[ROLE.miner] * 0.8 * yr * tools) / mines.length;
+      for (const d of mines) {
+        const take = Math.min(d.amount, each);
+        d.amount -= take;
+        st[d.ore] += take;
+        if (d.ore === 'coal') made.coal += take;
+        if (d.amount <= 0) {
+          d.mine = -1;
+          v.mines.splice(v.mines.indexOf(d.id), 1);
+          this.log.unshift(`A mina de ${ORE_NAMES[d.ore]} de ${v.name} se esgotou`);
+        }
+      }
+    }
+    // Pedra: mineradores sem mina e construtores tiram pedra (muito mais onde há rocha).
+    const quarry = (mines.length ? 0 : w[ROLE.miner]) + w[ROLE.builder] * 0.5;
+    if (quarry) {
+      const stone = quarry * yr * tools * (v.rock ? 1 : 0.25);
+      st.stone += stone;
+      made.stone += stone;
+    }
+    // Ferraria: cada ferreiro faz uma peça a cada ano e pouco, se houver metal.
+    if (w[ROLE.blacksmith] && v.houses.some((h) => h.kind === 'smithy')) {
+      v.forgeWork += w[ROLE.blacksmith] * 0.6 * yr;
+      while (v.forgeWork >= 1) {
+        const piece = forge(st, Math.floor(v.tech));
+        if (!piece) {
+          v.forgeWork = 0;
+          break;
+        }
+        v.forgeWork -= 1;
+        made[piece.kind]++;
+        // Primeiro ferramentas; depois armas (antes, se o reino estiver em guerra).
+        if (st.tools < adults * 0.3 && !this.warOf(v.kingdom)) st.tools++;
+        else {
+          st.weapons++;
+          st.weaponTier = Math.max(st.weaponTier, piece.tier);
+        }
+      }
+    }
+    // Ferramentas se gastam com o uso.
+    st.tools = Math.max(0, st.tools - st.tools * 0.02 * yr);
+    // Abre uma mina numa jazida conhecida, de preferência do minério que falta para a próxima era.
+    if (w[ROLE.miner] && v.mines.length < 1 + v.tier && this.rnd() < 0.1 * dt) this.openMine(v);
+  }
+
+  /** Minérios que o povo precisa agora para a próxima era. */
+  private wanted(v: Village): Ore[] {
+    return [['copper', 'tin'], ['iron', 'tin'], ['iron'], ['coal', 'iron'], ['coal', 'iron']][Math.floor(v.tech)] as Ore[];
+  }
+
+  private openMine(v: Village): boolean {
+    const w = this.map.width;
+    const want = this.wanted(v);
+    let best: Deposit | null = null;
+    let score = Infinity;
+    const reach = TIER_RADIUS[v.tier] + 25;
+    for (const d of this.deposits) {
+      if (d.amount <= 0 || d.mine >= 0 || !d.known.has(v.kingdom)) continue;
+      const dist = this.distance(v, d.x + 0.5, d.y + 0.5);
+      if (dist > reach) continue;
+      const sc = dist - (want.includes(d.ore) ? 40 : 0);
+      if (sc < score && this.landPath(v.x, v.y, d.x + 0.5, d.y + 0.5)) {
+        score = sc;
+        best = d;
+      }
+    }
+    if (!best || !this.pay(v, 'mine')) return false;
+    best.mine = v.id;
+    v.mines.push(best.id);
+    this.lineRoad(v.x, v.y, best.x + 0.5, best.y + 0.5);
+    const tile = best.y * w + best.x;
+    if (this.road[tile]) {
+      this.road[tile] = 0;
+      this.onTileChanged(tile);
+    }
+    this.log.unshift(`${v.name} abriu uma mina de ${ORE_NAMES[best.ore]}${best.cave ? ' numa caverna' : ''}`);
+    return true;
+  }
+
+  /** Exploradores que passam perto de uma jazida a descobrem para o reino. */
+  private discover(i: number, v: Village): void {
+    const tx = Math.floor(this.x[i]);
+    const ty = Math.floor(this.y[i]);
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const t = this.tileAt(tx + dx, ty + dy);
+        if (t < 0) continue;
+        const id = this.depositAt[t];
+        if (id < 0) continue;
+        const d = this.deposits[id];
+        if (d.amount <= 0 || d.known.has(v.kingdom)) continue;
+        d.known.add(v.kingdom);
+        this.log.unshift(`${v.name} encontrou ${ORE_NAMES[d.ore]} ${d.cave ? 'numa caverna' : 'num veio'}`);
+      }
+    }
+  }
+
+  /** O jogador coloca um veio de minério num tile de terra (ajuda leve). */
+  placeOre(x: number, y: number, ore: Ore): boolean {
+    const t = this.tileAt(x, Math.floor(y));
+    if (t < 0 || !isLand(this.map, t) || this.depositAt[t] >= 0 || this.built[t] || this.road[t]) return false;
+    const w = this.map.width;
+    const d: Deposit = { id: this.deposits.length, x: t % w, y: Math.floor(t / w), ore, amount: 100, initial: 100, cave: false, mine: -1, known: new Set() };
+    this.deposits.push(d);
+    this.depositAt[t] = d.id;
+    this.log.unshift(`Um veio de ${ORE_NAMES[ore]} apareceu na superfície`);
+    return true;
+  }
+
+  // Relações, comércio e guerra ---------------------------------------------
+
+  private key(a: number, b: number): string {
+    return a < b ? `${a}:${b}` : `${b}:${a}`;
+  }
+
+  relation(a: number, b: number): number {
+    return this.relations.get(this.key(a, b)) ?? 0;
+  }
+
+  /** Guerra em que o reino está, se houver. */
+  warOf(k: number): War | null {
+    for (const w of this.wars) if (w.a === k || w.b === k) return w;
+    return null;
+  }
+
+  /** Força de combate de um indivíduo: profissão, era e armas do reino. */
+  private strength(i: number): number {
+    const v = this.villages[this.village[i]];
+    const st = this.store(v);
+    const role = this.role[i];
+    const base = role === ROLE.soldier ? 1.2 : role === ROLE.guard ? 1.1 : role === ROLE.king || role === ROLE.leader ? 0.8 : 0.4;
+    return base * (1 + 0.15 * Math.floor(v.tech)) * (1 + 0.5 * st.weaponTier * Math.min(1, st.weapons / 10));
+  }
+
+  /** Luta entre dois indivíduos de reinos em guerra: um deles morre. */
+  private fight(i: number, j: number, war: War): void {
+    const si = this.strength(i);
+    const sj = this.strength(j);
+    const loser = this.rnd() < si / (si + sj) ? j : i;
+    const k = this.villages[this.village[loser]].kingdom;
+    war.losses[k === war.a ? 0 : 1]++;
+    const st = this.villages[k].stock;
+    if (st.weapons > 0 && this.role[loser] === ROLE.soldier) st.weapons--;
+    this.kill(loser, true);
+  }
+
+  /** Combate e marcha dos soldados; chamado no `decide` de cada inteligente. */
+  private soldier(i: number, v: Village): { x: number; y: number } | null {
+    const war = this.warOf(v.kingdom);
+    if (!war) return null;
+    const role = this.role[i];
+    const enemy = war.a === v.kingdom ? war.b : war.a;
+    if (role === ROLE.soldier || role === ROLE.guard) {
+      let foe = -1;
+      this.forEachNear(this.x[i], this.y[i], 1.5, (j) => {
+        if (foe >= 0 || this.village[j] < 0 || this.species[this.kind[j]].kind !== 'sapient') return;
+        if (this.villages[this.village[j]].kingdom === enemy) foe = j;
+      });
+      if (foe >= 0) {
+        this.fight(i, foe, war);
+        return null;
+      }
+    }
+    // Soldados do atacante marcham até o alvo; os do defensor voltam para defender o alvo.
+    const target = this.villages[war.target];
+    if (role !== ROLE.soldier || this.distance(target, v.x, v.y) > 90) return null;
+    return { x: wrapDx(target.x - this.x[i], this.map.width), y: target.y - this.y[i] };
+  }
+
+  /** Conquista: atacantes na praça e nenhum defensor armado por perto. */
+  private updateWars(): void {
+    for (let k = this.wars.length - 1; k >= 0; k--) {
+      const war = this.wars[k];
+      const a = this.villages[war.a];
+      const b = this.villages[war.b];
+      const target = this.villages[war.target];
+      if (a.abandoned || b.abandoned || target.abandoned || a.kingdom !== war.a || b.kingdom !== war.b || target.kingdom !== war.b) {
+        this.wars.splice(k, 1);
+        continue;
+      }
+      let attackers = 0;
+      let defenders = 0;
+      this.forEachNear(target.x, target.y, TIER_RADIUS[target.tier] * 0.6, (j) => {
+        const vj = this.village[j];
+        if (vj < 0 || this.species[this.kind[j]].kind !== 'sapient') return;
+        const r = this.role[j];
+        const kj = this.villages[vj].kingdom;
+        if (kj === war.a && r === ROLE.soldier) attackers++;
+        else if (kj === war.b && (r === ROLE.soldier || r === ROLE.guard)) defenders++;
+      });
+      if (attackers >= 3 && defenders === 0) {
+        this.conquer(war, target);
+        this.wars.splice(k, 1);
+      }
+    }
+  }
+
+  private conquer(war: War, target: Village): void {
+    const winner = this.villages[war.a];
+    // Uma capital conquistada liberta os assentamentos do seu reino.
+    if (target.kingdom === target.id) {
+      for (const o of this.villages) if (o !== target && !o.abandoned && o.kingdom === target.id) o.kingdom = o.id;
+    }
+    // Saque: metade do estoque do vencido vai para o vencedor.
+    const loot = this.villages[target.kingdom].stock;
+    for (const key of ['wood', 'stone', 'copper', 'tin', 'iron', 'gold', 'coal', 'weapons'] as const) {
+      const half = loot[key] / 2;
+      loot[key] -= half;
+      winner.stock[key] += half;
+    }
+    target.kingdom = winner.id;
+    target.color = winner.color;
+    target.leader = -1;
+    for (const id of target.mines) this.deposits[id].known.add(winner.id);
+    this.relations.set(this.key(war.a, war.b), -20);
+    this.log.unshift(`${winner.name} conquistou ${target.name}`);
+  }
+
+  /**
+   * Uma vez por ano: relações entre reinos vizinhos mudam (fronteira, espécie,
+   * cultura, comércio), reinos com mercado comerciam e, com relação muito
+   * ruim, um declara guerra ao outro. Guerras longas ou sangrentas acabam em paz.
+   */
+  private diplomacy(): void {
+    // Armazéns têm limite: madeira e pedra sobrando não se acumulam para sempre.
+    for (const v of this.villages) {
+      if (v.abandoned || v.kingdom !== v.id) continue;
+      const room = 200 + 20 * v.population;
+      v.stock.wood = Math.min(v.stock.wood, room);
+      v.stock.stone = Math.min(v.stock.stone, room);
+    }
+    this.independence();
+    const capitals = this.villages.filter((v) => !v.abandoned && v.kingdom === v.id);
+    const members = new Map<number, Village[]>();
+    for (const v of this.villages) {
+      if (v.abandoned) continue;
+      const list = members.get(v.kingdom) ?? [];
+      list.push(v);
+      members.set(v.kingdom, list);
+    }
+    const market = (k: number) => (members.get(k) ?? []).some((v) => v.houses.some((h) => h.kind === 'market'));
+    for (let x = 0; x < capitals.length; x++) {
+      for (let y = x + 1; y < capitals.length; y++) {
+        const a = capitals[x];
+        const b = capitals[y];
+        // Assentamentos mais próximos dos dois reinos.
+        let best = Infinity;
+        let pa = a;
+        let pb = b;
+        for (const va of members.get(a.id) ?? []) {
+          for (const vb of members.get(b.id) ?? []) {
+            const d = this.distance(va, vb.x, vb.y);
+            if (d < best) {
+              best = d;
+              pa = va;
+              pb = vb;
+            }
+          }
+        }
+        if (best > 60) continue;
+        const key = this.key(a.id, b.id);
+        let rel = this.relations.get(key) ?? (a.species !== b.species ? -30 : 0);
+        rel -= 1.5;
+        if (a.species !== b.species) rel -= 1;
+        if (a.culture.id !== b.culture.id) rel -= 0.5;
+        for (const c of [a.culture, b.culture]) {
+          if (c.value === 'guerra') rel -= 1.5;
+          if (c.value === 'fé' || c.value === 'comércio') rel += 0.5;
+        }
+        rel += (a.culture.tolerance + b.culture.tolerance) * 1.2;
+        const war = this.warOf(a.id);
+        if (!war && !this.warOf(b.id) && market(a.id) && market(b.id) && this.trade(a, b)) rel += 3 * (a.culture.value === 'comércio' || b.culture.value === 'comércio' ? 2 : 1);
+        rel = Math.max(-100, Math.min(100, rel));
+        this.relations.set(key, rel);
+        if (war || this.warOf(b.id) || rel > -40 || !this.landPath(pa.x, pa.y, pb.x, pb.y)) continue;
+        const warlike = a.culture.value === 'guerra' || b.culture.value === 'guerra';
+        if (this.rnd() > 0.12 * (warlike ? 2 : 1)) continue;
+        // Ataca quem tem mais soldados; o alvo é o assentamento do outro mais perto.
+        const soldiers = (k: number) => {
+          let n = 0;
+          for (let i = 0; i < this.count; i++) if (this.alive[i] && this.role[i] === ROLE.soldier && this.village[i] >= 0 && this.villages[this.village[i]].kingdom === k) n++;
+          return n * (1 + this.villages[k].stock.weaponTier * 0.5);
+        };
+        const sa = soldiers(a.id);
+        const sb = soldiers(b.id);
+        if (Math.max(sa, sb) < 4) continue;
+        const [att, def, target] = sa >= sb ? [a, b, pb] : [b, a, pa];
+        this.wars.push({ a: att.id, b: def.id, target: target.id, losses: [0, 0], years: 0 });
+        this.log.unshift(`Guerra! ${att.name} atacou ${def.name}${target !== def ? ` em ${target.name}` : ''}`);
+      }
+    }
+    for (let k = this.wars.length - 1; k >= 0; k--) {
+      const war = this.wars[k];
+      war.years++;
+      const dead = war.losses[0] + war.losses[1];
+      if (this.rnd() < 0.03 + dead / 150 + (war.years > 30 ? 0.1 : 0)) {
+        this.wars.splice(k, 1);
+        this.relations.set(this.key(war.a, war.b), -10);
+        this.log.unshift(`Paz entre ${this.villages[war.a].name} e ${this.villages[war.b].name}`);
+      }
+    }
+  }
+
+  /**
+   * Assentamentos grandes e longe da capital podem declarar independência e
+   * formar um povo novo (cisma), com cultura própria.
+   */
+  private independence(): void {
+    for (const v of this.villages) {
+      if (v.abandoned || v.kingdom === v.id || v.population < 20) continue;
+      const capital = this.villages[v.kingdom];
+      const far = this.distance(capital, v.x, v.y);
+      if (far < 50 || this.rnd() > 0.004 * (far / 50) * (capital.culture.tolerance < 0.3 ? 2 : 1)) continue;
+      const old = v.kingdom;
+      for (const o of this.villages) if (!o.abandoned && o.kingdom === old && this.distance(v, o.x, o.y) < 30) o.kingdom = v.id;
+      v.kingdom = v.id;
+      v.culture = makeCulture(this.cultures++, v.name, this.rnd);
+      v.color = KINGDOM_COLORS[(KINGDOM_COLORS.indexOf(capital.color) + 1 + Math.floor(this.rnd() * (KINGDOM_COLORS.length - 1))) % KINGDOM_COLORS.length];
+      for (const o of this.villages) if (o.kingdom === v.id) o.color = v.color;
+      v.stock = { ...emptyStock(), wood: capital.stock.wood * 0.2 };
+      v.made = { ...capital.made };
+      this.relations.set(this.key(old, v.id), -45);
+      this.log.unshift(`${v.name} declarou independência de ${capital.name}: nasce o povo ${v.culture.name}`);
+    }
+  }
+
+  /** Troca de excedentes entre dois reinos com mercado; quem recebe paga em ouro se tiver. */
+  private trade(a: Village, b: Village): boolean {
+    let traded: '' | 'tin' | 'copper' | 'iron' | 'coal' | 'stone' | 'wood' = '';
+    for (const r of ['tin', 'copper', 'iron', 'coal', 'stone', 'wood'] as const) {
+      for (const [from, to] of [[a, b], [b, a]]) {
+        if (from.stock[r] > 25 && to.stock[r] < 5) {
+          from.stock[r] -= 5;
+          to.stock[r] += 5;
+          if (to.stock.gold >= 1) {
+            to.stock.gold -= 1;
+            from.stock.gold += 1;
+          }
+          traded ||= r;
+        }
+      }
+    }
+    if (traded && this.rnd() < 0.25) this.log.unshift(`${a.name} e ${b.name} trocaram ${traded === 'wood' ? 'madeira' : traded === 'stone' ? 'pedra' : ORE_NAMES[traded]}`);
+    return traded !== '';
   }
 
   /** Funda um assentamento por terra perto de `v`, sem atravessar água. Retorna se conseguiu. */
@@ -1067,7 +1591,7 @@ export class Ecosystem {
         }
       }
     }
-    if (best < 0 || this.seaSize(bestWater, 600) < 600) return false;
+    if (best < 0 || this.seaSize(bestWater, 600) < 600 || !this.pay(v, 'port')) return false;
     this.built[best] = 1;
     this.onTileChanged(best);
     const bx = best % w;
@@ -1458,7 +1982,7 @@ export class Ecosystem {
       let dx = Math.abs(v.x - x);
       if (dx > w / 2) dx = w - dx;
       if (dx * dx + (v.y - y) ** 2 <= (radius + 4) ** 2) {
-        v.tech = Math.min(ERAS.length - 1, v.tech + amount);
+        this.advance(v, amount);
         taught.push(v);
       }
     }

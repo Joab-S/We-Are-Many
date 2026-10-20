@@ -10,7 +10,8 @@ import {
   type PlanetParams,
   type SurfaceMap,
 } from '../../procgen/surface';
-import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, isLand, YEAR_SECONDS } from '../../sim/ecosystem';
+import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, isLand, YEAR_SECONDS, type Village } from '../../sim/ecosystem';
+import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, type Ore } from '../../sim/economy';
 import { CHILD } from '../../sim/roles';
 import { TIER_NAMES } from '../../sim/settlement';
 import { nativeSpecies, type Species } from '../../sim/species';
@@ -36,6 +37,8 @@ interface Tool {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+const ORE_ICONS: Record<Ore, string> = { copper: '🟠', tin: '⚪', iron: '🟤', gold: '🟡', coal: '⚫' };
+
 /** Ferramentas de terraformação (RF-SUP-06). */
 const TERRAIN_TOOLS: Tool[] = [
   { id: 'raise', tab: 'terrain', label: 'Elevar', icon: '⛰', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] + 0.02 * s, -1, 1)) },
@@ -55,6 +58,17 @@ const TERRAIN_TOOLS: Tool[] = [
   { id: 'heat', tab: 'terrain', label: 'Aquecer', icon: '🔥', mode: 'brush', apply: (m, i, s) => (m.heat[i] = clamp(m.heat[i] + 1.5 * s, -150, 400)) },
   { id: 'cool', tab: 'terrain', label: 'Resfriar', icon: '❄', mode: 'brush', apply: (m, i, s) => (m.heat[i] = clamp(m.heat[i] - 1.5 * s, -150, 400)) },
   { id: 'plant', tab: 'terrain', label: 'Semear vida', icon: '🌱', mode: 'brush', apply: (m, i, s) => (m.vegetation[i] = clamp(m.vegetation[i] + 0.06 * s, 0, 1)) },
+  // Minérios: ajuda leve aos povos, que ainda precisam achar o veio e abrir a mina.
+  ...ORES.map(
+    (ore): Tool => ({
+      id: `ore:${ore}`,
+      tab: 'terrain',
+      label: ORE_NAMES[ore][0].toUpperCase() + ORE_NAMES[ore].slice(1),
+      icon: ORE_ICONS[ore],
+      mode: 'click',
+      act: (ctx, x, y) => ctx.placeOre(x, y, ore),
+    }),
+  ),
 ];
 
 const vertexShader = /* glsl */ `
@@ -407,6 +421,10 @@ export class SurfaceMode {
     const s = this.eco.addSpecies(sp);
     const born = this.eco.introduce(s, x, this.toRow(viewY), this.brush, sp.kind === 'sapient' ? 6 : 8);
     if (!born && !this.eco.log[0]?.startsWith('Muito perto')) this.eco.log.unshift(`${sp.name}: o lugar não é habitável`);
+  }
+
+  placeOre(x: number, viewY: number, ore: Ore): void {
+    if (!this.eco.placeOre(x, this.toRow(viewY), ore)) this.eco.log.unshift('Aqui não dá para colocar minério');
   }
 
   /** Impacto de cometa: abre uma cratera que vira lago e umedece os arredores. */
@@ -764,6 +782,17 @@ export class SurfaceMode {
         else buildings.push({ sprite: 'bonfire', sx: fx, sy: fy, h: z * 1.1, tint: v.color });
       }
     }
+    // Jazidas: caverna, veio ou mina, com pontos na cor do minério.
+    if (!small) {
+      for (const d of eco.deposits) {
+        if (d.amount <= 0) continue;
+        const [sx, sy] = this.toScreen(d.x + 0.5, d.y + 1, z, w, h);
+        if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+        const sprite = d.mine >= 0 ? 'mine' : d.cave ? 'cave' : 'vein';
+        const rows = { mine: 11, cave: 8, vein: 6 }[sprite];
+        buildings.push({ sprite, sx, sy, h: (rows * z) / 8, tint: ORE_COLORS[d.ore] });
+      }
+    }
     // De cima para baixo, para as construções da frente cobrirem as de trás.
     buildings.sort((a, b) => b.sy - a.sy);
     for (const b of buildings) layer.push(b.sprite, b.sx, b.sy, b.h, b.tint);
@@ -910,6 +939,12 @@ export class SurfaceMode {
 
   /** Nome da construção, rua ou plantação no tile, se houver. */
   private placeAt(i: number): string | null {
+    const dep = this.eco.depositAt[i];
+    if (dep >= 0 && this.eco.deposits[dep].amount > 0) {
+      const d = this.eco.deposits[dep];
+      const what = d.mine >= 0 ? `Mina de ${ORE_NAMES[d.ore]} · ${this.eco.villages[d.mine].name}` : `${d.cave ? 'Caverna com' : 'Veio de'} ${ORE_NAMES[d.ore]}`;
+      return `${what} · restam ${Math.ceil(d.amount)} de ${d.initial}`;
+    }
     const road = this.eco.road[i];
     if (road === 4) return 'Plantação';
     if (road === 3) return 'Praça';
@@ -925,6 +960,25 @@ export class SurfaceMode {
       }
     }
     return null;
+  }
+
+  /** Resumo do assentamento sob o mouse: reino, povo, estoque, o que falta para a próxima era e guerra. */
+  private settlementInfo(v: Village): string {
+    const eco = this.eco;
+    const capital = eco.capitalOf(v);
+    const st = eco.store(v);
+    const stock = STOCK_NAMES.filter(([k]) => st[k] >= 1).map(([k, name]) => `${name} ${Math.floor(st[k])}`).join(' · ');
+    const need = eco.eraNeed(v);
+    const war = eco.warOf(v.kingdom);
+    const enemy = war ? eco.villages[war.a === v.kingdom ? war.b : war.a].name : '';
+    const c = v.culture;
+    return `
+      <b>${TIER_NAMES[v.tier]} ${v.name}${capital !== v ? ` · Reino de ${capital.name}` : ''}</b>
+      <span>Povo ${c.name} · valoriza ${c.value} · crê n${c.belief.startsWith('a') ? 'a' : 'o'}${c.belief.startsWith('os') || c.belief.startsWith('as') ? 's' : ''} ${c.belief.split(' ').slice(1).join(' ')}</span>
+      ${stock ? `<span>${stock}</span>` : ''}
+      ${need ? `<span>Para a próxima era: ${need}</span>` : ''}
+      ${war ? `<span>⚔ Em guerra com ${enemy}</span>` : ''}
+      <hr>`;
   }
 
   /** Profissão, ou a fase da vida de quem não trabalha. */
@@ -960,7 +1014,9 @@ export class SurfaceMode {
     } else {
       const t = temperatureAt(this.map, i);
       const place = this.placeAt(i);
+      const v = this.eco.settlementAt(this.hover.x, this.toRow(this.hover.y));
       html = `
+        ${v ? this.settlementInfo(v) : ''}
         <b>${place ?? BIOME_NAMES[this.map.biome[i] as keyof typeof BIOME_NAMES]}</b>
         <span>Altitude ${(this.map.elevation[i] * 100).toFixed(0)}</span>
         <span>Temperatura ${(t - 273.15).toFixed(0)} °C</span>
@@ -1000,6 +1056,7 @@ export class SurfaceMode {
       ${rows || '<div class="wb-empty">Nenhuma espécie. Leve uma pela aba Vida.</div>'}
       <div class="wb-pop">Assentamentos<b>${live.length}</b></div>
       ${kingdoms ? `<div class="wb-pop">Reinos<b>${kingdoms}</b></div>` : ''}
+      ${eco.wars.length ? `<div class="wb-section">Guerras</div>${eco.wars.map((war) => `<div class="wb-log">⚔ ${eco.villages[war.a].name} × ${eco.villages[war.b].name} · ${war.losses[0] + war.losses[1]} mortos</div>`).join('')}` : ''}
       ${eco.boats.length ? `<div class="wb-pop">Barcos no mar<b>${eco.boats.filter((b) => b.sunk < 0).length}</b></div>` : ''}
       ${[...live].sort((a, b) => b.population - a.population).slice(0, 6).map((v) => `<button class="wb-goto" data-village="${v.id}"><i style="background:rgb(${v.color.join(',')})"></i>${TIER_NAMES[v.tier]} ${v.name}<b>${v.population}</b></button>`).join('')}
       ${eco.log.length ? `<div class="wb-section">Acontecimentos</div>${eco.log.slice(0, 5).map((l) => `<div class="wb-log">${l}</div>`).join('')}` : ''}`;

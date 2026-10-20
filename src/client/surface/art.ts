@@ -243,6 +243,39 @@ export const ART = {
     'KKKKKKKKKKKKKKK.',
   ],
 
+  // Jazidas: caverna na rocha, veio na superfície e mina aberta (pontos na cor do minério).
+  cave: [
+    '.....KKKKKK.....',
+    '...KKGGgGGgKK...',
+    '..KGgGMgGgMgnK..',
+    '.KGgGKKKKKgGgnK.',
+    '.KgGKdddddKMgnK.',
+    'KGgMKdddddKgGnnK',
+    'KgGgKdddddKGMgnK',
+    'KKKKKKKKKKKKKKKK',
+  ],
+  vein: [
+    '...KKKKK....',
+    '..KGgMGgK...',
+    '.KGMgGgMgK..',
+    'KGgGgMgGgnK.',
+    'KgMgGgGMgnnK',
+    'KKKKKKKKKKKK',
+  ],
+  mine: [
+    '.....KKKKKK.....',
+    '...KKGGgGGgKK...',
+    '..KGgPPPPPPgnK..',
+    '.KGgGPKKKKPgGnK.',
+    '.KgGgPddddPGgnK.',
+    'KGgGgPddddPgGnnK',
+    'KgGgGPddddPGgGnK',
+    'KKKKKKKKKKKKKKKK',
+    '.........KMMMK..',
+    '.........KpppK..',
+    '..........K.K...',
+  ],
+
   // Porto: galpão de barcos e píer de madeira.
   port: [
     '....KKKKKK......',
