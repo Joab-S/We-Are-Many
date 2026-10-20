@@ -3,7 +3,28 @@
  * própria (art.ts) e muda um pouco o comportamento: caçadores caçam,
  * soldados e guardas ficam perto do centro, líderes e reis são únicos.
  */
-export const ROLES = ['gatherer', 'hunter', 'farmer', 'woodcutter', 'builder', 'miner', 'blacksmith', 'fisher', 'soldier', 'guard', 'leader', 'king'] as const;
+export const ROLES = [
+  'gatherer',
+  'hunter',
+  'farmer',
+  'woodcutter',
+  'builder',
+  'miner',
+  'blacksmith',
+  'fisher',
+  // Profissões da economia local (RF-VIDA-213); ficam antes dos soldados, que andam perto do centro.
+  'shepherd',
+  'horsekeeper',
+  'weaver',
+  'potter',
+  'miller',
+  'merchant',
+  'priest',
+  'soldier',
+  'guard',
+  'leader',
+  'king',
+] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE = Object.fromEntries(ROLES.map((r, i) => [r, i])) as Record<Role, number>;
@@ -20,6 +41,13 @@ export const ROLE_NAMES: Record<Role, string> = {
   miner: 'Minerador',
   blacksmith: 'Ferreiro',
   fisher: 'Pescador',
+  shepherd: 'Pastor',
+  horsekeeper: 'Tratador de cavalos',
+  weaver: 'Tecelão',
+  potter: 'Oleiro',
+  miller: 'Moleiro',
+  merchant: 'Comerciante',
+  priest: 'Sacerdote',
   soldier: 'Soldado',
   guard: 'Guarda',
   leader: 'Líder',
@@ -32,6 +60,16 @@ export interface RoleContext {
   smithy?: boolean;
   /** Valor da cultura: povos guerreiros têm mais soldados. */
   warlike?: boolean;
+  /** Rebanho, haras, tear, olaria, moinho, mercado e templo liberam as profissões da economia. */
+  herd?: boolean;
+  stable?: boolean;
+  loom?: boolean;
+  pottery?: boolean;
+  windmill?: boolean;
+  market?: boolean;
+  temple?: boolean;
+  /** Profissão puxada pela vocação do assentamento (RF-VIDA-221). */
+  vocation?: Role;
 }
 
 /**
@@ -53,6 +91,17 @@ export function roleWeights(era: number, tier: number, ctx: RoleContext = {}): [
   if (ctx.smithy) w.push(['blacksmith', 1]);
   if (era >= 1 && tier >= 1) w.push(['guard', 1]);
   if (ctx.port) w.push(['fisher', 2.5]);
+  if (ctx.herd) w.push(['shepherd', 1.5]);
+  if (ctx.stable) w.push(['horsekeeper', 0.8]);
+  if (ctx.loom) w.push(['weaver', 0.8]);
+  if (ctx.pottery) w.push(['potter', 0.8]);
+  if (ctx.windmill) w.push(['miller', 0.6]);
+  if (ctx.market) w.push(['merchant', 0.8]);
+  if (ctx.temple) w.push(['priest', 0.4]);
+  if (ctx.vocation) {
+    const k = w.findIndex(([r]) => r === ctx.vocation);
+    if (k >= 0) w[k] = [w[k][0], w[k][1] * 1.6];
+  }
   return w;
 }
 
