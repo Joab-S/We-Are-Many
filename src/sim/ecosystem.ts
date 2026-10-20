@@ -19,7 +19,7 @@ import {
 import { yearlyEvents } from './events';
 import { pickItem, pickPrimitive, TIER_MATERIAL, type Category, type Material } from './items';
 import { CHILD, pickRole, ROLE, type RoleContext } from './roles';
-import { lotsFor, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
+import { lotsFor, plotSeed, streetPlan, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, habitatOf, type Species, type SpeciesKind } from './species';
 
 /**
@@ -1023,16 +1023,17 @@ export class Ecosystem {
         if (t >= 0 && isLand(this.map, t)) this.setRoad(t, 3);
       }
     }
-    for (const st of streetPlan(v.tier)) {
-      for (let step = 0; step <= st.len; step++) {
-        const t = this.tileAt(cx + st.x + st.dx * step, cy + st.y + st.dy * step);
+    const seed = plotSeed(v.x, v.y);
+    for (const st of streetPlan(v.tier, seed)) {
+      for (const p of st.pts) {
+        const t = this.tileAt(cx + p.x, cy + p.y);
         if (t < 0 || !isLand(this.map, t)) break;
         if (this.road[t] === 3) continue;
         if (kind === 2 && this.road[t] === 1) this.road[t] = 0;
         this.setRoad(t, kind);
       }
     }
-    v.lots = lotsFor(v.tier);
+    v.lots = lotsFor(v.tier, seed);
   }
 
   /** Tiles do lote livre (casas: do centro para fora; plantações: de fora para dentro). */
