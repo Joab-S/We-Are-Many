@@ -13,6 +13,8 @@ export const HOUSE_RATE = 3;
 export const SPECIAL_BUILDING_SHARE = 0.35;
 /** Roças novas por ano enquanto faltam roças (antes: 30% por segundo). */
 export const FIELD_RATE = 2;
+/** Chance por ano de largar uma roça que nenhum agricultor trabalha (volta a ser campo). */
+export const FIELD_FALLOW_RATE = 0.5;
 /** Porções de comida por ano que cada roça trabalhada produz em ano normal. */
 export const FIELD_YIELD = 3;
 /** Chegada de andarilhos por ano, pelo tamanho do assentamento (até 3, até 9, até 29, 30 ou mais). */

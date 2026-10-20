@@ -129,3 +129,63 @@ export const GRAVEL = 7;
 export function isStreet(road: number): boolean {
   return (road >= 1 && road <= 3) || road === AVENUE || road === GRAVEL;
 }
+
+/**
+ * Contorno da defesa (cerca, paliçada ou muralha): em vez de um círculo no
+ * raio da área, que passava por campo vazio e entrava no espaço dos vizinhos,
+ * a cerca abraça o que foi construído: é o contorno convexo das casas (em
+ * relação ao centro, que fica sempre dentro), afastado `pad` tiles delas.
+ * Retorna o raio do contorno em cada uma das `bins` direções, entre `min` e
+ * `max`.
+ */
+export function wallProfile(points: { dx: number; dy: number }[], bins: number, max: number, min = 2.5, pad = 1.4): number[] {
+  const pts: [number, number][] = [];
+  const ring = 8;
+  for (const p of [{ dx: 0, dy: 0 }, ...points]) {
+    for (let k = 0; k < ring; k++) {
+      const a = (k / ring) * Math.PI * 2;
+      pts.push([p.dx + Math.cos(a) * pad, p.dy + Math.sin(a) * pad]);
+    }
+  }
+  const hull = convexHull(pts);
+  const out: number[] = [];
+  for (let b = 0; b < bins; b++) {
+    const a = (b / bins) * Math.PI * 2;
+    const ux = Math.cos(a);
+    const uy = Math.sin(a);
+    // Onde o raio que sai do centro cruza a borda do contorno.
+    let r = 0;
+    for (let k = 0; k < hull.length; k++) {
+      const [x1, y1] = hull[k];
+      const [x2, y2] = hull[(k + 1) % hull.length];
+      const ex = x2 - x1;
+      const ey = y2 - y1;
+      const den = ux * ey - uy * ex;
+      if (Math.abs(den) < 1e-9) continue;
+      const t = (x1 * ey - y1 * ex) / den;
+      const s = (x1 * uy - y1 * ux) / den;
+      if (t > 0 && s >= -1e-9 && s <= 1 + 1e-9) r = Math.max(r, t);
+    }
+    out.push(Math.max(min, Math.min(max, r || min)));
+  }
+  return out;
+}
+
+/** Contorno convexo (cadeia monótona), no sentido anti-horário. */
+function convexHull(pts: [number, number][]): [number, number][] {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cross = (o: [number, number], a: [number, number], b: [number, number]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: [number, number][] = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper: [number, number][] = [];
+  for (let k = p.length - 1; k >= 0; k--) {
+    const q = p[k];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}

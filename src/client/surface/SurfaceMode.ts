@@ -26,7 +26,7 @@ import { generateSurfaceAsync } from './generateAsync';
 import { SoftArt } from './softArt';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 import { animalStage, DEATH_TEXT, familyName, personName } from '../../sim/people';
-import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, GRAVEL, houseStyle } from '../../sim/architecture';
+import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, GRAVEL, houseStyle, wallProfile } from '../../sim/architecture';
 import { CURRENCY_NAMES } from '../../sim/trade';
 import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, type CompareKey, type SettlementTab } from './settlementWindow';
 
@@ -1870,18 +1870,35 @@ export class SurfaceMode {
   /**
    * Defesa por era (19.8): estacas na aldeia guerreira da Idade do Bronze,
    * paliçada na do Ferro e muralha de pedra com portões da Medieval em diante,
-   * na borda de vilas e cidades. Onde uma rua cruza a borda fica a passagem.
+   * em volta do que foi construído (não no raio da área, que passava por
+   * campo vazio e entrava no espaço dos vizinhos). Onde uma rua cruza a borda
+   * fica a passagem; onde a cerca entraria em outro assentamento, ela para.
    */
   private pushDefense(v: Village, era: number, out: { sprite: SpriteName; sx: number; sy: number; h: number; tint: readonly number[] }[], z: number, w: number, h: number, margin: number): void {
     const warrior = v.culture.value === 'guerra';
     if (v.tier < 1 || era < 1 || (era === 1 && !warrior)) return;
     const eco = this.eco;
-    const r = eco.radius(v) - 0.6;
+    const max = eco.radius(v) - 0.6;
     const stone = era >= 3;
-    const step = 0.9 / r;
-    for (let a = 0; a < Math.PI * 2; a += step) {
+    const width = this.map.width;
+    const bins = 48;
+    const points = v.houses.filter((o) => o.kind !== 'port').map((o) => {
+      let dx = o.x + 1 - v.x;
+      if (dx > width / 2) dx -= width;
+      else if (dx < -width / 2) dx += width;
+      return { dx, dy: o.y + 1 - v.y };
+    });
+    const profile = wallProfile(points, bins, max);
+    const others = eco.villages.filter((o) => o !== v && !o.abandoned && eco.distance(o, v.x, v.y) < max + eco.radius(o));
+    for (let a = 0; a < Math.PI * 2; ) {
+      // Raio entre duas direções, interpolado para a cerca não fazer degraus.
+      const f = (a / (Math.PI * 2)) * bins;
+      const b = Math.floor(f) % bins;
+      const r = profile[b] + (profile[(b + 1) % bins] - profile[b]) * (f - Math.floor(f));
+      a += 0.9 / r;
       const x = v.x + Math.cos(a) * r;
       const y = v.y + Math.sin(a) * r;
+      if (others.some((o) => eco.distance(o, x, y) < Math.min(eco.radius(o), r))) continue;
       const [sx, sy] = this.toScreen(x, y + 0.5, z, w, h);
       if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
       const t = this.tileIndex(x, this.map.height - y);
