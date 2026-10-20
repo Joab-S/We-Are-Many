@@ -140,6 +140,63 @@ export class StarField {
     return best;
   }
 
+  /**
+   * As `k` estrelas carregadas mais próximas, da mais perto para a mais
+   * longe, numa única passada pelos chunks (usado pelo radar e pelo GUIA).
+   */
+  nearby(shipAu: THREE.Vector3, k: number, skipId?: number, maxAu = Infinity): (CatalogStar & { distAu: number })[] {
+    const ids: number[] = [];
+    const sqs: number[] = [];
+    const where: [Float32Array, number, THREE.Vector3][] = [];
+    let worst = maxAu === Infinity ? Infinity : maxAu * maxAu;
+    for (const c of this.chunks.values()) {
+      const d = c.data;
+      const cx = c.centerAu.x - shipAu.x;
+      const cy = c.centerAu.y - shipAu.y;
+      const cz = c.centerAu.z - shipAu.z;
+      for (let i = 0; i < d.length; i += 6) {
+        const dx = cx + d[i] * AU_PER_PC;
+        const dy = cy + d[i + 1] * AU_PER_PC;
+        const dz = cz + d[i + 2] * AU_PER_PC;
+        const sq = dx * dx + dy * dy + dz * dz;
+        if (sq >= worst || d[i + 5] === skipId) continue;
+        // Inserção ordenada numa lista curta.
+        let j = sqs.length;
+        while (j > 0 && sqs[j - 1] > sq) j--;
+        sqs.splice(j, 0, sq);
+        ids.splice(j, 0, d[i + 5]);
+        where.splice(j, 0, [d, i, c.centerAu]);
+        if (sqs.length > k) {
+          sqs.pop();
+          ids.pop();
+          where.pop();
+        }
+        if (sqs.length === k) worst = sqs[k - 1];
+      }
+    }
+    return where.map(([d, i, center], n) => ({
+      id: ids[n],
+      pos: new THREE.Vector3(d[i], d[i + 1], d[i + 2]).multiplyScalar(AU_PER_PC).add(center),
+      absmag: d[i + 3],
+      ci: d[i + 4],
+      distAu: Math.sqrt(sqs[n]),
+    }));
+  }
+
+  /** Estrelas carregadas que têm nome próprio no catálogo, para a busca do GUIA. */
+  named(names: Map<number, string>): CatalogStar[] {
+    const out: CatalogStar[] = [];
+    for (const c of this.chunks.values()) {
+      const d = c.data;
+      for (let i = 0; i < d.length; i += 6) {
+        if (!names.has(d[i + 5])) continue;
+        const pos = new THREE.Vector3(d[i], d[i + 1], d[i + 2]).multiplyScalar(AU_PER_PC).add(c.centerAu);
+        out.push({ id: d[i + 5], pos, absmag: d[i + 3], ci: d[i + 4] });
+      }
+    }
+    return out;
+  }
+
   /** Procura uma estrela pelo id entre os chunks carregados. */
   find(id: number): CatalogStar | null {
     for (const c of this.chunks.values()) {

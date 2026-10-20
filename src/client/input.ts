@@ -10,6 +10,8 @@ export class Input {
   constructor(private readonly element: HTMLElement, private readonly pointerLock: boolean) {
     const opts = { signal: this.abort.signal };
     window.addEventListener('keydown', (e) => {
+      // Digitando num campo de texto (busca do GUIA), as teclas não pilotam a nave.
+      if (e.target instanceof HTMLInputElement) return;
       if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
       if (e.repeat) return;
       this.keys.add(e.code);
