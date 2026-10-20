@@ -22,6 +22,7 @@ import { SoftRenderer, type GameRenderer } from '../renderer';
 import type { GameState } from '../state';
 import { BODY_NAMES, makeDecorCanvas, ROLE_NAMES, ROLES, SPRITES } from './art';
 import { generateSurfaceAsync } from './generateAsync';
+import { SoftArt } from './softArt';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 
 type Tab = 'terrain' | 'climate' | 'life' | 'civ' | 'events';
@@ -660,6 +661,7 @@ export class SurfaceMode {
     this.map.biome[i] = classify(this.map, i);
     paintTile(this.map, this.pixels, i);
     if (this.eco.road[i] || this.eco.built[i]) this.paintSettlement(i);
+    this.softArt?.invalidate(i);
     this.textureChanged = true;
   }
 
@@ -1327,11 +1329,12 @@ export class SurfaceMode {
   private softCanvas: HTMLCanvasElement | null = null;
   private softImage: ImageData | null = null;
   private softVersion = -1;
+  private softArt: SoftArt | null = null;
 
   /**
    * Desenho sem WebGL: o mapa vira um canvas de um pixel por tile, ampliado
-   * sem suavização; os sprites são desenhados por cima. Sem os enfeites por
-   * tile nem o brilho da água, que dependem do shader.
+   * sem suavização; de perto (zoom 3 em diante), por cima vai a arte completa
+   * do shader feita na CPU (softArt.ts). Os sprites são desenhados por cima.
    */
   private renderSoft(ctx: CanvasRenderingContext2D, w: number, h: number, z: number): void {
     const map = this.map;
@@ -1373,7 +1376,15 @@ export class SurfaceMode {
       const dx = (copy * mw + sa - this.center.x) * z + w / 2;
       ctx.drawImage(this.softCanvas, sa, 0, sb - sa, mh, dx, top, (sb - sa) * z, mh * z);
     }
-    if (z >= 5) {
+    // De perto, a arte completa (a mesma do shader), pintada aos poucos em blocos guardados.
+    const level = SoftArt.levelFor(z);
+    if (level) {
+      this.softArt ??= new SoftArt(this.pixels, mw, mh, this.decorCanvas);
+      const r0 = Math.max(0, Math.floor(mh - this.center.y - h / 2 / z));
+      const r1 = Math.min(mh - 1, Math.ceil(mh - this.center.y + h / 2 / z));
+      this.softArt.draw(ctx, level, z, x0, x1, r0, r1, top, this.center.x, w);
+    }
+    if (z >= 5 && level < 8) {
       // Enfeites (árvores, pedras) com a mesma arte do shader.
       const r0 = Math.max(0, Math.floor(mh - this.center.y - h / 2 / z));
       const r1 = Math.min(mh - 1, Math.ceil(mh - this.center.y + h / 2 / z));

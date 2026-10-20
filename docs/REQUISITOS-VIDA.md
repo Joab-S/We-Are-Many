@@ -397,7 +397,7 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 | RNF-VIDA-04 | **Fora da tela:** criaturas fora da área visível continuam simuladas, mas sem desenho. |
 | RNF-VIDA-05 | **Planetas não observados:** quando o jogador está no 3D ou em outro planeta, a vida é simulada de forma **agregada** (populações por espécie e por assentamento, eras, relações), em passos grandes, e reconstituída em indivíduos ao observar de novo. Custo desprezível por planeta. |
 | RNF-VIDA-06 | Simulação determinística dada a semente e a sequência de ações do jogador, para reproduzir bugs e, no coop, sincronizar. |
-| RNF-VIDA-07 | Funciona no renderizador por software (sem placa de vídeo), com os mesmos sprites. |
+| RNF-VIDA-07 | Funciona no renderizador por software (sem placa de vídeo), com os mesmos sprites e, do zoom 3 em diante, a mesma arte do mapa (bordas onduladas, costa com espuma, textura do chão, ruas, plantações e enfeites), pintada na CPU em blocos de 32x32 tiles guardados em cache e refeitos só quando um tile muda. |
 | RNF-VIDA-08 | Todo texto de interface e nomes em português; nomes alienígenas gerados; nenhum nome da obra de referência. |
 
 ### 15.1 Persistência
