@@ -11,6 +11,7 @@ import { NEED_NAMES, NEEDS, SEASONS, VOCATION_ICONS, VOCATION_NAMES, welfare } f
 import { DEATH_CAUSES, familyName, personName } from '../../sim/people';
 import { CHILD, ROLE_NAMES, ROLES, type Role } from '../../sim/roles';
 import { TIER_NAMES } from '../../sim/settlement';
+import { MATERIAL_NAMES } from '../../sim/architecture';
 import { elderAge } from '../../sim/ecosystem';
 
 export type SettlementTab = 'summary' | 'economy' | 'people' | 'buildings' | 'relations' | 'history';
@@ -204,6 +205,12 @@ function peopleHtml(eco: Ecosystem, v: Village): string {
 function buildingsHtml(eco: Ecosystem, v: Village): string {
   const houses = v.houses.filter((h) => h.kind === 'house');
   const tall = houses.filter((h) => (h.level ?? 0) > 0).length;
+  // Estilos misturados na troca de era (RF-VIDA-251) e casas vazias na crise (RF-VIDA-254).
+  const era = Math.floor(v.tech);
+  const byEra = new Map<number, number>();
+  for (const h of houses) byEra.set(h.era ?? era, (byEra.get(h.era ?? era) ?? 0) + 1);
+  const styles = [...byEra.entries()].sort((a, b) => b[0] - a[0]).map(([e, n]) => `${n} da ${ERAS[e]}`).join(' · ');
+  const empty = houses.filter((h) => h.empty).length;
   const special = v.houses.filter((h) => h.kind !== 'house');
   const go = (x: number, y: number) => `data-go="${(x + 1).toFixed(1)},${(y + 1).toFixed(1)}"`;
   const works = v.houses.filter((h) => (h.workUntil ?? 0) > eco.year);
@@ -220,7 +227,9 @@ function buildingsHtml(eco: Ecosystem, v: Village): string {
     .join('');
   const pens = (v.pens ?? []).length;
   return `
-    <div class="wb-kv"><span>Casas</span><b>${houses.length}${tall ? ` · ${tall} com andar a mais` : ''}</b></div>
+    <div class="wb-kv"><span>Casas</span><b>${houses.length}${tall ? ` · ${tall} com andar a mais` : ''}${empty ? ` · <span class="bad">${empty} vazias</span>` : ''}</b></div>
+    <div class="wb-kv"><span>Estilo</span><b>${styles || '—'}</b></div>
+    <div class="wb-kv"><span>Material</span><b>${v.material ? MATERIAL_NAMES[v.material] : MATERIAL_NAMES.plain}</b></div>
     <div class="wb-kv"><span>Plantações</span><b>${v.fields}</b></div>
     ${pens ? `<div class="wb-kv"><span>Cercados</span><b>${pens}</b></div>` : ''}
     <div class="wb-kv"><span>Porto</span><b>${v.port >= 0 ? 'sim' : 'não'}</b></div>

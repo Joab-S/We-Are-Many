@@ -92,6 +92,17 @@ export const TIER_UP_COMPLETENESS = 0.7;
 export const REFORM_RATE = 0.5;
 /** Anos que uma obra (reforma ou construção) fica com andaime. */
 export const WORK_YEARS = 2;
+/** Casas reformadas para o estilo da era nova por ano por construtor (transição gradual, RF-VIDA-251). */
+export const RESTYLE_RATE = 0.6;
+/** Reformas a mais num assentamento próspero (RF-VIDA-254). */
+export const RICH_REFORM = 1.5;
+/** Casas que ficam vazias por ano num assentamento em crise, e que voltam a ser ocupadas na melhora (RF-VIDA-254). */
+export const CRISIS_EMPTY_RATE = 0.5;
+export const CRISIS_REFILL_RATE = 1;
+/** Fração das ruas por onde passa o ramo de uma rua principal (RF-VIDA-253). */
+export const MAIN_STREET_SHARE = 0.12;
+/** Tiles retos de rua principal para virar avenida (cidade em diante). */
+export const AVENUE_MIN = 4;
 /** Pessoas a mais que cada andar extra de uma casa abriga. */
 export const LEVEL_HOUSING = 2;
 /** Crescimento das ruas por ano quando os lotes acabam (1 = ruas do nível seguinte, metade da área). */

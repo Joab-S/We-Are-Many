@@ -6,6 +6,7 @@
 
 import { generateSurface, type PlanetParams } from '../procgen/surface';
 import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
+import { isStreet } from './architecture';
 import { GOODS } from './economy';
 import { welfare } from './needs';
 import { roadBlocks } from './settlement';
@@ -91,7 +92,7 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
           const ty = h.y + dy;
           if (ty < 0 || ty >= map.height) continue;
           const r = e.road[ty * map.width + (((h.x + dx) % map.width) + map.width) % map.width];
-          if (r >= 1 && r <= 3) near = true;
+          if (isStreet(r)) near = true;
         }
       }
       if (!near) off++;

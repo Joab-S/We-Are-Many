@@ -26,6 +26,7 @@ import { generateSurfaceAsync } from './generateAsync';
 import { SoftArt } from './softArt';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 import { animalStage, DEATH_TEXT, familyName, personName } from '../../sim/people';
+import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, houseStyle } from '../../sim/architecture';
 import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, type CompareKey, type SettlementTab } from './settlementWindow';
 
 /** Raio de escolha de criaturas em pixels de tela, igual em qualquer zoom (RF-VIDA-330). */
@@ -452,8 +453,12 @@ export class SurfaceMode {
     const road = this.eco.road[i];
     const n = tileHash(i) * 0.12 - 0.06;
     let c: [number, number, number] | null = null;
-    if (road === 1) c = [150, 114, 74];
-    else if (road === 2) c = [146, 144, 150];
+    // Ruas pela era e pela hierarquia (19.8, RF-VIDA-253): trilha, terra batida, cascalho nas principais, pedra, calçamento.
+    const era = road === 1 || road === 2 ? this.streetEra(i) : 0;
+    const main = this.eco.mainStreet[i] === 1;
+    if (road === 1) c = era === 0 ? [164, 130, 88] : era >= 2 && main ? [170, 162, 146] : [140, 104, 66];
+    else if (road === 2) c = era >= 4 ? [124, 122, 130] : [146, 144, 150];
+    else if (road === AVENUE) c = [108, 108, 118];
     else if (road === 3) c = [184, 160, 120];
     else if (road === 4) c = [196, 160, 78];
     else if (road === 5) c = [118, 168, 74];
@@ -468,8 +473,15 @@ export class SurfaceMode {
     }
     // Plantação leva o enfeite de trigo (7); terra batida, pedra e praça, os
     // enfeites 8, 9 e 10 (desenhados em softArt.ts); casas, o 15 (nem enfeite nem grama).
-    const kind = road === 4 ? 7 : road === 1 ? 8 : road === 2 ? 9 : road === 3 ? 10 : 15;
+    const kind = road === 4 ? 7 : road === 1 ? 8 : road === 2 || road === AVENUE ? 9 : road === 3 ? 10 : 15;
     px[o + 3] = kind * 16 + 15;
+  }
+
+  /** Era do assentamento dono da rua neste tile (0 fora de qualquer um). */
+  private streetEra(i: number): number {
+    const w = this.map.width;
+    const v = this.eco.settlementAt((i % w) + 0.5, Math.floor(i / w) + 0.5);
+    return v ? Math.floor(v.tech) : 0;
   }
 
   // Interface ----------------------------------------------------------------
@@ -493,6 +505,45 @@ export class SurfaceMode {
       this.iconCache.set(key, url);
     }
     return url ? `<img class="wb-px" src="${url}" alt="">` : '';
+  }
+
+  private readonly crestCache = new Map<string, string>();
+
+  /**
+   * Brasão do reino (RF-VIDA-288): escudo na cor do reino com a forma pelo
+   * valor do povo e o emblema da vocação da capital.
+   */
+  private crest(k: Village): string {
+    const key = `${k.color.join(',')}|${k.culture.value}|${k.vocation ?? ''}`;
+    let url = this.crestCache.get(key);
+    if (!url) {
+      const c = document.createElement('canvas');
+      c.width = 11;
+      c.height = 13;
+      const g = c.getContext('2d')!;
+      const shape = CREST_SHAPES[k.culture.value] ?? 'round';
+      const inside = (x: number, y: number) => {
+        if (shape === 'square') return y < 11;
+        if (shape === 'banner') return y < 10 || (y < 13 && Math.abs(x - 5) >= y - 9);
+        if (shape === 'pointed') return y < 7 || Math.abs(x - 5) <= 12 - y - 1;
+        return y < 7 || (x - 5) ** 2 + (y - 6) ** 2 <= 30;
+      };
+      const [r, gr, b] = k.color;
+      for (let y = 0; y < 13; y++) {
+        for (let x = 0; x < 11; x++) {
+          if (!inside(x, y)) continue;
+          const edge = !inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1) || !inside(x, y + 1) || x === 0 || x === 10 || y === 0;
+          g.fillStyle = edge ? '#241a14' : x > 6 ? `rgb(${(r * 0.7) | 0},${(gr * 0.7) | 0},${(b * 0.7) | 0})` : `rgb(${r},${gr},${b})`;
+          g.fillRect(x, y, 1, 1);
+        }
+      }
+      const emblem = k.vocation ? CREST_EMBLEMS[k.vocation] : [];
+      g.fillStyle = '#f1e8d4';
+      emblem.forEach((row, y) => [...row].forEach((ch, x) => ch === '#' && g.fillRect(x + 3, y + 2, 1, 1)));
+      url = c.toDataURL();
+      this.crestCache.set(key, url);
+    }
+    return `<img class="wb-crest" src="${url}" alt="" title="Brasão do reino de ${k.name}">`;
   }
 
   private toolIcon(t: Tool): string {
@@ -887,9 +938,12 @@ export class SurfaceMode {
     if (!v) return;
     const tab = this.vwin.tab;
     const html = settlementTabHtml(this.eco, v, tab, (e) => Ecosystem.describe(e));
-    const title = `${v.vocation ? `${VOCATION_ICONS[v.vocation]} ` : ''}${TIER_NAMES[v.tier]} ${v.name} ${stateIcons(this.eco, v)}`;
+    const title = `${this.crest(this.eco.villages[v.kingdom])}<span>${v.vocation ? `${VOCATION_ICONS[v.vocation]} ` : ''}${TIER_NAMES[v.tier]} ${v.name} ${stateIcons(this.eco, v)}</span>`;
     const head = this.root.querySelector<HTMLElement>('[data-vwin-title]')!;
-    if (head.textContent !== title) head.textContent = title;
+    if (head.dataset.html !== title) {
+      head.dataset.html = title;
+      head.innerHTML = title;
+    }
     this.root.querySelectorAll<HTMLElement>('[data-vtab]').forEach((b) => b.classList.toggle('on', b.dataset.vtab === tab));
     if (html === this.lastVwinHtml) return;
     this.lastVwinHtml = html;
@@ -1132,7 +1186,7 @@ export class SurfaceMode {
         const wonder = k.houses.some((h) => h.kind === 'wonder') ? ` · 🏛 ${WONDER_NAMES[c.value]}` : '';
         return `
           <div class="wb-card">
-            <button class="wb-card-head" data-village="${k.id}"><i style="background:rgb(${k.color.join(',')})"></i><b>${members.length > 1 || k.tier >= 2 ? 'Reino de ' : ''}${k.name}</b><em>📍</em></button>
+            <button class="wb-card-head" data-village="${k.id}">${this.crest(k)}<b>${members.length > 1 || k.tier >= 2 ? 'Reino de ' : ''}${k.name}</b><em>📍</em></button>
             <div>Povo ${c.name} · ${eco.species[k.species].name} · valoriza ${c.value} · crê em ${c.belief}${wonder}</div>
             <div>${members.length} assentamento${members.length > 1 ? 's' : ''} · ${pop} habitantes · ${ERAS[Math.floor(Math.max(...members.map((v) => v.tech)))]}</div>
             ${stock ? `<div class="wb-dim">${stock}</div>` : ''}
@@ -1599,9 +1653,8 @@ export class SurfaceMode {
     for (const v of eco.villages) {
       if (v.abandoned) continue;
       const era = Math.floor(v.tech);
-      // Uma casa por era; cidades medievais já têm sobrados.
-      const styles = ['hut', 'cottage', 'house', 'stoneHouse', 'townhouse'];
-      const base = era >= 4 || (era >= 3 && v.tier >= 2) ? 4 : era;
+      const material = eco.materialOf(v);
+      const prosperous = economicState(v).label === 'Próspero';
       for (const house of v.houses) {
         if (house.kind === 'port') {
           // O píer fica virado para a água (variante 1: água a oeste).
@@ -1612,10 +1665,26 @@ export class SurfaceMode {
         }
         const [sx, sy] = this.toScreen(house.x + 1, house.y + 2, z, w, h);
         if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
-        // Casa reformada ganha um andar: usa o estilo seguinte (sobrado), sem passar do último.
-        const style = styles[Math.min(styles.length - 1, base + (house.level ?? 0))];
-        const sprite = house.kind !== 'house' ? house.kind : house.variant ? `${style}:${house.variant}` : style;
+        // Estilo da era em que a casa foi feita ou reformada (a cidade mistura estilos na troca de era, RF-VIDA-251);
+        // casa reformada ganha um andar e usa o estilo seguinte. Material da região (RF-VIDA-252).
+        const style = houseStyle(house.era ?? era, v.tier, house.level ?? 0);
+        const sprite =
+          house.kind !== 'house'
+            ? house.kind
+            : material === 'plain'
+              ? house.variant
+                ? `${style}:${house.variant}`
+                : style
+              : `${style}:${material}${house.variant % 2 ? ':1' : ''}`;
         buildings.push({ sprite, sx, sy, h: Math.max(3, z * 2), tint: v.color });
+        if (!small && house.kind === 'house') {
+          // Casa vazia na crise: tábuas nas janelas; assentamento próspero: canteiro de flores (RF-VIDA-254).
+          if (house.empty) buildings.push({ sprite: 'boards', sx, sy: sy - 0.01, h: Math.max(3, z * 2), tint: v.color });
+          else if (prosperous && (house.x * 7 + house.y * 3) % 3 === 0) {
+            const [gx, gy] = this.toScreen(house.x + 2.1, house.y + 2, z, w, h);
+            buildings.push({ sprite: 'garden', sx: gx, sy: gy + 0.01, h: z * 0.55, tint: v.color });
+          }
+        }
         // Olaria acesa: fumaça saindo da chaminé.
         if (!small && house.kind === 'pottery') buildings.push({ sprite: flame ? 'smoke' : 'smoke2', sx: sx + z * 0.45, sy: sy + z * 2.05, h: z * 0.5, tint: v.color });
         // Obra em andamento (construção ou reforma): andaime por cima.
@@ -1653,8 +1722,14 @@ export class SurfaceMode {
         const capital = v.kingdom === v.id && eco.kingdomSize(v) > 1;
         // Idade da Pedra: a praça é uma fogueira, mesmo nas cidades; depois, poço ou fortaleza.
         if (era === 0) buildings.push({ sprite: flame ? 'bonfire' : 'bonfire2', sx: fx, sy: fy, h: z * 1.25, tint: v.color });
-        else if (v.tier >= 2) buildings.push({ sprite: capital ? 'castle' : 'keep', sx: fx, sy: fy, h: z * (capital ? 2 : 2.6), tint: v.color });
-        else buildings.push({ sprite: 'well', sx: fx, sy: fy, h: z * 1.3, tint: v.color });
+        else if (v.tier >= 2) {
+          buildings.push({ sprite: capital ? 'castle' : 'keep', sx: fx, sy: fy, h: z * (capital ? 2 : 2.6), tint: v.color });
+          // Bandeira com o brasão do reino na fortaleza (RF-VIDA-288).
+          const king = eco.villages[v.kingdom];
+          buildings.push({ sprite: `flag:${king.vocation ?? 'none'}`, sx: fx + z * 0.15, sy: fy + z * (capital ? 2.6 : 3.1), h: z * 1.1, tint: king.color });
+        } else buildings.push({ sprite: 'well', sx: fx, sy: fy, h: z * 1.3, tint: v.color });
+        this.pushDefense(v, era, buildings, z, w, h, margin);
+        if (era >= 4 && z >= 6) this.pushLamps(v, buildings, z, w, h, margin);
       }
     }
     // Jazidas: caverna, veio ou mina, com pontos na cor do minério.
@@ -1693,6 +1768,11 @@ export class SurfaceMode {
       const rows = { wreck: 4, canoe: 7, rowboat: 8, sailboat: 15, caravel: 17, steamship: 14 }[name] ?? 8;
       const bob = Math.sin((performance.now() / 1000) * 2 + b.x) * px * 0.6;
       layer.push(b.sunk < 0 && b.facing < 0 ? `${name}:l` : name, sx, sy - z * 0.4 + bob, rows * px, tint, tint);
+      // Bandeira do reino no mastro (RF-VIDA-288).
+      if (b.sunk < 0 && z >= 4) {
+        const king = eco.villages[eco.villages[b.village].kingdom];
+        layer.push(`flag:${king.vocation ?? 'none'}`, sx + z * 0.1, sy - z * 0.4 + bob + rows * px, z * 0.55, king.color);
+      }
     }
     for (let i = 0; i < eco.count; i++) {
       if (!eco.alive[i]) continue;
@@ -1726,6 +1806,49 @@ export class SurfaceMode {
     }
     this.drawEffects(layer, w, h, z, margin);
     layer.end();
+  }
+
+  /**
+   * Defesa por era (19.8): estacas na aldeia guerreira da Idade do Bronze,
+   * paliçada na do Ferro e muralha de pedra com portões da Medieval em diante,
+   * na borda de vilas e cidades. Onde uma rua cruza a borda fica a passagem.
+   */
+  private pushDefense(v: Village, era: number, out: { sprite: SpriteName; sx: number; sy: number; h: number; tint: readonly number[] }[], z: number, w: number, h: number, margin: number): void {
+    const warrior = v.culture.value === 'guerra';
+    if (v.tier < 1 || era < 1 || (era === 1 && !warrior)) return;
+    const eco = this.eco;
+    const r = eco.radius(v) - 0.6;
+    const stone = era >= 3;
+    const step = 0.9 / r;
+    for (let a = 0; a < Math.PI * 2; a += step) {
+      const x = v.x + Math.cos(a) * r;
+      const y = v.y + Math.sin(a) * r;
+      const [sx, sy] = this.toScreen(x, y + 0.5, z, w, h);
+      if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+      const t = this.tileIndex(x, this.map.height - y);
+      if (t < 0 || !isLand(this.map, t) || eco.built[t] || eco.road[t] === 4 || eco.road[t] === 5) continue;
+      const street = eco.road[t] === 1 || eco.road[t] === 2 || eco.road[t] === AVENUE;
+      if (street && !stone) continue;
+      out.push({ sprite: street ? 'gate' : stone ? 'wall' : 'palisade', sx, sy, h: z * (stone ? 0.9 : era === 1 ? 0.55 : 0.8), tint: v.color });
+    }
+  }
+
+  /** Lampiões nas ruas principais e na avenida da Era Industrial. */
+  private pushLamps(v: Village, out: { sprite: SpriteName; sx: number; sy: number; h: number; tint: readonly number[] }[], z: number, w: number, h: number, margin: number): void {
+    const eco = this.eco;
+    const r = Math.ceil(eco.radius(v));
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (((cx + dx) * 3 + (cy + dy) * 5) % 7 !== 0) continue;
+        const t = this.tileIndex(cx + dx, this.map.height - (cy + dy) - 1);
+        if (t < 0 || !eco.mainStreet[t] || !(eco.road[t] === 2 || eco.road[t] === AVENUE)) continue;
+        const [sx, sy] = this.toScreen(cx + dx + 0.85, cy + dy + 1, z, w, h);
+        if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+        out.push({ sprite: 'lamp', sx, sy, h: z * 0.8, tint: v.color });
+      }
+    }
   }
 
   /** Efeitos de eventos (cometa caindo, explosão, fumaça, fogo, peste) e marcadores de guerra. */
