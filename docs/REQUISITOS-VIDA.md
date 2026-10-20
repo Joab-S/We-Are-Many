@@ -1,6 +1,6 @@
 # We Are Many: Requisitos da Vida nos Planetas
 
-> Versão 0.6 · 20/10/2026 · seção 19.17 nova: seleção de criaturas e informações do assentamento; ícone da vocação no rótulo e no painel · versão 0.5: seção 19 atualizada com as respostas do Joab: estoque próprio por assentamento com teto e consumo, extermínio só entre povos inteligentes, todas as ideias complementares aprovadas, base de simulação estocástica (19.15) e melhorias visuais (19.16) · versão 0.4: seção 19 nova: crescimento controlado, vocação, economia viva, guerras com motivo, eras por desenvolvimento e o defeito das ruas em grade (proposta, ainda não implementada) · versão 0.3: complementa a seção 4.7 (SUP) do [REQUISITOS.md](REQUISITOS.md) · revisão geral: situação de todos os requisitos conferida com o código da branch `development`, correções, próximos requisitos (seção 16.1) e regra de preservação
+> Versão 0.7 · 20/10/2026 · as 8 ideias novas foram aprovadas e a sequência de implementação da seção 19 foi definida (19.13) · versão 0.6: seção 19.17 nova: seleção de criaturas e informações do assentamento; ícone da vocação no rótulo e no painel · versão 0.5: seção 19 atualizada com as respostas do Joab: estoque próprio por assentamento com teto e consumo, extermínio só entre povos inteligentes, todas as ideias complementares aprovadas, base de simulação estocástica (19.15) e melhorias visuais (19.16) · versão 0.4: seção 19 nova: crescimento controlado, vocação, economia viva, guerras com motivo, eras por desenvolvimento e o defeito das ruas em grade (proposta, ainda não implementada) · versão 0.3: complementa a seção 4.7 (SUP) do [REQUISITOS.md](REQUISITOS.md) · revisão geral: situação de todos os requisitos conferida com o código da branch `development`, correções, próximos requisitos (seção 16.1) e regra de preservação
 > Escopo: tudo o que acontece na superfície 2D depois que existe vida: espécies, ecossistema, evolução, civilizações, assentamentos, guerra, diplomacia, arte em pixel e o papel do jogador.
 
 Itens marcados com **Implementado (Fase 0)** já existem no jogo (branch `development`). **Parcial** diz o que falta. O resto é requisito para a fase indicada, mapeada na seção 16.
@@ -488,6 +488,7 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 | 20/10/2026 | A superfície passa a desenhar sempre em Canvas 2D, sem placa de vídeo; arte detalhada só bem de perto e textura do chão mais leve. |
 | 20/10/2026 | Regra de preservação: nada é removido sem necessidade ou pedido, e toda remoção vai para o [Registro de remoções](REQUISITOS.md#13-registro-de-remoções). Revisão da situação de todos os requisitos e backlog da vida (seção 16.1). |
 | 20/10/2026 | Proposta registrada (seção 19, sem implementação): crescer para dentro antes de para fora (estrutura de referência, reformas, expansão mais lenta), necessidades essenciais e vocação de cada assentamento (inclusive cavalos para guerra), caravanas e acordos, guerras com motivo e moderadas, arquitetura que muda aos poucos com a era, falência com causa, eras por marcos mais pontos de desenvolvimento, tudo parametrizado. Diagnóstico e correção planejada das ruas em grade. |
+| 20/10/2026 | As 8 ideias novas (RF-VIDA-290 a 297) foram aprovadas; sequência de implementação: S e A, B, C, I, D, E, F, G, H, V (seção 19.13). |
 | 20/10/2026 | Respostas do Joab à proposta: estoque próprio por assentamento, sem estoque compartilhado do reino (o comércio nasce da diferença), com teto por recurso e consumo obrigatório para a economia não explodir; extermínio só entre povos inteligentes, inclusive da mesma espécie quando os interesses são diferentes, e nunca entre animais; todas as ideias complementares entram; toda a vida passa a seguir simulação estocástica; lógica nova vem sempre com o seu visual, e os elementos existentes também melhoram. |
 | 20/10/2026 | Ícone da vocação no rótulo, de forma simples, e no painel. Requisitos de seleção de criaturas (realce, escolha entre amontoadas, marcador, seguir, nome, ficha completa, grupo) e da janela do assentamento com abas (seção 19.17). |
 
@@ -716,18 +717,18 @@ As regras de declaração, combate e paz (RF-VIDA-131 a 134) continuam. O que mu
 | RF-VIDA-288 | **Brasão por reino** desenhado a partir da vocação da capital e do valor do povo, usado na bandeira da fortaleza e nos barcos. | 19.5 | D |
 | RF-VIDA-289 | **Pedidos da capital:** a capital pede às colônias o que falta a ela; atender (mandando uma caravana) melhora a estabilidade e a relação, recusar pesa na independência (RF-VIDA-81). | 19.4 | E |
 
-**Ideias novas (a decidir)**, de olhar o pedido de novo depois das respostas:
+**Ideias novas**, de olhar o pedido de novo depois das respostas. **Aprovadas pelo Joab em 20/10/2026.**
 
-| ID | Ideia | Encaixa em |
-|---|---|---|
-| RF-VIDA-290 | **Ano econômico com estações:** colheita no outono, estoque baixando no inverno, caravanas paradas na neve e tosquia na primavera (liga RF-VIDA-180). O estoque passa a ter um ciclo visível no ano. | 19.4 |
-| RF-VIDA-291 | **Moeda por era:** escambo (Pedra), lingotes e anéis de bronze, moeda de prata (Ferro), moeda cunhada pelo reino (Medieval) e papel (Industrial). Reino que cunha moeda fortalece o comércio interno. | 19.6, 19.9 |
-| RF-VIDA-292 | **Política do líder:** o traço do líder (RF-VIDA-72) escolhe impostos altos ou baixos, mercado aberto ou fechado, gasto com exército ou com obras; troca de líder pode mudar o rumo da cidade. | 19.9 |
-| RF-VIDA-293 | **Transumância:** pastores levam o rebanho para pastos de altitude no verão e voltam no inverno, cruzando terras de outros (motivo de acordos e de brigas). | 19.5, 19.7 |
-| RF-VIDA-294 | **Esgotamento da terra:** sobrepastoreio e roça no mesmo lugar por muito tempo baixam a fertilidade; desmatamento causa erosão. Liga a economia ao ecossistema e dá motivo para pousio, rotação e expansão. | 19.4 |
-| RF-VIDA-295 | **Mercenários:** reinos ricos contratam soldados de assentamentos pobres ou em crise; em guerra longa, o ouro vira força. | 19.7, 19.9 |
-| RF-VIDA-296 | **Dinastias e famílias:** líderes e comerciantes têm sobrenome de família; famílias ricas constroem casas melhores, e a crônica lembra as dinastias. | 19.9, 19.8 |
-| RF-VIDA-297 | **Guildas:** em cidades grandes, artesãos da mesma profissão formam guilda, que melhora a qualidade e o preço daquele bem e pode fazer greve em crise. | 19.4 |
+| ID | Ideia | Encaixa em | Etapa |
+|---|---|---|---|
+| RF-VIDA-290 | **Ano econômico com estações:** colheita no outono, estoque baixando no inverno, caravanas paradas na neve e tosquia na primavera (liga RF-VIDA-180). O estoque passa a ter um ciclo visível no ano. | 19.4 | C |
+| RF-VIDA-291 | **Moeda por era:** escambo (Pedra), lingotes e anéis de bronze, moeda de prata (Ferro), moeda cunhada pelo reino (Medieval) e papel (Industrial). Reino que cunha moeda fortalece o comércio interno. | 19.6, 19.9 | E |
+| RF-VIDA-292 | **Política do líder:** o traço do líder (RF-VIDA-72) escolhe impostos altos ou baixos, mercado aberto ou fechado, gasto com exército ou com obras; troca de líder pode mudar o rumo da cidade. | 19.9 | G |
+| RF-VIDA-293 | **Transumância:** pastores levam o rebanho para pastos de altitude no verão e voltam no inverno, cruzando terras de outros (motivo de acordos e de brigas). | 19.5, 19.7 | E |
+| RF-VIDA-294 | **Esgotamento da terra:** sobrepastoreio e roça no mesmo lugar por muito tempo baixam a fertilidade; desmatamento causa erosão. Liga a economia ao ecossistema e dá motivo para pousio, rotação e expansão. | 19.4 | C |
+| RF-VIDA-295 | **Mercenários:** reinos ricos contratam soldados de assentamentos pobres ou em crise; em guerra longa, o ouro vira força. | 19.7, 19.9 | F |
+| RF-VIDA-296 | **Dinastias e famílias:** líderes e comerciantes têm sobrenome de família; famílias ricas constroem casas melhores, e a crônica lembra as dinastias. | 19.9, 19.8 | G |
+| RF-VIDA-297 | **Guildas:** em cidades grandes, artesãos da mesma profissão formam guilda, que melhora a qualidade e o preço daquele bem e pode fazer greve em crise. | 19.4 | G |
 
 ### 19.12 Parâmetros
 
@@ -764,9 +765,22 @@ Todos ficam em `src/sim/balance.ts` (RF-VIDA-208). Os valores são o ponto de pa
 | `PICK_RADIUS_PX` | Raio de escolha de criatura, em pixels de tela | 10 |
 | `CALIBRATION_SEEDS` / `CALIBRATION_YEARS` | Rodadas e anos da calibração Monte Carlo (19.15) | 20 / 250 |
 
-### 19.13 Ordem sugerida de implementação
+### 19.13 Sequência de implementação
 
-Cada etapa é um PR para a `development`, com testes e capturas de tela, e marca a coluna Situação dos requisitos que entrega. **Cada etapa entrega também a arte dos elementos que cria** (RF-VIDA-320), e a calibração da 19.15 roda antes de cada PR. A ordem é sugestão; o Joab decide. A Etapa S pode vir antes ou junto da A; a Etapa V corre em paralelo com as outras.
+Cada etapa é um PR para a `development`, com testes e capturas de tela, e marca a coluna Situação dos requisitos que entrega. **Cada etapa entrega também a arte dos elementos que cria** (RF-VIDA-320), e a calibração da 19.15 roda antes de cada PR. Sequência combinada com o Joab em 20/10/2026 (a coluna Ordem); a tabela de etapas continua abaixo dela.
+
+| Ordem | Etapas | Inclui as ideias | Por que nesta posição |
+|---|---|---|---|
+| 1 | S e A juntas | — | A base estocástica muda todos os sorteios e a calibração passa a medir tudo; as ruas são um defeito visível |
+| 2 | B | 281, 284 | O crescimento controlado define onde e como o resto é construído |
+| 3 | C | 280, 285, 287, 290, 294 | O estoque próprio e a vocação são a base do comércio, da guerra por bens e da falência |
+| 4 | I | — | Com a economia, a janela do assentamento passa a ter o que mostrar |
+| 5 | D | 288 | Arquitetura por era e material da região usam as reformas da B |
+| 6 | E | 282, 286, 289, 291, 293 | Caravanas dependem do estoque próprio e das vocações |
+| 7 | F | 295 | Guerras por bens e cavalaria dependem do comércio e dos cavalos |
+| 8 | G | 283, 292, 296, 297 | Falência depende de receitas e despesas de comércio e guerra |
+| 9 | H | — | As eras por desenvolvimento somam pontos de todos os pilares anteriores |
+| 10 | V | — | Acabamento visual dos elementos que já existiam; a arte dos novos vem em cada etapa |
 
 | Etapa | O que entra | Requisitos | Critério de aceite |
 |---|---|---|---|
