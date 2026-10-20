@@ -654,6 +654,7 @@ export class SurfaceMode {
       <div class="wb-help"><b>Esquerdo</b> usa a ferramenta · <b>Direito/meio</b> ou <b>WASD</b> move · <b>Roda</b> zoom · <b>Espaço</b> pausa · <b>1–4</b> velocidade · <b>C R E I</b> janelas</div>`;
     const signal = this.abort.signal;
     this.root.querySelector('[data-a="back"]')!.addEventListener('click', () => this.onExit(), { signal });
+    this.scrollable(this.root.querySelector<HTMLElement>('[data-bar]')!, signal);
     this.root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
       b.addEventListener('click', () => this.selectTab(b.dataset.tab as Tab), { signal });
     });
@@ -767,6 +768,46 @@ export class SurfaceMode {
       this.brush = Number((e.target as HTMLInputElement).value);
     }, { signal });
     this.updateToolbar();
+  }
+
+  /**
+   * Barra de ferramentas rolável para o lado: roda do mouse, arrastar com o
+   * mouse ou o dedo e a barra de rolagem. Um arraste não conta como clique.
+   */
+  private scrollable(bar: HTMLElement, signal: AbortSignal): void {
+    bar.addEventListener('wheel', (e) => {
+      e.stopPropagation();
+      if (bar.scrollWidth <= bar.clientWidth) return;
+      e.preventDefault();
+      bar.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    }, { signal, passive: false });
+    let drag: { x: number; left: number; id: number } | null = null;
+    let moved = false;
+    bar.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target instanceof HTMLInputElement) return;
+      drag = { x: e.clientX, left: bar.scrollLeft, id: e.pointerId };
+      moved = false;
+    }, { signal });
+    bar.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x;
+      if (!moved && Math.abs(dx) > 6) {
+        moved = true;
+        bar.setPointerCapture(e.pointerId);
+      }
+      if (moved) bar.scrollLeft = drag.left - dx;
+    }, { signal });
+    const end = () => {
+      drag = null;
+    };
+    bar.addEventListener('pointerup', end, { signal });
+    bar.addEventListener('pointercancel', end, { signal });
+    bar.addEventListener('click', (e) => {
+      if (!moved) return;
+      moved = false;
+      e.stopPropagation();
+      e.preventDefault();
+    }, { signal, capture: true });
   }
 
   private updateToolbar(): void {
