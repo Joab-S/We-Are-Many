@@ -25,6 +25,10 @@ export interface Indicators {
   droughts: number;
   /** Casas sem nenhuma rua a até 2 tiles. */
   housesOffStreet: number;
+  /** Completude média da planta (RF-VIDA-201). */
+  completeness: number;
+  /** Casas com andar a mais (reformas). */
+  reformed: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -94,6 +98,8 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       roadBlocks: roadBlocks(e.road, map.width, map.height),
       droughts: eco.chronicle.filter((c) => c.text.startsWith('Uma seca')).reduce((n, c) => n + (c.count ?? 1), 0),
       housesOffStreet: off,
+      completeness: live.reduce((n, v) => n + (v.completeness ?? 1), 0) / Math.max(1, live.length),
+      reformed: live.reduce((n, v) => n + v.houses.filter((h) => (h.level ?? 0) > 0).length, 0),
     },
   };
 }
@@ -106,6 +112,7 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
   { key: 'wars', label: 'Guerras ao mesmo tempo (média)', min: 0, max: 3 },
   { key: 'roadBlocks', label: 'Blocos 2x2 de rua fora das praças', min: 0, max: 0 },
   { key: 'housesOffStreet', label: 'Casas longe de rua', min: 0, max: 0 },
+  { key: 'completeness', label: 'Completude média da planta', min: 0.5, max: 1 },
 ];
 
 /** Nome de cada indicador no relatório. */
@@ -114,6 +121,7 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   kingdoms: 'Reinos',
   era: 'Maior era (0 = Pedra, 1 = Bronze...)',
   droughts: 'Secas na crônica',
+  reformed: 'Casas reformadas (com andar a mais)',
 };
 
 /** Média, mediana e faixa de 10% a 90% de uma lista. */
