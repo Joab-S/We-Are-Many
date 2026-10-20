@@ -1,4 +1,5 @@
 import { ROLES, type Role } from '../../sim/roles';
+import { CREATURE_ART, EFFECT_ART, EXTRA_COLORS, ITEM_ICONS, SAPIENT_BODIES, SAPIENT_CHILDREN } from './art-extra';
 
 /**
  * Pixel art da superfície, em texto, no estilo 16 bits: contorno escuro,
@@ -84,6 +85,7 @@ export const COLORS: Record<string, string> = {
   z: '#3f9a3e',
   // Sombra no chão: escurece o terreno em vez de pintar.
   '~': 'shadow',
+  ...EXTRA_COLORS,
 };
 
 export const ART = {
@@ -698,7 +700,7 @@ export function makeDecorCanvas(): HTMLCanvasElement {
 export { ROLE_NAMES, ROLES, type Role } from '../../sim/roles';
 
 /** Corpo base (7x9); `H` é o cabelo ou o que vai na cabeça. */
-const BODIES: Record<'human' | 'alien', string[]> = {
+const BODIES: Record<string, string[]> = {
   human: ['..HHH..', '..HSH..', '..SSs..', 'SMMMMmS', 'S.MMm.S', '..MMm..', '..B.B..', '..B.B..', '..D.D..'],
   alien: ['..HHH..', '.$E$E$.', '..$$%..', '$MMMMm$', '$.MMm.$', '..MMm..', '..%.%..', '..%.%..', '..%.%..'],
 };
@@ -736,18 +738,24 @@ const LOOKS: Record<Role, RoleLook> = {
 const ELDER: RoleLook = { head: 'G', extra: [...vline(9, 6, 10, 'q'), [8, 6, 'q']] };
 
 /** Crianças: corpo menor (7x6), sem ferramenta. */
-const CHILDREN: Record<'human' | 'alien', string[]> = {
+const CHILDREN: Record<string, string[]> = {
   human: ['..KKK..', '..KSK..', '.SMMmS.', '..MMm..', '..B.B..', '..D.D..'],
   alien: ['..$$$..', '.$E$E$.', '.$MMm$.', '..MMm..', '..%.%..', '..%.%..'],
 };
 
-function composeRole(body: 'human' | 'alien', role: Role | 'elder'): string[] {
+Object.assign(BODIES, SAPIENT_BODIES);
+Object.assign(CHILDREN, SAPIENT_CHILDREN);
+
+/** Corpos de inteligentes com desenho: humano, alienígena e os de art-extra.ts. */
+export const BODY_NAMES = Object.keys(BODIES);
+
+function composeRole(body: string, role: Role | 'elder'): string[] {
   const look = role === 'elder' ? ELDER : LOOKS[role];
   const grid = Array.from({ length: 11 }, () => Array<string>(11).fill('.'));
   BODIES[body].forEach((row, y) => {
     [...row].forEach((ch, x) => {
       let c = ch;
-      if (c === 'H') c = body === 'alien' && look.head === 'K' ? '$' : look.head;
+      if (c === 'H') c = body !== 'human' && look.head === 'K' ? '$' : look.head;
       if (look.armor && y >= 3 && y <= 5 && (x === 1 || x === 2)) c = c === '.' ? c : 'G';
       if (look.armor && y >= 3 && y <= 5 && (x === 4 || x === 5) && c !== '.') c = 'g';
       if (look.apron && y >= 4 && y <= 6 && x >= 2 && x <= 4 && c !== '.') c = 'p';
@@ -775,8 +783,10 @@ const WALLS: Record<string, Record<string, string>> = {
 export const HOUSE_VARIANTS = 4;
 
 /** Todos os sprites: a arte base, as profissões e as variações das casas. */
-export const SPRITES: Record<string, string[]> = { ...ART };
-for (const body of ['human', 'alien'] as const) {
+export const SPRITES: Record<string, string[]> = { ...ART, ...CREATURE_ART, ...EFFECT_ART };
+for (const [name, rows] of Object.entries(ITEM_ICONS)) SPRITES[`item:${name}`] = rows;
+for (const name of Object.keys(CREATURE_ART)) SPRITES[`${name}:l`] = flip(CREATURE_ART[name]);
+for (const body of BODY_NAMES) {
   for (const role of ROLES) SPRITES[`${body}:${role}`] = composeRole(body, role);
   SPRITES[`${body}:elder`] = composeRole(body, 'elder');
   SPRITES[`${body}:child`] = CHILDREN[body];

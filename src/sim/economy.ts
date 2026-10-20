@@ -30,7 +30,7 @@ export const ORE_COLORS: Record<Ore, [number, number, number]> = {
 /** Chance de cada minério numa jazida e a faixa de quantidade (unidades). */
 const ORE_TABLE: { ore: Ore; weight: number; min: number; max: number }[] = [
   { ore: 'copper', weight: 0.3, min: 80, max: 200 },
-  { ore: 'tin', weight: 0.12, min: 40, max: 120 },
+  { ore: 'tin', weight: 0.2, min: 40, max: 120 },
   { ore: 'iron', weight: 0.28, min: 90, max: 220 },
   { ore: 'gold', weight: 0.1, min: 30, max: 80 },
   { ore: 'coal', weight: 0.2, min: 100, max: 260 },
@@ -105,6 +105,13 @@ export interface Stock {
   weapons: number;
   /** Melhor metal das armas: 0 pedra, 1 bronze, 2 ferro, 3 aço. */
   weaponTier: number;
+  /** Armaduras (escudos, elmos, cotas) e o melhor metal delas. */
+  armor: number;
+  armorTier: number;
+  /** Joias de ouro (anéis, amuletos, coroas). */
+  jewels: number;
+  /** Quantos de cada item do catálogo (items.ts) o reino tem. */
+  items: Record<string, number>;
 }
 
 /** O que o reino já produziu ao longo da história (condições de era). */
@@ -117,14 +124,14 @@ export interface Made {
 }
 
 export function emptyStock(): Stock {
-  return { wood: 30, stone: 0, copper: 0, tin: 0, iron: 0, gold: 0, coal: 0, tools: 0, weapons: 0, weaponTier: 0 };
+  return { wood: 30, stone: 0, copper: 0, tin: 0, iron: 0, gold: 0, coal: 0, tools: 0, weapons: 0, weaponTier: 0, armor: 0, armorTier: 0, jewels: 0, items: {} };
 }
 
 export function emptyMade(): Made {
   return { bronze: 0, iron: 0, steel: 0, stone: 0, coal: 0 };
 }
 
-export const STOCK_NAMES: [keyof Stock, string][] = [
+export const STOCK_NAMES: [Exclude<keyof Stock, 'items'>, string][] = [
   ['wood', 'Madeira'],
   ['stone', 'Pedra'],
   ['copper', 'Cobre'],
@@ -134,6 +141,8 @@ export const STOCK_NAMES: [keyof Stock, string][] = [
   ['gold', 'Ouro'],
   ['tools', 'Ferramentas'],
   ['weapons', 'Armas'],
+  ['armor', 'Armaduras'],
+  ['jewels', 'Joias'],
 ];
 
 /**
@@ -166,13 +175,23 @@ export function forge(stock: Stock, era: number): { tier: number; kind: 'bronze'
   return null;
 }
 
-/** Custo de cada construção em madeira e pedra. */
-export function buildCost(kind: string, era: number): { wood: number; stone: number } {
-  if (kind === 'house') return era >= 3 ? { wood: 1, stone: 4 } : { wood: 4, stone: 0 };
-  if (kind === 'port') return { wood: 12, stone: 0 };
-  if (kind === 'mine') return { wood: 6, stone: 0 };
-  return { wood: 10, stone: era >= 2 ? 8 : 2 };
+/** Custo de cada construção em madeira, pedra e ouro. */
+export function buildCost(kind: string, era: number): { wood: number; stone: number; gold: number } {
+  if (kind === 'house') return era >= 3 ? { wood: 1, stone: 4, gold: 0 } : { wood: 4, stone: 0, gold: 0 };
+  if (kind === 'port') return { wood: 12, stone: 0, gold: 0 };
+  if (kind === 'mine') return { wood: 6, stone: 0, gold: 0 };
+  if (kind === 'wonder') return { wood: 40, stone: 120, gold: 8 };
+  if (kind === 'statue') return { wood: 0, stone: 30, gold: 3 };
+  return { wood: 10, stone: era >= 2 ? 8 : 2, gold: 0 };
 }
+
+/** Nome da grande obra de cada povo, pelo valor da cultura. */
+export const WONDER_NAMES: Record<Value, string> = {
+  guerra: 'Grande Arena',
+  comércio: 'Grande Bazar',
+  fé: 'Catedral',
+  conhecimento: 'Grande Biblioteca',
+};
 
 // Culturas ------------------------------------------------------------------
 
