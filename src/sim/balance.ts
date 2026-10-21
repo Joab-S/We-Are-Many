@@ -467,3 +467,48 @@ export const LABOR_CRISIS_MAX = 0.6;
 export const CHILD_NEED = 0.65;
 /** Atendimento abaixo do qual até soldados e guardas largam as armas para buscar comida ou lenha. */
 export const SEVERE_NEED = 0.4;
+
+// Guerras com motivo (seção 19.7, Etapa F).
+
+/** No máximo uma guerra ao mesmo tempo para cada WARS_PER_KINGDOMS reinos do planeta, no mínimo uma (WARS_MAX). */
+export const WARS_PER_KINGDOMS = 6;
+/** Anos que um reino passa sem declarar guerra depois de sair de uma. */
+export const WAR_COOLDOWN = 25;
+/** Chance anual de guerra de extermínio por par que cumpre as condições (relação ≤ EXTERMINATION_RELATION, interesse em conflito, alvo fraco). */
+export const EXTERMINATION_RATE = 0.002;
+export const EXTERMINATION_RELATION = -80;
+/** Cansaço de guerra: chance de paz por ano (base, mais por ano de guerra e por morto). */
+export const PEACE_BASE = 0.03;
+export const PEACE_PER_YEAR = 0.004;
+export const PEACE_PER_DEATH = 1 / 150;
+/** Chance anual de uma guerra de saque por cavalos, ferro ou ouro (vezes a cobiça), para um reino mais forte em relação ruim. */
+export const COVET_WAR = 0.05;
+
+/** Força do soldado montado (RF-VIDA-223): carro de guerra no Bronze e cavalaria do Ferro em diante; um cavalo por soldado. */
+export const CHARIOT_STRENGTH = 1.6;
+export const CAVALRY_STRENGTH = 2.0;
+/** Logística: comida por soldado por ano de guerra, tirada do celeiro de casa; longe de casa (tiles) o exército perde força. */
+export const ARMY_FOOD = 1;
+export const ARMY_REACH = 60;
+export const FAR_FROM_HOME = 0.8;
+/** Força do exército sem comida nenhuma (com metade, metade do caminho até 1); dois anos seguidos abaixo de RETREAT_SUPPLY e ele volta. */
+export const HUNGRY_ARMY = 0.6;
+export const RETREAT_SUPPLY = 0.35;
+
+/** Saque: parte do bem cobiçado e do rebanho que o bando leva, e roças queimadas na passagem. */
+export const LOOT_SHARE = 0.5;
+export const LOOT_HERD = 0.3;
+export const BURNED_FIELDS = 2;
+/** Anos que o bando leva no máximo para voltar com o saque antes de a guerra acabar sem ele. */
+export const LOOT_RETURN_YEARS = 3;
+/** Conquista: parte das casas queimadas e dos moradores que fogem para os vizinhos. */
+export const RAZE_SHARE = 0.2;
+export const REFUGEE_SHARE = 0.25;
+/** Rancor: anos em que o povo vencido perde relação com o vencedor, e quanto por ano. */
+export const GRUDGE_YEARS = 60;
+export const GRUDGE_PULL = 1.5;
+
+/** Mercenários (RF-VIDA-295): chance por ano de guerra (do 2º ano), quantos no máximo e o ouro que cada um custa. */
+export const MERCENARY_RATE = 0.5;
+export const MERCENARY_MAX = 4;
+export const MERCENARY_PRICE = 2;

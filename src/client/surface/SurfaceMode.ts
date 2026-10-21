@@ -11,7 +11,7 @@ import {
   type PlanetParams,
   type SurfaceMap,
 } from '../../procgen/surface';
-import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, HERD_NAMES, isLand, YEAR_SECONDS, type ChronicleKind, type Village } from '../../sim/ecosystem';
+import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, HERD_NAMES, isLand, WAR_MOTIVES, YEAR_SECONDS, type ChronicleKind, type Village } from '../../sim/ecosystem';
 import { NEED_NAMES, NEEDS, SEASONS, VOCATION_COLORS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../sim/needs';
 import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from '../../sim/economy';
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
@@ -270,6 +270,8 @@ function bodyOf(sp: Species): string {
 }
 
 const SPEEDS = [0, 1, 2, 5];
+/** Pelagem do cavalo da cavalaria. */
+const HORSE_COAT: [number, number, number] = [122, 84, 52];
 
 /**
  * Visão da superfície no estilo WorldBox (REQUISITOS.md, seção 4.7). Enquanto
@@ -2004,6 +2006,12 @@ export class SurfaceMode {
           continue;
         }
         const elder = eco.age[i] >= elderAge(sp, era) && role < ROLES.indexOf('leader');
+        // Soldado montado (RF-VIDA-223): o cavalo embaixo e o soldado em cima.
+        if (eco.mounted(i)) {
+          layer.push(eco.vx[i] < 0 && SPRITES['horse:l'] ? 'horse:l' : 'horse', sx, sy - z * 0.45, z * 0.9, HORSE_COAT);
+          layer.push(`${body}:soldier`, sx, sy - z * 1.15, z * 0.95 * (11 / 9), tint, sp.color);
+          continue;
+        }
         layer.push(`${body}:${elder ? 'elder' : ROLES[role]}`, sx, sy - z * 0.5, z * 1.05 * (11 / 9), tint, sp.color);
         continue;
       }
@@ -2646,7 +2654,7 @@ export class SurfaceMode {
       <div class="wb-pop">Assentamentos<b>${live.length}</b></div>
       ${kingdoms ? `<button class="wb-goto" data-open="kingdoms">Reinos e povos<b>${kingdoms}</b></button>` : ''}
       ${eco.alliances.size ? `<div class="wb-pop">Alianças<b>${eco.alliances.size}</b></div>` : ''}
-      ${eco.wars.map((war) => `<button class="wb-goto bad" data-village="${war.target}">⚔ ${eco.villages[war.a].name} × ${eco.villages[war.b].name}<b>${war.losses[0] + war.losses[1]}†</b></button>`).join('')}
+      ${eco.wars.map((war) => `<button class="wb-goto bad" data-village="${war.target}" title="${WAR_MOTIVES[war.motive]}">⚔ ${eco.villages[war.a].name} × ${eco.villages[war.b].name} · ${WAR_MOTIVES[war.motive]}<b>${war.losses[0] + war.losses[1]}†</b></button>`).join('')}
       ${[...live].sort((a, b) => b.population - a.population).slice(0, 4).map((v) => `<button class="wb-goto" data-village="${v.id}"><i style="background:rgb(${v.color.join(',')})"></i>${TIER_NAMES[v.tier]} ${v.name}<b>${v.population}</b></button>`).join('')}
       ${events.length ? `<div class="wb-section">Acontecimentos</div>${events.map((e) => `<button class="wb-log"${e.x >= 0 ? ` data-go="${e.x.toFixed(1)},${e.y.toFixed(1)}"` : ''}><span class="wb-yr">${Math.floor(e.year)}</span> ${Ecosystem.describe(e)}</button>`).join('')}<button class="wb-goto" data-open="chronicle">Crônica completa…</button>` : ''}`;
     if (html !== this.lastPanelHtml) {
