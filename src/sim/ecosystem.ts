@@ -126,7 +126,6 @@ export interface ChronicleEntry {
 }
 
 /** Anos de trégua depois de uma paz. */
-const TRUCE_YEARS = 25;
 
 /** Tamanho máximo da crônica guardada. */
 const CHRONICLE_MAX = 400;
@@ -155,6 +154,40 @@ export interface War {
   years: number;
   /** Sem caminho por terra: o atacante manda soldados de barco. */
   naval: boolean;
+  /** Motivo (seção 19.7): decide o objetivo e o fim. */
+  motive: WarMotive;
+  /** Saque: o bem cobiçado, o que o bando já leva e se está voltando para casa. */
+  good?: LootGood;
+  loot?: number;
+  herd?: number;
+  returning?: number;
+  /** Assentamento de onde o exército saiu (leva comida dele) e a comida que tem (0 a 1). */
+  home: number;
+  supply: number;
+  /** Anos seguidos com pouca comida. */
+  hungry?: number;
+  /** Mercenários contratados por cada lado. */
+  mercs: [number, number];
+}
+
+/**
+ * Motivo da guerra (RF-VIDA-240): saque de um bem (curta, acaba quando o saque volta),
+ * território (conquista ou paz com cessão), extermínio (arrasa o assentamento e funda
+ * outro nas ruínas) e guerra civil (RF-VIDA-138).
+ */
+export type WarMotive = 'loot' | 'land' | 'dominion' | 'revenge' | 'faith' | 'extermination' | 'civil';
+export type LootGood = 'food' | 'wood' | 'horses' | 'iron' | 'gold';
+export const WAR_MOTIVES: Record<WarMotive, string> = { loot: 'saque', land: 'território', dominion: 'domínio', revenge: 'vingança', faith: 'fé', extermination: 'extermínio', civil: 'guerra civil' };
+
+/** Plano de guerra de um reino (seção 19.7): ele junta o que falta e só declara quando acha que está pronto e em vantagem. */
+export interface WarPlan {
+  enemy: number;
+  target: number;
+  motive: WarMotive;
+  good?: LootGood;
+  since: number;
+  /** Quanto ele acha que o inimigo vale (1 = a força de verdade), fixo no plano. */
+  belief: number;
 }
 
 export interface Boat {
@@ -649,6 +682,18 @@ export class Ecosystem {
   readonly extinct = new Set<number>();
   /** Trégua depois de uma paz: até esse ano o par não volta à guerra. */
   readonly truces = new Map<string, number>();
+  /** Planos de guerra, por reino que se prepara (RF-VIDA-241). */
+  readonly plans = new Map<number, WarPlan>();
+  /** Vingança: "perdedor>vencedor" até esse ano (RF-VIDA-240). */
+  readonly vengeance = new Map<string, number>();
+  /** Agressividade de cada reino, de -1 (passivo) a 1 (agressivo), mexida pelo jogador e que some aos poucos. */
+  readonly temper = new Map<number, number>();
+  /** Rancor do vencido (chave "a:b") até esse ano (RF-VIDA-243). */
+  readonly grudges = new Map<string, number>();
+  /** Mercenários contratados numa guerra em andamento (RF-VIDA-295). */
+  readonly mercenaries = new Set<number>();
+  /** Parte dos soldados de cada assentamento que vai montada (um cavalo por soldado, RF-VIDA-223). */
+  private readonly cavalry = new Map<number, number>();
   /** Reinos cujo rei morreu e que podem se dividir numa guerra civil. */
   private readonly crises = new Set<number>();
   /** Alianças entre reinos (chave "a:b") e o ano em que começaram. */
@@ -684,7 +729,29 @@ export class Ecosystem {
   treesCut = 0;
   treesPlanted = 0;
   /** Contas da falta no mundo inteiro (calibração, seção 19.19): mortes de fome e frio, casas desabadas, guerras por cobiça, êxodos e migrantes. */
-  readonly tally = { hunger: 0, cold: 0, collapsed: 0, greedWars: 0, exodus: 0, migrants: 0 };
+  readonly tally = {
+    hunger: 0,
+    cold: 0,
+    collapsed: 0,
+    greedWars: 0,
+    exodus: 0,
+    migrants: 0,
+    // Etapa F: guerras por motivo, o máximo ao mesmo tempo, e o que elas deixaram.
+    lootWars: 0,
+    landWars: 0,
+    exterminations: 0,
+    civilWars: 0,
+    warsPeak: 0,
+    plans: 0,
+    plansDropped: 0,
+    prepYears: 0,
+    wars: 0,
+    looted: 0,
+    burned: 0,
+    refugees: 0,
+    mercenaries: 0,
+    retreats: 0,
+  };
   readonly population: number[] = [];
   /** Teto de cada espécie neste planeta, proporcional ao habitat. */
   private readonly caps: number[] = [];
@@ -1058,6 +1125,7 @@ export class Ecosystem {
     }
     this.population[s]--;
     this.expedition.delete(i);
+    this.mercenaries.delete(i);
     if (this.population[s] === 0 && this.species[s].kind !== 'sapient') {
       this.extinct.add(s);
       this.note(`${this.species[s].name}: a espécie foi extinta neste planeta`, 'natureza', { x: this.x[i], y: this.y[i] }, { major: true });
@@ -1290,6 +1358,7 @@ export class Ecosystem {
       this.upkeep(v);
       this.neglect(v);
       this.woodland(v);
+      this.clearYards(v);
       this.luxuryYear(v);
       this.clampStock(v);
       this.hardship(v);
@@ -3375,7 +3444,7 @@ export class Ecosystem {
     return hsl(this.civRnd(), 0.65 + this.civRnd() * 0.25, 0.4 + this.civRnd() * 0.25);
   }
 
-  private abandon(v: Village): void {
+  private abandon(v: Village, quiet = false): void {
     v.abandoned = true;
     v.abandonedAt = this.year;
     v.decay = 0;
@@ -3402,6 +3471,7 @@ export class Ecosystem {
     v.mines.length = 0;
     // Assentamentos do reino de uma capital abandonada ficam independentes.
     for (const o of this.villages) if (o.kingdom === v.id && o !== v) o.kingdom = o.id;
+    if (quiet) return;
     const cause = v.lastCause ? `: o último morador morreu ${v.lastCause}` : '';
     this.note(`${v.name} foi abandonada${cause}`, 'povo', v, { major: v.tier >= 1 });
   }
@@ -3424,6 +3494,18 @@ export class Ecosystem {
         if (!gone || this.settlementAt(cx + dx + 0.5, cy + dy + 0.5)) continue;
         this.road[t] = 0;
         this.onTileChanged(t);
+      }
+    }
+    // Sem o lugar, o terreiro volta a ser mato (a mata pode voltar).
+    if (stage >= 3 && this.map.bare) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const t = this.tileAt(cx + dx, cy + dy);
+          if (t >= 0 && this.map.bare[t] && !this.settlementAt(cx + dx + 0.5, cy + dy + 0.5)) {
+            this.map.bare[t] = 0;
+            this.onTileChanged(t);
+          }
+        }
       }
     }
     v.decay = stage;
@@ -3627,7 +3709,7 @@ export class Ecosystem {
     return {
       port: v.port >= 0,
       smithy: this.has(v, 'smithy'),
-      warlike: v.culture.value === 'guerra',
+      warlike: v.culture.value === 'guerra' || this.plans.has(v.kingdom),
       herd,
       stable: this.has(v, 'stable'),
       loom: this.has(v, 'loom'),
@@ -3687,7 +3769,9 @@ export class Ecosystem {
   private pay(v: Village, kind: string): boolean {
     const st = this.store(v);
     const c = buildCost(kind, Math.floor(v.tech));
-    if (st.wood < c.wood || st.stone + st.brick < c.stone || st.gold < c.gold) return false;
+    // Obra nova só com o conserto das casas garantido: sem isso as casas velhas caem por falta de madeira (seção 19.20).
+    const reserve = kind === 'mine' || kind === 'port' ? 0 : this.repairs(v).wood * B.REPAIR_RESERVE;
+    if (st.wood < c.wood + reserve || st.stone + st.brick < c.stone || st.gold < c.gold) return false;
     this.spend(v, 'wood', c.wood);
     const brick = Math.min(st.brick, c.stone);
     this.spend(v, 'brick', brick);
@@ -3949,6 +4033,45 @@ export class Ecosystem {
     }
   }
 
+  /**
+   * Terreiro (mapa organizado, pedido do Joab): dentro da área, árvore, toco ou muda colados numa
+   * casa, prédio, rua, praça, roça ou pasto saem, e o chão fica limpo até o lugar ser abandonado.
+   * A madeira das árvores vai para o estoque, até o teto.
+   */
+  private clearYards(v: Village): void {
+    const map = this.map;
+    const r = Math.ceil(this.radius(v));
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t < 0 || this.road[t] || this.built[t] || map.bare?.[t] || !isLand(map, t)) continue;
+        const decor = decorAt(map, t);
+        if (!isTree(decor) && decor !== Decor.Stump && decor !== Decor.Sapling) continue;
+        let yard = false;
+        for (let oy = -1; oy <= 1 && !yard; oy++) {
+          for (let ox = -1; ox <= 1 && !yard; ox++) {
+            const n = this.tileAt(cx + dx + ox, cy + dy + oy);
+            if (n >= 0 && (this.road[n] || this.built[n])) yard = true;
+          }
+        }
+        if (!yard || this.settlementAt(cx + dx + 0.5, cy + dy + 0.5) !== v) continue;
+        if (isTree(decor)) {
+          this.put(v, 'wood', B.WOOD_PER_TREE);
+          this.treesCut++;
+        } else {
+          map.felled![t] = 0;
+          this.stumps.delete(t);
+        }
+        map.bare ??= new Uint8Array(map.width * map.height);
+        map.bare[t] = 1;
+        this.onTileChanged(t);
+      }
+    }
+  }
+
   /** Derruba a árvore do tile: fica o toco (ou a muda, quando o povo replanta). */
   private fellTree(t: number, replant: boolean): void {
     const map = this.map;
@@ -4133,7 +4256,7 @@ export class Ecosystem {
       if (v.forestry) planters.set(v.id, (planters.get(v.id) ?? 0) + B.PLANT_RATE);
     }
     for (const t of this.stumps) {
-      if (!isLand(map, t) || this.road[t] || this.built[t]) {
+      if (!felled[t] || !isLand(map, t) || this.road[t] || this.built[t]) {
         felled[t] = 0;
         this.stumps.delete(t);
         this.onTileChanged(t);
@@ -4188,10 +4311,10 @@ export class Ecosystem {
 
   /** O que falta mais: ferramentas para quem trabalha, armas e armaduras para quem luta (antes, na guerra). */
   private needed(st: Stock, adults: number, soldiers: number, v: Village): Category {
-    const war = this.warOf(v.kingdom) !== null;
+    const war = this.warOf(v.kingdom) !== null || this.plans.has(v.kingdom);
     if (!war && st.tools < adults * 0.3) return 'ferramenta';
     if (st.weapons < soldiers + 2 || (war && st.weapons <= st.armor)) return 'arma';
-    if (st.armor < soldiers) return 'armadura';
+    if (st.armor < soldiers * (war ? 1 : 0.5)) return 'armadura';
     return st.tools <= st.weapons ? 'ferramenta' : 'arma';
   }
 
@@ -4323,16 +4446,38 @@ export class Ecosystem {
     return this.alliances.has(this.key(a, b));
   }
 
-  /** Força de combate de um indivíduo: profissão, era, armas e armaduras do reino. */
+  /**
+   * Força de combate de um indivíduo: profissão, era, armas e armaduras do reino, cavalo
+   * (RF-VIDA-223) e, no exército em campanha, comida e distância de casa (RF-VIDA-242).
+   */
   private strength(i: number): number {
     const v = this.villages[this.village[i]];
     const st = this.store(v);
     const role = this.role[i];
-    const base = role === ROLE.soldier ? 1.2 : role === ROLE.guard ? 1.1 : role === ROLE.king || role === ROLE.leader ? 0.8 : 0.4;
+    const rider = Math.floor(v.tech) >= 2 ? B.CAVALRY_STRENGTH : B.CHARIOT_STRENGTH;
+    const base = role === ROLE.soldier ? (this.mounted(i) ? rider : 1.2) : role === ROLE.guard ? 1.1 : role === ROLE.king || role === ROLE.leader ? 0.8 : 0.4;
     const arms = 1 + 0.5 * st.weaponTier * Math.min(1, st.weapons / 10);
     const armor = 1 + 0.25 * st.armorTier * Math.min(1, st.armor / 10);
     const arena = this.villages[v.kingdom].houses.some((h) => h.kind === 'wonder') && this.villages[v.kingdom].culture.value === 'guerra' ? 1.15 : 1;
-    return base * (1 + 0.15 * Math.floor(v.tech)) * arms * armor * arena;
+    return base * (1 + 0.15 * Math.floor(v.tech)) * arms * armor * arena * this.campaign(i, v);
+  }
+
+  /** Soldado montado: a parte dos soldados do assentamento que tem cavalo, do Bronze em diante (RF-VIDA-223). */
+  mounted(i: number): boolean {
+    if (this.role[i] !== ROLE.soldier || this.village[i] < 0) return false;
+    const share = this.cavalry.get(this.village[i]) ?? 0;
+    return share > 0 && (Math.imul(this.uid[i] + 1, 2654435761) >>> 0) / 4294967296 < share;
+  }
+
+  /** Força do soldado em campanha: perde com o exército sem comida e longe de casa (RF-VIDA-242). */
+  private campaign(i: number, v: Village): number {
+    if (this.role[i] !== ROLE.soldier) return 1;
+    for (const war of this.wars) {
+      if (war.a !== v.kingdom) continue;
+      const fed = B.HUNGRY_ARMY + (1 - B.HUNGRY_ARMY) * war.supply;
+      return fed * (this.distance(v, this.x[i], this.y[i]) > B.ARMY_REACH ? B.FAR_FROM_HOME : 1);
+    }
+    return 1;
   }
 
   /** Luta entre dois indivíduos de reinos em guerra: um deles morre. */
@@ -4346,6 +4491,12 @@ export class Ecosystem {
     if (this.role[loser] === ROLE.soldier) {
       if (st.weapons > 0) st.weapons--;
       if (st.armor > 0 && this.polRnd() < 0.5) st.armor--;
+      // O cavalo do soldado montado morre ou foge com ele.
+      if (this.mounted(loser) && st.horses > 0) {
+        st.horses--;
+        const herd = this.villages[this.village[loser]].herd;
+        if (herd && (herd.kind === 'horse' || herd.kind === 'camel') && herd.head > 0) herd.head--;
+      }
     }
     this.kill(loser, true, 'guerra');
   }
@@ -4369,8 +4520,9 @@ export class Ecosystem {
     }
     if (role !== ROLE.soldier) return null;
     // Soldados do atacante marcham até o alvo (por terra, até 90 tiles; os que desembarcaram, de qualquer distância).
+    // O bando que já saqueou volta para casa com o saque.
     for (const war of this.wars) {
-      if (war.a !== v.kingdom) continue;
+      if (war.a !== v.kingdom || war.returning !== undefined) continue;
       const target = this.villages[war.target];
       if (!this.expedition.has(i) && (war.naval || this.distance(target, v.x, v.y) > 90)) continue;
       return { x: wrapDx(target.x - this.x[i], this.map.width), y: target.y - this.y[i] };
@@ -4386,22 +4538,37 @@ export class Ecosystem {
       const b = this.villages[war.b];
       const target = this.villages[war.target];
       if (a.abandoned || b.abandoned || target.abandoned || a.kingdom !== war.a || b.kingdom !== war.b || target.kingdom !== war.b) {
-        this.wars.splice(k, 1);
+        this.endWar(k);
         continue;
       }
+      // Conquista pede soldados na praça; o saque acontece já na periferia, onde ficam roças, rebanho e celeiros.
+      const inner = this.radius(target) * 0.6;
+      const reach = war.motive === 'loot' ? this.radius(target) + 2 : inner;
       let attackers = 0;
       let defenders = 0;
-      this.forEachNear(target.x, target.y, this.radius(target) * 0.6, (j) => {
+      this.forEachNear(target.x, target.y, reach, (j, dx, dy) => {
         const vj = this.village[j];
         if (vj < 0 || this.species[this.kind[j]].kind !== 'sapient') return;
         const r = this.role[j];
         const kj = this.villages[vj].kingdom;
         if (kj === war.a && r === ROLE.soldier) attackers++;
-        else if (kj === war.b && (r === ROLE.soldier || r === ROLE.guard)) defenders++;
+        else if (kj === war.b && (r === ROLE.soldier || r === ROLE.guard) && dx * dx + dy * dy <= inner * inner) defenders++;
       });
-      if (attackers >= 3 && defenders === 0) {
-        this.conquer(war, target);
-        this.wars.splice(k, 1);
+      if (war.returning !== undefined) {
+        // O bando com o saque saiu do alvo (ou demorou demais): o saque chega em casa e a guerra acaba.
+        if ((attackers === 0 && this.year - war.returning >= 0.3) || this.year - war.returning >= B.LOOT_RETURN_YEARS) {
+          this.bringLoot(war);
+          this.endWar(k);
+        }
+        continue;
+      }
+      if (war.motive === 'loot') {
+        // Saque: um bando que chega sem defesa à altura leva o que veio buscar e volta.
+        if (attackers >= 1 && defenders < attackers + 1) this.plunder(war, target);
+      } else if (attackers >= 3 && defenders === 0) {
+        if (war.motive === 'extermination') this.exterminate(war, target);
+        else this.conquer(war, target);
+        this.endWar(k);
         continue;
       }
       if (war.naval && happens(this.polRnd, B.NAVAL_LANDING_RATE, dt / YEAR_SECONDS)) this.invadeBySea(war);
@@ -4476,8 +4643,233 @@ export class Ecosystem {
     this.note(`${passengers.length} soldados de ${from.name} zarparam ${type.on} para atacar ${this.villages[war.target].name}`, 'guerra', from);
   }
 
+  /**
+   * Fim de uma guerra: trégua mínima entre os dois (TRUCE_MIN anos) e os mercenários são dispensados.
+   * Depois disso só o preparo segura uma guerra nova: o estoque gasto, as armas perdidas e os soldados
+   * mortos têm de voltar a dar ao reino a sensação de vantagem.
+   */
+  private endWar(k: number): void {
+    const war = this.wars[k];
+    this.wars.splice(k, 1);
+    this.truces.set(this.key(war.a, war.b), this.year + B.TRUCE_MIN);
+    for (const i of this.mercenaries) {
+      if (!this.alive[i] || this.village[i] < 0) {
+        this.mercenaries.delete(i);
+        continue;
+      }
+      const v = this.villages[this.village[i]];
+      if (v.kingdom !== war.a && v.kingdom !== war.b) continue;
+      // O mercenário fica onde está, com uma profissão de paz.
+      this.role[i] = pickRole(Math.floor(v.tech), v.tier, this.civRnd(), this.roleContext(v));
+      if (this.role[i] === ROLE.soldier) this.role[i] = ROLE.gatherer;
+      this.mercenaries.delete(i);
+    }
+  }
+
+  /** Rancor do vencido (RF-VIDA-243): a relação cai a cada ano até GRUDGE_YEARS. */
+  private grudge(a: number, b: number, years = B.GRUDGE_YEARS): void {
+    const key = this.key(a, b);
+    this.grudges.set(key, Math.max(this.grudges.get(key) ?? 0, this.year + years));
+  }
+
+  /** Começa uma guerra (todas passam por aqui) e conta o pico. */
+  private startWar(war: Omit<War, 'losses' | 'years' | 'supply' | 'mercs'>): War {
+    const full: War = { ...war, losses: [0, 0], years: 0, supply: 1, mercs: [0, 0] };
+    this.wars.push(full);
+    const t = this.tally;
+    if (war.motive === 'loot') t.lootWars++;
+    else if (war.motive === 'extermination') t.exterminations++;
+    else if (war.motive === 'civil') t.civilWars++;
+    else t.landWars++;
+    t.wars++;
+    t.warsPeak = Math.max(t.warsPeak, this.wars.length);
+    return full;
+  }
+
+  /** Nome do bem cobiçado na crônica: "os cavalos do haras de Votek". */
+  private lootName(good: LootGood, v: Village, place = true): string {
+    const what =
+      good === 'horses' ? `os cavalos${this.has(v, 'stable') ? ' do haras' : ''}` : good === 'iron' ? 'o ferro' : good === 'gold' ? 'o ouro' : good === 'wood' ? 'a madeira' : 'a comida dos celeiros';
+    return place ? `${what} de ${v.name}` : what;
+  }
+
+  /** O que a guerra de território quer tomar (RF-VIDA-240): jazida, porto, pasto, terra fértil ou o próprio lugar. */
+  private prizeName(v: Village): string {
+    if (v.mines.length) return `a jazida de ${ORE_NAMES[this.deposits[v.mines[0]].ore]} de ${v.name}`;
+    if (v.port >= 0) return `o porto de ${v.name}`;
+    if (v.herd && v.herd.head >= 4) return `os pastos de ${v.name}`;
+    if (v.fields >= 2) return `as terras férteis de ${v.name}`;
+    return v.name;
+  }
+
+  /**
+   * Bem que um reino cobiça do vizinho (RF-VIDA-240): cavalos (do Bronze), ferro (do Ferro) ou
+   * ouro, quando ele quase não tem e o vizinho tem muito. Devolve o bem, a cobiça (0 a 1) e onde está.
+   */
+  private covet(own: Village[], other: Village[]): { good: LootGood; want: number; from: Village } | null {
+    let era = 0;
+    let horses = 0;
+    let iron = 0;
+    let gold = 0;
+    for (const v of own) {
+      era = Math.max(era, Math.floor(v.tech));
+      horses += v.stock.horses;
+      iron += v.stock.iron + v.stock.weapons * 0.5;
+      gold += v.stock.gold;
+    }
+    let best: { good: LootGood; want: number; from: Village } | null = null;
+    const offer = (good: LootGood, mine: number, need: number, theirs: (o: Village) => number, plenty: number) => {
+      if (mine >= need) return;
+      for (const o of other) {
+        const have = theirs(o);
+        if (have < plenty) continue;
+        const want = (1 - mine / need) * Math.min(1, have / (plenty * 2));
+        if (!best || want > best.want) best = { good, want, from: o };
+      }
+    };
+    if (era >= 1) offer('horses', horses, 2, (o) => o.stock.horses, 6);
+    if (era >= 2) offer('iron', iron, 4, (o) => o.stock.iron, 10);
+    offer('gold', gold, 2, (o) => o.stock.gold, 10);
+    return best;
+  }
+
+  /** Moradores que fogem da guerra para o vizinho mais perto fora do reino inimigo (RF-VIDA-243). Devolve quantos. */
+  private flee(v: Village, share: number, enemy: number): number {
+    let best: Village | null = null;
+    let bd = 80;
+    for (const o of this.villages) {
+      if (o === v || o.abandoned || o.species !== v.species || o.kingdom === enemy) continue;
+      const d = this.distance(o, v.x, v.y);
+      if (d < bd && this.landPath(v.x, v.y, o.x, o.y)) {
+        bd = d;
+        best = o;
+      }
+    }
+    if (!best) return 0;
+    const want = Math.round(v.population * share);
+    let moved = 0;
+    for (let i = 0; i < this.count && moved < want; i++) {
+      if (!this.alive[i] || this.village[i] !== v.id || i === v.leader) continue;
+      this.moveTo(i, v, best);
+      moved++;
+    }
+    if (moved) {
+      this.tally.refugees += moved;
+      this.note(`${moved} refugiados de ${v.name} fugiram para ${best.name}`, 'guerra', best);
+    }
+    return moved;
+  }
+
+  /** Muda alguém de assentamento, com as contas de quem saiu e de quem chegou. */
+  private moveTo(i: number, from: Village, to: Village): void {
+    from.population--;
+    this.village[i] = -1;
+    (from.vitalNow ??= emptyVital()).left++;
+    this.join(i, to);
+  }
+
+  /** O bando chega à praça (RF-VIDA-243): leva o bem cobiçado e parte do rebanho, queima roças e volta. */
+  private plunder(war: War, target: Village): void {
+    const good = war.good ?? 'food';
+    let took = 0;
+    if (good === 'food') {
+      took = target.food * B.LOOT_SHARE;
+      target.food -= took;
+    } else if (good === 'horses' && target.herd && (target.herd.kind === 'horse' || target.herd.kind === 'camel')) {
+      took = Math.floor(target.herd.head * B.LOOT_SHARE);
+      target.herd.head -= took;
+      target.stock.horses = target.herd.head;
+    } else {
+      took = good === 'horses' ? Math.floor(target.stock[good] * B.LOOT_SHARE) : target.stock[good] * B.LOOT_SHARE;
+      target.stock[good] -= took;
+    }
+    let herd = 0;
+    if (good !== 'horses' && target.herd && !target.herd.away && target.herd.head >= 4) {
+      herd = Math.floor(target.herd.head * B.LOOT_HERD);
+      target.herd.head -= herd;
+    }
+    let burned = 0;
+    for (; burned < B.BURNED_FIELDS && target.fields > 0; burned++) this.dropField(target);
+    if (burned) this.effect('flame', target.x, target.y, 25, 1.4);
+    war.loot = took;
+    war.herd = herd;
+    war.returning = this.year;
+    this.tally.looted++;
+    this.tally.burned += burned;
+    const extra = [herd ? `${herd} ${HERD_NAMES[target.herd!.kind]}` : '', burned ? 'queimou as roças' : ''].filter(Boolean).join(' e ');
+    this.note(`${this.villages[war.home].name} saqueou ${target.name}: levou ${this.lootName(good, target, false)}${extra ? `, ${extra}` : ''}`, 'guerra', target, { major: true });
+  }
+
+  /** O saque chega em casa (até o teto), com o rebanho roubado; o vencido guarda rancor. */
+  private bringLoot(war: War): void {
+    let home = this.villages[war.home];
+    if (home.abandoned || home.kingdom !== war.a) home = this.villages[war.a];
+    const good = war.good ?? 'food';
+    const n = war.loot ?? 0;
+    if (good === 'food') home.food = Math.min(this.capOf(home, 'food'), home.food + n);
+    else if (good === 'horses') {
+      if (home.herd && (home.herd.kind === 'horse' || home.herd.kind === 'camel')) home.herd.head += n;
+      home.stock.horses += n;
+    } else home.stock[good] = Math.min(this.capOf(home, good), home.stock[good] + n);
+    const stolen = war.herd ?? 0;
+    const kind = this.villages[war.target].herd?.kind;
+    // O rebanho roubado entra no do atacante se for do mesmo bicho; se não, vira comida.
+    if (stolen && home.herd && home.herd.kind === kind) home.herd.head += stolen;
+    else if (stolen) home.food = Math.min(this.capOf(home, 'food'), home.food + stolen * 2);
+    this.relations.set(this.key(war.a, war.b), Math.min(this.relation(war.a, war.b), -30));
+    this.grudge(war.a, war.b, B.GRUDGE_YEARS / 2);
+    this.vengeance.set(`${war.b}>${war.a}`, this.year + B.GRUDGE_YEARS / 2);
+    this.note(`O bando de ${home.name} voltou para casa com o saque de ${this.villages[war.target].name}`, 'guerra', home);
+  }
+
+  /**
+   * Guerra de extermínio vencida (RF-VIDA-240): metade do povo foge, o resto morre, o lugar é
+   * arrasado e o vencedor funda um assentamento novo sobre as ruínas (RF-VIDA-108).
+   */
+  private exterminate(war: War, target: Village): void {
+    const winner = this.villages[war.a];
+    const name = target.name;
+    this.flee(target, 0.5, war.a);
+    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] === target.id) this.kill(i, true, 'guerra');
+    target.lastCause = 'na guerra';
+    this.abandon(target, true);
+    this.effect('flame', target.x, target.y, 40, 2);
+    this.tally.burned += 1;
+    // Os soldados que estão no lugar ficam e fundam o assentamento novo.
+    const settlers: number[] = [];
+    this.forEachNear(target.x, target.y, TIER_RADIUS[0] + 4, (j) => {
+      const vj = this.village[j];
+      if (vj >= 0 && this.role[j] === ROLE.soldier && this.villages[vj].kingdom === war.a) settlers.push(j);
+    });
+    const people = winner.culture.name;
+    if (settlers.length < 2) {
+      this.note(`Os ${people} arrasaram ${name}`, 'guerra', target, { major: true });
+      return;
+    }
+    const nv = this.foundVillage(winner.species, Math.floor(target.x), Math.floor(target.y), 0, winner);
+    const fresh = `Nova ${winner.name}`;
+    if (!this.villages.some((o) => o.name === fresh)) nv.name = fresh;
+    for (const j of settlers) {
+      this.expedition.delete(j);
+      this.moveTo(j, this.villages[this.village[j]], nv);
+    }
+    this.note(`Os ${people} arrasaram ${name} e fundaram ${nv.name} nas ruínas`, 'guerra', nv, { major: true });
+  }
+
   private conquer(war: War, target: Village): void {
     const winner = this.villages[war.a];
+    // Consequências (RF-VIDA-243): parte do povo foge, casas queimam, o rebanho muda de dono.
+    this.flee(target, B.REFUGEE_SHARE, war.a);
+    const homes = target.houses.filter((h) => h.kind === 'house');
+    const burn = Math.min(homes.length - 1, Math.round(homes.length * B.RAZE_SHARE));
+    for (let n = 0; n < burn; n++) {
+      const at = target.houses.indexOf(homes[n * Math.floor(homes.length / Math.max(1, burn)) % homes.length]);
+      if (at >= 0) this.raze(target, at);
+    }
+    if (burn > 0) {
+      this.effect('flame', target.x, target.y, 30, 1.6);
+      this.tally.burned += burn;
+    }
     // Uma capital conquistada liberta os assentamentos do seu reino.
     if (target.kingdom === target.id) {
       for (const o of this.villages) if (o !== target && !o.abandoned && o.kingdom === target.id) o.kingdom = o.id;
@@ -4494,7 +4886,9 @@ export class Ecosystem {
     target.leader = -1;
     for (const id of target.mines) this.deposits[id].known.add(winner.id);
     this.relations.set(this.key(war.a, war.b), -20);
-    this.note(`${winner.name} conquistou ${target.name}`, 'guerra', target, { major: true });
+    this.grudge(war.a, war.b);
+    this.vengeance.set(`${war.b}>${war.a}`, this.year + B.GRUDGE_YEARS);
+    this.note(`${winner.name} conquistou ${target.name}${burn > 0 ? `; ${burn > 1 ? `${burn} casas queimaram` : 'uma casa queimou'}` : ''}`, 'guerra', target, { major: true });
   }
 
   /** Uma vez por ano: diplomacia, lava esfriando, ruínas sumindo e eventos do mundo. */
@@ -4529,6 +4923,11 @@ export class Ecosystem {
    */
   private diplomacy(): void {
     this.independence();
+    for (const [k, t] of this.temper) {
+      const next = t * (1 - B.TEMPER_FADE);
+      if (Math.abs(next) < 0.02) this.temper.delete(k);
+      else this.temper.set(k, next);
+    }
     const capitals = this.villages.filter((v) => !v.abandoned && v.kingdom === v.id);
     const members = new Map<number, Village[]>();
     for (const v of this.villages) {
@@ -4537,14 +4936,29 @@ export class Ecosystem {
       list.push(v);
       members.set(v.kingdom, list);
     }
-    // Soldados por reino, contados uma vez.
+    // Soldados por reino e por assentamento, contados uma vez; um cavalo por soldado montado (RF-VIDA-223).
     const soldiers = new Map<number, number>();
+    const local = new Map<number, number>();
     for (let i = 0; i < this.count; i++) {
       if (!this.alive[i] || this.role[i] !== ROLE.soldier || this.village[i] < 0) continue;
       const k = this.villages[this.village[i]].kingdom;
       soldiers.set(k, (soldiers.get(k) ?? 0) + 1);
+      local.set(this.village[i], (local.get(this.village[i]) ?? 0) + 1);
     }
-    const force = (k: number) => (soldiers.get(k) ?? 0) * (1 + this.villages[k].stock.weaponTier * 0.5);
+    this.cavalry.clear();
+    const riders = new Map<number, number>();
+    for (const [id, n] of local) {
+      const v = this.villages[id];
+      if (Math.floor(v.tech) < 1 || v.stock.horses < 1) continue;
+      const mounted = Math.min(n, Math.floor(v.stock.horses));
+      this.cavalry.set(id, mounted / n);
+      riders.set(v.kingdom, (riders.get(v.kingdom) ?? 0) + mounted);
+    }
+    // Força (RF-VIDA-242): soldados × armas × (1 + parte montada).
+    const force = (k: number) => {
+      const n = soldiers.get(k) ?? 0;
+      return n * (1 + this.villages[k].stock.weaponTier * 0.5) * (1 + (n ? (riders.get(k) ?? 0) / n : 0));
+    };
     const has = (k: number, kind: BuildingKind) => (members.get(k) ?? []).some((v) => v.houses.some((h) => h.kind === kind));
     const port = (k: number) => (members.get(k) ?? []).some((v) => v.port >= 0);
     for (let x = 0; x < capitals.length; x++) {
@@ -4578,6 +4992,12 @@ export class Ecosystem {
         }
         rel += (a.culture.tolerance + b.culture.tolerance) * 1.2;
         if (this.allied(a.id, b.id)) rel += 2;
+        // Rancor de guerra (RF-VIDA-243): o vencido não esquece por muitos anos.
+        const grudge = this.grudges.get(key);
+        if (grudge !== undefined) {
+          if (grudge > this.year) rel -= B.GRUDGE_PULL;
+          else this.grudges.delete(key);
+        }
         // Cobiça (seção 19.19): um reino com falta de comida ou lenha olha torto para o vizinho que tem de sobra.
         const lackA = border ? this.kingdomLack(members.get(a.id) ?? [a]) : 0;
         const lackB = border ? this.kingdomLack(members.get(b.id) ?? [b]) : 0;
@@ -4597,45 +5017,235 @@ export class Ecosystem {
         this.relations.set(key, rel);
         if (atWar) continue;
         if (this.alliance(a, b, rel)) continue;
-        if (busy) continue;
-        // Guerra: relação muito ruim, ou ambição de um reino forte e avançado.
-        const warlike = a.culture.value === 'guerra' || b.culture.value === 'guerra';
+        if (busy || this.allied(a.id, b.id) || (this.truces.get(key) ?? 0) > this.year) continue;
+        // Motivo (seção 19.7): cada lado vê se tem razão contra o outro e, se tiver, passa a se preparar (não declara na hora).
         const fa = force(a.id);
         const fb = force(b.id);
-        const strong = Math.max(fa, fb) >= 2 * Math.max(1, Math.min(fa, fb)) && Math.floor(Math.max(a.tech, b.tech)) >= 2;
-        const hostile = rel < (warlike ? -20 : -35);
-        const ambition = strong && rel < 0 && this.polRnd() < 0.04;
-        // Guerra pela comida ou pela mata: o reino em falta, mais forte, ataca o vizinho farto.
-        const hungryA = lackA * richB > 0 && fa > fb;
-        const hungryB = lackB * richA > 0 && fb > fa;
-        const raid = (hungryA || hungryB) && rel < 20 && this.polRnd() < B.RESOURCE_WAR * greed * (warlike ? 2 : 1);
-        if (!ambition && !raid && (!hostile || this.polRnd() > 0.15 * (warlike ? 2 : 1))) continue;
-        // Um bando pequeno basta para saquear o vizinho farto; guerra de conquista pede exército.
-        if (Math.max(fa, fb) < (raid ? B.RAID_FORCE : 4) || this.allied(a.id, b.id) || (this.truces.get(key) ?? 0) > this.year) continue;
-        const [att, def, target] = raid ? (hungryA ? [a, b, pb] : [b, a, pa]) : fa >= fb ? [a, b, pb] : [b, a, pa];
-        if (this.declareWar(att, def, target, members)) {
-          if (raid) {
-            this.tally.greedWars++;
-            this.note(`Com ${this.kingdomLackName(members.get(att.id) ?? [att])} faltando, ${att.name} foi à guerra atrás da fartura de ${def.name}`, 'guerra', att, { key: `greed-${key}` });
-          }
-          this.callAllies(att, def, members);
+        const warlike = a.culture.value === 'guerra' || b.culture.value === 'guerra';
+        const ma = members.get(a.id) ?? [a];
+        const mb = members.get(b.id) ?? [b];
+        const sides = [
+          { att: a, def: b, target: pb, fAtt: fa, fDef: fb, lack: lackA, rich: richB, own: ma, other: mb },
+          { att: b, def: a, target: pa, fAtt: fb, fDef: fa, lack: lackB, rich: richA, own: mb, other: ma },
+        ];
+        if (this.polRnd() < 0.5) sides.reverse();
+        for (const side of sides) {
+          if (this.plans.has(side.att.id) || this.warOf(side.att.id)) continue;
+          const plan = this.intent(side, rel, border, warlike);
+          if (plan) this.makePlan(side.att, side.def, plan);
         }
       }
     }
+    this.updatePlans(members, soldiers, force);
     for (let k = this.wars.length - 1; k >= 0; k--) {
       const war = this.wars[k];
       war.years++;
+      // Logística (RF-VIDA-242): o exército come do celeiro de casa; dois anos com fome e ele volta.
+      if (this.supplyArmy(war, soldiers.get(war.a) ?? 0)) {
+        this.tally.retreats++;
+        this.relations.set(this.key(war.a, war.b), Math.min(this.relation(war.a, war.b), -10));
+        this.note(`Sem comida, o exército de ${this.villages[war.home].name} desistiu de ${this.villages[war.target].name} e voltou para casa`, 'guerra', this.villages[war.home], { major: true });
+        this.endWar(k);
+        continue;
+      }
+      if (war.years >= 2) this.hireMercenaries(war, members);
+      // Cansaço de guerra (RF-VIDA-241): a chance de paz sobe a cada ano e a cada morte.
       const dead = war.losses[0] + war.losses[1];
-      if (this.polRnd() < 0.03 + dead / 150 + (war.years > 30 ? 0.1 : 0)) {
-        this.wars.splice(k, 1);
-        this.relations.set(this.key(war.a, war.b), -10);
-        this.truces.set(this.key(war.a, war.b), this.year + TRUCE_YEARS);
-        this.note(`Paz entre ${this.villages[war.a].name} e ${this.villages[war.b].name}`, 'guerra', this.villages[war.b], { major: true });
+      if (this.polRnd() < B.PEACE_BASE + B.PEACE_PER_YEAR * war.years + B.PEACE_PER_DEATH * dead) {
+        this.makePeace(war);
+        this.endWar(k);
       }
     }
     this.vassals(members);
     this.rebuildEnemies();
     this.caravanPairs.clear();
+  }
+
+  /** Agressividade do reino, de -1 (passivo) a 1 (agressivo). */
+  temperOf(k: number): number {
+    return this.temper.get(k) ?? 0;
+  }
+
+  /** Soma `delta` à agressividade do reino (o jogador mexe nela; some aos poucos, TEMPER_FADE por ano). */
+  addTemper(k: number, delta: number): void {
+    const t = Math.max(-1, Math.min(1, this.temperOf(k) + delta));
+    if (Math.abs(t) < 0.01) this.temper.delete(k);
+    else this.temper.set(k, t);
+  }
+
+  /** Reino em preparo para a guerra, se estiver (o preparo puxa armas, armaduras e soldados). */
+  preparing(k: number): WarPlan | null {
+    return this.plans.get(k) ?? null;
+  }
+
+  /**
+   * Prontidão do reino para a guerra (0 a 1): comida para PREP_FOOD_YEARS anos de exército, uma arma por
+   * soldado, armaduras (da Era do Bronze) e ouro de reserva (idem). Só conta o lado que ataca: o alvo não
+   * precisa estar pronto (e por isso pode ser pego de surpresa).
+   */
+  readiness(members: Village[], soldiers: number): number {
+    const n = Math.max(1, soldiers);
+    let food = 0;
+    let weapons = 0;
+    let armor = 0;
+    let gold = 0;
+    let era = 0;
+    for (const v of members) {
+      food += v.food;
+      weapons += v.stock.weapons;
+      armor += v.stock.armor;
+      gold += v.stock.gold;
+      era = Math.max(era, Math.floor(v.tech));
+    }
+    const parts: [number, number][] = [
+      [0.4, food / (n * B.ARMY_FOOD * B.PREP_FOOD_YEARS)],
+      [0.3, weapons / n],
+    ];
+    if (era >= 1) parts.push([0.15, armor / (n * B.PREP_ARMOR)], [0.15, gold / (B.PREP_GOLD * (1 + era))]);
+    let total = 0;
+    let sum = 0;
+    for (const [w, v] of parts) {
+      total += w;
+      sum += w * Math.max(0, Math.min(1, v));
+    }
+    return sum / total;
+  }
+
+  /** Prontidão exigida de quem tem a agressividade dada: o agressivo se contenta com menos. */
+  private readyLevel(k: number): number {
+    return B.READY_LEVEL - B.TEMPER_READY * this.temperOf(k);
+  }
+
+  /** Vantagem de força que o reino quer ter sobre o alvo antes de declarar, pelo motivo e pela agressividade. */
+  private wantedAdvantage(motive: WarMotive, k: number): number {
+    const base = motive === 'loot' ? B.ADVANTAGE_RAID : motive === 'extermination' ? B.ADVANTAGE_EXTERMINATION : B.ADVANTAGE;
+    return base - B.TEMPER_ADVANTAGE * this.temperOf(k);
+  }
+
+  /**
+   * Motivo de guerra de `side.att` contra `side.def` neste ano (seção 19.7), ou null. A chance de cada um
+   * é vezes (1 + agressividade do reino). Só nasce a intenção: a declaração espera o preparo (updatePlans).
+   */
+  private intent(
+    side: { att: Village; def: Village; target: Village; fAtt: number; fDef: number; lack: number; rich: number; own: Village[]; other: Village[] },
+    rel: number,
+    border: boolean,
+    warlike: boolean,
+  ): { motive: WarMotive; target: Village; good?: LootGood } | null {
+    const { att, def, target, fAtt, fDef } = side;
+    const m = Math.max(0, 1 + this.temperOf(att.kingdom));
+    const rnd = this.polRnd;
+    const w = warlike ? 2 : 1;
+    if (border && rel <= B.EXTERMINATION_RELATION && fAtt >= 2 * Math.max(1, fDef) && happens(rnd, B.EXTERMINATION_RATE * m, 1)) return { motive: 'extermination', target };
+    if ((this.vengeance.get(`${att.id}>${def.id}`) ?? 0) > this.year && rel < 10 && happens(rnd, B.REVENGE_WAR * m, 1)) return { motive: 'revenge', target };
+    if (att.culture.value === 'fé' && def.culture.belief !== att.culture.belief && rel < 10 && happens(rnd, B.FAITH_WAR * m * (1 - att.culture.tolerance), 1)) return { motive: 'faith', target };
+    // Falta de comida ou lenha: o reino em falta, mais forte, vai atrás da fartura do vizinho.
+    const greed = side.lack * side.rich;
+    if (greed > 0 && fAtt > fDef && rel < 20 && rnd() < B.RESOURCE_WAR * greed * w * m) {
+      return { motive: 'loot', target, good: this.kingdomLackName(side.own) === 'comida' ? 'food' : 'wood' };
+    }
+    // Cobiça: cavalos, ferro ou ouro que faltam ao mais forte e sobram no vizinho.
+    const want = fAtt > fDef && rel < 0 ? this.covet(side.own, side.other) : null;
+    if (want && rnd() < B.COVET_WAR * want.want * w * m) return { motive: 'loot', target: want.from, good: want.good };
+    // Domínio: um reino forte e avançado sobre um vizinho bem mais fraco.
+    const strong = fAtt >= 2 * Math.max(1, fDef) && Math.floor(att.tech) >= 2;
+    if (strong && rel < 0 && rnd() < 0.04 * m) return { motive: 'dominion', target };
+    // Território: relação ruim demais.
+    if (rel < (warlike ? -20 : -35) && rnd() < 0.15 * w * m) return { motive: 'land', target };
+    return null;
+  }
+
+  /** Um reino passa a se preparar para atacar (RF-VIDA-241): os ferreiros e as profissões se voltam para a guerra. */
+  private makePlan(att: Village, def: Village, plan: { motive: WarMotive; target: Village; good?: LootGood }): void {
+    this.plans.set(att.id, { enemy: def.id, target: plan.target.id, motive: plan.motive, good: plan.good, since: this.year, belief: 1 + (this.polRnd() - 0.5) * 2 * B.BELIEF_NOISE });
+    this.tally.plans++;
+    this.note(`${att.name} começou a se preparar para a guerra contra ${def.name} (${WAR_MOTIVES[plan.motive]})`, 'guerra', att, { key: `prep-${att.id}-${def.id}` });
+  }
+
+  /**
+   * Uma vez por ano: cada reino em preparo confere se está pronto (comida, armas, armaduras e ouro) e se acha
+   * que tem vantagem sobre o alvo. Se sim, declara. Desiste se o motivo sumiu, a tensão passou ou o preparo
+   * demorou PREP_MAX_YEARS.
+   */
+  private updatePlans(members: Map<number, Village[]>, soldiers: Map<number, number>, force: (k: number) => number): void {
+    for (const [k, plan] of this.plans) {
+      const att = this.villages[k];
+      const def = this.villages[plan.enemy];
+      const target = this.villages[plan.target];
+      const rel = this.relation(k, plan.enemy);
+      const gone = att.abandoned || att.kingdom !== k || def.abandoned || def.kingdom !== def.id || target.abandoned || target.kingdom !== plan.enemy;
+      const calm = plan.motive !== 'revenge' && rel > B.PEACE_REL;
+      if (gone || calm || this.allied(k, plan.enemy) || this.warOf(k)) {
+        this.plans.delete(k);
+        this.tally.plansDropped++;
+        continue;
+      }
+      if (this.year - plan.since > B.PREP_MAX_YEARS) {
+        this.plans.delete(k);
+        this.tally.plansDropped++;
+        this.note(`${att.name} desistiu da guerra contra ${def.name}: nunca se sentiu pronto`, 'guerra', att, { key: `giveup-${k}` });
+        continue;
+      }
+      if (this.warOf(plan.enemy) || (this.truces.get(this.key(k, plan.enemy)) ?? 0) > this.year) continue;
+      const mine = force(k);
+      const loot = plan.motive === 'loot';
+      if (mine < (loot ? B.RAID_FORCE : 4)) continue;
+      if (this.readiness(members.get(k) ?? [att], soldiers.get(k) ?? 0) < this.readyLevel(k)) continue;
+      // O que ele acha que o inimigo vale: a força de verdade, com o erro do plano.
+      if (mine < this.wantedAdvantage(plan.motive, k) * Math.max(1, force(plan.enemy) * plan.belief)) continue;
+      this.plans.delete(k);
+      this.tally.prepYears += this.year - plan.since;
+      if (this.declareWar(att, def, target, members, plan.motive, plan.good)) {
+        if (loot && (plan.good === 'food' || plan.good === 'wood')) this.tally.greedWars++;
+        this.callAllies(att, def, members);
+      }
+    }
+  }
+
+  // Influência do jogador (seção 19.20) -------------------------------------
+
+  /** Aumenta a tensão entre dois reinos (a relação cai PLAYER_TENSION). */
+  provoke(a: Village, b: Village): boolean {
+    if (a.kingdom === b.kingdom) return false;
+    const key = this.key(a.kingdom, b.kingdom);
+    this.relations.set(key, Math.max(-100, this.relation(a.kingdom, b.kingdom) - B.PLAYER_TENSION));
+    this.truces.delete(key);
+    this.effect('swords', a.x, a.y - 3, 25, 1);
+    this.effect('swords', b.x, b.y - 3, 25, 1);
+    this.note(`Algo azedou a relação entre ${this.villages[a.kingdom].name} e ${this.villages[b.kingdom].name}`, 'jogador', a);
+    return true;
+  }
+
+  /** Ameniza a tensão: a relação sobe PLAYER_TENSION, a trégua vale por mais um tempo e os planos de guerra entre os dois caem. */
+  soothe(a: Village, b: Village): boolean {
+    if (a.kingdom === b.kingdom) return false;
+    const key = this.key(a.kingdom, b.kingdom);
+    this.relations.set(key, Math.min(100, this.relation(a.kingdom, b.kingdom) + B.PLAYER_TENSION));
+    this.truces.set(key, Math.max(this.truces.get(key) ?? 0, this.year + B.TRUCE_MIN));
+    for (const [x, y] of [[a.kingdom, b.kingdom], [b.kingdom, a.kingdom]]) if (this.plans.get(x)?.enemy === y) this.plans.delete(x);
+    this.effect('heart', a.x, a.y - 3, 25, 1);
+    this.effect('heart', b.x, b.y - 3, 25, 1);
+    this.note(`${this.villages[a.kingdom].name} e ${this.villages[b.kingdom].name} se aproximaram`, 'jogador', a);
+    return true;
+  }
+
+  /** Manda um reino atacar outro agora, sem preparo (a vontade do jogador vale). Devolve falso se não der (já em guerra, sem caminho). */
+  incite(a: Village, b: Village): boolean {
+    if (a.kingdom === b.kingdom || this.warOf(a.kingdom) || this.warOf(b.kingdom)) return false;
+    const members = new Map<number, Village[]>();
+    for (const v of this.villages) if (!v.abandoned) members.set(v.kingdom, [...(members.get(v.kingdom) ?? []), v]);
+    const target = (members.get(b.kingdom) ?? [b]).reduce((p, q) => (this.distance(q, a.x, a.y) < this.distance(p, a.x, a.y) ? q : p));
+    this.plans.delete(a.kingdom);
+    return this.declareWar(this.villages[a.kingdom], this.villages[b.kingdom], target, members, 'dominion');
+  }
+
+  /** Torna o reino mais agressivo (`dir` > 0) ou mais passivo (`dir` < 0), TEMPER_STEP por vez; a chance de ter motivo e o preparo exigido mudam. */
+  sway(k: Village, dir: number): void {
+    const delta = Math.sign(dir) * B.TEMPER_STEP;
+    this.addTemper(k.kingdom, delta);
+    const cap = this.villages[k.kingdom];
+    this.effect(delta > 0 ? 'swords' : 'heart', cap.x, cap.y - 3, 25, 1);
+    this.note(`${cap.name} ficou mais ${delta > 0 ? 'belicoso' : 'pacato'}`, 'jogador', cap);
   }
 
   /** Falta de comida e madeira num reino, pelo assentamento que mais sofre (0 a 1, seção 19.19). */
@@ -4666,17 +5276,122 @@ export class Ecosystem {
     return list.length ? Math.max(0, n / list.length - 0.3) / 0.7 : 0;
   }
 
-  /** Declara guerra se houver caminho por terra ou, sem ele, por mar. Retorna se começou. */
-  private declareWar(att: Village, def: Village, target: Village, members: Map<number, Village[]>): boolean {
+  /**
+   * Paz (RF-VIDA-134): a relação volta a −10. Na guerra de território, quem está ganhando
+   * (perdeu menos gente) fica com o assentamento disputado: paz com cessão (RF-VIDA-240).
+   */
+  private makePeace(war: War): void {
+    const a = this.villages[war.a];
+    const b = this.villages[war.b];
+    const target = this.villages[war.target];
+    this.relations.set(this.key(war.a, war.b), -10);
+    const cede = (war.motive === 'land' || war.motive === 'dominion' || war.motive === 'revenge' || war.motive === 'faith') && war.losses[0] < war.losses[1] && target.kingdom === war.b && target !== b && !target.abandoned;
+    if (cede) {
+      target.kingdom = a.id;
+      target.color = a.color;
+      target.leader = -1;
+      this.grudge(war.a, war.b, B.GRUDGE_YEARS / 2);
+      this.vengeance.set(`${war.b}>${war.a}`, this.year + B.GRUDGE_YEARS / 2);
+      this.note(`Paz entre ${a.name} e ${b.name}: ${b.name} cedeu ${target.name}`, 'guerra', target, { major: true });
+      return;
+    }
+    this.note(`Paz entre ${a.name} e ${b.name}`, 'guerra', b, { major: true });
+  }
+
+  /**
+   * Comida do exército em campanha (RF-VIDA-242): ARMY_FOOD por soldado por ano, do celeiro do
+   * assentamento de onde ele saiu. Guarda a parte paga em `supply`; devolve true quando o
+   * exército passou dois anos seguidos com pouca comida e volta para casa.
+   */
+  private supplyArmy(war: War, soldiers: number): boolean {
+    let home = this.villages[war.home];
+    if (home.abandoned || home.kingdom !== war.a) {
+      home = this.villages[war.a];
+      war.home = home.id;
+    }
+    const need = soldiers * B.ARMY_FOOD;
+    if (need <= 0) {
+      war.supply = 1;
+      return false;
+    }
+    const paid = Math.min(home.food, need);
+    home.food -= paid;
+    this.book(home, 'food', 0, paid);
+    war.supply = paid / need;
+    war.hungry = war.supply < B.RETREAT_SUPPLY ? (war.hungry ?? 0) + 1 : 0;
+    return war.motive !== 'civil' && war.hungry >= 2;
+  }
+
+  /**
+   * Mercenários (RF-VIDA-295): em guerra longa, o lado com ouro contrata adultos de um
+   * assentamento pobre ou em crise de outro reino, que vão lutar por ele.
+   */
+  private hireMercenaries(war: War, members: Map<number, Village[]>): void {
+    for (const [side, k] of [[0, war.a], [1, war.b]] as const) {
+      if (!happens(this.polRnd, B.MERCENARY_RATE, 1)) continue;
+      const list = members.get(k) ?? [];
+      const payer = list.reduce<Village | null>((p, q) => (!p || q.stock.gold > p.stock.gold ? q : p), null);
+      if (!payer || payer.stock.gold < B.MERCENARY_PRICE * 2) continue;
+      const camp = side === 0 ? this.villages[war.home] : this.villages[war.target];
+      let source: Village | null = null;
+      let bd = 120;
+      for (const o of this.villages) {
+        if (o.abandoned || o.kingdom === war.a || o.kingdom === war.b || o.population < 8 || this.warOf(o.kingdom)) continue;
+        const poor = (o.stability ?? 1) < 0.5 || (o.needs?.food ?? 1) < 0.6 || (o.needs ? welfare(o.needs) : 1) < 0.6;
+        if (!poor) continue;
+        const d = this.distance(o, camp.x, camp.y);
+        if (d < bd && this.landPath(o.x, o.y, camp.x, camp.y)) {
+          bd = d;
+          source = o;
+        }
+      }
+      if (!source) continue;
+      const n = Math.min(B.MERCENARY_MAX, Math.floor(payer.stock.gold / B.MERCENARY_PRICE), Math.floor(source.population / 4));
+      let hired = 0;
+      const era = Math.floor(source.tech);
+      for (let i = 0; i < this.count && hired < n; i++) {
+        if (!this.alive[i] || this.village[i] !== source.id || i === source.leader || this.role[i] === CHILD) continue;
+        if (this.age[i] >= elderAge(this.species[this.kind[i]], era)) continue;
+        this.moveTo(i, source, camp);
+        this.role[i] = ROLE.soldier;
+        this.mercenaries.add(i);
+        hired++;
+      }
+      if (!hired) continue;
+      const pay = hired * B.MERCENARY_PRICE;
+      payer.stock.gold -= pay;
+      source.stock.gold = Math.min(this.capOf(source, 'gold'), source.stock.gold + pay);
+      war.mercs[side] += hired;
+      this.tally.mercenaries += hired;
+      this.note(`${payer.name} contratou ${hired} mercenários de ${source.name} por ${pay} de ouro`, 'guerra', camp, { key: `merc-${payer.id}-${source.id}` });
+    }
+  }
+
+  /** Declara guerra se houver caminho por terra ou, sem ele, por mar, e o teto do planeta deixar (RF-VIDA-241). Retorna se começou. */
+  private declareWar(att: Village, def: Village, target: Village, members: Map<number, Village[]>, motive: WarMotive = 'land', good?: LootGood): boolean {
     let naval = false;
     const home = (members.get(att.id) ?? []).reduce((p, q) => (this.distance(q, target.x, target.y) < this.distance(p, target.x, target.y) ? q : p), att);
     if (!this.landPath(home.x, home.y, target.x, target.y)) {
       if (!this.navalBase(att.id, target)) return false;
       naval = true;
     }
-    this.wars.push({ a: att.id, b: def.id, target: target.id, losses: [0, 0], years: 0, naval });
+    this.startWar({ a: att.id, b: def.id, target: target.id, naval, motive, good, home: home.id });
     this.breakAgreements(att.id, def.id);
-    this.note(`Guerra! ${att.name} atacou ${def.name}${target !== def ? ` em ${target.name}` : ''}${naval ? ', pelo mar' : ''}`, 'guerra', target, { major: true });
+    // Crônica com motivo (RF-VIDA-244).
+    const sea = naval ? ', pelo mar' : '';
+    const text =
+      motive === 'loot'
+        ? `${home.name} atacou ${target.name} para tomar ${this.lootName(good ?? 'food', target, false)}${sea}`
+        : motive === 'extermination'
+          ? `Guerra! ${att.name} marchou para arrasar ${target.name}${sea}`
+          : motive === 'revenge'
+            ? `Guerra! ${att.name} atacou ${def.name} por vingança, para retomar ${this.prizeName(target)}${sea}`
+            : motive === 'faith'
+              ? `Guerra santa! ${att.name} atacou ${def.name} em nome da fé ${att.culture.belief}${sea}`
+              : motive === 'dominion'
+                ? `Guerra! ${att.name} atacou ${def.name} para dominar ${this.prizeName(target)}${sea}`
+                : `Guerra! ${att.name} atacou ${def.name} para tomar ${this.prizeName(target)}${sea}`;
+    this.note(text, 'guerra', target, { major: true });
     this.effect('swords', target.x, target.y - 3, 30, 1);
     return true;
   }
@@ -4797,7 +5512,7 @@ export class Ecosystem {
     this.relations.set(key, -60);
     this.note(`O rei de ${capital.name} morreu sem herdeiro aceito: ${seat.name} coroou outro rei e levou ${rebels.length} assentamentos`, 'povo', seat, { major: true });
     if (!this.warOf(capital.id) && !this.warOf(seat.id) && this.civRnd() < 0.6) {
-      this.wars.push({ a: seat.id, b: capital.id, target: capital.id, losses: [0, 0], years: 0, naval: !this.landPath(seat.x, seat.y, capital.x, capital.y) });
+      this.startWar({ a: seat.id, b: capital.id, target: capital.id, naval: !this.landPath(seat.x, seat.y, capital.x, capital.y), motive: 'civil', home: seat.id });
       this.note(`Guerra civil entre ${seat.name} e ${capital.name}`, 'guerra', capital, { major: true });
       this.effect('swords', capital.x, capital.y - 3, 30, 1);
     }
@@ -6522,7 +7237,9 @@ export class Ecosystem {
     for (let dy = -ri; dy <= ri; dy++) {
       for (let dx = -ri; dx <= ri; dx++) {
         const t = this.tileAt(x0 + dx, y0 + dy);
-        if (t < 0 || isLand(map, t)) continue;
+        if (t < 0) continue;
+        if (!map.felled?.[t]) this.stumps.delete(t);
+        if (isLand(map, t)) continue;
         if (this.road[t]) {
           this.road[t] = 0;
           this.mainStreet[t] = 0;
@@ -6545,7 +7262,9 @@ export class Ecosystem {
       }
     }
     for (const v of this.villages) {
-      if (v.abandoned || this.distance(v, cx, cy) > ri + this.radius(v) + 6) continue;
+      if (v.abandoned) continue;
+      if (this.distance(v, cx, cy) <= ri + this.reachOf(v, B.WOOD_REACH)) v.treeScan = -1;
+      if (this.distance(v, cx, cy) > ri + this.radius(v) + 6) continue;
       for (let k = v.houses.length - 1; k >= 0; k--) {
         const h = v.houses[k];
         const size = h.kind === 'port' ? 1 : 2;

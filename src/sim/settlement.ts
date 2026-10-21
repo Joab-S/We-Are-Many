@@ -287,14 +287,13 @@ export function roadBlocks(road: Uint8Array, width: number, height: number): num
 
 /**
  * Lotes de casa (canto superior esquerdo de 2x2 tiles) dos dois lados das
- * ruas, a cada 3 tiles e com um pouco de folga, ordenados do centro para
+ * ruas, a cada 3 tiles e alinhados na beira dela, ordenados do centro para
  * fora. Lotes que caem em cima de rua ou de outra casa são pulados na hora
  * de construir.
  */
 export function lotsFor(tier: number, seed = 0, grow = 0): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
   const seen = new Set<string>();
-  const r = rng(seed ^ 0x9e3779b9);
   const limit = radiusFor(tier, grow);
   const add = (x: number, y: number) => {
     const k = `${x},${y}`;
@@ -309,10 +308,8 @@ export function lotsFor(tier: number, seed = 0, grow = 0): { x: number; y: numbe
       const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
       const nx = -(b.y - a.y) / len;
       const ny = (b.x - a.x) / len;
-      for (const side of [1, -1]) {
-        const d = 2 + r() * 0.8;
-        add(Math.round(pts[i].x - 0.5 + side * nx * d + (r() - 0.5) * 0.6), Math.round(pts[i].y - 0.5 + side * ny * d + (r() - 0.5) * 0.6));
-      }
+      // Casas alinhadas na beira da rua, à mesma distância dela (mapa organizado, pedido do Joab).
+      for (const side of [1, -1]) add(Math.round(pts[i].x - 0.5 + side * nx * 2), Math.round(pts[i].y - 0.5 + side * ny * 2));
     }
   }
   return out.sort((a, b) => a.x * a.x + a.y * a.y - (b.x * b.x + b.y * b.y));

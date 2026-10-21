@@ -325,8 +325,8 @@ export class SoftArt {
       if (gx % 8 === 0 || gy % 8 === 0) return set(0.8);
       return set(0.93 + 0.1 * hash(Math.floor(gx / 8) + 2, Math.floor(gy / 8) + 2));
     }
-    // Faixa da rua: 6 pixels de arte na pedra, 4 na terra, centrada no tile.
-    const lo = kind === 9 ? 2 : 4;
+    // Faixa da rua: quase o tile todo na pedra e três quartos dele na terra, centrada (ruas largas, como nas referências do Joab).
+    const lo = kind === 9 ? 1 : 2;
     const hi = 15 - lo;
     const on = (x: number, y: number) => this.onRoad(x, y, lo, hi, rn, rs, rw, re);
     if (!on(fx, fy)) {

@@ -227,3 +227,31 @@ describe('recursos não se transferem sozinhos', () => {
     expect(v.stock.gold).toBe(gold);
   }, 60000);
 });
+
+describe('terreiro em volta das casas (mapa organizado)', () => {
+  it('árvore colada numa casa sai e a madeira vai para o estoque', async () => {
+    const { runWorld } = await import('./calibrate');
+    const { eco } = runWorld(42, 3);
+    const map = eco.map;
+    const v = eco.villages.find((o) => !o.abandoned && o.houses.length)!;
+    const h = v.houses[0];
+    let t = -1;
+    for (const [dx, dy] of [[-1, 0], [2, 0], [0, -1], [0, 2], [-1, -1], [2, 2], [-1, 2], [2, -1]]) {
+      const c = (h.y + dy) * map.width + h.x + dx;
+      if (eco.road[c] || eco.built[c]) continue;
+      map.biome[c] = Biome.Forest;
+      map.vegetation[c] = 0.8;
+      if (map.bare) map.bare[c] = 0;
+      if (eco.standingTree(c)) {
+        t = c;
+        break;
+      }
+    }
+    expect(t).toBeGreaterThanOrEqual(0);
+    v.stock.wood = 0;
+    (eco as unknown as { clearYards(v: Village): void }).clearYards(v);
+    expect(eco.standingTree(t)).toBe(false);
+    expect(decorAt(map, t)).toBe(Decor.None);
+    expect(v.stock.wood).toBeGreaterThan(0);
+  }, 60000);
+});
