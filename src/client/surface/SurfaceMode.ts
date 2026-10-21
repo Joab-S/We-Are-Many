@@ -48,6 +48,45 @@ const TABS: [Tab, string][] = [
   ['events', '☄ Eventos'],
 ];
 
+/** Ajustes do jogador que as ferramentas de clima leem: temperatura alvo (K) e se ela vale como limite. */
+interface ToolOpts {
+  target: number;
+  limit: boolean;
+}
+
+type FxKind = 'heat' | 'cool' | 'snow' | 'thaw' | 'rain' | 'dry' | 'rise' | 'sink' | 'sea' | 'flatten' | 'sand' | 'grow' | 'clear' | 'demolish';
+
+/** Partícula da animação do pincel, em coordenadas do mapa (y para o norte, como a vista). */
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  age: number;
+  life: number;
+  kind: 'ember' | 'flake' | 'streak' | 'dust' | 'drop' | 'ring' | 'spark' | 'chunk';
+  size: number;
+  rgb: [number, number, number];
+}
+
+/** Cor do brilho de cada animação e o que ela solta (tipo, cor, direção, velocidade em tiles/s). */
+const FX: Record<FxKind, { glow: [number, number, number, number]; kind: Particle['kind']; rgb: [number, number, number]; vx: number; vy: number; spread: number; size: number }> = {
+  heat: { glow: [255, 110, 30, 0.28], kind: 'ember', rgb: [255, 170, 50], vx: 0, vy: 2.2, spread: 0.8, size: 0.14 },
+  cool: { glow: [90, 170, 255, 0.26], kind: 'flake', rgb: [225, 242, 255], vx: 0.2, vy: -1, spread: 0.4, size: 0.14 },
+  snow: { glow: [210, 225, 245, 0.3], kind: 'flake', rgb: [255, 255, 255], vx: 0.5, vy: -1.6, spread: 0.5, size: 0.17 },
+  thaw: { glow: [255, 190, 90, 0.2], kind: 'drop', rgb: [110, 180, 255], vx: 0, vy: -1.8, spread: 0.2, size: 0.12 },
+  rain: { glow: [50, 80, 140, 0.3], kind: 'streak', rgb: [150, 200, 255], vx: -0.9, vy: -7, spread: 0.3, size: 0.4 },
+  dry: { glow: [240, 200, 90, 0.26], kind: 'dust', rgb: [236, 206, 120], vx: 2, vy: 0.3, spread: 0.6, size: 0.3 },
+  rise: { glow: [150, 110, 70, 0.22], kind: 'dust', rgb: [150, 112, 74], vx: 0, vy: 1.6, spread: 1, size: 0.3 },
+  sink: { glow: [90, 70, 50, 0.22], kind: 'chunk', rgb: [110, 84, 58], vx: 0, vy: -2.4, spread: 0.5, size: 0.2 },
+  sea: { glow: [40, 110, 200, 0.28], kind: 'ring', rgb: [180, 220, 255], vx: 0, vy: 0, spread: 0, size: 0.2 },
+  flatten: { glow: [160, 160, 160, 0.2], kind: 'dust', rgb: [190, 190, 190], vx: 1.2, vy: 0, spread: 0.2, size: 0.22 },
+  sand: { glow: [230, 200, 130, 0.24], kind: 'dust', rgb: [226, 196, 128], vx: 1.6, vy: 0.4, spread: 0.7, size: 0.26 },
+  grow: { glow: [70, 190, 80, 0.24], kind: 'spark', rgb: [140, 240, 120], vx: 0, vy: 1.4, spread: 0.6, size: 0.18 },
+  clear: { glow: [190, 190, 170, 0.22], kind: 'dust', rgb: [200, 196, 180], vx: 0.4, vy: 0.8, spread: 0.9, size: 0.3 },
+  demolish: { glow: [150, 100, 70, 0.26], kind: 'chunk', rgb: [150, 112, 80], vx: 0, vy: 1.2, spread: 1.2, size: 0.24 },
+};
+
 interface Tool {
   id: string;
   tab: Tab;
@@ -62,7 +101,9 @@ interface Tool {
   tip: string;
   /** Pincel contínuo enquanto o botão está apertado, ou um clique por vez. */
   mode: 'brush' | 'click';
-  apply?(map: SurfaceMap, i: number, strength: number): void;
+  apply?(map: SurfaceMap, i: number, strength: number, opts: ToolOpts): void;
+  /** Animação do pincel enquanto a ferramenta age (partículas e brilho sobre o mapa). */
+  fx?: FxKind;
   act?(ctx: SurfaceMode, x: number, y: number): void;
 }
 
@@ -84,12 +125,15 @@ const HERD_TINT: Record<string, [number, number, number]> = { sheep: [238, 234, 
 
 /** Ferramentas de terraformação e clima (RF-SUP-06). */
 const TERRAIN_TOOLS: Tool[] = [
-  { id: 'raise', tab: 'terrain', label: 'Elevar', icon: '⛰', tip: 'Levanta o chão aos poucos: do mar nasce terra, da terra, morros.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] + 0.02 * s, -1, 1)) },
-  { id: 'lower', tab: 'terrain', label: 'Rebaixar', icon: '⛏', tip: 'Abaixa o chão aos poucos: vales, lagos e, no fim, mar.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] - 0.02 * s, -1, 1)) },
-  { id: 'mountain', tab: 'terrain', label: 'Montanha', icon: '🏔', tip: 'Ergue serras de rocha rapidamente.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] + 0.06 * s, -1, 0.95)) },
-  { id: 'sea', tab: 'terrain', label: 'Mar', icon: '🌊', tip: 'Afunda a terra até virar mar raso.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = Math.max(-0.3, m.elevation[i] - 0.06 * s)) },
-  { id: 'flatten', tab: 'terrain', label: 'Nivelar', icon: '▭', tip: 'Aplaina o terreno para perto do nível de planície.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] += (0.12 - m.elevation[i]) * Math.min(1, 0.05 * s)) },
-  { id: 'sand', tab: 'terrain', label: 'Areia', icon: '🏜', tip: 'Seca o solo: vira praia ou deserto.', mode: 'brush', apply: (m, i, s) => { m.moisture[i] = clamp(m.moisture[i] - 0.05 * s, 0, 1); m.vegetation[i] = clamp(m.vegetation[i] - 0.05 * s, 0, 1); } },
+  { id: 'raise', fx: 'rise', tab: 'terrain', label: 'Elevar', icon: '⛰', tip: 'Levanta o chão aos poucos: do mar nasce terra, da terra, morros.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] + 0.02 * s, -1, 1)) },
+  { id: 'lower', fx: 'sink', tab: 'terrain', label: 'Rebaixar', icon: '⛏', tip: 'Abaixa o chão aos poucos: vales, lagos e, no fim, mar.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] - 0.02 * s, -1, 1)) },
+  { id: 'mountain', fx: 'rise', tab: 'terrain', label: 'Montanha', icon: '🏔', tip: 'Ergue serras de rocha rapidamente.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = clamp(m.elevation[i] + 0.06 * s, -1, 0.95)) },
+  { id: 'sea', fx: 'sea', tab: 'terrain', label: 'Mar', icon: '🌊', tip: 'Afunda a terra até virar mar raso.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] = Math.max(-0.3, m.elevation[i] - 0.06 * s)) },
+  { id: 'flatten', fx: 'flatten', tab: 'terrain', label: 'Nivelar', icon: '▭', tip: 'Aplaina o terreno para perto do nível de planície.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] += (0.12 - m.elevation[i]) * Math.min(1, 0.05 * s)) },
+  { id: 'sand', fx: 'sand', tab: 'terrain', label: 'Areia', icon: '🏜', tip: 'Seca o solo: vira praia ou deserto.', mode: 'brush', apply: (m, i, s) => { m.moisture[i] = clamp(m.moisture[i] - 0.05 * s, 0, 1); m.vegetation[i] = clamp(m.vegetation[i] - 0.05 * s, 0, 1); } },
+  { id: 'lake', fx: 'sea', tab: 'terrain', label: 'Lago', icon: '🏞', tip: 'Cava um lago raso, de margem suave, e umedece a terra em volta.', mode: 'brush', apply: (m, i, s) => { m.elevation[i] = Math.max(-0.12, m.elevation[i] - 0.05 * s); m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1); } },
+  { id: 'clear', fx: 'clear', tab: 'terrain', group: 'Remover', label: 'Limpar', icon: '🧹', tip: 'Tira árvores, pedras, cactos, ruínas e veios de minério do pincel. A madeira, a pedra e o minério vão para o assentamento mais perto.', mode: 'brush', act: (ctx, x, y) => ctx.clearNature(x, y) },
+  { id: 'demolish', fx: 'demolish', tab: 'terrain', group: 'Remover', label: 'Demolir', icon: '🧱', tip: 'Derruba casas, prédios, ruas, roças e pastos do pincel. Parte do material volta ao estoque; o povo reconstrói se precisar.', mode: 'brush', act: (ctx, x, y) => ctx.demolish(x, y) },
   // Minérios: ajuda leve aos povos, que ainda precisam achar o veio e abrir a mina.
   ...ORES.map(
     (ore): Tool => ({
@@ -103,12 +147,80 @@ const TERRAIN_TOOLS: Tool[] = [
       act: (ctx, x, y) => ctx.placeOre(x, y, ore),
     }),
   ),
-  { id: 'heat', tab: 'climate', label: 'Aquecer', icon: '🔥', tip: 'Esquenta a região (derrete gelo, seca, e no extremo vira lava).', mode: 'brush', apply: (m, i, s) => (m.heat[i] = clamp(m.heat[i] + 1.5 * s, -150, 400)) },
-  { id: 'cool', tab: 'climate', label: 'Resfriar', icon: '❄', tip: 'Esfria a região (neve, tundra e gelo no mar).', mode: 'brush', apply: (m, i, s) => (m.heat[i] = clamp(m.heat[i] - 1.5 * s, -150, 400)) },
-  { id: 'rain', tab: 'climate', label: 'Chuva', icon: '🌧', tip: 'Deixa o clima mais úmido: a mata cresce melhor.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] + 0.04 * s, 0, 1)) },
-  { id: 'dry', tab: 'climate', label: 'Secar', icon: '☀', tip: 'Deixa o clima mais seco.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] - 0.04 * s, 0, 1)) },
-  { id: 'plant', tab: 'climate', label: 'Semear vida', icon: '🌱', tip: 'Espalha vegetação, que depois se espalha sozinha onde o clima deixa.', mode: 'brush', apply: (m, i, s) => (m.vegetation[i] = clamp(m.vegetation[i] + 0.06 * s, 0, 1)) },
-  { id: 'forest', tab: 'climate', label: 'Floresta', icon: '🌳', tip: 'Planta mata fechada e umedece o solo.', mode: 'brush', apply: (m, i, s) => { m.vegetation[i] = clamp(m.vegetation[i] + 0.15 * s, 0, 1); m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1); } },
+  {
+    id: 'heat',
+    fx: 'heat',
+    tab: 'climate',
+    label: 'Aquecer',
+    icon: '🔥',
+    tip: 'Esquenta a região (derrete gelo, seca, e no extremo vira lava). Com o limite ligado, para na temperatura alvo.',
+    mode: 'brush',
+    apply: (m, i, s, o) => {
+      const t = temperatureAt(m, i);
+      if (o.limit && t >= o.target) return;
+      const step = o.limit ? Math.min(1.5 * s, o.target - t) : 1.5 * s;
+      m.heat[i] = clamp(m.heat[i] + step, -150, 400);
+    },
+  },
+  {
+    id: 'cool',
+    fx: 'cool',
+    tab: 'climate',
+    label: 'Resfriar',
+    icon: '❄',
+    tip: 'Esfria a região (neve, tundra e gelo no mar). Com o limite ligado, para na temperatura alvo.',
+    mode: 'brush',
+    apply: (m, i, s, o) => {
+      const t = temperatureAt(m, i);
+      if (o.limit && t <= o.target) return;
+      const step = o.limit ? Math.min(1.5 * s, t - o.target) : 1.5 * s;
+      m.heat[i] = clamp(m.heat[i] - step, -150, 400);
+    },
+  },
+  {
+    id: 'adjust',
+    fx: 'heat',
+    tab: 'climate',
+    label: 'Ajustar',
+    icon: '🌡',
+    tip: 'Leva a temperatura da região, para cima ou para baixo, até a temperatura alvo e para ali.',
+    mode: 'brush',
+    apply: (m, i, s, o) => {
+      const gap = o.target - temperatureAt(m, i);
+      m.heat[i] = clamp(m.heat[i] + clamp(gap, -2 * s, 2 * s), -150, 400);
+    },
+  },
+  {
+    id: 'snow',
+    fx: 'snow',
+    tab: 'climate',
+    label: 'Nevar',
+    icon: '🌨',
+    tip: 'Faz nevar: esfria só até a neve pegar (cerca de -15 °C) e umedece o solo, sem congelar além disso.',
+    mode: 'brush',
+    apply: (m, i, s) => {
+      const t = temperatureAt(m, i);
+      if (t > 258) m.heat[i] = clamp(m.heat[i] - Math.min(2 * s, t - 258), -150, 400);
+      m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1);
+    },
+  },
+  {
+    id: 'thaw',
+    fx: 'thaw',
+    tab: 'climate',
+    label: 'Degelo',
+    icon: '💧',
+    tip: 'Derrete neve e gelo: esquenta só o que está congelado, até cerca de 5 °C, sem ressecar o resto.',
+    mode: 'brush',
+    apply: (m, i, s) => {
+      const t = temperatureAt(m, i);
+      if (t < 278) m.heat[i] = clamp(m.heat[i] + Math.min(2 * s, 278 - t), -150, 400);
+    },
+  },
+  { id: 'rain', fx: 'rain', tab: 'climate', label: 'Chuva', icon: '🌧', tip: 'Deixa o clima mais úmido: a mata cresce melhor.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] + 0.04 * s, 0, 1)) },
+  { id: 'dry', fx: 'dry', tab: 'climate', label: 'Secar', icon: '☀', tip: 'Deixa o clima mais seco.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] - 0.04 * s, 0, 1)) },
+  { id: 'plant', fx: 'grow', tab: 'climate', label: 'Semear vida', icon: '🌱', tip: 'Espalha vegetação, que depois se espalha sozinha onde o clima deixa.', mode: 'brush', apply: (m, i, s) => (m.vegetation[i] = clamp(m.vegetation[i] + 0.06 * s, 0, 1)) },
+  { id: 'forest', fx: 'grow', tab: 'climate', label: 'Floresta', icon: '🌳', tip: 'Planta mata fechada e umedece o solo.', mode: 'brush', apply: (m, i, s) => { m.vegetation[i] = clamp(m.vegetation[i] + 0.15 * s, 0, 1); m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1); } },
 ];
 
 /** Eventos que o jogador pode provocar (aba Eventos). */
@@ -177,6 +289,12 @@ export class SurfaceMode {
   /** Ferramenta na mão; null é a mão vazia (só move o mapa e inspeciona). */
   private tool: Tool | null = null;
   private brush = 6;
+  /** Temperatura alvo das ferramentas de clima, em °C, e se Aquecer e Resfriar param nela. */
+  private targetC = 15;
+  private limitOn = true;
+  /** Animação do pincel: partículas e brilho que some devagar depois que o jogador solta. */
+  private particles: Particle[] = [];
+  private glow: { kind: FxKind; alpha: number } | null = null;
   private zoom = 3;
   private speed = 1;
   private center = new THREE.Vector2();
@@ -422,6 +540,18 @@ export class SurfaceMode {
     this.forBrush(x, viewY, this.brush, (i) => (this.map.vegetation[i] = clamp(this.map.vegetation[i] + 0.2, 0, 1)));
     if (helped.length) this.eco.note(`Você deu uma boa colheita a ${helped.map((v) => v.name).join(', ')}`, 'jogador', helped[0]);
     else this.eco.hint = 'Nenhum assentamento no pincel';
+  }
+
+  /** Limpar: árvores, pedras, cactos, ruínas e minério do pincel (a vista tem y para o norte). */
+  clearNature(x: number, viewY: number): void {
+    if (!this.eco.clearNature(x, this.toRow(viewY), this.brush)) return;
+    this.textureChanged = true;
+  }
+
+  /** Demolir: construções, ruas, roças e pastos do pincel. */
+  demolish(x: number, viewY: number): void {
+    if (!this.eco.demolish(x, this.toRow(viewY), this.brush)) return;
+    this.textureChanged = true;
   }
 
   /** Leva a câmera até um tile (x, linha). */
@@ -1051,7 +1181,14 @@ export class SurfaceMode {
       ${html}
       <div class="wb-group"></div>
       <button class="wb-tool" data-t="inspect" title="Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes, sem mexer em nada"><span>✋</span>Mão</button>
-      <label class="wb-brush">Pincel <input type="range" min="1" max="30" value="${this.brush}" data-b /></label>`;
+      <label class="wb-brush">Pincel <input type="range" min="1" max="30" value="${this.brush}" data-b /></label>
+      ${
+        tab === 'climate'
+          ? `<label class="wb-brush" title="Temperatura que Aquecer, Resfriar e Ajustar buscam">Alvo <input type="range" min="-150" max="450" value="${this.targetC}" data-tc /> <b data-tcv>${this.targetC} °C</b></label>
+      <label class="wb-brush" title="Com o limite, Aquecer e Resfriar param no alvo"><input type="checkbox" data-tl ${this.limitOn ? 'checked' : ''} /> Limitar ao alvo</label>
+      <span class="wb-brush" data-tnow title="Temperatura sob o mouse e o quanto o pincel consegue mudar ali"></span>`
+          : ''
+      }`;
     const signal = this.abort.signal;
     bar.querySelectorAll<HTMLButtonElement>('[data-t]').forEach((b) => {
       b.addEventListener('click', () => {
@@ -1063,6 +1200,15 @@ export class SurfaceMode {
     });
     bar.querySelector<HTMLInputElement>('[data-b]')!.addEventListener('input', (e) => {
       this.brush = Number((e.target as HTMLInputElement).value);
+    }, { signal });
+    bar.querySelector<HTMLInputElement>('[data-tc]')?.addEventListener('input', (e) => {
+      this.targetC = Number((e.target as HTMLInputElement).value);
+      bar.querySelector('[data-tcv]')!.textContent = `${this.targetC} °C`;
+      this.updateToolbar();
+    }, { signal });
+    bar.querySelector<HTMLInputElement>('[data-tl]')?.addEventListener('change', (e) => {
+      this.limitOn = (e.target as HTMLInputElement).checked;
+      this.updateToolbar();
     }, { signal });
     this.updateToolbar();
   }
@@ -1112,7 +1258,8 @@ export class SurfaceMode {
       b.classList.toggle('on', (this.tool?.id ?? 'inspect') === b.dataset.t);
     });
     const tip = this.root.querySelector<HTMLElement>('[data-tip]')!;
-    tip.textContent = this.tool ? `${this.tool.label}: ${this.tool.tip} (clique de novo ou Esc para guardar)` : 'Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes. Escolha uma ferramenta para mexer no mundo.';
+    const limited = this.tool && ['heat', 'cool', 'adjust'].includes(this.tool.id) ? ` Alvo: ${this.targetC} °C${this.tool.id !== 'adjust' ? (this.limitOn ? ' (limite ligado)' : ' (sem limite)') : ''}.` : '';
+    tip.textContent = this.tool ? `${this.tool.label}: ${this.tool.tip}${limited} (clique de novo ou Esc para guardar)` : 'Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes. Escolha uma ferramenta para mexer no mundo.';
   }
 
   // Janelas ----------------------------------------------------------------
@@ -1341,6 +1488,7 @@ export class SurfaceMode {
     // Quem seria escolhido num clique ganha contorno (RF-VIDA-330).
     this.hoverPick = !this.tool && !this.box && this.hover.x > -1e5 ? this.eco.pick(this.hover.x, this.toRow(this.hover.y), this.pickRadius()) : -1;
     this.useTool(dt);
+    this.stepFx(dt);
 
     // Simulação em passos de no máximo 0,1 s, multiplicados pela velocidade escolhida.
     const simDt = dt * SPEEDS[this.speed];
@@ -1356,7 +1504,7 @@ export class SurfaceMode {
     const view = `${this.center.x},${this.center.y},${this.zoom},${this.hover.x},${this.hover.y},${this.tool?.id},${this.brush},${this.renderer.getPixelRatio()}`;
     // Seleção, destaque e janela do assentamento pulsam: redesenha mesmo parado.
     const marked = !!this.pinned || !!this.highlight || !!this.vwin || this.hoverPick >= 0;
-    if (simDt > 0 || this.textureChanged || view !== this.lastView || this.eco.effects.length || marked) {
+    if (simDt > 0 || this.textureChanged || view !== this.lastView || this.eco.effects.length || marked || this.particles.length || this.glow) {
       this.lastView = view;
       this.textureChanged = false;
       this.render();
@@ -1364,6 +1512,7 @@ export class SurfaceMode {
     if (now - this.lastInfo > 150) {
       this.lastInfo = now;
       this.updateInfo();
+      this.updateTempReadout();
       this.updatePanel();
       this.updateMinimap(now);
       this.updateWindow();
@@ -1401,6 +1550,7 @@ export class SurfaceMode {
     ctx.clearRect(0, 0, w, h);
     this.drawOpenSettlement(ctx, w, h);
     this.drawSelection(ctx, w, h);
+    this.drawFx(ctx, w, h);
     if (!this.showTerritory || this.zoom < 1) return;
     const z = this.zoom;
     for (const v of this.eco.villages) {
@@ -2042,11 +2192,116 @@ export class SurfaceMode {
       return;
     }
     if (!this.painting) return;
+    const opts: ToolOpts = { target: this.targetC + 273.15, limit: this.limitOn };
     if (tool.apply) {
       const r = this.brush;
-      this.forBrush(this.hover.x, this.hover.y, r, (i, d) => tool.apply!(this.map, i, (1 - d / (r + 1)) * dt * 30));
+      this.forBrush(this.hover.x, this.hover.y, r, (i, d) => tool.apply!(this.map, i, (1 - d / (r + 1)) * dt * 30, opts));
+      // O que o terreno novo não sustenta (rua na água, casa no barranco, mina afogada) some junto (seção 19.18).
+      this.eco.sweep(this.hover.x, this.toRow(this.hover.y), r);
     } else {
       tool.act?.(this, this.hover.x, this.hover.y);
+    }
+    if (tool.fx) this.emitFx(tool, dt);
+  }
+
+  /** Animação a usar: o Ajustar esquenta ou esfria conforme o alvo está acima ou abaixo da temperatura do ponto. */
+  private fxOf(tool: Tool): FxKind | undefined {
+    if (tool.id !== 'adjust') return tool.fx;
+    const i = this.tileIndex(this.hover.x, this.hover.y);
+    return i >= 0 && this.targetC + 273.15 < temperatureAt(this.map, i) ? 'cool' : 'heat';
+  }
+
+  /** Solta partículas dentro do pincel enquanto a ferramenta age e acende o brilho (animação de cada ação). */
+  private emitFx(tool: Tool, dt: number): void {
+    const kind = this.fxOf(tool);
+    if (!kind) return;
+    const def = FX[kind];
+    this.glow = { kind, alpha: 1 };
+    const rate = 30 + this.brush * this.brush * 0.9;
+    const n = Math.min(20, Math.round(rate * dt + Math.random()));
+    for (let k = 0; k < n && this.particles.length < 700; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.sqrt(Math.random()) * this.brush;
+      const life = def.kind === 'ring' ? 1.1 : def.kind === 'streak' ? 0.6 : 0.8 + Math.random() * 0.9;
+      this.particles.push({
+        x: this.hover.x + Math.cos(a) * d,
+        y: this.hover.y + Math.sin(a) * d,
+        vx: def.vx + (Math.random() - 0.5) * def.spread,
+        vy: def.vy * (0.6 + Math.random() * 0.8),
+        age: def.kind === 'streak' ? 0 : Math.random() * 0.2,
+        life,
+        kind: def.kind,
+        size: def.size * (0.7 + Math.random() * 0.6),
+        rgb: def.rgb,
+      });
+    }
+  }
+
+  private stepFx(dt: number): void {
+    for (let k = this.particles.length - 1; k >= 0; k--) {
+      const p = this.particles[k];
+      p.age += dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      if (p.age >= p.life) this.particles.splice(k, 1);
+    }
+    if (this.glow && !this.painting) {
+      this.glow.alpha -= dt * 2.5;
+      if (this.glow.alpha <= 0) this.glow = null;
+    }
+  }
+
+  /** Brilho colorido sobre o pincel e as partículas, por cima do mapa (canvas dos territórios). */
+  private drawFx(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const z = this.zoom;
+    const sx = (x: number) => (x - this.center.x) * z + w / 2;
+    const sy = (y: number) => h / 2 - (y - this.center.y) * z;
+    const g = this.glow;
+    if (g && this.hover.x > -1e5) {
+      const [r, gr, b, a] = FX[g.kind].glow;
+      const cx = sx(this.hover.x);
+      const cy = sy(this.hover.y);
+      const rad = this.brush * z;
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+      const pulse = 0.85 + 0.15 * Math.sin(performance.now() / 120);
+      grad.addColorStop(0, `rgba(${r},${gr},${b},${(a * g.alpha * pulse).toFixed(3)})`);
+      grad.addColorStop(1, `rgba(${r},${gr},${b},0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const p of this.particles) {
+      const t = p.age / p.life;
+      const alpha = (1 - t) * (p.kind === 'ring' ? 0.8 : 0.9);
+      const [r, gr, b] = p.rgb;
+      const x = sx(p.x);
+      const y = sy(p.y);
+      if (x < -20 || x > w + 20 || y < -20 || y > h + 20) continue;
+      const px = Math.max(1.5, p.size * z);
+      ctx.fillStyle = `rgba(${r},${gr},${b},${alpha.toFixed(3)})`;
+      ctx.strokeStyle = ctx.fillStyle;
+      if (p.kind === 'streak') {
+        ctx.lineWidth = Math.max(1, z * 0.06);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - p.vx * z * 0.05, y - p.vy * z * 0.05);
+        ctx.stroke();
+      } else if (p.kind === 'ring') {
+        ctx.lineWidth = Math.max(1, z * 0.08);
+        ctx.beginPath();
+        ctx.arc(x, y, px * (1 + t * 4), 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (p.kind === 'chunk') {
+        ctx.fillRect(x, y, px, px);
+      } else if (p.kind === 'spark') {
+        ctx.fillRect(x - px / 2, y, px, px / 3);
+        ctx.fillRect(x - px / 6, y - px / 3, px / 3, px);
+      } else {
+        ctx.beginPath();
+        ctx.arc(x, y, px * (p.kind === 'dust' ? 0.5 + t : 0.6), 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
   }
 
@@ -2275,6 +2530,21 @@ export class SurfaceMode {
       <span>${v.population} moradores${v.vocation ? ` · ${VOCATION_ICONS[v.vocation]} ${VOCATION_NAMES[v.vocation]}` : ''} · <span class="${st.tone}">${st.label.toLowerCase()}</span></span>
       <span class="wb-dim">Clique no nome, na praça ou num prédio para abrir a janela</span>
       <hr>`;
+  }
+
+  /** Leitura da temperatura sob o mouse e do que o pincel alcança ali (teto e piso por tile), na aba Clima. */
+  private updateTempReadout(): void {
+    const el = this.root.querySelector<HTMLElement>('[data-tnow]');
+    if (!el) return;
+    const i = this.tileIndex(this.hover.x, this.hover.y);
+    if (i < 0) {
+      el.textContent = '';
+      return;
+    }
+    const t = temperatureAt(this.map, i);
+    const base = t - this.map.heat[i];
+    const c = (k: number) => (k - 273.15).toFixed(0);
+    el.textContent = `Aqui ${c(t)} °C · alcance do pincel ${c(base - 150)} a ${c(base + 400)} °C`;
   }
 
   private updateInfo(): void {

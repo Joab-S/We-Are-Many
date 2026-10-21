@@ -50,6 +50,7 @@ describe('caravanas num mundo de 200 anos', () => {
     let most = 0;
     let seen = 0;
     let over = 0;
+    let used = 0;
     for (let y = 0; y < 200; y++) {
       for (let t = 0; t < YEAR_SECONDS; t += 0.25) {
         eco.step(0.25);
@@ -58,13 +59,15 @@ describe('caravanas num mundo de 200 anos', () => {
         for (const v of eco.villages) if (!v.abandoned && eco.caravansOf(v) > 1 + v.tier + 1 + 1) over++;
       }
       seen += eco.caravans.filter((c) => c.kind === 'trade').length;
+      // O uso da estrada decai todo ano: conta o maior número de tiles gastos em qualquer ano, não só o do fim.
+      let now = 0;
+      for (let i = 0; i < eco.traffic.length; i++) if (eco.traffic[i]) now++;
+      used = Math.max(used, now);
     }
     expect(most).toBeLessThanOrEqual(B.CARAVANS_MAX);
     expect(over).toBe(0);
     expect(seen).toBeGreaterThan(0);
     expect(eco.chronicle.some((c) => c.text.includes('Uma caravana de'))).toBe(true);
-    let used = 0;
-    for (let i = 0; i < eco.traffic.length; i++) if (eco.traffic[i]) used++;
     expect(used).toBeGreaterThan(0);
   }, 120000);
 });

@@ -379,7 +379,7 @@ function nomads(eco: Ecosystem): boolean {
   const map = eco.map;
   const i = randomTile(
     eco,
-    (t) => eco.habitable(s, t) && map.vegetation[t] > 0.3 && farFromVillages(eco, t, 25) && eco.canFound(t % map.width, Math.floor(t / map.width)),
+    (t) => eco.habitable(s, t) && map.vegetation[t] > 0.3 && farFromVillages(eco, t, 25) && eco.canSettle(s, t % map.width, Math.floor(t / map.width), 1),
     600,
   );
   if (i < 0) return false;

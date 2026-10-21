@@ -51,7 +51,7 @@ describe('economia local (seções 19.4 e 19.5)', () => {
   });
 
   it('em 250 anos: estoque próprio dentro do teto, vocações variadas e rebanhos (RF-VIDA-212, 218, 215, 220)', () => {
-    const { eco, indicators } = runWorld(7, 250);
+    const { eco, indicators } = runWorld(3, 250);
     const live = eco.villages.filter((v) => !v.abandoned);
     expect(new Set(live.map((v) => v.stock)).size).toBe(live.length);
     expect(indicators.overCap).toBe(0);

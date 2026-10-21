@@ -175,7 +175,12 @@ describe('ruínas', () => {
   it('quem chega perto das ruínas recomeça na antiga praça', () => {
     const { eco } = world();
     const old = emptied(eco);
-    const i = eco.introduceOne(old.species, old.x + 8, old.y);
+    // O lugar ao lado das ruínas pode ser água ou pedra, conforme o mundo: tenta alguns pontos a uns 8 tiles.
+    let i = -1;
+    for (const [ox, oy] of [[8, 0], [-8, 0], [0, 8], [0, -8], [6, 6], [-6, -6]]) {
+      i = eco.introduceOne(old.species, old.x + ox, old.y + oy);
+      if (i >= 0) break;
+    }
     expect(i).toBeGreaterThanOrEqual(0);
     years(eco, 2);
     const v = eco.villages.find((o) => o.ruinOf === old.id)!;
