@@ -203,6 +203,38 @@ export function classify(map: SurfaceMap, i: number): Biome {
   return Biome.Grass;
 }
 
+/** Vegetação que um deserto aguenta (cactos e plantas secas): abaixo do limiar em que vira pasto. */
+export const DESERT_VEGETATION = 0.1;
+
+/**
+ * Quanta vegetação o tile aguenta (0..1) pelo solo, temperatura e umidade:
+ * nada na água, no gelo, no calor extremo ou no pico das montanhas; pouco
+ * na encosta de rocha; só plantas de deserto (cactos) no solo seco ou arenoso; o resto pode fechar
+ * em mata. Semear e o crescimento natural param nesse teto, então o que nasce
+ * é sempre o que o bioma do lugar dá.
+ */
+export function vegetationCap(map: SurfaceMap, i: number): number {
+  const e = map.elevation[i];
+  if (e < 0 || e > 0.72) return 0;
+  const t = temperatureAt(map, i);
+  if (t <= 262 || t >= 320) return 0;
+  // Encosta de rocha: só capim e arbusto entre as pedras.
+  if (e > 0.55) return 0.35;
+  const m = map.moisture[i];
+  if (m < 0.25) return DESERT_VEGETATION;
+  const b = map.biome[i] as Biome;
+  if (m < 0.35 && (b === Biome.Desert || b === Biome.Beach || b === Biome.Barren)) return DESERT_VEGETATION;
+  return 1;
+}
+
+/** Semeia até o teto do lugar, sem cortar o que já passa dele; o tile limpo volta a ter enfeite. */
+export function sowVegetation(map: SurfaceMap, i: number, amount: number): void {
+  const cap = vegetationCap(map, i);
+  if (map.vegetation[i] >= cap) return;
+  map.vegetation[i] = Math.min(cap, map.vegetation[i] + amount);
+  if (map.bare) map.bare[i] = 0;
+}
+
 /** Enfeite desenhado dentro do tile quando há zoom (guardado no canal alfa da textura). */
 export enum Decor {
   None,
@@ -245,11 +277,11 @@ export function decorAt(map: SurfaceMap, i: number): Decor {
     case Biome.Grass:
       return veg > 0.3 && h < (veg - 0.3) * 0.5 ? Decor.Tree : Decor.None;
     case Biome.Savanna:
-      return h < 0.07 ? Decor.Acacia : Decor.None;
+      return h < 0.04 + veg * 0.1 ? Decor.Acacia : Decor.None;
     case Biome.Tundra:
       return veg > 0.15 && h < 0.3 ? Decor.Pine : Decor.None;
     case Biome.Desert:
-      return h < 0.012 ? Decor.Cactus : Decor.None;
+      return h < 0.012 + veg * 0.5 ? Decor.Cactus : Decor.None;
     case Biome.Rock:
     case Biome.Mountain:
       return h < 0.1 ? Decor.Boulder : Decor.None;

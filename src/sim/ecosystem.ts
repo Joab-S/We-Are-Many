@@ -1,7 +1,7 @@
 import { mulberry32 } from '../core/rng';
 import * as B from './balance';
 import { binomial, happens, ouStep, streams } from './stochastic';
-import { Biome, classify, Decor, decorAt, isTree, temperatureAt, type SurfaceMap } from '../procgen/surface';
+import { Biome, classify, Decor, decorAt, isTree, temperatureAt, vegetationCap, type SurfaceMap } from '../procgen/surface';
 import {
   WONDER_NAMES,
   buildCost,
@@ -1810,8 +1810,8 @@ export class Ecosystem {
     for (let k = 0; k < samples; k++) {
       const i = Math.floor(this.rnd() * n);
       if (m.elevation[i] < 0) continue;
-      const t = temperatureAt(m, i);
-      const ok = t > 262 && t < 320 && m.moisture[i] > 0.25;
+      const cap = vegetationCap(m, i);
+      const ok = cap > 0;
       const x = i % m.width;
       const y = (i - x) / m.width;
       const nx = (x + Math.floor(this.rnd() * 3) - 1 + m.width) % m.width;
@@ -1820,10 +1820,10 @@ export class Ecosystem {
       const before = m.vegetation[i];
       // Espalha a partir dos vizinhos; um tile pastado ainda rebrota devagar pelas raízes.
       const season = ok ? Math.max(0.2, 1 + B.HARVEST_SENSITIVITY * this.climate[this.region(x, y)]) : 1;
-      // Mato baixo rebrota rápido; mata fechada (acima de TREE_BAND) cresce devagar (seção 19.19).
-      if (ok && neighbour > 0.3) m.vegetation[i] = Math.min(1, before + 0.05 * season * (before >= B.TREE_BAND ? B.TREE_SPREAD : 1));
-      else if (ok && before > 0.02 && before < 0.35) m.vegetation[i] = before + 0.02 * season;
-      else if (!ok) m.vegetation[i] = Math.max(0, before - 0.05);
+      // Nada passa do que o lugar aguenta; mato baixo rebrota rápido e mata fechada (acima de TREE_BAND) cresce devagar (seção 19.19).
+      if (before > cap) m.vegetation[i] = Math.max(cap, before - 0.05);
+      else if (ok && neighbour > 0.3) m.vegetation[i] = Math.min(cap, before + 0.05 * season * (before >= B.TREE_BAND ? B.TREE_SPREAD : 1));
+      else if (ok && before > 0.02 && before < 0.35) m.vegetation[i] = Math.min(cap, before + 0.02 * season);
       // Toco e muda: o capim cresce em volta, mas a árvore só volta no tempo dela (growForests).
       if (m.felled?.[i] && m.vegetation[i] > B.FELLED_VEG_MAX) m.vegetation[i] = Math.max(Math.min(before, m.vegetation[i]), B.FELLED_VEG_MAX);
       if (m.vegetation[i] !== before) {
@@ -2278,7 +2278,8 @@ export class Ecosystem {
       if (this.civRnd() < 0.05 && this.canFound(tx, ty)) found(tx, ty);
       return undefined;
     }
-    return this.betterSite(i);
+    // Sem lugar bom à vista (no meio do deserto, por exemplo): anda para onde é mais verde.
+    return this.betterSite(i) ?? this.greener(i, 25);
   }
 
   /**
