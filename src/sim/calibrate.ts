@@ -24,6 +24,9 @@ export interface Indicators {
   wars: number;
   /** Maior era alcançada (0 = Pedra) e o progresso dentro dela. */
   era: number;
+  /** Técnicas conhecidas por assentamento vivo (média) e a diferença de progresso entre o mais e o menos adiantado (seção 19.10). */
+  techs: number;
+  eraSpread: number;
   roadBlocks: number;
   droughts: number;
   /** Casas sem nenhuma rua a até 2 tiles. */
@@ -172,6 +175,8 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       kingdoms: live.filter((v) => v.kingdom === v.id).length,
       wars: wars / Math.max(1, years),
       era: Math.max(0, ...live.map((v) => v.tech)),
+      techs: live.length ? live.reduce((n, v) => n + (v.techs?.length ?? 0), 0) / live.length : 0,
+      eraSpread: live.length ? Math.max(...live.map((v) => v.tech)) - Math.min(...live.map((v) => v.tech)) : 0,
       roadBlocks: roadBlocks(e.road, map.width, map.height),
       droughts: eco.chronicle.filter((c) => c.text.startsWith('Uma seca')).reduce((n, c) => n + (c.count ?? 1), 0),
       housesOffStreet: off,
@@ -235,6 +240,8 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   biggest: 'Maior assentamento (moradores)',
   kingdoms: 'Reinos',
   era: 'Maior era (0 = Pedra, 1 = Bronze...)',
+  techs: 'Técnicas por assentamento (média)',
+  eraSpread: 'Diferença de progresso entre o mais e o menos adiantado',
   droughts: 'Secas na crônica',
   reformed: 'Casas reformadas (com andar a mais)',
   herds: 'Assentamentos com rebanho',

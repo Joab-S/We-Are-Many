@@ -125,6 +125,7 @@ kbd { display: inline-block; min-width: 20px; text-align: center; border: 1px so
 .wb-row.major { color: #f5e6c8; }
 .wb-row i { font-style: normal; width: 18px; flex: none; }
 .wb-row em, .wb-card-head em { margin-left: auto; font-style: normal; opacity: 0.7; }
+.wb-sub { font-size: 11px; color: #d8c8a0; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: .05em; }
 .wb-note { font-size: 11px; color: #b8a888; margin-top: 8px; }
 .wb-dim { color: #b8a888; }
 .wb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
