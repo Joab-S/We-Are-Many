@@ -5,55 +5,58 @@
 
 | Indicador | Média | Mediana | 10% a 90% | Faixa-alvo | Situação |
 |---|---|---|---|---|---|
-| Espécies extintas | 1,05 | 1 | 0 a 2 | 0 a 2 | dentro |
-| Assentamentos vivos | 14,20 | 14 | 11 a 17 | 6 a 40 | dentro |
-| Cidades | 2,15 | 2 | 1 a 3 | 1 a 99 | dentro |
-| Maior assentamento (moradores) | 55,15 | 53 | 44 a 69 |  |  |
-| Reinos | 7,30 | 7 | 6 a 9 |  |  |
-| Guerras ao mesmo tempo (média) | 0,11 | 0,11 | 0 a 0,18 | 0 a 3 | dentro |
-| Maior era (0 = Pedra, 1 = Bronze...) | 1,00 | 1,00 | 0,98 a 1,01 |  |  |
-| Blocos 2x2 de rua fora das praças | 0,10 | 0 | 0 a 0 | 0 a 0 | dentro |
-| Secas na crônica | 9,80 | 10 | 5 a 14 |  |  |
+| Espécies extintas | 1,10 | 1 | 0 a 2 | 0 a 2 | dentro |
+| Assentamentos vivos | 12,40 | 12 | 11 a 15 | 6 a 40 | dentro |
+| Cidades | 2,95 | 3 | 2 a 4 | 1 a 99 | dentro |
+| Maior assentamento (moradores) | 57,85 | 59 | 43 a 74 |  |  |
+| Reinos | 6,60 | 7 | 5 a 8 |  |  |
+| Guerras ao mesmo tempo (média) | 0,19 | 0,20 | 0 a 0,39 | 0 a 3 | dentro |
+| Maior era (0 = Pedra, 1 = Bronze...) | 1,00 | 1,00 | 1,00 a 1,00 |  |  |
+| Blocos 2x2 de rua fora das praças | 0 | 0 | 0 a 0 | 0 a 0 | dentro |
+| Secas na crônica | 10,55 | 11 | 6 a 16 |  |  |
 | Casas longe de rua | 0 | 0 | 0 a 0 | 0 a 0 | dentro |
-| Completude média da planta | 0,72 | 0,74 | 0,64 a 0,79 | 0,50 a 1 | dentro |
-| Casas reformadas (com andar a mais) | 0,95 | 0 | 0 a 2 |  |  |
-| Vocações diferentes | 6,25 | 6 | 5 a 8 | 4 a 8 | dentro |
-| Assentamentos com rebanho | 1,80 | 2 | 0 a 4 |  |  |
-| Atendimento médio das necessidades | 0,84 | 0,84 | 0,80 a 0,87 |  |  |
-| Preenchimento médio dos estoques | 0,33 | 0,33 | 0,25 a 0,39 | 0,20 a 0,80 | dentro |
+| Completude média da planta | 0,74 | 0,72 | 0,68 a 0,83 | 0,50 a 1 | dentro |
+| Casas reformadas (com andar a mais) | 0 | 0 | 0 a 0 |  |  |
+| Vocações diferentes | 5,95 | 6 | 5 a 7 | 4 a 8 | dentro |
+| Assentamentos com rebanho | 3,05 | 4 | 1 a 4 |  |  |
+| Atendimento médio das necessidades | 0,82 | 0,83 | 0,78 a 0,86 |  |  |
+| Preenchimento médio dos estoques | 0,32 | 0,33 | 0,24 a 0,39 | 0,20 a 0,80 | dentro |
 | Recursos acima do teto | 0 | 0 | 0 a 0 | 0 a 0 | dentro |
-| Estabilidade média | 0,73 | 0,73 | 0,69 a 0,76 |  |  |
-| Caravanas e barcos mercantes ao mesmo tempo (média) | 1,14 | 1,08 | 0,76 a 1,56 |  |  |
-| Caravanas e barcos mercantes ao mesmo tempo (máximo) | 6,35 | 6 | 4 a 10 | 1 a 10 | dentro |
-| Acordos comerciais no fim | 0,95 | 1 | 0 a 2 |  |  |
-| Tiles de estrada nascidos do uso | 0,55 | 0 | 0 a 2 |  |  |
-| Assentamentos que produzem luxo | 8,15 | 9 | 4 a 12 |  |  |
-| Postos de pedágio | 0,15 | 0 | 0 a 0 |  |  |
-| Moradores no fim | 330,05 | 333 | 304 a 343 |  |  |
-| Moradores: fim ÷ 60% da rodada | 1,05 | 1,05 | 0,97 a 1,17 | 0,70 a 1,50 | dentro |
-| Atendimento médio de comida | 0,76 | 0,76 | 0,68 a 0,83 |  |  |
-| Atendimento médio de lenha | 0,83 | 0,86 | 0,73 a 0,93 |  |  |
-| Mortes de fome por ano, por 100 moradores | 0,65 | 0,62 | 0,54 a 0,81 | 0,05 a 3 | dentro |
+| Estabilidade média | 0,73 | 0,73 | 0,69 a 0,77 |  |  |
+| Caravanas e barcos mercantes ao mesmo tempo (média) | 1,07 | 0,79 | 0,52 a 1,84 |  |  |
+| Caravanas e barcos mercantes ao mesmo tempo (máximo) | 5,75 | 5 | 3 a 10 | 1 a 10 | dentro |
+| Acordos comerciais no fim | 0,25 | 0 | 0 a 1 |  |  |
+| Tiles de estrada nascidos do uso | 0,05 | 0 | 0 a 0 |  |  |
+| Assentamentos que produzem luxo | 7 | 7 | 5 a 9 |  |  |
+| Postos de pedágio | 0 | 0 | 0 a 0 |  |  |
+| Moradores no fim | 305,85 | 318 | 261 a 346 |  |  |
+| Moradores: fim ÷ 60% da rodada | 0,95 | 0,95 | 0,81 a 1,08 | 0,70 a 1,50 | dentro |
+| Atendimento médio de comida | 0,71 | 0,72 | 0,64 a 0,79 |  |  |
+| Atendimento médio de lenha | 0,87 | 0,88 | 0,78 a 0,94 |  |  |
+| Mortes de fome por ano, por 100 moradores | 0,68 | 0,67 | 0,51 a 0,81 | 0,05 a 3 | dentro |
 | Mortes de frio por ano, por 100 moradores | 0 | 0 | 0 a 0 |  |  |
-| Casas desabadas sem conserto por ano | 0,53 | 0,58 | 0,40 a 0,64 |  |  |
-| Guerras por cobiça (comida ou lenha) | 0,15 | 0 | 0 a 1 |  |  |
-| Êxodos por falta | 6,20 | 7 | 4 a 8 |  |  |
-| Migrantes por falta ou aperto por ano | 0,74 | 0,77 | 0,40 a 1,03 |  |  |
-| Árvores cortadas por ano | 44,37 | 43,74 | 41,41 a 47,64 |  |  |
-| Parte das árvores replantada | 0,72 | 0,73 | 0,63 a 0,76 |  |  |
-| Assentamentos que replantam | 12,50 | 12 | 10 a 15 | 1 a 99 | dentro |
-| Árvores do mundo: fim ÷ começo | 0,97 | 0,96 | 0,89 a 1,06 | 0,70 a 1,30 | dentro |
-| Guerras de saque | 0,60 | 0 | 0 a 2 |  |  |
-| Guerras de território | 2,15 | 2 | 0 a 4 |  |  |
-| Guerras de extermínio | 0,05 | 0 | 0 a 0 |  |  |
+| Casas desabadas sem conserto por ano | 0,06 | 0,06 | 0,02 a 0,10 | 0 a 0,20 | dentro |
+| Guerras por cobiça (comida ou lenha) | 0,05 | 0 | 0 a 0 |  |  |
+| Êxodos por falta | 4,55 | 4 | 3 a 6 |  |  |
+| Migrantes por falta ou aperto por ano | 0,43 | 0,40 | 0,19 a 0,69 |  |  |
+| Árvores cortadas por ano | 42,80 | 43,14 | 40,23 a 46,82 |  |  |
+| Parte das árvores replantada | 0,68 | 0,69 | 0,61 a 0,75 |  |  |
+| Assentamentos que replantam | 10,80 | 11 | 9 a 13 | 1 a 99 | dentro |
+| Árvores do mundo: fim ÷ começo | 1,05 | 1,02 | 0,94 a 1,18 | 0,70 a 1,30 | dentro |
+| Guerras de saque | 0,25 | 0 | 0 a 1 |  |  |
+| Guerras de território | 4,50 | 5 | 0 a 9 |  |  |
+| Guerras de extermínio | 0 | 0 | 0 a 0 |  |  |
 | Guerras civis | 0,15 | 0 | 0 a 1 |  |  |
-| Guerras ao mesmo tempo (pico) | 0,85 | 1 | 0 a 1 |  |  |
-| Guerras declaradas acima do teto (WARS_MAX) | 0 | 0 | 0 a 0 | 0 a 0 | dentro |
-| Declarações de guerra sem motivo na crônica | 0 | 0 | 0 a 0 | 0 a 0 | dentro |
-| Saques que chegaram ao alvo | 0,40 | 0 | 0 a 1 |  |  |
-| Casas e roças queimadas | 1,05 | 0 | 0 a 4 |  |  |
-| Refugiados de guerra | 0,45 | 0 | 0 a 0 |  |  |
-| Mercenários contratados | 3,90 | 0 | 0 a 15 |  |  |
-| Exércitos que voltaram sem comida | 0,30 | 0 | 0 a 1 |  |  |
-| Soldados montados (média por ano) | 0,00 | 0 | 0 a 0 |  |  |
-| Mata que sobrou em volta (÷ a do começo) | 1,19 | 1,14 | 0,57 a 1,93 |  |  |
+| Guerras ao mesmo tempo (pico) | 1,20 | 1 | 0 a 2 |  |  |
+| Preparos de guerra começados | 44,10 | 44 | 33 a 58 |  |  |
+| Preparos que caíram (desistência, paz, alvo perdido) | 26,70 | 28 | 22 a 33 |  |  |
+| Anos de preparo até declarar (média) | 16,84 | 13,67 | 0 a 24,50 |  |  |
+| Guerras declaradas | 4,90 | 5 | 0 a 9 |  |  |
+| Declarações de guerra sem motivo na crônica | 0,20 | 0 | 0 a 1 | 0 a 0 | **fora** |
+| Saques que chegaram ao alvo | 0,15 | 0 | 0 a 1 |  |  |
+| Casas e roças queimadas | 1,25 | 0 | 0 a 5 |  |  |
+| Refugiados de guerra | 1,55 | 0 | 0 a 6 |  |  |
+| Mercenários contratados | 4,20 | 0 | 0 a 12 |  |  |
+| Exércitos que voltaram sem comida | 0,70 | 0 | 0 a 2 |  |  |
+| Soldados montados (média por ano) | 0 | 0 | 0 a 0 |  |  |
+| Mata que sobrou em volta (÷ a do começo) | 1,64 | 1,58 | 0,87 a 2,46 |  |  |

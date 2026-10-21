@@ -82,7 +82,11 @@ export interface Indicators {
   exterminations: number;
   civilWars: number;
   warsPeak: number;
-  warsOverCap: number;
+  plans: number;
+  plansDropped: number;
+  /** Anos médios de preparo até declarar. */
+  prepYears: number;
+  warsDeclared: number;
   warsNoMotive: number;
   looted: number;
   burned: number;
@@ -224,7 +228,10 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       exterminations: eco.tally.exterminations,
       civilWars: eco.tally.civilWars,
       warsPeak: eco.tally.warsPeak,
-      warsOverCap: eco.tally.warsOverCap,
+      plans: eco.tally.plans,
+      plansDropped: eco.tally.plansDropped,
+      prepYears: eco.tally.wars ? eco.tally.prepYears / eco.tally.wars : 0,
+      warsDeclared: eco.tally.wars,
       // Toda declaração de guerra na crônica diz o motivo (RF-VIDA-244): "para tomar", "para arrasar" ou guerra civil.
       warsNoMotive: eco.chronicle.filter((c) => c.kind === 'guerra' && /^Guerra!|atacou/.test(c.text) && !/para tomar|para arrasar/.test(c.text)).length,
       looted: eco.tally.looted,
@@ -255,11 +262,12 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
   { key: 'caravansMax', label: 'Caravanas e barcos mercantes ao mesmo tempo (máximo)', min: 1, max: 10 },
   // Recursos com peso (seção 19.19): a fome existe mas não acaba com o mundo, a população não explode nem some e a mata não some nem toma tudo.
   { key: 'hunger', label: 'Mortes de fome por ano, por 100 moradores', min: 0.05, max: 3 },
+  // Casas que desabam por falta de conserto (seção 19.20).
+  { key: 'collapsed', label: 'Casas desabadas sem conserto por ano', min: 0, max: 0.2 },
   { key: 'peopleTrend', label: 'Moradores: fim ÷ 60% da rodada', min: 0.7, max: 1.5 },
   { key: 'worldTrees', label: 'Árvores do mundo: fim ÷ começo', min: 0.7, max: 1.3 },
   { key: 'forestry', label: 'Assentamentos que replantam', min: 1, max: 99 },
-  // Etapa F (seção 19.7): nunca acima do teto de guerras, e toda guerra com motivo na crônica.
-  { key: 'warsOverCap', label: 'Guerras declaradas acima do teto (WARS_MAX)', min: 0, max: 0 },
+  // Etapa F (seção 19.7): sem teto de guerras; toda guerra tem motivo na crônica.
   { key: 'warsNoMotive', label: 'Declarações de guerra sem motivo na crônica', min: 0, max: 0 },
 ];
 
@@ -298,6 +306,10 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   exterminations: 'Guerras de extermínio',
   civilWars: 'Guerras civis',
   warsPeak: 'Guerras ao mesmo tempo (pico)',
+  plans: 'Preparos de guerra começados',
+  plansDropped: 'Preparos que caíram (desistência, paz, alvo perdido)',
+  prepYears: 'Anos de preparo até declarar (média)',
+  warsDeclared: 'Guerras declaradas',
   looted: 'Saques que chegaram ao alvo',
   burned: 'Casas e roças queimadas',
   refugees: 'Refugiados de guerra',

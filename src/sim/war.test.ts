@@ -19,6 +19,8 @@ interface Inside {
   hireMercenaries(war: War, members: Map<number, Village[]>): void;
   strength(i: number): number;
   diplomacy(): void;
+  makePlan(att: Village, def: Village, plan: { motive: WarMotive; target: Village; good?: LootGood }): void;
+  updatePlans(members: Map<number, Village[]>, soldiers: Map<number, number>, force: (k: number) => number): void;
   cavalry: Map<number, number>;
   landPath(x0: number, y0: number, x1: number, y1: number): boolean;
   buildGrid(): void;
@@ -52,38 +54,158 @@ function residents(eco: Ecosystem, v: Village): number[] {
   return out;
 }
 
-describe('moderação (RF-VIDA-241)', () => {
-  it('não passa do teto de guerras do planeta: 1 a cada 6 reinos, no mínimo 1', () => {
+describe('preparo para a guerra (RF-VIDA-241)', () => {
+  it('não há teto de guerras: dois pares de reinos podem lutar ao mesmo tempo', () => {
     const { eco, a, b } = world();
-    const kingdoms = eco.villages.filter((v) => !v.abandoned && v.kingdom === v.id).length;
-    expect(eco.warsMax()).toBe(Math.max(1, Math.floor(kingdoms / B.WARS_PER_KINGDOMS)));
     const m = members(eco);
     expect(inside(eco).declareWar(a, b, b, m)).toBe(true);
-    const others = eco.villages.filter((v) => !v.abandoned && v !== a && v !== b && v.kingdom === v.id);
-    for (const o of others) inside(eco).declareWar(o, a, a, m);
-    expect(eco.wars.length).toBeLessThanOrEqual(eco.warsMax());
-    expect(eco.tally.warsOverCap).toBe(0);
+    const free = eco.villages.filter((v) => !v.abandoned && v.kingdom === v.id && v !== a && v !== b);
+    let second = false;
+    for (const x of free) for (const y of free) if (!second && x !== y && inside(eco).landPath(x.x, x.y, y.x, y.y)) second = inside(eco).declareWar(x, y, y, m);
+    if (free.length >= 2) expect(second).toBe(true);
+    expect(eco.wars.length).toBeGreaterThanOrEqual(free.length >= 2 ? 2 : 1);
   });
 
-  it('quem sai de uma guerra fica WAR_COOLDOWN anos sem declarar outra, e há trégua', () => {
+  it('a prontidão cresce com comida, armas, armaduras e ouro', () => {
+    const { eco, a } = world();
+    const m = [a];
+    a.tech = 2;
+    a.food = 0;
+    a.stock.weapons = 0;
+    a.stock.armor = 0;
+    a.stock.gold = 0;
+    expect(eco.readiness(m, 5)).toBe(0);
+    a.food = 5 * B.ARMY_FOOD * B.PREP_FOOD_YEARS;
+    const food = eco.readiness(m, 5);
+    a.stock.weapons = 5;
+    const arms = eco.readiness(m, 5);
+    a.stock.armor = 5;
+    a.stock.gold = 100;
+    expect(food).toBeGreaterThan(0);
+    expect(arms).toBeGreaterThan(food);
+    expect(eco.readiness(m, 5)).toBe(1);
+  });
+
+  it('quem tem motivo se prepara e só declara quando está pronto e em vantagem', () => {
+    const { eco, a, b } = world();
+    const k = `${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`;
+    eco.relations.set(k, -60);
+    a.tech = 2;
+    // Sem nada guardado: o plano existe, mas não vira guerra.
+    a.food = 0;
+    a.stock.weapons = 0;
+    inside(eco).makePlan(a, b, { motive: 'land', target: b });
+    expect(eco.preparing(a.id)).not.toBeNull();
+    const soldiers = new Map<number, number>([[a.id, 20]]);
+    const force = (id: number) => (id === a.id ? 20 : 4);
+    inside(eco).updatePlans(members(eco), soldiers, force);
+    expect(eco.wars.length).toBe(0);
+    // Com a despensa e o arsenal cheios e força de sobra, declara, sem nenhum teto nem trégua longa.
+    a.food = 200;
+    a.stock.weapons = 25;
+    a.stock.armor = 20;
+    a.stock.gold = 50;
+    inside(eco).updatePlans(members(eco), soldiers, force);
+    expect(eco.wars.length).toBe(1);
+    expect(eco.wars[0].motive).toBe('land');
+    expect(eco.preparing(a.id)).toBeNull();
+  });
+
+  it('sem vantagem sobre o alvo ele continua se preparando; com o alvo mais fraco, declara', () => {
+    const { eco, a, b } = world();
+    eco.relations.set(`${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`, -60);
+    a.food = 200;
+    a.stock.weapons = 25;
+    a.stock.armor = 20;
+    a.stock.gold = 50;
+    inside(eco).makePlan(a, b, { motive: 'land', target: b });
+    const soldiers = new Map<number, number>([[a.id, 20]]);
+    inside(eco).updatePlans(members(eco), soldiers, (id) => (id === a.id ? 20 : 30));
+    expect(eco.wars.length).toBe(0);
+    expect(eco.preparing(a.id)).not.toBeNull();
+    inside(eco).updatePlans(members(eco), soldiers, (id) => (id === a.id ? 20 : 8));
+    expect(eco.wars.length).toBe(1);
+  });
+
+  it('desiste quando a tensão passa ou depois de PREP_MAX_YEARS', () => {
+    const { eco, a, b } = world();
+    const k = `${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`;
+    eco.relations.set(k, -60);
+    inside(eco).makePlan(a, b, { motive: 'land', target: b });
+    eco.relations.set(k, 50);
+    inside(eco).updatePlans(members(eco), new Map(), () => 0);
+    expect(eco.preparing(a.id)).toBeNull();
+    eco.relations.set(k, -60);
+    inside(eco).makePlan(a, b, { motive: 'land', target: b });
+    eco.year += B.PREP_MAX_YEARS + 1;
+    inside(eco).updatePlans(members(eco), new Map(), () => 0);
+    expect(eco.preparing(a.id)).toBeNull();
+    expect(eco.chronicle[0].text).toContain('nunca se sentiu pronto');
+  });
+
+  it('a trégua é só o mínimo (TRUCE_MIN): depois dela o que segura a guerra é o preparo', () => {
     const { eco, a, b } = world();
     inside(eco).declareWar(a, b, b, members(eco));
     inside(eco).endWar(0);
-    expect(eco.wars.length).toBe(0);
-    expect(eco.lastWar.get(a.id)).toBe(eco.year);
-    // Ódio máximo e força de sobra: ainda assim nada de guerra nova no período.
-    eco.relations.set(`${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`, -100);
-    for (const i of residents(eco, a)) eco.role[i] = ROLE.soldier;
-    for (let y = 0; y < 10; y++) {
-      inside(eco).diplomacy();
-      expect(eco.wars.some((w) => w.a === a.id || w.b === a.id)).toBe(false);
-    }
+    expect(eco.truces.get(`${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`)).toBe(eco.year + B.TRUCE_MIN);
   });
 
   it('o cansaço de guerra sobe a chance de paz a cada ano e a cada morte', () => {
     const peace = (years: number, dead: number) => B.PEACE_BASE + B.PEACE_PER_YEAR * years + B.PEACE_PER_DEATH * dead;
     expect(peace(10, 0)).toBeGreaterThan(peace(1, 0));
     expect(peace(1, 30)).toBeGreaterThan(peace(1, 0));
+  });
+});
+
+describe('influência do jogador (seção 19.20)', () => {
+  it('Inflamar e Acalmar mudam a agressividade, e ela pesa no preparo exigido', () => {
+    const { eco, a } = world();
+    expect(eco.temperOf(a.kingdom)).toBe(0);
+    eco.sway(a, 1);
+    expect(eco.temperOf(a.kingdom)).toBeCloseTo(B.TEMPER_STEP * 1);
+    eco.sway(a, 1);
+    eco.sway(a, 1);
+    expect(eco.temperOf(a.kingdom)).toBe(1);
+    eco.sway(a, -1);
+    eco.sway(a, -1);
+    eco.sway(a, -1);
+    eco.sway(a, -1);
+    expect(eco.temperOf(a.kingdom)).toBe(-1);
+    expect(eco.chronicle[0].kind).toBe('jogador');
+  });
+
+  it('o reino passivo quase nunca acha motivo e o agressivo acha mais', () => {
+    const { eco, a, b } = world();
+    const side = { att: a, def: b, target: b, fAtt: 20, fDef: 1, lack: 0, rich: 0, own: [a], other: [b] };
+    const count = (temper: number) => {
+      eco.temper.set(a.kingdom, temper);
+      let n = 0;
+      for (let i = 0; i < 4000; i++) if ((eco as unknown as { intent(...args: unknown[]): unknown }).intent(side, -50, true, false)) n++;
+      return n;
+    };
+    const calm = count(-1);
+    const wild = count(1);
+    expect(calm).toBe(0);
+    expect(wild).toBeGreaterThan(count(0));
+  });
+
+  it('Provocar baixa a relação, Amenizar sobe e desfaz o plano de guerra', () => {
+    const { eco, a, b } = world();
+    eco.relations.set(`${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`, 0);
+    eco.provoke(a, b);
+    expect(eco.relation(a.id, b.id)).toBe(-B.PLAYER_TENSION);
+    inside(eco).makePlan(a, b, { motive: 'land', target: b });
+    eco.soothe(a, b);
+    expect(eco.relation(a.id, b.id)).toBe(0);
+    expect(eco.preparing(a.id)).toBeNull();
+    expect(eco.truces.get(`${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`)).toBe(eco.year + B.TRUCE_MIN);
+  });
+
+  it('Declarar guerra manda atacar na hora, sem preparo; não vale se um deles já luta', () => {
+    const { eco, a, b } = world();
+    expect(eco.incite(a, b)).toBe(true);
+    expect(eco.wars[0].a).toBe(a.id);
+    expect(eco.incite(a, b)).toBe(false);
   });
 });
 
@@ -242,10 +364,9 @@ describe('mercenários (RF-VIDA-295)', () => {
 });
 
 describe('guerras num mundo de 250 anos', () => {
-  it('nunca acima do teto, e toda declaração com motivo', () => {
+  it('toda declaração tem motivo na crônica e toda guerra de preparo teve um plano', () => {
     const { eco, indicators } = runWorld(7, 250);
-    expect(indicators.warsOverCap).toBe(0);
     expect(indicators.warsNoMotive).toBe(0);
-    expect(eco.tally.lootWars + eco.tally.landWars + eco.tally.exterminations + eco.tally.civilWars).toBeGreaterThan(0);
+    expect(eco.tally.plans).toBeGreaterThanOrEqual(eco.tally.wars - eco.tally.civilWars);
   }, 300000);
 });
