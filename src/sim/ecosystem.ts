@@ -68,7 +68,7 @@ import {
   type SiteSample,
   type Vocation,
 } from './needs';
-import { lotsFor, plotSeed, pruneBlocks, radiusFor, streetOrder, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
+import { lotsFor, maxFieldsOf, maxPensOf, plotSeed, pruneBlocks, radiusFor, streetOrder, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, habitatOf, type Species, type SpeciesKind } from './species';
 
 /**
@@ -1039,7 +1039,7 @@ export class Ecosystem {
     return [
       { name: 'casa nova', perYear: v.population > homes * 3 ? B.HOUSE_RATE : 0 },
       { name: 'andarilho', perYear: B.WANDERER_RATE[v.population <= 3 ? 0 : v.population < 10 ? 1 : v.population < 30 ? 2 : 3] },
-      { name: 'colonos', perYear: v.population > 26 || crowded ? B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) : 0 },
+      { name: 'colonos', perYear: crowded && v.tier >= B.COLONY_MIN_TIER ? B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * B.COLONY_PRESSURE_CROWDED : 0 },
       { name: 'porto', perYear: v.port < 0 && v.tech >= 0.5 ? B.PORT_RATE : 0 },
       { name: 'exploração', perYear: v.port >= 0 && v.tech >= 1 ? B.EXPLORE_RATE * curious : 0 },
       { name: 'colheita (× ano normal)', perYear: this.harvest(v) },
@@ -1309,6 +1309,8 @@ export class Ecosystem {
    */
   private updateHerd(v: Village): void {
     if (!v.herd || v.herd.head <= 0) {
+      // Curral vazio não fica de pé para sempre: as cercas vão sendo desmontadas.
+      if (v.pens?.length && happens(this.civRnd, B.PEN_RATE, 1)) this.removePen(v);
       if (v.tech >= 0.9 && happens(this.civRnd, B.DOMESTICATE_RATE, 1)) this.domesticate(v);
       return;
     }
@@ -1335,8 +1337,11 @@ export class Ecosystem {
     if ((h.plague ?? 0) <= this.year && happens(this.civRnd, B.HERD_PLAGUE_RATE * (1 + h.head / 40), 1)) this.herdPlague(v, null);
     if (horses) v.stock.horses = h.head;
     // Pasto cheio: mais um cercado, até o limite do nível.
-    const maxPens = 1 + v.tier * 2 + (v.vocation === 'gado' || v.vocation === 'ovelhas' || v.vocation === 'cavalos' ? 2 : 0);
+    const maxPens = maxPensOf(v.tier, v.vocation);
     if (h.head > cap * 0.8 && pens < maxPens && happens(this.civRnd, B.PEN_RATE, 1)) this.addPen(v);
+    // Cercados demais para o rebanho que sobrou (ou acima do limite): o mais longe é desmontado.
+    const needed = Math.max(1, Math.ceil((h.head * B.PASTURE_PER_HEAD) / (B.PEN_AREA * 0.8)));
+    if ((pens > needed + 1 || pens > maxPens) && happens(this.civRnd, B.PEN_RATE, 1)) this.removePen(v);
     // Sobrepastoreio: o verde em volta dos cercados cheios diminui.
     if (h.head > cap * 0.7 && !h.away) {
       for (const p of v.pens ?? []) {
@@ -1371,7 +1376,7 @@ export class Ecosystem {
     const s = this.siteSample(v);
     const b = this.map.biome[this.tileAt(v.x, Math.floor(v.y))] as Biome;
     const kind = herdFor(v.vocation, s, b === Biome.Desert || b === Biome.Savanna);
-    if (!this.addPen(v)) return;
+    if (!v.pens?.length && !this.addPen(v)) return;
     this.kill(wild, true);
     v.herd = { kind, head: 3 };
     this.note(`${v.name} domesticou ${HERD_NAMES[kind]}`, 'economia', v);
@@ -1390,18 +1395,43 @@ export class Ecosystem {
     return true;
   }
 
-  /** Lote 2x2 de terra livre logo fora da área, de preferência perto (pasto e roças que não cabem dentro). */
+  /**
+   * Lote 2x2 de terra livre logo fora da área, colado na borda (pasto e roças
+   * que não cabem dentro). Não vai para o lado de um vizinho: o lote fica
+   * longe da área dos outros e mais perto deste centro que de qualquer outro.
+   */
   private outerLot(v: Village): number[] | null {
     const r = Math.ceil(this.radius(v));
+    const near = this.villages.filter((o) => o !== v && !o.abandoned && this.distance(o, v.x, v.y) < r + this.radius(o) + 8);
     for (let k = 0; k < 40; k++) {
       const a = this.civRnd() * Math.PI * 2;
-      const d = r + 1 + this.civRnd() * 5;
+      const d = r + 1 + this.civRnd() * 2;
       const x = Math.floor(v.x + Math.cos(a) * d);
       const y = Math.floor(v.y + Math.sin(a) * d);
+      const cx = x + 1;
+      const cy = y + 1;
+      if (near.some((o) => this.distance(o, cx, cy) < this.radius(o) + 3 || this.distance(o, cx, cy) < d)) continue;
       const tiles = [this.tileAt(x, y), this.tileAt(x + 1, y), this.tileAt(x, y + 1), this.tileAt(x + 1, y + 1)];
-      if (tiles.every((t) => t >= 0 && isLand(this.map, t) && !this.road[t] && !this.built[t] && this.depositAt[t] < 0 && this.settlementAt(x + 0.5, y + 0.5) === null)) return tiles;
+      if (tiles.every((t) => t >= 0 && isLand(this.map, t) && !this.road[t] && !this.built[t] && this.depositAt[t] < 0)) return tiles;
     }
     return null;
+  }
+
+  /** Desmonta o cercado mais longe do centro: o chão volta a ser campo. */
+  private removePen(v: Village): void {
+    const pens = v.pens;
+    if (!pens?.length) return;
+    let k = 0;
+    for (let j = 1; j < pens.length; j++) if (this.distance(v, pens[j].x + 1, pens[j].y + 1) > this.distance(v, pens[k].x + 1, pens[k].y + 1)) k = j;
+    const p = pens.splice(k, 1)[0];
+    for (let dy = 0; dy < 2; dy++) {
+      for (let dx = 0; dx < 2; dx++) {
+        const t = this.tileAt(p.x + dx, p.y + dy);
+        if (t < 0 || this.road[t] !== 5) continue;
+        this.road[t] = 0;
+        this.onTileChanged(t);
+      }
+    }
   }
 
   /** Praga no rebanho: mata parte dos animais e pode pular para os rebanhos vizinhos. */
@@ -2110,7 +2140,11 @@ export class Ecosystem {
   /** Quantas pessoas as casas do assentamento abrigam. */
   housing(v: Village): number {
     const era = Math.floor(v.tech);
-    let n = 4 + v.fields * 2;
+    // A gente do campo conta pelas roças que o lugar comporta (uma a cada duas casas, ou quatro na Pedra),
+    // mesmo quando só se planta o que os agricultores dão conta.
+    const homes = v.houses.filter((h) => h.kind === 'house').length;
+    const farms = v.tech >= 0.12 ? Math.max(v.fields, Math.floor(homes / (era >= 1 ? 2 : 4))) : v.fields;
+    let n = 4 + farms * 2;
     for (const h of v.houses) n += h.kind === 'house' ? (h.empty ? 0 : 4 + era + (h.level ?? 0) * B.LEVEL_HOUSING) : h.kind === 'port' ? 0 : 2;
     return n;
   }
@@ -2517,6 +2551,44 @@ export class Ecosystem {
     return true;
   }
 
+  /** Larga a roça mais longe do centro: os tiles de lavoura voltam a ser campo. */
+  private dropField(v: Village): void {
+    const r = Math.ceil(this.radius(v)) + 1;
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    let best = -1;
+    let bd = -1;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const d = dx * dx + dy * dy;
+        if (d > r * r || d <= bd) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t < 0 || this.road[t] !== 4) continue;
+        const o = this.settlementAt(cx + dx + 0.5, cy + dy + 0.5);
+        if (o && o !== v) continue;
+        best = t;
+        bd = d;
+      }
+    }
+    v.fields--;
+    if (best < 0) return;
+    // A roça é um lote 2x2: some o tile e os vizinhos de lavoura, até quatro.
+    const w = this.map.width;
+    const queue = [best];
+    for (let n = 0; queue.length && n < 4; n++) {
+      const t = queue.shift()!;
+      if (this.road[t] !== 4) continue;
+      this.road[t] = 0;
+      this.onTileChanged(t);
+      const x = t % w;
+      const y = Math.floor(t / w);
+      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const u = this.tileAt(x + ox, y + oy);
+        if (u >= 0 && this.road[u] === 4) queue.push(u);
+      }
+    }
+  }
+
   /** Garante um líder vivo (rei, se for capital de um reino com cidade). */
   private updateLeader(v: Village, adults: number[]): void {
     const l = v.leader;
@@ -2904,6 +2976,7 @@ export class Ecosystem {
       }
     }
     v.decay = stage;
+    v.pens = undefined;
     if (stage >= 3) this.note(`As últimas ruínas de ${v.name} sumiram`, 'povo', v);
   }
 
@@ -3019,7 +3092,8 @@ export class Ecosystem {
       if (v.fields > 0 && workers[v.id]) {
         const w = workers[v.id];
         const plough = v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5;
-        const worked = Math.min(v.fields, Math.ceil(w[ROLE.farmer] * plough) + 1);
+        // Cada roça no mapa é um lote grande, que até FIELD_HANDS agricultores trabalham (o mapa tem no máximo 5 roças).
+        const worked = Math.min(v.fields * B.FIELD_HANDS, Math.ceil(w[ROLE.farmer] * plough) + 1);
         const mill = v.houses.some((h) => h.kind === 'windmill') ? 1 + 0.3 * Math.min(1, w[ROLE.miller]) : 1;
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
@@ -3028,7 +3102,12 @@ export class Ecosystem {
       }
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
       // Roças no fim da Idade da Pedra (uma para cada quatro casas); da Idade do Bronze em diante, uma para cada duas.
-      if (v.fields < homes / (Math.floor(v.tech) >= 1 ? 2 : 4) && v.tech >= 0.12 && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
+      // Só planta o que os agricultores dão conta (mais uma); roça sem ninguém para trabalhar volta a ser campo.
+      // No máximo maxFieldsOf(nível) roças no mapa (pedido do Joab: até 5 na metrópole).
+      const hands = Math.ceil((workers[v.id]?.[ROLE.farmer] ?? 0) * (v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5)) + 1;
+      const room = Math.min(maxFieldsOf(v.tier), Math.ceil(hands / B.FIELD_HANDS) + 1);
+      if (v.fields < Math.min(room, homes / (Math.floor(v.tech) >= 1 ? 2 : 4)) && v.tech >= 0.12 && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
+      else if (v.fields > room && happens(this.civRnd, B.FIELD_FALLOW_RATE, dt / YEAR_SECONDS)) this.dropField(v);
       // De vez em quando aparece um andarilho do mesmo povo, mais fácil quando o lugar tem pouca gente.
       const rush = (v.goldRush ?? 0) > this.year ? B.GOLD_RUSH_WANDERERS : 0;
       const wander = B.WANDERER_RATE[v.population <= 3 ? 0 : v.population < 10 ? 1 : v.population < 30 ? 2 : 3] + rush;
@@ -3049,7 +3128,8 @@ export class Ecosystem {
       const crowded = v.population >= 8 && squeezed && !planLeft && !this.reformable(v) && (v.growth ?? 0) >= 1;
       const ready = B.COLONY_MIN_FACTOR + (1 - B.COLONY_MIN_FACTOR) * v.completeness ** 2;
       const pressure = crowded ? B.COLONY_PRESSURE_CROWDED : B.COLONY_PRESSURE_ROOM;
-      if ((v.population > B.COLONY_MIN_POP || crowded) && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * ready * pressure, yr) && live < 100) {
+      // Primeiro o assentamento cresce o quanto pode; só manda colonos quando não há mais lote, reforma nem rua (pedido do Joab).
+      if (crowded && v.tier >= B.COLONY_MIN_TIER && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * ready * pressure, yr) && live < 100) {
         if (!this.colonizeByLand(v)) this.colonizeBySea(v);
       }
     }
@@ -3664,6 +3744,8 @@ export class Ecosystem {
     this.migrate();
     this.epidemics();
     this.linkRoads();
+    // Estradas novas mudam por onde passa mais gente: as cidades revêem ruas principais e avenida a cada 10 anos.
+    for (const v of this.villages) if (!v.abandoned && v.tier >= 2 && (Math.floor(this.year) + v.id) % 10 === 0) this.rankStreets(v);
     this.economyYear();
     for (const k of this.crises) this.succession(this.villages[k]);
     this.crises.clear();

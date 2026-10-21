@@ -13,6 +13,10 @@ export const HOUSE_RATE = 3;
 export const SPECIAL_BUILDING_SHARE = 0.35;
 /** Roças novas por ano enquanto faltam roças (antes: 30% por segundo). */
 export const FIELD_RATE = 2;
+/** Chance por ano de largar uma roça que nenhum agricultor trabalha (volta a ser campo). */
+export const FIELD_FALLOW_RATE = 0.5;
+/** Agricultores que cada roça do mapa comporta: são no máximo 5 roças, então cada uma é um lote grande. */
+export const FIELD_HANDS = 3;
 /** Porções de comida por ano que cada roça trabalhada produz em ano normal. */
 export const FIELD_YIELD = 3;
 /** Chegada de andarilhos por ano, pelo tamanho do assentamento (até 3, até 9, até 29, 30 ou mais). */
@@ -24,7 +28,7 @@ export const FISH_TRIP_RATE = 0.9;
 /** Expedições de exploração por mar por ano (dobra em povos curiosos). */
 export const EXPLORE_RATE = 0.012;
 /** Envio de colonos por ano num assentamento cheio, mais 25% por era. */
-export const COLONY_RATE = 0.05;
+export const COLONY_RATE = 0.03;
 /** Busca por jazidas por ano (antes: 5% por segundo). */
 export const SURVEY_RATE = 0.3;
 /** Minas abertas por ano, quando há mineradores e jazida conhecida (antes: 10% por segundo). */
@@ -86,6 +90,11 @@ export const FISHING_CAST_RATE = 3;
 export const COLONY_MIN_FACTOR = 0.2;
 /** Moradores a partir dos quais um assentamento pensa em mandar colonos mesmo com lote livre. */
 export const COLONY_MIN_POP = 40;
+/**
+ * Nível mínimo para mandar colonos, e só quando o assentamento não tem mais lote, reforma nem rua para crescer
+ * (antes: qualquer nível, a partir de COLONY_MIN_POP moradores, mesmo com espaço; o povo se espalhava em aldeias pequenas).
+ */
+export const COLONY_MIN_TIER = 1;
 /** Completude mínima da planta para subir de nível. */
 export const TIER_UP_COMPLETENESS = 0.7;
 /** Reformas por ano por construtor (casa que melhora de padrão). */
@@ -181,7 +190,8 @@ export const REVOLT_RATE = 0.04;
 export const DOMESTICATE_RATE = 0.4;
 /** Tiles de pasto por animal; cada cercado pasta a área dele e a volta (PEN_AREA tiles). */
 export const PASTURE_PER_HEAD = 1.5;
-export const PEN_AREA = 9;
+/** (antes: 9; com no máximo 5 cercados, cada um pasta uma área maior.) */
+export const PEN_AREA = 14;
 /** Crescimento do rebanho por ano (logístico até o teto do pasto). */
 export const HERD_GROWTH = 0.3;
 /** Cercados novos por ano quando o rebanho encosta no teto. */
@@ -215,11 +225,14 @@ export const SEASON_FUEL = [0.8, 0.4, 0.8, 2];
 
 // Comércio vivo (seção 19.6, RF-VIDA-230 a 236) ---------------------------------------
 
-/** Caravanas por assentamento: tantas por nível (a aldeia conta como 1), +1 se mercantil; e no mundo todo (RF-VIDA-236). */
+/**
+ * Caravanas por assentamento: uma, mais uma na cidade e na metrópole, +1 se mercantil (antes: uma por nível);
+ * e no mundo todo (RF-VIDA-236) (antes: 24; menos mercadores no mapa, pedido do Joab).
+ */
 export const CARAVANS_PER_TIER = 1;
-export const CARAVANS_MAX = 24;
+export const CARAVANS_MAX = 10;
 /** Saídas de caravana por ano em cada assentamento que pode mandar (×2 mercantil, ×1,5 com mercado). */
-export const CARAVAN_RATE = 0.8;
+export const CARAVAN_RATE = 0.3;
 /** Alcance de uma caravana por terra, em tiles (×1,5 rumo a uma feira). */
 export const CARAVAN_RANGE = 60;
 /** Velocidade a pé com burro ou camelo, em tiles por segundo; cavalo vai 50% mais rápido (RF-VIDA-223). */

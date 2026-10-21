@@ -803,6 +803,7 @@ As linhas de 19/10 e 20/10/2026 foram levantadas na revisão de 20/10/2026, a pa
 | 19/10/2026 | Exigência de WebGL para abrir o jogo | Nem todo PC tem placa de vídeo liberada | Joab | Renderizador por software em Canvas 2D (RF-NAV-16) |
 | 19/10/2026 | Vida nativa em 1% dos planetas favoráveis | Raro demais para a diversão | Joab | Três níveis: 25% vegetação, 8% animais, 1 em 10 destes inteligente (RF-VIDA-02) |
 | 19/10/2026 | Tamanhos de mapa 2D da versão 0.2 (Terra 512×256) | Caber mais coisa e ver as espécies | Joab | Terra 1024×512, teto 2048×1024 (RF-SUP-13) |
+| 21/10/2026 | Cercas, estacas, paliçadas e muralhas de defesa em volta de vilas e cidades (RF-VIDA-106, 250), com os sprites `palisade`, `wall` e `gate` | Não têm função no jogo e poluem o mapa | Joab | A defesa na guerra segue pelos soldados e pela fortaleza da praça (RF-VIDA-242); a muralha como força na defesa volta só se tiver efeito de jogo |
 | 20/10/2026 | Publicação no GitHub Pages (workflow e base `/We-Are-Many/` do Vite) | Não funcionou para o Joab | Joab | Netlify (RNF-16). O `vercel.json` continua no repositório como alternativa |
 | 20/10/2026 | Ruas em cruz (decisão de 19/10/2026) e grade quadrada de ruas e casas | Traçado rígido demais | Joab | Ruas orgânicas que serpenteiam a partir da praça (RF-VIDA-101) |
 | 20/10/2026 | Ferramenta já selecionada ao entrar na superfície | Evitar alterar o mapa sem querer | Joab | Mão vazia (RF-VIDA-150b) |

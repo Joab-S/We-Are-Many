@@ -189,7 +189,7 @@ export interface Caravan {
 
 /** Caravanas que um assentamento pode ter na estrada ao mesmo tempo (RF-VIDA-236). */
 export function caravanCap(tier: number, mercantile: boolean): number {
-  return B.CARAVANS_PER_TIER * (tier + 1) + (mercantile ? 1 : 0);
+  return B.CARAVANS_PER_TIER * (tier >= 2 ? 2 : 1) + (mercantile ? 1 : 0);
 }
 
 /** Animal de carga: camelo no deserto, cavalo se houver no estoque, senão burro. */

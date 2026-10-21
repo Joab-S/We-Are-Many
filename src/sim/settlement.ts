@@ -21,6 +21,17 @@ export function radiusFor(tier: number, grow = 0): number {
   return TIER_RADIUS[tier] + (next - TIER_RADIUS[tier]) * 0.5 * Math.max(0, Math.min(1, grow));
 }
 
+/** Cercados no mapa por nível: um na aldeia até quatro na metrópole, +1 se a vocação é de rebanho, no máximo 5. */
+export function maxPensOf(tier: number, vocation?: string | null): number {
+  const herding = vocation === 'gado' || vocation === 'ovelhas' || vocation === 'cavalos';
+  return Math.min(5, 1 + tier + (herding ? 1 : 0));
+}
+
+/** Roças no mapa por nível: duas na aldeia até cinco na metrópole. */
+export function maxFieldsOf(tier: number): number {
+  return Math.min(5, 2 + tier);
+}
+
 export function tierFor(population: number): number {
   let t = 0;
   while (t + 1 < TIER_POPULATION.length && population >= TIER_POPULATION[t + 1]) t++;
