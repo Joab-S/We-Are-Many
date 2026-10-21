@@ -224,15 +224,25 @@ export function vegetationCap(map: SurfaceMap, i: number): number {
   if (m < 0.25) return DESERT_VEGETATION;
   const b = map.biome[i] as Biome;
   if (m < 0.35 && (b === Biome.Desert || b === Biome.Beach || b === Biome.Barren)) return DESERT_VEGETATION;
+  // Clima quente e semiárido (savana): sem umedecer o solo, para na savana com acácias em vez de fechar em floresta.
+  if (t > 296 && m < 0.45) return 0.5;
   return 1;
 }
 
-/** Semeia até o teto do lugar, sem cortar o que já passa dele; o tile limpo volta a ter enfeite. */
+/**
+ * Semeia até o teto do lugar, sem cortar o que já passa dele; o tile limpo
+ * volta a ter enfeite e árvores cortadas (toco ou muda) voltam a crescer.
+ */
 export function sowVegetation(map: SurfaceMap, i: number, amount: number): void {
   const cap = vegetationCap(map, i);
-  if (map.vegetation[i] >= cap) return;
-  map.vegetation[i] = Math.min(cap, map.vegetation[i] + amount);
+  if (cap <= 0) return;
+  if (map.vegetation[i] < cap) map.vegetation[i] = Math.min(cap, map.vegetation[i] + amount);
   if (map.bare) map.bare[i] = 0;
+  if (map.felled?.[i]) {
+    map.biome[i] = classify(map, i);
+    map.felled[i] = 0;
+    if (!isTree(decorAt(map, i)) && map.vegetation[i] <= 0.5) map.felled[i] = 2;
+  }
 }
 
 /** Enfeite desenhado dentro do tile quando há zoom (guardado no canal alfa da textura). */

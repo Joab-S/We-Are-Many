@@ -80,4 +80,35 @@ describe('textura de baixa resolução', () => {
     const trees = [Decor.Tree, Decor.JungleTree, Decor.Pine, Decor.Acacia];
     for (const b of [Biome.Desert, Biome.Snow, Biome.Ice, Biome.Barren]) for (const d of trees) expect(decor.get(b)?.has(d) ?? false).toBe(false);
   });
+
+  it('semear faz árvores cortadas (toco) e tiles limpos voltarem a ter árvores', () => {
+    const map = generateSurface(earth);
+    const n = map.width * map.height;
+    map.felled = new Uint8Array(n);
+    map.bare = new Uint8Array(n);
+    let idx = -1;
+    for (let i = 0; i < n; i++) {
+      if (map.biome[i] === Biome.Forest && decorAt(map, i) === Decor.Tree) {
+        idx = i;
+        break;
+      }
+    }
+    expect(idx).toBeGreaterThanOrEqual(0);
+    // Toco de árvore cortada: primeiro vira muda e depois árvore adulta.
+    map.felled[idx] = 1;
+    map.vegetation[idx] = 0.28;
+    map.biome[idx] = classify(map, idx);
+    expect(decorAt(map, idx)).toBe(Decor.Stump);
+    sowVegetation(map, idx, 0.06);
+    expect(decorAt(map, idx)).toBe(Decor.Sapling);
+    sowVegetation(map, idx, 0.3);
+    expect(map.felled[idx]).toBe(0);
+    expect(decorAt(map, idx)).toBe(Decor.Tree);
+    // Tile limpo (bare = 1) mesmo já no teto de vegetação volta a ter árvore ao semear.
+    map.bare[idx] = 1;
+    expect(decorAt(map, idx)).toBe(Decor.None);
+    sowVegetation(map, idx, 0.06);
+    expect(map.bare[idx]).toBe(0);
+    expect(decorAt(map, idx)).toBe(Decor.Tree);
+  });
 });

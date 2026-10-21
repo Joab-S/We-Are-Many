@@ -4256,7 +4256,7 @@ export class Ecosystem {
       if (v.forestry) planters.set(v.id, (planters.get(v.id) ?? 0) + B.PLANT_RATE);
     }
     for (const t of this.stumps) {
-      if (!isLand(map, t) || this.road[t] || this.built[t]) {
+      if (!felled[t] || !isLand(map, t) || this.road[t] || this.built[t]) {
         felled[t] = 0;
         this.stumps.delete(t);
         this.onTileChanged(t);
@@ -7237,7 +7237,9 @@ export class Ecosystem {
     for (let dy = -ri; dy <= ri; dy++) {
       for (let dx = -ri; dx <= ri; dx++) {
         const t = this.tileAt(x0 + dx, y0 + dy);
-        if (t < 0 || isLand(map, t)) continue;
+        if (t < 0) continue;
+        if (!map.felled?.[t]) this.stumps.delete(t);
+        if (isLand(map, t)) continue;
         if (this.road[t]) {
           this.road[t] = 0;
           this.mainStreet[t] = 0;
@@ -7260,7 +7262,9 @@ export class Ecosystem {
       }
     }
     for (const v of this.villages) {
-      if (v.abandoned || this.distance(v, cx, cy) > ri + this.radius(v) + 6) continue;
+      if (v.abandoned) continue;
+      if (this.distance(v, cx, cy) <= ri + this.reachOf(v, B.WOOD_REACH)) v.treeScan = -1;
+      if (this.distance(v, cx, cy) > ri + this.radius(v) + 6) continue;
       for (let k = v.houses.length - 1; k >= 0; k--) {
         const h = v.houses[k];
         const size = h.kind === 'port' ? 1 : 2;

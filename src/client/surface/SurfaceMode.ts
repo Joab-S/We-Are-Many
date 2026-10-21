@@ -222,8 +222,8 @@ const TERRAIN_TOOLS: Tool[] = [
   },
   { id: 'rain', fx: 'rain', tab: 'climate', label: 'Chuva', icon: '🌧', tip: 'Deixa o clima mais úmido: a mata cresce melhor.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] + 0.04 * s, 0, 1)) },
   { id: 'dry', fx: 'dry', tab: 'climate', label: 'Secar', icon: '☀', tip: 'Deixa o clima mais seco.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] - 0.04 * s, 0, 1)) },
-  { id: 'plant', fx: 'grow', tab: 'climate', label: 'Semear vida', icon: '🌱', tip: 'Espalha a vegetação que o lugar dá: cactos no deserto, pinheiros na tundra, acácias na savana, mata onde é úmido. Na água, no gelo e na rocha nua nada pega.', mode: 'brush', apply: (m, i, s) => sowVegetation(m, i, 0.06 * s) },
-  { id: 'forest', fx: 'grow', tab: 'climate', label: 'Floresta', icon: '🌳', tip: 'Umedece o solo e planta mata fechada onde o clima deixa; no deserto, só depois de umedecer bastante.', mode: 'brush', apply: (m, i, s) => { m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1); sowVegetation(m, i, 0.15 * s); } },
+  { id: 'plant', fx: 'grow', tab: 'climate', label: 'Semear vida', icon: '🌱', tip: 'Semeia sem mudar a umidade: cactos no deserto, pinheiros na tundra, acácias na savana, capim e árvores onde já é úmido. Faz tocos brotarem.', mode: 'brush', apply: (m, i, s) => sowVegetation(m, i, 0.06 * s) },
+  { id: 'forest', fx: 'grow', tab: 'climate', label: 'Floresta', icon: '🌳', tip: 'Umedece o solo e ergue mata fechada rápido, transformando tocos e mudas em árvores adultas.', mode: 'brush', apply: (m, i, s) => { m.moisture[i] = clamp(m.moisture[i] + 0.03 * s, 0, 1); sowVegetation(m, i, Math.max(0.18 * s, m.felled?.[i] ? 0.3 : 0)); } },
 ];
 
 /** Eventos que o jogador pode provocar (aba Eventos). */
@@ -605,7 +605,8 @@ export class SurfaceMode {
     const row = this.toRow(viewY);
     const helped = this.eco.villages.filter((v) => !v.abandoned && Math.hypot(((v.x - x + this.map.width * 1.5) % this.map.width) - this.map.width / 2, v.y - row) < this.brush + 6);
     for (const v of helped) v.food = Math.min(60, v.food + 25);
-    this.forBrush(x, viewY, this.brush, (i) => (this.map.vegetation[i] = clamp(this.map.vegetation[i] + 0.2, 0, 1)));
+    this.forBrush(x, viewY, this.brush, (i) => sowVegetation(this.map, i, 0.2));
+    this.eco.sweep(x, row, this.brush);
     if (helped.length) this.eco.note(`Você deu uma boa colheita a ${helped.map((v) => v.name).join(', ')}`, 'jogador', helped[0]);
     else this.eco.hint = 'Nenhum assentamento no pincel';
   }
