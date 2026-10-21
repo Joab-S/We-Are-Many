@@ -350,19 +350,7 @@ export const SITE_LAVA_RANGE = 10;
 export const LAVA_FIRE_RANGE = 2;
 export const LAVA_FIRE_RATE = 0.6;
 
-// Aproveitamento dos recursos (seção 19.18) ------------------------------------------------
+// Construções e terreno (seção 19.18) -----------------------------------------------------
 
-/** Parte do custo de uma construção destruída que volta ao estoque como entulho aproveitável. */
-export const SALVAGE = 0.4;
-/** Parte do estoque de um assentamento abandonado que os vizinhos do reino recolhem. */
-export const ABANDON_RECOVER = 0.5;
-/** Excedente acima do teto vendido no mercado: ouro por unidade de troca (o resto se perde). */
-export const SURPLUS_SALE = 0.5;
 /** Desnível máximo dentro de uma casa (2x2) antes de ela desabar num barranco (terremoto, terreno erguido). */
 export const HOUSE_MAX_RELIEF = 0.2;
-/** Alcance (tiles) em que o material que o jogador tira do mapa (árvore, pedra, minério) vai para o assentamento mais perto. */
-export const HAUL_FROM_MAP = 40;
-/** Madeira por tile de árvore, pedra por pedregulho e parte do minério de uma jazida que o povo aproveita quando o jogador limpa o mapa. */
-export const CLEAR_WOOD = 1.5;
-export const CLEAR_STONE = 1;
-export const CLEAR_ORE = 0.3;

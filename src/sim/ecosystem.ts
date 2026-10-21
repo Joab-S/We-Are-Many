@@ -1583,15 +1583,11 @@ export class Ecosystem {
   private clampStock(v: Village): void {
     const c = this.capContext(v);
     const cap = foodCap(c);
-    // O que passa do teto não se joga fora: parte é vendida no mercado vizinho por ouro (seção 19.18).
-    const sell = (g: Good | 'food', extra: number) => {
-      this.spend(v, g, extra);
-      if (g !== 'gold') this.gain(v, 'gold', (extra * this.priceAt(v, g) * B.SURPLUS_SALE) / B.GOLD_VALUE);
-    };
-    if (v.food > cap) sell('food', v.food - cap);
+    // Não vira ouro nem vai para outro lugar: o que não cabe estraga ou se perde (pedido do Joab, seção 19.19).
+    if (v.food > cap) this.spend(v, 'food', v.food - cap);
     for (const g of GOODS) {
       const max = goodCap(g, c);
-      if (v.stock[g] > max) sell(g, v.stock[g] - max);
+      if (v.stock[g] > max) this.spend(v, g, v.stock[g] - max);
     }
   }
 
@@ -3165,12 +3161,10 @@ export class Ecosystem {
         }
       }
     }
-    // Os vizinhos do reino recolhem parte do que sobrou no estoque (seção 19.18); o resto estraga com o tempo.
-    const heir = this.villages.filter((o) => o !== v && !o.abandoned && o.kingdom === v.kingdom).sort((p, q) => this.distance(p, v.x, v.y) - this.distance(q, v.x, v.y))[0];
-    if (heir && this.distance(heir, v.x, v.y) < B.HAUL_RANGE) {
-      for (const g of GOODS) this.gain(heir, g, v.stock[g] * B.ABANDON_RECOVER);
-      this.gain(heir, 'food', v.food * B.ABANDON_RECOVER);
-    }
+    // O que sobrou no estoque se perde com o lugar: ninguém herda (pedido do Joab, seção 19.19). Só o saque leva bens embora.
+    v.stock = emptyStock();
+    v.stock.wood = 0;
+    v.food = 0;
     v.houses.length = 0;
     v.port = -1;
     for (const id of v.mines) this.deposits[id].mine = -1;
@@ -5895,8 +5889,7 @@ export class Ecosystem {
 
   /**
    * Derruba a construção `k` do assentamento: libera o terreno, deixa uma
-   * ruína (se o chão ainda é terra) e devolve ao estoque uma parte do
-   * material como entulho aproveitável (SALVAGE, seção 19.18).
+   * ruína (se o chão ainda é terra). O material se perde (seção 19.19).
    */
   private raze(v: Village, k: number): void {
     const h = v.houses[k];
@@ -5915,9 +5908,6 @@ export class Ecosystem {
     v.houses.splice(k, 1);
     if (!land) return;
     this.ruins.push({ x: h.x + size / 2, y: h.y + size, age: 0 });
-    const c = buildCost(h.kind, Math.floor(v.tech));
-    this.gain(v, 'wood', c.wood * B.SALVAGE);
-    this.gain(v, 'stone', c.stone * B.SALVAGE);
   }
 
   /**
@@ -6081,26 +6071,11 @@ export class Ecosystem {
     return d;
   }
 
-  /** Assentamento ativo mais perto de um ponto, dentro do alcance em que o material do mapa chega até ele. */
-  private receiver(x: number, y: number): Village | null {
-    let best: Village | null = null;
-    let bd: number = B.HAUL_FROM_MAP;
-    for (const v of this.villages) {
-      if (v.abandoned) continue;
-      const d = this.distance(v, x, y);
-      if (d < bd) {
-        bd = d;
-        best = v;
-      }
-    }
-    return best;
-  }
-
   /**
    * Ferramenta Limpar (seção 19.18): tira do mapa o que é da natureza num
    * raio: árvores (a mata fica rala e rebrota), pedregulhos e cactos, jazidas
-   * de minério e ruínas. Nada se perde: a madeira, a pedra e o minério vão
-   * para o assentamento mais perto (HAUL_FROM_MAP). Retorna quantos itens.
+   * de minério e ruínas. O material se perde: só o trabalho do povo põe
+   * madeira, pedra e minério no estoque (seção 19.19). Retorna quantos itens.
    */
   clearNature(x: number, y: number, r: number): number {
     const map = this.map;
@@ -6109,7 +6084,6 @@ export class Ecosystem {
     let trees = 0;
     let rocks = 0;
     let ores = 0;
-    const gold = new Map<Ore, number>();
     for (let dy = -ri; dy <= ri; dy++) {
       for (let dx = -ri; dx <= ri; dx++) {
         if (dx * dx + dy * dy > r * r) continue;
@@ -6130,7 +6104,6 @@ export class Ecosystem {
         const id = this.depositAt[t];
         if (id >= 0 && this.deposits[id].amount > 0) {
           const d = this.deposits[id];
-          gold.set(d.ore, (gold.get(d.ore) ?? 0) + d.amount * B.CLEAR_ORE);
           d.amount = 0;
           if (d.mine >= 0) {
             const owner = this.villages[d.mine];
@@ -6153,22 +6126,16 @@ export class Ecosystem {
         rocks++;
       }
     }
-    const v = this.receiver(x, y);
-    if (v) {
-      this.gain(v, 'wood', trees * B.CLEAR_WOOD);
-      this.gain(v, 'stone', rocks * B.CLEAR_STONE);
-      for (const [ore, amount] of gold) this.gain(v, ore, amount);
-    }
     const n = trees + rocks + ores;
-    if (n) this.note(`Você limpou o terreno${v ? `; o material foi para ${v.name}` : ''}`, 'jogador', { x, y }, { key: 'limpar' });
+    if (n) this.note('Você limpou o terreno', 'jogador', { x, y }, { key: 'limpar' });
     return n;
   }
 
   /**
    * Ferramenta Demolir (seção 19.18): derruba as construções do povo num
    * raio: casas e prédios que encostam no pincel, ruas, praça, roças e
-   * pastos. O entulho volta em parte ao estoque (SALVAGE). O povo reconstrói
-   * depois, se precisar. Retorna quantas construções caíram.
+   * pastos. O material se perde; o povo reconstrói depois, se precisar,
+   * pagando de novo. Retorna quantas construções caíram.
    */
   demolish(x: number, y: number, r: number): number {
     const w = this.map.width;
