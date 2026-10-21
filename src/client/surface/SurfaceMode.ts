@@ -7,6 +7,7 @@ import {
   paintTile,
   tileHash,
   temperatureAt,
+  sowVegetation,
   type PlanetParams,
   type SurfaceMap,
 } from '../../procgen/surface';
@@ -219,8 +220,8 @@ const TERRAIN_TOOLS: Tool[] = [
   },
   { id: 'rain', fx: 'rain', tab: 'climate', label: 'Chuva', icon: '🌧', tip: 'Deixa o clima mais úmido: a mata cresce melhor.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] + 0.04 * s, 0, 1)) },
   { id: 'dry', fx: 'dry', tab: 'climate', label: 'Secar', icon: '☀', tip: 'Deixa o clima mais seco.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] - 0.04 * s, 0, 1)) },
-  { id: 'plant', fx: 'grow', tab: 'climate', label: 'Semear vida', icon: '🌱', tip: 'Espalha vegetação, que depois se espalha sozinha onde o clima deixa.', mode: 'brush', apply: (m, i, s) => (m.vegetation[i] = clamp(m.vegetation[i] + 0.06 * s, 0, 1)) },
-  { id: 'forest', fx: 'grow', tab: 'climate', label: 'Floresta', icon: '🌳', tip: 'Planta mata fechada e umedece o solo.', mode: 'brush', apply: (m, i, s) => { m.vegetation[i] = clamp(m.vegetation[i] + 0.15 * s, 0, 1); m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1); } },
+  { id: 'plant', fx: 'grow', tab: 'climate', label: 'Semear vida', icon: '🌱', tip: 'Espalha a vegetação que o lugar dá: cactos no deserto, pinheiros na tundra, acácias na savana, mata onde é úmido. Na água, no gelo e na rocha nua nada pega.', mode: 'brush', apply: (m, i, s) => sowVegetation(m, i, 0.06 * s) },
+  { id: 'forest', fx: 'grow', tab: 'climate', label: 'Floresta', icon: '🌳', tip: 'Umedece o solo e planta mata fechada onde o clima deixa; no deserto, só depois de umedecer bastante.', mode: 'brush', apply: (m, i, s) => { m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1); sowVegetation(m, i, 0.15 * s); } },
 ];
 
 /** Eventos que o jogador pode provocar (aba Eventos). */
