@@ -491,6 +491,7 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 | 20/10/2026 | As 8 ideias novas (RF-VIDA-290 a 297) foram aprovadas; sequência de implementação: S e A, B, C, I, D, E, F, G, H, V (seção 19.13). |
 | 20/10/2026 | Respostas do Joab à proposta: estoque próprio por assentamento, sem estoque compartilhado do reino (o comércio nasce da diferença), com teto por recurso e consumo obrigatório para a economia não explodir; extermínio só entre povos inteligentes, inclusive da mesma espécie quando os interesses são diferentes, e nunca entre animais; todas as ideias complementares entram; toda a vida passa a seguir simulação estocástica; lógica nova vem sempre com o seu visual, e os elementos existentes também melhoram. |
 | 20/10/2026 | Ícone da vocação no rótulo, de forma simples, e no painel. Requisitos de seleção de criaturas (realce, escolha entre amontoadas, marcador, seguir, nome, ficha completa, grupo) e da janela do assentamento com abas (seção 19.17). |
+| 21/10/2026 | Etapa F implementada (seção 19.7). Visual do mapa no estilo das referências do Joab (organizado e bonito, sem poluição): terreiro limpo em volta de casas, prédios, ruas, roças e pastos dentro da área (a madeira vai para o estoque; o mato volta quando as ruínas somem); ruas de terra com três quartos do tile e de pedra com quase o tile todo; casas alinhadas na beira da rua, à mesma distância dela; o véu e a borda do território somem aos poucos bem de perto (continuam de longe e na tecla T). |
 
 ---
 

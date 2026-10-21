@@ -1568,11 +1568,13 @@ export class SurfaceMode {
       ctx.arc(sx, sy, r, 0, Math.PI * 2);
       // De perto o véu quase some, para não apagar a arte das casas, ruas e plantações.
       const strong = this.layer === 'kingdoms' ? 1 : 2;
-      ctx.fillStyle = `rgba(${c},${Math.min(0.18 * strong, Math.max(0.03, (0.7 * strong) / z)).toFixed(3)})`;
+      // Bem de perto o véu e a borda somem aos poucos: o assentamento aparece limpo, como nas referências.
+      const near = Math.max(0, Math.min(1, (14 - z) / 8));
+      ctx.fillStyle = `rgba(${c},${(near * Math.min(0.18 * strong, Math.max(0.03, (0.7 * strong) / z))).toFixed(3)})`;
       ctx.fill();
       ctx.lineWidth = Math.min(capital ? 4 : 3, Math.max(1.5, z * (capital ? 0.35 : 0.22)));
       ctx.setLineDash(capital ? [] : [z * 0.8, z * 0.5]);
-      ctx.strokeStyle = `rgba(${c},0.9)`;
+      ctx.strokeStyle = `rgba(${c},${(0.9 * near).toFixed(3)})`;
       ctx.stroke();
     }
     ctx.setLineDash([]);

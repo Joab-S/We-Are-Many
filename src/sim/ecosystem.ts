@@ -1341,6 +1341,7 @@ export class Ecosystem {
       this.upkeep(v);
       this.neglect(v);
       this.woodland(v);
+      this.clearYards(v);
       this.luxuryYear(v);
       this.clampStock(v);
       this.hardship(v);
@@ -3478,6 +3479,18 @@ export class Ecosystem {
         this.onTileChanged(t);
       }
     }
+    // Sem o lugar, o terreiro volta a ser mato (a mata pode voltar).
+    if (stage >= 3 && this.map.bare) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const t = this.tileAt(cx + dx, cy + dy);
+          if (t >= 0 && this.map.bare[t] && !this.settlementAt(cx + dx + 0.5, cy + dy + 0.5)) {
+            this.map.bare[t] = 0;
+            this.onTileChanged(t);
+          }
+        }
+      }
+    }
     v.decay = stage;
     v.pens = undefined;
     if (stage >= 3) this.note(`As últimas ruínas de ${v.name} sumiram`, 'povo', v);
@@ -3998,6 +4011,45 @@ export class Ecosystem {
       const t = v.treeList![v.treeNext!];
       if (this.standingTree(t)) return t;
       v.treeNext!++;
+    }
+  }
+
+  /**
+   * Terreiro (mapa organizado, pedido do Joab): dentro da área, árvore, toco ou muda colados numa
+   * casa, prédio, rua, praça, roça ou pasto saem, e o chão fica limpo até o lugar ser abandonado.
+   * A madeira das árvores vai para o estoque, até o teto.
+   */
+  private clearYards(v: Village): void {
+    const map = this.map;
+    const r = Math.ceil(this.radius(v));
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t < 0 || this.road[t] || this.built[t] || map.bare?.[t] || !isLand(map, t)) continue;
+        const decor = decorAt(map, t);
+        if (!isTree(decor) && decor !== Decor.Stump && decor !== Decor.Sapling) continue;
+        let yard = false;
+        for (let oy = -1; oy <= 1 && !yard; oy++) {
+          for (let ox = -1; ox <= 1 && !yard; ox++) {
+            const n = this.tileAt(cx + dx + ox, cy + dy + oy);
+            if (n >= 0 && (this.road[n] || this.built[n])) yard = true;
+          }
+        }
+        if (!yard || this.settlementAt(cx + dx + 0.5, cy + dy + 0.5) !== v) continue;
+        if (isTree(decor)) {
+          this.put(v, 'wood', B.WOOD_PER_TREE);
+          this.treesCut++;
+        } else {
+          map.felled![t] = 0;
+          this.stumps.delete(t);
+        }
+        map.bare ??= new Uint8Array(map.width * map.height);
+        map.bare[t] = 1;
+        this.onTileChanged(t);
+      }
     }
   }
 
