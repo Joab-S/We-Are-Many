@@ -14,6 +14,7 @@ import { TIER_NAMES } from '../../sim/settlement';
 import { MATERIAL_NAMES } from '../../sim/architecture';
 import { CURRENCY_NAMES, LUXURY_NAMES } from '../../sim/trade';
 import { elderAge } from '../../sim/ecosystem';
+import { ERA_POINTS, PILLARS, PILLAR_NAMES, TECHS, VOCATION_PILLAR } from '../../sim/progress';
 
 export type SettlementTab = 'summary' | 'economy' | 'people' | 'buildings' | 'relations' | 'history';
 
@@ -126,7 +127,26 @@ function summaryHtml(eco: Ecosystem, v: Village): string {
     <div class="wb-kv"><span>Estabilidade</span>${bar(v.stability ?? 1, pct(v.stability ?? 1))}</div>
     <div class="wb-kv"><span>Economia</span><b class="${st.tone}">${st.label}</b><span class="wb-dim">necessidades ${pct(w)}</span></div>
     ${v.completeness !== undefined ? `<div class="wb-kv"><span>Planta</span>${bar(v.completeness, `${pct(v.completeness)}${v.missing ? ` · falta ${v.missing}` : ' · completa'}`)}</div>` : ''}
-    <div class="wb-note">Os pilares de desenvolvimento entram aqui com a Etapa H.</div>`;
+    ${pillarsHtml(eco, v)}`;
+}
+
+/** Pilares de desenvolvimento, técnicas e recursos ainda sem uso (RF-VIDA-270 a 273). */
+function pillarsHtml(eco: Ecosystem, v: Village): string {
+  const era = Math.floor(v.tech);
+  const need = ERA_POINTS[era];
+  const special = v.vocation ? VOCATION_PILLAR[v.vocation] : null;
+  const rows = PILLARS.map((p, i) => {
+    const pts = Math.floor(v.pts?.[i] ?? 0);
+    return `<div class="wb-kv"><span>${PILLAR_NAMES[p]}${p === special ? ' ×2' : ''}</span>${bar(v.levels?.[i] ?? 0, need ? `${pts} pts` : 'completo', '')}</div>`;
+  }).join('');
+  const known = eco.knows(v);
+  const techs = TECHS.filter((t) => known.has(t.id)).map((t) => t.name);
+  const latent = eco.latent(v);
+  return `
+    <div class="wb-sub">Desenvolvimento${need ? ` · ${Math.floor(v.pts?.reduce((a, b) => a + b, 0) ?? 0)} de ${need} pontos para a próxima era` : ''}</div>
+    ${rows}
+    <div class="wb-kv"><span>Técnicas</span><b>${techs.length ? techs.join(', ') : 'nenhuma ainda'}</b><span class="wb-dim">${techs.length} de ${TECHS.length}</span></div>
+    ${latent.length ? `<div class="wb-kv"><span>Sem uso ainda</span><b>${latent.join('; ')}</b></div>` : ''}`;
 }
 
 function economyHtml(eco: Ecosystem, v: Village): string {

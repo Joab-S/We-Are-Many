@@ -11,7 +11,9 @@
 | Maior assentamento (moradores) | 57,85 | 59 | 43 a 74 |  |  |
 | Reinos | 6,60 | 7 | 5 a 8 |  |  |
 | Guerras ao mesmo tempo (média) | 0,19 | 0,20 | 0 a 0,39 | 0 a 3 | dentro |
-| Maior era (0 = Pedra, 1 = Bronze...) | 1,00 | 1,00 | 1,00 a 1,00 |  |  |
+| Maior era (0 = Pedra, 1 = Bronze...) | 0,98 | 1,00 | 0,95 a 1,00 |  |  |
+| Técnicas por assentamento (média) | 1,80 | 1,75 | 1,50 a 2,17 |  |  |
+| Diferença de progresso entre o mais e o menos adiantado | 0,55 | 0,55 | 0,43 a 0,65 |  |  |
 | Blocos 2x2 de rua fora das praças | 0 | 0 | 0 a 0 | 0 a 0 | dentro |
 | Secas na crônica | 10,55 | 11 | 6 a 16 |  |  |
 | Casas longe de rua | 0 | 0 | 0 a 0 | 0 a 0 | dentro |

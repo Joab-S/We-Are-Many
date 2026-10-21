@@ -1,6 +1,7 @@
 import { mulberry32 } from '../core/rng';
 import * as B from './balance';
 import { binomial, happens, ouStep, streams } from './stochastic';
+import * as P from './progress';
 import { Biome, classify, Decor, decorAt, isTree, temperatureAt, vegetationCap, type SurfaceMap } from '../procgen/surface';
 import {
   WONDER_NAMES,
@@ -327,6 +328,8 @@ interface BuildContext {
   /** Tem água por perto (barro para a olaria). */
   clay: boolean;
   forest: number;
+  /** Técnicas conhecidas (seção 19.10). */
+  techs: ReadonlySet<string>;
 }
 
 /**
@@ -346,24 +349,24 @@ function canBuild(kind: (typeof BUILDINGS)[number], c: BuildContext): boolean {
     case 'temple':
       return culture.value === 'fé' ? era >= 1 : era >= 2 && tier >= 1;
     case 'windmill':
-      return tier >= 1 && (era >= 2 || (era >= 1 && c.vocation === 'agricola'));
+      return c.techs.has('moinho') && tier >= 1 && (era >= 2 || (era >= 1 && c.vocation === 'agricola'));
     // Economia local (RF-VIDA-211 e 216).
     case 'warehouse':
       return tier >= 2 || (tier >= 1 && c.vocation === 'mercantil');
     case 'pottery':
-      return era >= 1 && c.clay;
+      return era >= 1 && c.clay && c.techs.has('ceramica');
     case 'loom':
-      return era >= 1 && (c.herd === 'sheep' || c.vocation === 'ovelhas');
+      return c.techs.has('tecelagem') && era >= 1 && (c.herd === 'sheep' || c.vocation === 'ovelhas');
     case 'corral':
       return c.herd === 'cattle' || c.herd === 'goat';
     case 'stable':
-      return era >= 1 && (c.herd === 'horse' || c.herd === 'camel');
+      return c.techs.has('montaria') && era >= 1 && (c.herd === 'horse' || c.herd === 'camel');
     case 'sawmill':
       return era >= 2 && (c.vocation === 'madeireira' || (tier >= 2 && c.forest > 0.55));
     case 'barracks':
       return era >= 2 && tier >= 2;
     case 'factory':
-      return era >= 4 && tier >= 2;
+      return era >= 4 && tier >= 2 && c.techs.has('vapor');
     // Saneamento da metrópole (RF-VIDA-284).
     case 'aqueduct':
       return era >= 2 && tier >= 3;
@@ -512,6 +515,14 @@ export interface Village {
   chill?: number;
   /** Anos seguidos de falta de comida ou madeira (cobiça e êxodo). */
   want?: number;
+  /** Eras por desenvolvimento (seção 19.10): nível de cada pilar agora, pontos na era atual e técnicas conhecidas. */
+  levels?: P.Points;
+  pts?: P.Points;
+  techs?: string[];
+  /** Maior população já alcançada, para reconhecer o colapso (RF-VIDA-275). */
+  peak?: number;
+  /** Última vez que as técnicas foram sorteadas. */
+  learnAt?: number;
 }
 
 /** Quem a pessoa é, guardado quando ela embarca e devolvido quando desembarca. */
@@ -651,6 +662,8 @@ export class Ecosystem {
   private readonly trips = new Map<string, number>();
   /** Pares de reinos que trocaram por caravana neste ano: a troca invisível fica só como reserva. */
   private readonly caravanPairs = new Set<string>();
+  /** Técnicas que já apareceram em algum assentamento (a primeira vai para a crônica). */
+  private readonly techsSeen = new Set<string>();
   /** Uso das estradas por tile e a maior era de quem passou (RF-VIDA-233). */
   readonly traffic: Uint16Array;
   private readonly trafficEra: Uint8Array;
@@ -773,6 +786,8 @@ export class Ecosystem {
   private readonly rnd: () => number;
   /** Sorteios dos povos: casas, colonos, barcos, produção. */
   private readonly civRnd: () => number;
+  /** Sorteios do saber: técnicas aprendidas e esquecidas. */
+  private readonly lore: () => number;
   /** Sorteios da política: relações, incidentes, guerras. */
   private readonly polRnd: () => number;
   /** Sorteios dos eventos do mundo. */
@@ -795,6 +810,7 @@ export class Ecosystem {
     const rng = streams(seed);
     this.rnd = rng.vida;
     this.civRnd = rng.povos;
+    this.lore = rng.saber;
     this.polRnd = rng.politica;
     this.worldRnd = rng.mundo;
     this.climateRnd = rng.clima;
@@ -1581,7 +1597,7 @@ export class Ecosystem {
     if (!v.herd || v.herd.head <= 0) {
       // Curral vazio não fica de pé para sempre: as cercas vão sendo desmontadas.
       if (v.pens?.length && happens(this.civRnd, B.PEN_RATE, 1)) this.removePen(v);
-      if (v.tech >= 0.9 && happens(this.civRnd, B.DOMESTICATE_RATE, 1)) this.domesticate(v);
+      if (v.tech >= 0.9 && this.knew(v, 'domesticacao') && happens(this.civRnd, B.DOMESTICATE_RATE, 1)) this.domesticate(v);
       return;
     }
     const h = v.herd;
@@ -2524,6 +2540,7 @@ export class Ecosystem {
       herd: v.herd && v.herd.head > 0 ? v.herd.kind : undefined,
       clay: v.wet ?? false,
       forest: v.forest,
+      techs: this.knows(v),
     };
   }
 
@@ -3397,6 +3414,8 @@ export class Ecosystem {
       kingdom: from ? from.kingdom : id,
       lots: [],
       tech: from ? from.tech * 0.8 : 0,
+      techs: from?.techs ? [...from.techs] : [],
+      pts: P.emptyPoints(),
       population: 0,
       port: -1,
       food: 0,
@@ -3582,9 +3601,12 @@ export class Ecosystem {
         const people = Math.min(1.3, Math.max(0.4, Math.sqrt(v.population / 30)));
         const kingdom = Math.min(1.25, 1 + 0.05 * (this.kingdomSize(this.capitalOf(v)) - 1));
         const wise = v.culture.value === 'conhecimento' ? 1.2 : 1;
-        this.advance(v, ((dt / YEAR_SECONDS) * people * kingdom * wise) / ERA_YEARS[before]);
+        const dev = v.levels ? P.devSpeed(v.levels) * (this.knew(v, 'escrita') ? 1.1 : 1) : 1;
+        this.advance(v, ((dt / YEAR_SECONDS) * people * kingdom * wise * dev) / ERA_YEARS[before]);
       }
+      this.develop(v, dt);
       if (Math.floor(v.tech) > before) {
+        v.pts = P.emptyPoints();
         this.note(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`, 'era', v, { major: true });
         // Cada era nova refaz o calçamento (RF-VIDA-253; antes só a Era Medieval, quando todas as ruas viravam pedra).
         if (Math.floor(v.tech) >= 2) this.layStreets(v);
@@ -3624,14 +3646,14 @@ export class Ecosystem {
       // o moinho faz pão (RF-VIDA-211); o solo cansado rende menos (RF-VIDA-294).
       if (v.fields > 0 && workers[v.id]) {
         const w = workers[v.id];
-        const plough = v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5;
+        const plough = v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' && this.knew(v, 'arado') ? 1 : 0.5;
         // Cada roça no mapa é um lote grande, que até FIELD_HANDS agricultores trabalham (o mapa tem no máximo 5 roças).
         const worked = Math.min(v.fields * B.FIELD_HANDS, Math.ceil(w[ROLE.farmer] * plough) + 1);
-        const mill = v.houses.some((h) => h.kind === 'windmill') ? 1 + 0.3 * Math.min(1, w[ROLE.miller]) : 1;
+        const mill = v.houses.some((h) => h.kind === 'windmill') ? 1 + (this.knew(v, 'moinhoagua') ? 0.45 : 0.3) * Math.min(1, w[ROLE.miller]) : 1;
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
         const season = B.SEASON_HARVEST[seasonOf(this.yearClock / YEAR_SECONDS)];
-        this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * this.harvest(v) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
+        this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * this.harvest(v) * (this.knew(v, 'irrigacao') ? 1.1 : 1) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
       }
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
       // Roças no fim da Idade da Pedra (uma para cada quatro casas); da Idade do Bronze em diante, uma para cada duas.
@@ -3826,15 +3848,155 @@ export class Ecosystem {
   private advance(v: Village, amount: number): void {
     const era = Math.floor(v.tech);
     let next = Math.min(ERAS.length - 1, v.tech + amount);
-    if (Math.floor(next) > era && !ERA_NEEDS[era].met(this.villages[v.kingdom].made)) next = Math.min(next, era + 0.999);
+    if (Math.floor(next) > era && (!ERA_NEEDS[era].met(this.villages[v.kingdom].made) || !P.pointsMet(v.pts ?? P.emptyPoints(), era))) next = Math.min(next, era + 0.999);
     v.tech = next;
+  }
+
+  /** Técnicas conhecidas (seção 19.10). */
+  knows(v: Village): ReadonlySet<string> {
+    return new Set(v.techs ?? []);
+  }
+
+  private knew(v: Village, id: string): boolean {
+    return !!v.techs && v.techs.includes(id);
+  }
+
+  /** Aprende uma técnica: guarda e registra na crônica, com destaque para a primeira do mundo (RF-VIDA-274). */
+  private learn(v: Village, t: P.Tech, how: string): void {
+    (v.techs ??= []).push(t.id);
+    const first = !this.techsSeen.has(t.id);
+    this.techsSeen.add(t.id);
+    this.note(`${v.name} ${how} ${t.name}: ${t.gives}`, 'economia', v, first ? { major: true } : { key: `tech-${t.id}` });
+  }
+
+  /** Assentamentos de onde vêm ideias: o mesmo reino e os parceiros de acordo comercial (RF-VIDA-74). */
+  private partnersOf(v: Village): Village[] {
+    const out = this.villages.filter((o) => o !== v && !o.abandoned && o.kingdom === v.kingdom);
+    for (const g of this.agreements) {
+      const o = g.a === v.id ? this.villages[g.b] : g.b === v.id ? this.villages[g.a] : null;
+      if (o && !o.abandoned && !out.includes(o)) out.push(o);
+    }
+    return out;
+  }
+
+  private useContext(v: Village): P.UseContext {
+    return {
+      tech: v.tech,
+      tier: v.tier,
+      wet: !!v.wet,
+      herd: v.herd && v.herd.head > 0 ? v.herd.kind : undefined,
+      farming: v.fields > 0,
+      smithy: this.has(v, 'smithy'),
+      market: this.has(v, 'market'),
+      temple: this.has(v, 'temple'),
+      mill: this.has(v, 'windmill'),
+      coal: v.mines.some((id) => this.deposits[id].ore === 'coal'),
+    };
+  }
+
+  private pillarContext(v: Village): P.PillarContext {
+    const cap = this.capOf(v, 'food');
+    return {
+      welfare: v.needs ? welfare(v.needs) : 1,
+      foodFill: cap > 0 ? Math.min(1, v.food / cap) : 0,
+      farming: v.fields > 0 || v.port >= 0,
+      herd: !!v.herd && v.herd.head > 0,
+      mines: v.mines.length > 0,
+      smithy: this.has(v, 'smithy'),
+      techs: v.techs?.length ?? 0,
+      completeness: v.completeness ?? 0,
+      port: v.port >= 0,
+      market: this.has(v, 'market'),
+      agreements: this.agreements.filter((g) => g.a === v.id || g.b === v.id).length,
+      fair: v.fair !== undefined && this.year - v.fair < 3,
+      temple: this.has(v, 'temple'),
+      monument: this.has(v, 'statue') || this.has(v, 'wonder'),
+      luxuryJoy: !!v.luxuryJoy,
+      leader: v.leader >= 0 && !!this.alive[v.leader],
+      tier: v.tier,
+      stability: v.stability ?? 1,
+      linked: !!v.linked,
+      kingdom: this.kingdomSize(this.capitalOf(v)) > 1,
+    };
+  }
+
+  /**
+   * Desenvolvimento do assentamento (seção 19.10): nível e pontos de cada pilar, técnicas que
+   * vêm do uso e dos vizinhos (RF-VIDA-271) e esquecimento raro num colapso (RF-VIDA-275).
+   */
+  private develop(v: Village, dt: number): void {
+    const yr = dt / YEAR_SECONDS;
+    v.peak = Math.max(v.peak ?? 0, v.population);
+    const levels = P.pillarLevels(this.pillarContext(v));
+    v.levels = levels;
+    const pts = (v.pts ??= P.emptyPoints());
+    P.pointsFor(levels, yr, v.vocation).forEach((p, i) => (pts[i] += p));
+    // Técnicas: no máximo quatro vezes por ano, com a chance do tempo passado.
+    const since = this.year - (v.learnAt ?? 0);
+    if (since < 0.25) return;
+    v.learnAt = this.year;
+    const known = this.knows(v);
+    const learnable = P.learnable(known, v.tech);
+    if (learnable.length) {
+      const use = this.useContext(v);
+      const partners = this.partnersOf(v);
+      const press = known.has('imprensa') || partners.some((o) => o.techs?.includes('imprensa')) ? 1.5 : 1;
+      for (const t of learnable) {
+        const taught = partners.some((o) => o.techs?.includes(t.id));
+        const rate = (t.use(use) ? P.TECH_USE_RATE : 0) + (taught ? P.TECH_NEIGHBOR_RATE * press : 0);
+        if (rate > 0 && happens(this.lore, rate, since)) this.learn(v, t, taught && !t.use(use) ? 'aprendeu com os vizinhos' : 'passou a conhecer');
+      }
+    }
+    // Colapso: gente demais perdida ou estabilidade no chão.
+    const collapse = ((v.peak ?? 0) >= 20 && v.population < (v.peak ?? 0) * 0.4) || (v.stability ?? 1) < 0.12;
+    if (collapse && (v.techs?.length ?? 0) > 0 && happens(this.lore, P.DECAY_RATE, since)) {
+      const lost = P.forgettable(known);
+      if (lost.length) {
+        const t = lost[Math.floor(this.lore() * lost.length)];
+        v.techs = v.techs!.filter((id) => id !== t.id);
+        this.note(`${v.name} esqueceu ${t.name} depois do colapso`, 'economia', v, { major: true });
+      }
+    }
+  }
+
+  /** Passa uma técnica entre dois assentamentos que se encontram (caravana, feira). */
+  private shareTech(a: Village, b: Village, chance: number): void {
+    for (const [from, to] of [[a, b], [b, a]] as const) {
+      const known = this.knows(to);
+      const options = P.learnable(known, to.tech).filter((t) => from.techs?.includes(t.id));
+      if (options.length && happens(this.lore, chance, 1)) this.learn(to, options[Math.floor(this.lore() * options.length)], 'aprendeu com os mercadores');
+    }
+  }
+
+  /** O jogador ensina: uma técnica que o povo pode aprender entra de uma vez (RF-VIDA-75). */
+  private teachTech(v: Village): void {
+    const options = P.learnable(this.knows(v), v.tech);
+    if (!options.length) return;
+    const use = this.useContext(v);
+    const useful = options.filter((t) => t.use(use));
+    const pool = useful.length ? useful : options;
+    this.learn(v, pool[Math.floor(this.lore() * pool.length)], 'aprendeu com você');
+  }
+
+  /** Recursos conhecidos que ainda não se usam (RF-VIDA-272). */
+  latent(v: Village): string[] {
+    const r = this.radius(v) + 12;
+    const ores = new Set<string>();
+    for (const d of this.deposits) if (d.amount > 0 && this.distance(v, d.x + 0.5, d.y + 0.5) < r) ores.add(d.ore);
+    let herbivores = false;
+    this.forEachNear(v.x, v.y, this.radius(v) + 20, (j) => {
+      if (this.species[this.kind[j]].kind === 'herbivore') herbivores = true;
+    });
+    return P.latentResources({ wet: !!v.wet, ores: [...ores], era: Math.floor(v.tech), techs: this.knows(v), herbivores: herbivores && v.tech < 1.5 });
   }
 
   /** O que falta para o assentamento mudar de era, ou null. */
   eraNeed(v: Village): string | null {
     const era = Math.floor(v.tech);
-    if (era >= ERA_NEEDS.length || ERA_NEEDS[era].met(this.villages[v.kingdom].made)) return null;
-    return ERA_NEEDS[era].text;
+    if (era >= ERA_NEEDS.length) return null;
+    const metal = ERA_NEEDS[era].met(this.villages[v.kingdom].made) ? null : ERA_NEEDS[era].text;
+    const points = P.pointsText(v.pts ?? P.emptyPoints(), era);
+    return metal && points ? `${metal}; ${points}` : metal ?? points;
   }
 
   /** Floresta e rocha em volta do assentamento (amostra), para lenha e pedra. */
@@ -3986,8 +4148,8 @@ export class Ecosystem {
   private haulFactor(v: Village, t: number): number {
     const w = this.map.width;
     const d = Math.max(0, this.distance(v, (t % w) + 0.5, Math.floor(t / w) + 0.5) - this.radius(v));
-    const horses = v.stock.horses > 0 || (!!v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat');
-    const carts = 1 + B.CART_PER_ERA * Math.floor(v.tech) + (horses ? B.HORSE_HAUL : 0);
+    const horses = this.knew(v, 'montaria') && (v.stock.horses > 0 || (!!v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat'));
+    const carts = 1 + B.CART_PER_ERA * Math.floor(v.tech) + (this.knew(v, 'roda') ? 0.5 : 0) + (horses ? B.HORSE_HAUL : 0);
     return 1 / (1 + d / (B.HAUL_TILES * carts));
   }
 
@@ -6676,6 +6838,7 @@ export class Ecosystem {
     const teach = B.TRADE_TEACH * (fair ? 3 : 1);
     if (o.tech > v.tech) this.advance(v, (o.tech - v.tech) * teach);
     else if (v.tech > o.tech) this.advance(o, (v.tech - o.tech) * teach);
+    this.shareTech(v, o, Math.min(1, P.TECH_TRADE_CHANCE * (fair ? 3 : 1)));
     const pair = this.key(v.id, o.id);
     const ag = this.agreementOf(v.id, o.id);
     if (ag) {
@@ -7014,7 +7177,7 @@ export class Ecosystem {
         this.note(`Feira anual em ${v.name}`, 'economia', v, { key: `fair-${v.id}` });
       }
       // Moeda cunhada pelo reino (RF-VIDA-291).
-      if (v.kingdom === v.id && !v.mint && Math.floor(v.tech) >= 3 && this.has(v, 'market')) {
+      if (v.kingdom === v.id && !v.mint && Math.floor(v.tech) >= 3 && this.knew(v, 'moeda') && this.has(v, 'market')) {
         v.mint = true;
         this.note(`O reino de ${v.name} passou a cunhar moeda própria`, 'economia', v, { major: true });
       }
@@ -7568,6 +7731,7 @@ export class Ecosystem {
   /** Avança o conhecimento de um assentamento (sem pular a condição de era). */
   teachVillage(v: Village, amount: number): void {
     this.advance(v, amount);
+    this.teachTech(v);
   }
 
   /** Ensina as aldeias numa área: avança a tecnologia delas. */
@@ -7580,6 +7744,7 @@ export class Ecosystem {
       if (dx > w / 2) dx = w - dx;
       if (dx * dx + (v.y - y) ** 2 <= (radius + 4) ** 2) {
         this.advance(v, amount);
+        this.teachTech(v);
         taught.push(v);
       }
     }
