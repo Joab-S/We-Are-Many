@@ -55,6 +55,27 @@ export interface Indicators {
   luxuries: number;
   /** Postos de pedágio (RF-VIDA-286). */
   tolls: number;
+  /** Seção 19.19: moradores no fim e a razão entre o fim e 60% da rodada (boom acima de 1, declínio abaixo). */
+  people: number;
+  peopleTrend: number;
+  /** Atendimento médio de comida e de lenha. */
+  foodNeed: number;
+  fuelNeed: number;
+  /** Mortes de fome e de frio por ano, por 100 moradores. */
+  hunger: number;
+  cold: number;
+  /** Casas que desabaram sem conserto, guerras por cobiça, êxodos e migrantes por ano. */
+  collapsed: number;
+  greedWars: number;
+  exodus: number;
+  migrants: number;
+  /** Árvores cortadas por ano, parte delas replantada, assentamentos que manejam a mata e a mata que sobrou em volta. */
+  treesCut: number;
+  replanted: number;
+  forestry: number;
+  forestLeft: number;
+  /** Árvores de pé no planeta no fim ÷ no começo. */
+  worldTrees: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -89,8 +110,17 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
   let wars = 0;
   let caravans = 0;
   let caravansMax = 0;
+  let mid = 0;
+  const countTrees = () => {
+    let n = 0;
+    for (let i = 0; i < map.width * map.height; i++) if (eco.standingTree(i)) n++;
+    return n;
+  };
+  const trees0 = countTrees();
+  const sapient = () => eco.villages.reduce((n, v) => n + (v.abandoned ? 0 : v.population), 0);
   for (let y = 0; y < years; y++) {
     for (let t = 0; t < YEAR_SECONDS; t += 0.25) eco.step(0.25);
+    if (y === Math.floor(years * 0.6)) mid = sapient();
     wars += eco.wars.length;
     const moving = eco.caravans.filter((c) => c.kind !== 'flock').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
     caravans += moving;
@@ -159,6 +189,21 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       routeTiles: eco.routeTiles,
       luxuries: live.filter((v) => v.luxury && Math.floor(v.tech) >= 0).filter((v) => (v.ledger?.[v.luxury!]?.[0] ?? 0) > 0).length,
       tolls: eco.tolls.size,
+      people: sapient(),
+      peopleTrend: mid ? sapient() / mid : 0,
+      foodNeed: live.reduce((n, v) => n + (v.needs?.food ?? 1), 0) / Math.max(1, live.length),
+      fuelNeed: live.reduce((n, v) => n + (v.needs?.fuel ?? 1), 0) / Math.max(1, live.length),
+      hunger: (eco.tally.hunger / Math.max(1, years)) * (100 / Math.max(1, sapient())),
+      cold: (eco.tally.cold / Math.max(1, years)) * (100 / Math.max(1, sapient())),
+      collapsed: eco.tally.collapsed / Math.max(1, years),
+      greedWars: eco.tally.greedWars,
+      exodus: eco.tally.exodus,
+      migrants: eco.tally.migrants / Math.max(1, years),
+      treesCut: eco.treesCut / Math.max(1, years),
+      replanted: eco.treesCut ? eco.treesPlanted / eco.treesCut : 0,
+      forestry: live.filter((v) => v.forestry).length,
+      worldTrees: countTrees() / Math.max(1, trees0),
+      forestLeft: live.reduce((n, v) => n + (v.treesStart ? (v.trees ?? 0) / v.treesStart : 1), 0) / Math.max(1, live.length),
     },
   };
 }
@@ -177,6 +222,11 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
   { key: 'stockFill', label: 'Preenchimento médio dos estoques', min: 0.3, max: 0.8 },
   { key: 'overCap', label: 'Recursos acima do teto', min: 0, max: 0 },
   { key: 'caravansMax', label: 'Caravanas e barcos mercantes ao mesmo tempo (máximo)', min: 1, max: 10 },
+  // Recursos com peso (seção 19.19): a fome existe mas não acaba com o mundo, a população não explode nem some e a mata não some nem toma tudo.
+  { key: 'hunger', label: 'Mortes de fome por ano, por 100 moradores', min: 0.05, max: 3 },
+  { key: 'peopleTrend', label: 'Moradores: fim ÷ 60% da rodada', min: 0.7, max: 1.5 },
+  { key: 'worldTrees', label: 'Árvores do mundo: fim ÷ começo', min: 0.7, max: 1.3 },
+  { key: 'forestry', label: 'Assentamentos que replantam', min: 1, max: 99 },
 ];
 
 /** Nome de cada indicador no relatório. */
@@ -194,6 +244,21 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   routeTiles: 'Tiles de estrada nascidos do uso',
   luxuries: 'Assentamentos que produzem luxo',
   tolls: 'Postos de pedágio',
+  people: 'Moradores no fim',
+  peopleTrend: 'Moradores: fim ÷ 60% da rodada',
+  foodNeed: 'Atendimento médio de comida',
+  fuelNeed: 'Atendimento médio de lenha',
+  hunger: 'Mortes de fome por ano, por 100 moradores',
+  cold: 'Mortes de frio por ano, por 100 moradores',
+  collapsed: 'Casas desabadas sem conserto por ano',
+  greedWars: 'Guerras por cobiça (comida ou lenha)',
+  exodus: 'Êxodos por falta',
+  migrants: 'Migrantes por falta ou aperto por ano',
+  treesCut: 'Árvores cortadas por ano',
+  replanted: 'Parte das árvores replantada',
+  forestry: 'Assentamentos que manejam a mata',
+  forestLeft: 'Mata que sobrou em volta (÷ a do começo)',
+  worldTrees: 'Árvores no planeta (fim ÷ começo)',
 };
 
 /** Média, mediana e faixa de 10% a 90% de uma lista. */

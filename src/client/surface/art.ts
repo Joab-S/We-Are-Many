@@ -958,6 +958,48 @@ export const DECOR_ART: string[][] = [
     '~~~~~~~~~~~~~~~~',
     '................',
   ],
+  // Terra batida, pedra e praça (8 a 10): desenhadas em softArt.ts.
+  [],
+  [],
+  [],
+  // Toco de árvore cortada (seção 19.19).
+  [
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '.....1111.......',
+    '....1UUUU1......',
+    '....1tUUt1......',
+    '....1ttUt1......',
+    '...~1tttt1~~....',
+    '....~~~~~~~.....',
+    '................',
+  ],
+  // Muda crescendo (brotou sozinha ou foi plantada).
+  [
+    '................',
+    '................',
+    '................',
+    '................',
+    '................',
+    '.......11.......',
+    '......1ik1......',
+    '.....1kkJJ1.....',
+    '....1kJJJjj1....',
+    '.....1JJjj1.....',
+    '......11t1......',
+    '.......1t1......',
+    '.......1t1......',
+    '.....~~1t1~.....',
+    '......~~~~......',
+    '................',
+  ],
 ];
 
 /** Canvas com os enfeites lado a lado (16 px cada). Alfa 255 = cor; alfa 100 = sombra. */
@@ -967,6 +1009,7 @@ export function makeDecorCanvas(): HTMLCanvasElement {
   canvas.height = 16;
   const g = canvas.getContext('2d')!;
   DECOR_ART.forEach((art, k) => {
+    if (!art.length) return;
     art.forEach((row, y) => {
       [...row].forEach((ch, x) => {
         const c = COLORS[ch];

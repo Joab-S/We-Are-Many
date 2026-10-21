@@ -90,6 +90,11 @@ export interface SurfaceMap {
   biome: Uint8Array;
   /** Tiles limpos pelo jogador (pedra, cacto): sem enfeite até o terreno mudar. Criado quando preciso. */
   bare?: Uint8Array;
+  /**
+   * Árvores cortadas pelo povo (seção 19.19): 1 toco, 2 muda que brotou
+   * sozinha, 3 muda plantada. Criado quando preciso; o Ecosystem faz crescer.
+   */
+  felled?: Uint8Array;
 }
 
 const FEATURE_SCALE = 80;
@@ -207,6 +212,9 @@ export enum Decor {
   Acacia,
   Cactus,
   Boulder,
+  /** Toco de árvore cortada e muda crescendo (seção 19.19); 7 a 10 são roça e ruas, desenhadas à parte. */
+  Stump = 11,
+  Sapling = 12,
 }
 
 /** Hash estável de um tile, em [0, 1). */
@@ -218,8 +226,15 @@ export function tileHash(i: number): number {
   return (h >>> 0) / 4294967296;
 }
 
+/** Enfeite que é uma árvore de pé (dá madeira). */
+export function isTree(d: Decor): boolean {
+  return d === Decor.Tree || d === Decor.JungleTree || d === Decor.Pine || d === Decor.Acacia;
+}
+
 export function decorAt(map: SurfaceMap, i: number): Decor {
   if (map.bare?.[i]) return Decor.None;
+  const cut = map.felled?.[i];
+  if (cut) return cut === 1 ? Decor.Stump : Decor.Sapling;
   const h = tileHash(i);
   const veg = map.vegetation[i];
   switch (map.biome[i] as Biome) {
