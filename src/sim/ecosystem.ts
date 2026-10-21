@@ -1,7 +1,7 @@
 import { mulberry32 } from '../core/rng';
 import * as B from './balance';
 import { binomial, happens, ouStep, streams } from './stochastic';
-import { Biome, classify, temperatureAt, type SurfaceMap } from '../procgen/surface';
+import { Biome, classify, Decor, decorAt, temperatureAt, type SurfaceMap } from '../procgen/surface';
 import {
   WONDER_NAMES,
   buildCost,
@@ -182,6 +182,32 @@ export interface Boat {
   sunk: number;
   /** Barco mercante: porto de destino, carga, ouro a bordo e se já está voltando. */
   trade?: { target: number; cargo: Cargo[]; purse: number; back: boolean };
+  /** Segundos sem conseguir avançar (a costa mudou no caminho); passou de REROUTE_SECONDS, refaz a rota. */
+  blocked?: number;
+}
+
+/**
+ * Jangada (seção 19.18): um inteligente travado na beira da água, com o
+ * destino do outro lado, corta árvores por perto (ou usa a madeira do
+ * estoque) e atravessa sozinho.
+ */
+export interface Raft {
+  x: number;
+  y: number;
+  facing: number;
+  /** Tiles de água até a outra margem. */
+  path: number[];
+  step: number;
+  /** Tile de terra onde desembarca. */
+  landing: number;
+  species: number;
+  /** Assentamento de quem rema (-1 sem assentamento). */
+  village: number;
+  age: number;
+  role: number;
+  energy: number;
+  who: Identity;
+  blocked: number;
 }
 
 /** Cores vivas dos reinos (telhados e roupas), como nos jogos de deus em pixel art. */
@@ -540,6 +566,18 @@ export class Ecosystem {
   bornAt = new Int16Array(0);
   bornYear = new Float32Array(0);
   movedAt = new Float32Array(0);
+  /**
+   * Contorno de obstáculos (seção 19.18): segundos que ainda segue de lado
+   * contornando, lado escolhido (+1 ou -1), segundos travado na beira da água
+   * e o último destino (deslocamento em tiles) para onde estava indo.
+   */
+  detour = new Float32Array(0);
+  side = new Int8Array(0);
+  stuck = new Float32Array(0);
+  aimX = new Float32Array(0);
+  aimY = new Float32Array(0);
+  /** Jangadas atravessando a água agora. */
+  readonly rafts: Raft[] = [];
   private nextUid = 0;
   private nextFamily = 0;
   /** Últimas mortes, da mais nova para a mais antiga. */
@@ -764,6 +802,59 @@ export class Ecosystem {
     return isLand(this.map, i) ? this.map.elevation[i] < 0.25 : isWater(this.map, i) && this.map.elevation[i] > -0.2;
   }
 
+  /**
+   * Se a espécie `s` consegue ir do tile `from` ao vizinho `to` (seção 19.18):
+   * o destino precisa ser do habitat e, em terra, o desnível não pode ser um
+   * penhasco. Descer aguenta o dobro de subir (escorrega, pula); quem está
+   * num tile que deixou de ser do habitat pode sair por qualquer lado.
+   */
+  canStep(s: number, from: number, to: number): boolean {
+    if (!this.canStand(s, to)) return false;
+    if (from === to || this.habitat[s] === 1 || !this.canStand(s, from)) return true;
+    const a = this.map.elevation[from];
+    const b = this.map.elevation[to];
+    if (a < 0 || b < 0) return true;
+    return b - a <= B.MAX_CLIMB && a - b <= B.MAX_CLIMB * 2;
+  }
+
+  /**
+   * Bateu num obstáculo (água, penhasco, borda do habitat): em vez de voltar
+   * para trás e tentar de novo o mesmo caminho, vira 45°, 90° ou 135° para o
+   * lado que já vinha contornando e segue por ali por DETOUR_SECONDS. Assim a
+   * criatura costeia o obstáculo até achar a passagem. Retorna se achou saída.
+   */
+  private steer(i: number, here: number, dt: number): boolean {
+    const s = this.kind[i];
+    const speed = Math.hypot(this.vx[i], this.vy[i]);
+    if (speed < 0.01) return false;
+    const a0 = Math.atan2(this.vy[i], this.vx[i]);
+    const side = this.side[i] || (this.rnd() < 0.5 ? 1 : -1);
+    const look = Math.max(0.8, speed * dt * 2);
+    const w = this.map.width;
+    for (let k = 1; k <= 4; k++) {
+      for (const sign of k === 4 ? [side] : [side, -side]) {
+        const a = a0 + sign * k * (Math.PI / 4);
+        const dx = Math.cos(a);
+        const dy = Math.sin(a);
+        const t = this.tileAt(this.x[i] + dx * look, Math.floor(this.y[i] + dy * look));
+        if (t < 0 || t === here || !this.canStep(s, here, t)) continue;
+        this.vx[i] = dx * speed;
+        this.vy[i] = dy * speed;
+        this.side[i] = sign;
+        this.detour[i] = B.DETOUR_SECONDS;
+        const nx = this.x[i] + this.vx[i] * dt;
+        const ny = this.y[i] + this.vy[i] * dt;
+        const nt = this.tileAt(nx, Math.floor(ny));
+        if (nt >= 0 && (nt === here || this.canStep(s, here, nt))) {
+          this.x[i] = ((nx % w) + w) % w;
+          this.y[i] = ny;
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** População inicial, proporcional ao habitat disponível. */
   populate(): void {
     const map = this.map;
@@ -796,7 +887,7 @@ export class Ecosystem {
             const tile = this.findTile(s, Math.floor(this.rnd() * n), 400, true);
             const tx = tile % map.width;
             const ty = Math.floor(tile / map.width);
-            if (tile < 0 || !this.canFound(tx, ty)) continue;
+            if (tile < 0 || !this.canSettle(s, tx, ty)) continue;
             this.foundVillage(s, tx, ty, 8);
             break;
           }
@@ -824,7 +915,7 @@ export class Ecosystem {
   }
 
   private grow(capacity: number): void {
-    const copy = <T extends Float32Array | Uint8Array | Int16Array | Uint32Array>(a: T, make: (n: number) => T): T => {
+    const copy = <T extends Float32Array | Uint8Array | Int8Array | Int16Array | Uint32Array>(a: T, make: (n: number) => T): T => {
       const b = make(capacity);
       b.set(a);
       return b;
@@ -846,6 +937,11 @@ export class Ecosystem {
     this.bornAt = copy(this.bornAt, (n) => new Int16Array(n));
     this.bornYear = copy(this.bornYear, (n) => new Float32Array(n));
     this.movedAt = copy(this.movedAt, (n) => new Float32Array(n));
+    this.detour = copy(this.detour, (n) => new Float32Array(n));
+    this.side = copy(this.side, (n) => new Int8Array(n));
+    this.stuck = copy(this.stuck, (n) => new Float32Array(n));
+    this.aimX = copy(this.aimX, (n) => new Float32Array(n));
+    this.aimY = copy(this.aimY, (n) => new Float32Array(n));
     // A grade pode estar em uso no meio de um passo: copiar, nunca zerar (zeros criariam um laço infinito).
     const next = new Int32Array(capacity).fill(-1);
     next.set(this.gridNext);
@@ -878,6 +974,11 @@ export class Ecosystem {
     this.bornAt[i] = age === 0 ? village : -1;
     this.bornYear[i] = this.year - age;
     this.movedAt[i] = -1;
+    this.detour[i] = 0;
+    this.side[i] = 0;
+    this.stuck[i] = 0;
+    this.aimX[i] = 0;
+    this.aimY[i] = 0;
     this.population[s]++;
     this.everLived[s] = true;
     if (village >= 0) {
@@ -989,17 +1090,23 @@ export class Ecosystem {
     const w = map.width;
     for (let i = 0; i < this.count; i++) {
       if (!this.alive[i]) continue;
-      // Movimento contínuo; nunca entra num tile fora do habitat.
+      // Movimento contínuo; nunca entra num tile fora do habitat nem sobe um penhasco (seção 19.18).
       const nx = this.x[i] + this.vx[i] * dt;
       const ny = this.y[i] + this.vy[i] * dt;
       const tile = Math.min(map.height - 1, Math.max(0, Math.floor(ny))) * w + (((Math.floor(nx) % w) + w) % w);
-      const s = this.kind[i];
-      if (ny >= 0 && ny < map.height && this.canStand(s, tile)) {
+      const here = this.tileOf(i);
+      if (this.detour[i] > 0) this.detour[i] -= dt;
+      if (ny >= 0 && ny < map.height && this.canStep(this.kind[i], here, tile)) {
         this.x[i] = ((nx % w) + w) % w;
         this.y[i] = ny;
+        if (this.stuck[i] > 0) this.stuck[i] = Math.max(0, this.stuck[i] - dt * 0.5);
       } else {
-        this.vx[i] = -this.vx[i] + (this.rnd() - 0.5) * 0.5;
-        this.vy[i] = -this.vy[i] + (this.rnd() - 0.5) * 0.5;
+        // Travado na beira da água com o destino do outro lado: conta o tempo (jangada, em `decide`).
+        if (ny >= 0 && ny < map.height && isWater(map, tile) && this.species[this.kind[i]].kind === 'sapient') this.stuck[i] += dt;
+        if (!this.steer(i, here, dt)) {
+          this.vx[i] = -this.vx[i] + (this.rnd() - 0.5) * 0.5;
+          this.vy[i] = -this.vy[i] + (this.rnd() - 0.5) * 0.5;
+        }
       }
       this.age[i] += dt / YEAR_SECONDS;
       this.think[i] -= dt;
@@ -1009,6 +1116,7 @@ export class Ecosystem {
       }
     }
     this.updateBoats(dt);
+    this.updateRafts(dt);
     this.updateCaravans(dt);
     this.growVegetation(dt);
     for (let k = this.effects.length - 1; k >= 0; k--) {
@@ -1412,7 +1520,7 @@ export class Ecosystem {
       const cy = y + 1;
       if (near.some((o) => this.distance(o, cx, cy) < this.radius(o) + 3 || this.distance(o, cx, cy) < d)) continue;
       const tiles = [this.tileAt(x, y), this.tileAt(x + 1, y), this.tileAt(x, y + 1), this.tileAt(x + 1, y + 1)];
-      if (tiles.every((t) => t >= 0 && isLand(this.map, t) && !this.road[t] && !this.built[t] && this.depositAt[t] < 0)) return tiles;
+      if (tiles.every((t) => t >= 0 && isLand(this.map, t) && !this.road[t] && !this.built[t] && this.depositAt[t] < 0 && this.flat(t))) return tiles;
     }
     return null;
   }
@@ -1475,10 +1583,15 @@ export class Ecosystem {
   private clampStock(v: Village): void {
     const c = this.capContext(v);
     const cap = foodCap(c);
-    if (v.food > cap) this.spend(v, 'food', v.food - cap);
+    // O que passa do teto não se joga fora: parte é vendida no mercado vizinho por ouro (seção 19.18).
+    const sell = (g: Good | 'food', extra: number) => {
+      this.spend(v, g, extra);
+      if (g !== 'gold') this.gain(v, 'gold', (extra * this.priceAt(v, g) * B.SURPLUS_SALE) / B.GOLD_VALUE);
+    };
+    if (v.food > cap) sell('food', v.food - cap);
     for (const g of GOODS) {
       const max = goodCap(g, c);
-      if (v.stock[g] > max) this.spend(v, g, v.stock[g] - max);
+      if (v.stock[g] > max) sell(g, v.stock[g] - max);
     }
   }
 
@@ -1609,11 +1722,20 @@ export class Ecosystem {
   }
 
   private wander(i: number, speed: number, bias?: { x: number; y: number }): void {
+    this.aimX[i] = bias ? bias.x : 0;
+    this.aimY[i] = bias ? bias.y : 0;
     const a = this.rnd() * Math.PI * 2;
     let dx = Math.cos(a);
     let dy = Math.sin(a);
-    // Sem destino, segue mais ou menos na mesma direção: explora o mapa em vez de rodar no lugar.
     const v = Math.hypot(this.vx[i], this.vy[i]);
+    // Contornando um obstáculo: segue rente a ele mais um pouco antes de voltar a mirar o destino (seção 19.18).
+    if (this.detour[i] > 0 && v > 0.05) {
+      const go = Math.max(v, speed * 0.6);
+      this.vx[i] = (this.vx[i] / v) * go;
+      this.vy[i] = (this.vy[i] / v) * go;
+      return;
+    }
+    // Sem destino, segue mais ou menos na mesma direção: explora o mapa em vez de rodar no lugar.
     if (!bias && v > 0.05) {
       dx = dx * 0.45 + (this.vx[i] / v) * 0.55;
       dy = dy * 0.45 + (this.vy[i] / v) * 0.55;
@@ -1856,6 +1978,8 @@ export class Ecosystem {
         // Fora do clima, mesmo com assentamento, primeiro se protege.
         if (comfort && (!v || e < 0.4)) bias = comfort;
         this.wander(i, sp.speed * (this.role[i] === CHILD ? 0.8 : elder ? 0.55 : 1), bias);
+        // Muito tempo travado na beira da água com o destino do outro lado: corta árvores e faz uma jangada.
+        if (this.stuck[i] >= B.RAFT_STUCK && this.role[i] !== CHILD && this.tryRaft(i)) return;
         break;
       }
     }
@@ -2023,12 +2147,18 @@ export class Ecosystem {
     return this.betterSite(i);
   }
 
-  /** Lugar onde um inteligente sozinho consegue viver: verde ou na beira da água, e no clima da espécie. */
+  /**
+   * Lugar onde um inteligente sozinho consegue viver: verde ou na beira da
+   * água, no clima da espécie e, para fundar, um lugar que passa no exame da
+   * área (água, comida, chão plano e longe de lava, seção 19.18).
+   */
   private goodSite(s: number, tile: number): boolean {
     const sp = this.species[s];
     const temp = temperatureAt(this.map, tile);
     if (!this.habitable(s, tile) || temp < sp.tempMin + 2 || temp > sp.tempMax - 2) return false;
-    return this.map.vegetation[tile] >= 0.3 || (this.map.vegetation[tile] > 0.1 && this.nearWater(tile));
+    if (!(this.map.vegetation[tile] >= 0.3 || (this.map.vegetation[tile] > 0.1 && this.nearWater(tile)))) return false;
+    const w = this.map.width;
+    return this.siteProblem(s, tile % w, Math.floor(tile / w)) === null;
   }
 
   /**
@@ -2065,7 +2195,8 @@ export class Ecosystem {
       const d = this.distance(v, x, y);
       if (d >= bd) continue;
       const tile = this.tileAt(v.x, Math.floor(v.y));
-      if (tile < 0 || !this.habitable(s, tile) || !this.canFound(Math.floor(v.x), Math.floor(v.y))) continue;
+      // Ruínas num lugar que deixou de servir (inundado, lava, penhasco) não são reocupadas.
+      if (tile < 0 || !this.habitable(s, tile) || !this.canSettle(s, Math.floor(v.x), Math.floor(v.y), v.tech)) continue;
       bd = d;
       best = v;
     }
@@ -2213,6 +2344,89 @@ export class Ecosystem {
   /** Um assentamento novo não pode nascer dentro (nem encostado) da área de outro. */
   canFound(x: number, y: number): boolean {
     return this.villages.every((v) => v.abandoned || this.distance(v, x + 0.5, y + 0.5) >= this.radius(v) + TIER_RADIUS[0]);
+  }
+
+  /** Tile plano o bastante para uma casa: nenhum vizinho com desnível acima de SITE_MAX_SLOPE. */
+  flat(t: number): boolean {
+    const w = this.map.width;
+    const x = t % w;
+    const y = (t - x) / w;
+    const e = this.map.elevation[t];
+    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const n = this.tileAt(x + ox, y + oy);
+      if (n >= 0 && isLand(this.map, n) && Math.abs(this.map.elevation[n] - e) > B.SITE_MAX_SLOPE) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Por que o lugar (x, y) não serve para a espécie `s` fundar um
+   * assentamento, ou null se serve (seção 19.18). Antes de se estabelecer, o
+   * povo olha a área em volta (SITE_RADIUS): nada de lava ou chão em brasa
+   * por perto (pegaria fogo nas redondezas), área plana e firme suficiente
+   * para as casas, sem penhasco cortando a área, água a uma caminhada (rio,
+   * lago ou mar; da Idade do Ferro em diante, um poço no solo úmido) e comida
+   * (vegetação para coletar, caçar e plantar, ou o mar para pescar).
+   */
+  siteProblem(s: number, x: number, y: number, tech = 0): string | null {
+    const map = this.map;
+    const cx = Math.floor(x);
+    const cy = Math.floor(y);
+    const center = this.tileAt(cx, cy);
+    if (center < 0 || !isLand(map, center) || !this.habitable(s, center)) return 'o lugar não é habitável para eles';
+    const sp = this.species[s];
+    const R = B.SITE_RADIUS;
+    let total = 0;
+    let land = 0;
+    let good = 0;
+    let veg = 0;
+    let lo = Infinity;
+    let hi = -Infinity;
+    let water = false;
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        if (dx * dx + dy * dy > R * R) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t < 0) continue;
+        total++;
+        if (map.biome[t] === Biome.Lava) return 'tem lava ali: o fogo pegaria nas casas e na mata em volta';
+        if (isWater(map, t)) {
+          water = true;
+          continue;
+        }
+        land++;
+        const e = map.elevation[t];
+        lo = Math.min(lo, e);
+        hi = Math.max(hi, e);
+        veg += map.vegetation[t];
+        const temp = temperatureAt(map, t);
+        if (temp >= sp.tempMin - 5 && temp <= sp.tempMax + 5 && e < 0.62 && this.flat(t)) good++;
+      }
+    }
+    if (hi - lo > B.SITE_MAX_RELIEF || !this.flat(center)) return 'o terreno é íngreme demais: um penhasco cortaria o assentamento';
+    if (land < total * 0.3 || good < land * B.SITE_MIN_AREA) return 'falta área plana e firme para as casas';
+    // Lava ou chão em brasa um pouco mais longe também espanta (o fogo chega).
+    const L = B.SITE_LAVA_RANGE;
+    const W = B.SITE_WATER_RANGE;
+    for (let dy = -Math.max(L, W); dy <= Math.max(L, W); dy += 1) {
+      for (let dx = -Math.max(L, W); dx <= Math.max(L, W); dx += 1) {
+        const d2 = dx * dx + dy * dy;
+        if (d2 <= R * R) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t < 0) continue;
+        if (d2 <= L * L && (map.biome[t] === Biome.Lava || temperatureAt(map, t) > 500)) return 'tem lava por perto: o fogo pegaria nas redondezas';
+        if (!water && d2 <= W * W && isWater(map, t)) water = true;
+      }
+    }
+    if (!water && !(tech >= 2 && map.moisture[center] >= B.SITE_WELL_MOISTURE)) return 'não há água por perto';
+    const food = veg / Math.max(1, land);
+    if (food < B.SITE_MIN_FOOD * (water && (land < total || tech >= 2) ? 0.5 : 1)) return 'não há comida por perto: quase nada verde para coletar, caçar ou plantar';
+    return null;
+  }
+
+  /** O lugar serve para fundar: longe de outros assentamentos e com o que é preciso para viver (seção 19.18). */
+  canSettle(s: number, x: number, y: number, tech = 0): boolean {
+    return this.canFound(x, y) && this.siteProblem(s, x, y, tech) === null;
   }
 
   /** Capital do reino do assentamento. */
@@ -2463,7 +2677,8 @@ export class Ecosystem {
       for (let dy = 0; dy < 2; dy++) {
         for (let dx = 0; dx < 2; dx++) {
           const t = this.tileAt(cx + lot.x + dx, cy + lot.y + dy);
-          if (t < 0 || !isLand(this.map, t) || this.road[t] || this.built[t] || this.depositAt[t] >= 0) break;
+          // Lote em chão plano: nada de casa pendurada num barranco (seção 19.18).
+          if (t < 0 || !isLand(this.map, t) || this.road[t] || this.built[t] || this.depositAt[t] >= 0 || !this.flat(t)) break;
           tiles.push(t);
         }
       }
@@ -2779,10 +2994,15 @@ export class Ecosystem {
       if (k === goal) break;
       if (++visited > B.ROAD_SEARCH_MAX) return null;
       const lx = k % gw;
+      const ek = map.elevation[tileOf(k)];
       for (const m of [lx > 0 ? k - 1 : -1, lx < gw - 1 ? k + 1 : -1, k - gw, k + gw]) {
         if (m < 0 || m >= n) continue;
-        const c = cost(m);
+        let c = cost(m);
         if (c === Infinity) continue;
+        // Estrada não sobe penhasco e prefere a encosta suave (seção 19.18).
+        const climb = Math.abs(map.elevation[tileOf(m)] - ek);
+        if (climb > B.MAX_CLIMB) continue;
+        c += climb * 20;
         const ng = g[k] + c;
         if (ng >= g[m]) continue;
         g[m] = ng;
@@ -2944,6 +3164,12 @@ export class Ecosystem {
           }
         }
       }
+    }
+    // Os vizinhos do reino recolhem parte do que sobrou no estoque (seção 19.18); o resto estraga com o tempo.
+    const heir = this.villages.filter((o) => o !== v && !o.abandoned && o.kingdom === v.kingdom).sort((p, q) => this.distance(p, v.x, v.y) - this.distance(q, v.x, v.y))[0];
+    if (heir && this.distance(heir, v.x, v.y) < B.HAUL_RANGE) {
+      for (const g of GOODS) this.gain(heir, g, v.stock[g] * B.ABANDON_RECOVER);
+      this.gain(heir, 'food', v.food * B.ABANDON_RECOVER);
     }
     v.houses.length = 0;
     v.port = -1;
@@ -3751,6 +3977,7 @@ export class Ecosystem {
     this.crises.clear();
     this.diplomacy();
     this.coolLava();
+    this.lavaFires();
     for (let k = this.ruins.length - 1; k >= 0; k--) if (++this.ruins[k].age > 40) this.ruins.splice(k, 1);
     yearlyEvents(this);
   }
@@ -4073,7 +4300,7 @@ export class Ecosystem {
       if (ny < 2 || ny >= map.height - 2) continue;
       const tx = ((nx % map.width) + map.width) % map.width;
       const tile = ny * map.width + tx;
-      if (!this.habitable(v.species, tile) || map.vegetation[tile] < this.minFertility(v) || !this.canFound(tx, ny)) continue;
+      if (!this.habitable(v.species, tile) || map.vegetation[tile] < this.minFertility(v) || !this.canSettle(v.species, tx, ny, v.tech)) continue;
       if (!this.landPath(v.x, v.y, tx + 0.5, ny + 0.5)) continue;
       const nv = this.foundVillage(v.species, tx, ny, 0, v);
       let moved = 0;
@@ -4099,14 +4326,17 @@ export class Ecosystem {
     return v.tech >= 2 ? 0 : 0.2;
   }
 
-  /** Se a linha reta entre dois pontos é toda de terra (dá para ir a pé). */
+  /** Se a linha reta entre dois pontos é toda de terra, sem penhasco no meio (dá para ir a pé). */
   private landPath(ax: number, ay: number, bx: number, by: number): boolean {
     const dx = wrapDx(bx - ax, this.map.width);
     const dy = by - ay;
     const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
+    let prev = -1;
     for (let k = 0; k <= n; k++) {
       const t = this.tileAt(Math.floor(ax + (dx * k) / n), Math.floor(ay + (dy * k) / n));
       if (t < 0 || !isLand(this.map, t)) return false;
+      if (prev >= 0 && Math.abs(this.map.elevation[t] - this.map.elevation[prev]) > B.MAX_CLIMB * 1.5) return false;
+      prev = t;
     }
     return true;
   }
@@ -4251,6 +4481,7 @@ export class Ecosystem {
         const ly = Math.floor(l / w);
         if (this.distance(v, lx, ly) < home || !this.canFound(lx, ly)) continue;
         if (candidates.some((c) => Math.hypot(wrapDx((c.land % w) - lx, w), Math.floor(c.land / w) - ly) < 8)) continue;
+        if (this.siteProblem(v.species, lx, ly, v.tech)) continue;
         candidates.push({ water: t, land: l });
         break;
       }
@@ -4285,6 +4516,163 @@ export class Ecosystem {
     this.launch(v, 'colonize', path, pick.land, passengers);
     this.note(`${passengers.length} colonos de ${v.name} partiram de ${type.name.toLowerCase()}`, 'mar', v);
     return true;
+  }
+
+  /**
+   * Jangada (seção 19.18): quem está travado na beira da água com o destino
+   * do outro lado corta RAFT_TREES árvores por perto (ou, sem elas, gasta
+   * RAFT_WOOD de madeira do estoque) e atravessa até a margem mais perto do
+   * destino, a até RAFT_RANGE tiles de água. Sem árvore nem madeira, ou sem
+   * margem melhor ao alcance, desiste e continua contornando.
+   */
+  private tryRaft(i: number): boolean {
+    this.stuck[i] = 0;
+    const map = this.map;
+    const w = map.width;
+    const s = this.kind[i];
+    const aim = Math.hypot(this.aimX[i], this.aimY[i]);
+    const vi = this.village[i];
+    const v = vi >= 0 ? this.villages[vi] : null;
+    // Um líder ou o último morador não deixa o assentamento para trás.
+    if (aim < 6 || (v && (v.population <= 1 || v.leader === i))) return false;
+    const gx = this.x[i] + this.aimX[i];
+    const gy = this.y[i] + this.aimY[i];
+    const here = this.tileOf(i);
+    const hx = here % w;
+    const hy = Math.floor(here / w);
+    // A água logo à frente, na direção do destino.
+    let start = -1;
+    let best = -Infinity;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const t = this.tileAt(hx + dx, hy + dy);
+        if (t < 0 || !isWater(map, t)) continue;
+        const dot = (dx * this.aimX[i] + dy * this.aimY[i]) / aim;
+        if (dot > best) {
+          best = dot;
+          start = t;
+        }
+      }
+    }
+    if (start < 0) return false;
+    // Árvores por perto: as mais fechadas primeiro.
+    const trees: number[] = [];
+    const R = B.RAFT_TREE_RANGE;
+    for (let dy = -R; dy <= R && trees.length < B.RAFT_TREES; dy++) {
+      for (let dx = -R; dx <= R && trees.length < B.RAFT_TREES; dx++) {
+        const t = this.tileAt(hx + dx, hy + dy);
+        if (t >= 0 && isLand(map, t) && !this.road[t] && !this.built[t] && map.vegetation[t] >= B.RAFT_TREE_VEG) trees.push(t);
+      }
+    }
+    const wood = !!v && v.stock.wood >= B.RAFT_WOOD;
+    if (trees.length < B.RAFT_TREES && !wood) return false;
+    // A margem do outro lado mais perto do destino (e mais perto que daqui).
+    let goal = -1;
+    let landing = -1;
+    let bd = Math.hypot(wrapDx(gx - this.x[i], w), gy - this.y[i]) - 4;
+    this.searchSea(start, 20000, B.RAFT_RANGE, (t) => {
+      const x = t % w;
+      const y = (t - x) / w;
+      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const l = this.tileAt(x + ox, y + oy);
+        if (l < 0 || !this.canStand(s, l) || !this.habitable(s, l)) continue;
+        const d = Math.hypot(wrapDx(gx - ((l % w) + 0.5), w), gy - (Math.floor(l / w) + 0.5));
+        if (d < bd) {
+          bd = d;
+          goal = t;
+          landing = l;
+        }
+      }
+      return false;
+    });
+    if (goal < 0) return false;
+    const path: number[] = [];
+    for (let t = goal; t >= 0; t = this.searchParent[t]) path.push(t);
+    path.reverse();
+    // A madeira: árvores cortadas (o mato fica ralo e rebrota) ou o estoque do assentamento.
+    if (trees.length >= B.RAFT_TREES) {
+      for (const t of trees) {
+        map.vegetation[t] = Math.max(0.08, map.vegetation[t] - 0.4);
+        map.biome[t] = classify(map, t);
+        this.onTileChanged(t);
+      }
+    } else if (v) this.spend(v, 'wood', B.RAFT_WOOD);
+    const who = this.identity(i);
+    const raft: Raft = {
+      x: (start % w) + 0.5,
+      y: Math.floor(start / w) + 0.5,
+      facing: this.aimX[i] >= 0 ? 1 : -1,
+      path,
+      step: 0,
+      landing,
+      species: s,
+      village: vi,
+      age: this.age[i],
+      role: this.role[i],
+      energy: this.energy[i],
+      who,
+      blocked: 0,
+    };
+    this.rafts.push(raft);
+    this.kill(i, true, 'partiu');
+    const name = this.species[s].name.toLowerCase();
+    this.note(v ? `Gente de ${v.name} fez uma jangada para atravessar a água` : `Um ${name} sozinho fez uma jangada para atravessar a água`, 'mar', raft, { key: v ? `raft-${v.id}` : `raft-${s}` });
+    return true;
+  }
+
+  /** Jangadas: remam pela rota e, na outra margem, quem remava volta a andar (com a mesma identidade). */
+  private updateRafts(dt: number): void {
+    const map = this.map;
+    const w = map.width;
+    for (let k = this.rafts.length - 1; k >= 0; k--) {
+      const r = this.rafts[k];
+      const here = this.tileAt(r.x, Math.floor(r.y));
+      const t = r.path[Math.min(r.step, r.path.length - 1)];
+      // A água sumiu por baixo (terraformação) ou a rota fechou: desembarca onde der.
+      const ashore = here >= 0 && !isWater(map, here);
+      if (ashore || !isWater(map, t)) r.blocked += dt;
+      let done = r.step >= r.path.length || r.blocked > B.REROUTE_SECONDS || ashore;
+      if (!done) {
+        const tx = (t % w) + 0.5;
+        const ty = Math.floor(t / w) + 0.5;
+        const dx = wrapDx(tx - r.x, w);
+        const dy = ty - r.y;
+        const d = Math.hypot(dx, dy);
+        const move = Math.min(d, B.RAFT_SPEED * dt);
+        if (d > 0.01) {
+          r.x = (((r.x + (dx / d) * move) % w) + w) % w;
+          r.y += (dy / d) * move;
+          if (Math.abs(dx) > 0.05) r.facing = dx > 0 ? 1 : -1;
+        }
+        if (d - move < 0.05 && ++r.step >= r.path.length) done = true;
+      }
+      if (!done) continue;
+      this.rafts.splice(k, 1);
+      // Desembarca na margem combinada ou, se ela mudou, na terra mais perto.
+      let land = r.landing >= 0 && this.canStand(r.species, r.landing) ? r.landing : -1;
+      if (land < 0) {
+        const x = Math.floor(r.x);
+        const y = Math.floor(r.y);
+        for (let rad = 0; rad <= 3 && land < 0; rad++) {
+          for (let oy = -rad; oy <= rad && land < 0; oy++) {
+            for (let ox = -rad; ox <= rad && land < 0; ox++) {
+              const l = this.tileAt(x + ox, y + oy);
+              if (l >= 0 && this.canStand(r.species, l)) land = l;
+            }
+          }
+        }
+      }
+      if (land < 0) {
+        this.deaths.unshift({ uid: r.who.uid, cause: 'outra', age: r.age, x: r.x, y: r.y });
+        continue;
+      }
+      const home = r.village >= 0 && !this.villages[r.village].abandoned ? r.village : -1;
+      const c = this.spawn(r.species, (land % w) + 0.5, Math.floor(land / w) + 0.5, home, r.age);
+      if (c < 0) continue;
+      this.role[c] = home >= 0 ? r.role : this.role[c];
+      this.energy[c] = r.energy;
+      this.restore(c, r.who, true);
+    }
   }
 
   /** Barco mais próximo de um ponto, dentro do raio. */
@@ -4409,14 +4797,26 @@ export class Ecosystem {
         let ny = b.y + (dy / d) * move;
         const t = this.tileAt(nx, Math.floor(ny));
         if (t < 0 || !isWater(map, t)) {
-          // Barco de pesca bateu na costa: vira.
+          // Barco de pesca bateu na costa: vira. Barco com rota conta o tempo parado (a costa mudou no caminho).
           b.heading += Math.PI * (0.5 + this.civRnd());
           nx = b.x;
           ny = b.y;
-        }
+          b.blocked = (b.blocked ?? 0) + dt;
+        } else b.blocked = 0;
         if (Math.abs(dx) > 0.05) b.facing = dx > 0 ? 1 : -1;
         b.x = (nx + w) % w;
         b.y = ny;
+      }
+      // Encalhado (o mar virou terra por baixo) ou parado tempo demais: refaz a rota ou desembarca onde está (seção 19.18).
+      const under = this.tileAt(b.x, Math.floor(b.y));
+      if (under < 0 || !isWater(map, under)) b.blocked = B.REROUTE_SECONDS + 1;
+      if ((b.blocked ?? 0) > B.REROUTE_SECONDS) {
+        if (b.purpose !== 'fish' && this.rerouteBoat(b)) b.blocked = 0;
+        else {
+          this.strand(b);
+          this.boats.splice(k, 1);
+          continue;
+        }
       }
       if (b.purpose !== 'fish' && d < 0.35) {
         b.step++;
@@ -4452,6 +4852,78 @@ export class Ecosystem {
         }
       }
     }
+  }
+
+  /**
+   * Nova rota pelo mar até o fim da rota antiga ou, se ele virou terra, até a
+   * água mais perto dele (a até 3 tiles). Retorna se achou.
+   */
+  private rerouteBoat(b: Boat): boolean {
+    const map = this.map;
+    const w = map.width;
+    const here = this.tileAt(b.x, Math.floor(b.y));
+    if (here < 0 || !isWater(map, here) || !b.path.length) return false;
+    const goal = b.path[b.path.length - 1];
+    const gx = goal % w;
+    const gy = Math.floor(goal / w);
+    let found = -1;
+    let bd = 3;
+    this.searchSea(here, 200000, 65535, (t) => {
+      if (t === goal) {
+        found = t;
+        return true;
+      }
+      const d = Math.hypot(wrapDx((t % w) - gx, w), Math.floor(t / w) - gy);
+      if (d < bd) {
+        bd = d;
+        found = t;
+      }
+      return false;
+    });
+    if (found < 0) return false;
+    const path: number[] = [];
+    for (let t = found; t >= 0; t = this.searchParent[t]) path.push(t);
+    b.path = path.reverse();
+    b.step = 0;
+    return true;
+  }
+
+  /**
+   * Barco que não tem mais como seguir: o de pesca volta para casa; colonos,
+   * soldados e exploradores desembarcam na terra mais perto; o mercante
+   * devolve a carga em casa. Sem terra por perto, afunda.
+   */
+  private strand(b: Boat): void {
+    const map = this.map;
+    const w = map.width;
+    const home = this.villages[b.village];
+    if (b.purpose === 'fish') return;
+    if (b.purpose === 'trade' && b.trade) {
+      this.unload(home, b.trade.cargo, b.trade.purse);
+      const px = home.port >= 0 ? (home.port % w) + 0.5 : home.x;
+      const py = home.port >= 0 ? Math.floor(home.port / w) + 0.5 : home.y;
+      for (const p of b.passengers) this.disembark(home, p, px, py);
+      return;
+    }
+    let land = -1;
+    const x = Math.floor(b.x);
+    const y = Math.floor(b.y);
+    for (let r = 0; r <= 3 && land < 0; r++) {
+      for (let oy = -r; oy <= r && land < 0; oy++) {
+        for (let ox = -r; ox <= r && land < 0; ox++) {
+          const l = this.tileAt(x + ox, y + oy);
+          if (l >= 0 && isLand(map, l)) land = l;
+        }
+      }
+    }
+    if (land < 0) {
+      this.sink(b, `${cap(BOATS[b.kind].the)} de ${home.name} ficou sem rota e afundou`);
+      return;
+    }
+    b.landing = land;
+    if (b.purpose === 'invade') this.landSoldiers(b);
+    else if (b.purpose === 'explore') this.explored(b);
+    else this.landColonists(b);
   }
 
   /** Soldados desembarcam perto do alvo e marcham; se a guerra acabou no caminho, viram colonos. */
@@ -4536,7 +5008,7 @@ export class Ecosystem {
     const lx = b.landing % w;
     const ly = Math.floor(b.landing / w);
     let target: Village | null = null;
-    if (this.canFound(lx, ly)) {
+    if (this.canSettle(from.species, lx, ly, from.tech)) {
       target = this.foundVillage(from.species, lx, ly, 0, from);
       this.note(`Colonos de ${from.name} cruzaram o mar de ${BOATS[b.kind].name.toLowerCase()} e fundaram ${target.name}`, 'mar', target, { major: true });
     } else {
@@ -4547,7 +5019,21 @@ export class Ecosystem {
       }
     }
     if (!target) {
-      this.note(`Os colonos de ${from.name} não acharam onde morar e se perderam`, 'mar', b);
+      // A costa mudou (ou não serve mais): desembarcam sozinhos e procuram um lugar bom a pé (seção 19.18).
+      let landed = 0;
+      for (const p of b.passengers) {
+        if (!isLand(this.map, b.landing)) break;
+        const c = this.spawn(from.species, lx + this.civRnd(), ly + this.civRnd(), -1, p.age);
+        if (c < 0) continue;
+        this.restore(c, p.who);
+        this.movedAt[c] = this.year;
+        landed++;
+      }
+      this.note(
+        landed ? `Os colonos de ${from.name} desembarcaram num lugar ruim e saíram a pé procurando onde morar` : `Os colonos de ${from.name} não acharam onde morar e se perderam`,
+        'mar',
+        b,
+      );
       return;
     }
     for (const p of b.passengers) {
@@ -4932,7 +5418,23 @@ export class Ecosystem {
         c.wait -= dt;
         continue;
       }
-      const t = c.path[Math.min(c.step, c.path.length - 1)];
+      let t = c.path[Math.min(c.step, c.path.length - 1)];
+      // A estrada virou água, lava ou penhasco (terraformação, cometa, terremoto): refaz o caminho por terra
+      // até o fim da rota; sem caminho, a viagem acaba e quem ia volta para casa com a carga (seção 19.18).
+      if (!isLand(this.map, t)) {
+        const end = c.path[c.path.length - 1];
+        const path = isLand(this.map, end) ? this.roadPath(c.x, c.y, (end % w) + 0.5, Math.floor(end / w) + 0.5) : null;
+        if (!path || path.length < 2) {
+          this.unload(home, c.cargo, c.purse);
+          if (c.kind === 'flock' && home.herd) home.herd.away = undefined;
+          this.disembark(home, c.crew, home.x, home.y);
+          this.caravans.splice(k, 1);
+          continue;
+        }
+        c.path = path;
+        c.step = 0;
+        t = path[0];
+      }
       // Inverno nas terras frias: a caravana espera a neve passar (RF-VIDA-290).
       if (c.kind !== 'flock' && this.snowed(c.x, c.y)) continue;
       const tx = (t % w) + 0.5;
@@ -5344,10 +5846,12 @@ export class Ecosystem {
         const t = this.tileAt(Math.floor(x) + dx, Math.floor(y) + dy);
         if (t < 0) continue;
         fn(t, d);
+        if (this.map.bare) this.map.bare[t] = 0;
         this.map.biome[t] = classify(this.map, t);
         this.onTileChanged(t);
       }
     }
+    this.sweep(x, y, r);
   }
 
   /** Lava num tile: o calor sobe e vai esfriando ao longo dos anos até virar rocha. */
@@ -5381,24 +5885,189 @@ export class Ecosystem {
       for (let k = v.houses.length - 1; k >= 0; k--) {
         const h = v.houses[k];
         if (Math.hypot(wrapDx(h.x + 1 - x, this.map.width), h.y + 1 - y) > r || this.worldRnd() > chance) continue;
-        const size = h.kind === 'port' ? 1 : 2;
-        for (let dy = 0; dy < size; dy++) {
-          for (let dx = 0; dx < size; dx++) {
-            const t = this.tileAt(h.x + dx, h.y + dy);
-            if (t >= 0) {
-              this.built[t] = 0;
-              this.onTileChanged(t);
-            }
-          }
-        }
-        if (h.kind === 'port') v.port = -1;
-        v.houses.splice(k, 1);
-        this.ruins.push({ x: h.x + size / 2, y: h.y + size, age: 0 });
+        this.raze(v, k);
         n++;
       }
     }
     if (this.ruins.length > 200) this.ruins.splice(0, this.ruins.length - 200);
     return n;
+  }
+
+  /**
+   * Derruba a construção `k` do assentamento: libera o terreno, deixa uma
+   * ruína (se o chão ainda é terra) e devolve ao estoque uma parte do
+   * material como entulho aproveitável (SALVAGE, seção 19.18).
+   */
+  private raze(v: Village, k: number): void {
+    const h = v.houses[k];
+    const size = h.kind === 'port' ? 1 : 2;
+    let land = false;
+    for (let dy = 0; dy < size; dy++) {
+      for (let dx = 0; dx < size; dx++) {
+        const t = this.tileAt(h.x + dx, h.y + dy);
+        if (t < 0) continue;
+        if (isLand(this.map, t)) land = true;
+        this.built[t] = 0;
+        this.onTileChanged(t);
+      }
+    }
+    if (h.kind === 'port') v.port = -1;
+    v.houses.splice(k, 1);
+    if (!land) return;
+    this.ruins.push({ x: h.x + size / 2, y: h.y + size, age: 0 });
+    const c = buildCost(h.kind, Math.floor(v.tech));
+    this.gain(v, 'wood', c.wood * B.SALVAGE);
+    this.gain(v, 'stone', c.stone * B.SALVAGE);
+  }
+
+  /**
+   * Faz o que a construção do povo sobreviver à mudança do terreno (seção
+   * 19.18): depois de cometa, terremoto, vulcão, ferramentas de terreno ou
+   * clima, tudo que ficou sem chão para existir some. Estrada, praça, roça e
+   * pasto na água, na lava ou no gelo; jazida submersa; casa, porto e prédio
+   * com tile que não é terra, num barranco (desnível acima de
+   * HOUSE_MAX_RELIEF) ou porto sem água ao lado. Assentamento cujo centro
+   * afundou se afoga. Retorna quantas construções caíram.
+   */
+  sweep(cx: number, cy: number, r: number): number {
+    const map = this.map;
+    const ri = Math.ceil(r) + 2;
+    const x0 = Math.floor(cx);
+    const y0 = Math.floor(cy);
+    let lost = 0;
+    let roads = 0;
+    for (let dy = -ri; dy <= ri; dy++) {
+      for (let dx = -ri; dx <= ri; dx++) {
+        const t = this.tileAt(x0 + dx, y0 + dy);
+        if (t < 0 || isLand(map, t)) continue;
+        if (this.road[t]) {
+          this.road[t] = 0;
+          this.mainStreet[t] = 0;
+          this.traffic[t] = 0;
+          this.tolls.delete(t);
+          roads++;
+          this.onTileChanged(t);
+        }
+        const id = this.depositAt[t];
+        if (id >= 0 && this.deposits[id].amount > 0) {
+          const d = this.deposits[id];
+          d.amount = 0;
+          if (d.mine >= 0) {
+            const owner = this.villages[d.mine];
+            const at = owner.mines.indexOf(id);
+            if (at >= 0) owner.mines.splice(at, 1);
+            d.mine = -1;
+          }
+        }
+      }
+    }
+    for (const v of this.villages) {
+      if (v.abandoned || this.distance(v, cx, cy) > ri + this.radius(v) + 6) continue;
+      for (let k = v.houses.length - 1; k >= 0; k--) {
+        const h = v.houses[k];
+        const size = h.kind === 'port' ? 1 : 2;
+        let bad = false;
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let dy = 0; dy < size && !bad; dy++) {
+          for (let dx = 0; dx < size; dx++) {
+            const t = this.tileAt(h.x + dx, h.y + dy);
+            if (t < 0 || !isLand(map, t)) {
+              bad = true;
+              break;
+            }
+            lo = Math.min(lo, map.elevation[t]);
+            hi = Math.max(hi, map.elevation[t]);
+          }
+        }
+        if (!bad && hi - lo > B.HOUSE_MAX_RELIEF) bad = true;
+        if (!bad && h.kind === 'port' && (v.port < 0 || !isWater(map, v.port))) bad = true;
+        if (!bad) continue;
+        this.raze(v, k);
+        lost++;
+        roads++;
+      }
+      // O centro afundou, queimou ou virou gelo: o assentamento acabou (os moradores se afogam).
+      const center = this.tileAt(v.x, Math.floor(v.y));
+      if (center >= 0 && !isLand(map, center) && v.population > 0) {
+        for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] === v.id) this.kill(i, true, 'desastre');
+        this.note(`${v.name} foi tomada pelas águas, pelo fogo ou pelo gelo`, 'natureza', v, { major: v.tier >= 1 });
+      }
+    }
+    for (let k = this.ruins.length - 1; k >= 0; k--) {
+      const t = this.tileAt(this.ruins[k].x, Math.floor(this.ruins[k].y) - 1);
+      if (t >= 0 && !isLand(map, t)) this.ruins.splice(k, 1);
+    }
+    if (roads) this.reconcile(cx, cy, ri);
+    return lost;
+  }
+
+  /**
+   * Acerta as contas dos assentamentos perto de um ponto depois que tiles de
+   * rua, roça, pasto ou casa sumiram: roças contadas a mais, cercados
+   * incompletos e estrada que precisa ser refeita (`linked`).
+   */
+  private reconcile(cx: number, cy: number, ri: number): void {
+    const w = this.map.width;
+    for (const v of this.villages) {
+      if (v.abandoned || this.distance(v, cx, cy) > ri + this.radius(v) + 8) continue;
+      v.linked = false;
+      if (v.pens?.length) {
+        v.pens = v.pens.filter((p) => {
+          const tiles = [this.tileAt(p.x, p.y), this.tileAt(p.x + 1, p.y), this.tileAt(p.x, p.y + 1), this.tileAt(p.x + 1, p.y + 1)];
+          if (tiles.every((t) => t >= 0 && this.road[t] === 5)) return true;
+          for (const t of tiles) {
+            if (t >= 0 && this.road[t] === 5) {
+              this.road[t] = 0;
+              this.onTileChanged(t);
+            }
+          }
+          return false;
+        });
+      }
+      if (v.fields > 0) {
+        const r = Math.ceil(this.radius(v)) + 1;
+        let tiles = 0;
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            const t = this.tileAt(Math.floor(v.x) + dx, Math.floor(v.y) + dy);
+            if (t >= 0 && this.road[t] === 4) tiles++;
+          }
+        }
+        v.fields = Math.min(v.fields, Math.ceil(tiles / 4));
+      }
+    }
+    void w;
+  }
+
+  /**
+   * Lava e chão em brasa pegam fogo no que está em volta (seção 19.18): a
+   * mata perto queima, animais morrem e casas dentro do alcance caem. Uma
+   * vez por ano, com no máximo `limit` focos, para não pesar.
+   */
+  private lavaFires(limit = 60): void {
+    const map = this.map;
+    const w = map.width;
+    const n = w * map.height;
+    let started = 0;
+    for (let t = 0; t < n && started < limit; t++) {
+      if (map.biome[t] !== Biome.Lava || this.worldRnd() > B.LAVA_FIRE_RATE / 6) continue;
+      const x = t % w;
+      const y = (t - x) / w;
+      let hit = false;
+      this.reshape(x, y, B.LAVA_FIRE_RANGE, (i, d) => {
+        if (map.vegetation[i] < 0.1 || this.worldRnd() > 0.8 - d * 0.2) return;
+        map.vegetation[i] = 0.03;
+        hit = true;
+      });
+      const fallen = this.destroyAround(x + 0.5, y + 0.5, B.LAVA_FIRE_RANGE, 0.5);
+      if (!hit && !fallen) continue;
+      started++;
+      this.effect('flame', x + 0.5, y + 0.5, 8, 1.4);
+      this.killAround(x + 0.5, y + 0.5, B.LAVA_FIRE_RANGE, 0.4);
+      const near = this.settlementAt(x + 0.5, y + 0.5);
+      if (fallen || near) this.note(`O fogo da lava queimou ${fallen ? `${fallen} construções` : 'a mata'} perto de ${near?.name ?? 'um assentamento'}`, 'natureza', { x, y }, { key: 'lava-fire' });
+    }
   }
 
   /** Nova jazida de minério (cometa, terremoto, vulcão ou o jogador). */
@@ -5410,6 +6079,134 @@ export class Ecosystem {
     this.deposits.push(d);
     this.depositAt[t] = d.id;
     return d;
+  }
+
+  /** Assentamento ativo mais perto de um ponto, dentro do alcance em que o material do mapa chega até ele. */
+  private receiver(x: number, y: number): Village | null {
+    let best: Village | null = null;
+    let bd: number = B.HAUL_FROM_MAP;
+    for (const v of this.villages) {
+      if (v.abandoned) continue;
+      const d = this.distance(v, x, y);
+      if (d < bd) {
+        bd = d;
+        best = v;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Ferramenta Limpar (seção 19.18): tira do mapa o que é da natureza num
+   * raio: árvores (a mata fica rala e rebrota), pedregulhos e cactos, jazidas
+   * de minério e ruínas. Nada se perde: a madeira, a pedra e o minério vão
+   * para o assentamento mais perto (HAUL_FROM_MAP). Retorna quantos itens.
+   */
+  clearNature(x: number, y: number, r: number): number {
+    const map = this.map;
+    map.bare ??= new Uint8Array(map.width * map.height);
+    const ri = Math.ceil(r);
+    let trees = 0;
+    let rocks = 0;
+    let ores = 0;
+    const gold = new Map<Ore, number>();
+    for (let dy = -ri; dy <= ri; dy++) {
+      for (let dx = -ri; dx <= ri; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const t = this.tileAt(Math.floor(x) + dx, Math.floor(y) + dy);
+        if (t < 0) continue;
+        let changed = false;
+        const decor = isLand(map, t) && !this.road[t] && !this.built[t] ? decorAt(map, t) : Decor.None;
+        if (decor === Decor.Tree || decor === Decor.JungleTree || decor === Decor.Pine || decor === Decor.Acacia) {
+          // Fica mato baixo: abaixo do limiar de árvore de cada bioma.
+          map.vegetation[t] = Math.min(map.vegetation[t], 0.26);
+          trees++;
+          changed = true;
+        } else if (decor === Decor.Boulder || decor === Decor.Cactus) {
+          map.bare[t] = 1;
+          if (decor === Decor.Boulder) rocks++;
+          changed = true;
+        }
+        const id = this.depositAt[t];
+        if (id >= 0 && this.deposits[id].amount > 0) {
+          const d = this.deposits[id];
+          gold.set(d.ore, (gold.get(d.ore) ?? 0) + d.amount * B.CLEAR_ORE);
+          d.amount = 0;
+          if (d.mine >= 0) {
+            const owner = this.villages[d.mine];
+            const at = owner.mines.indexOf(id);
+            if (at >= 0) owner.mines.splice(at, 1);
+            d.mine = -1;
+          }
+          ores++;
+        }
+        if (changed) {
+          map.biome[t] = classify(map, t);
+          this.onTileChanged(t);
+        }
+      }
+    }
+    for (let k = this.ruins.length - 1; k >= 0; k--) {
+      const q = this.ruins[k];
+      if (Math.hypot(wrapDx(q.x - x, map.width), q.y - 1 - y) <= r) {
+        this.ruins.splice(k, 1);
+        rocks++;
+      }
+    }
+    const v = this.receiver(x, y);
+    if (v) {
+      this.gain(v, 'wood', trees * B.CLEAR_WOOD);
+      this.gain(v, 'stone', rocks * B.CLEAR_STONE);
+      for (const [ore, amount] of gold) this.gain(v, ore, amount);
+    }
+    const n = trees + rocks + ores;
+    if (n) this.note(`Você limpou o terreno${v ? `; o material foi para ${v.name}` : ''}`, 'jogador', { x, y }, { key: 'limpar' });
+    return n;
+  }
+
+  /**
+   * Ferramenta Demolir (seção 19.18): derruba as construções do povo num
+   * raio: casas e prédios que encostam no pincel, ruas, praça, roças e
+   * pastos. O entulho volta em parte ao estoque (SALVAGE). O povo reconstrói
+   * depois, se precisar. Retorna quantas construções caíram.
+   */
+  demolish(x: number, y: number, r: number): number {
+    const w = this.map.width;
+    let n = 0;
+    for (const v of this.villages) {
+      if (v.abandoned || this.distance(v, x, y) > r + this.radius(v) + 3) continue;
+      for (let k = v.houses.length - 1; k >= 0; k--) {
+        const h = v.houses[k];
+        const size = h.kind === 'port' ? 1 : 2;
+        if (Math.hypot(wrapDx(h.x + size / 2 - x, w), h.y + size / 2 - y) > r + size / 2) continue;
+        this.raze(v, k);
+        n++;
+      }
+    }
+    const ri = Math.ceil(r);
+    let tiles = 0;
+    for (let dy = -ri; dy <= ri; dy++) {
+      for (let dx = -ri; dx <= ri; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const t = this.tileAt(Math.floor(x) + dx, Math.floor(y) + dy);
+        if (t < 0 || !this.road[t]) continue;
+        this.road[t] = 0;
+        this.mainStreet[t] = 0;
+        this.traffic[t] = 0;
+        this.tolls.delete(t);
+        this.onTileChanged(t);
+        tiles++;
+      }
+    }
+    for (let k = this.ruins.length - 1; k >= 0; k--) {
+      const q = this.ruins[k];
+      if (Math.hypot(wrapDx(q.x - x, w), q.y - 1 - y) <= r) this.ruins.splice(k, 1);
+    }
+    if (n || tiles) {
+      this.reconcile(x, y, ri);
+      this.note(`Você demoliu ${n ? `${n} construções` : 'ruas e roças'}`, 'jogador', { x, y }, { key: 'demolir' });
+    }
+    return n;
   }
 
   /** Mata criaturas num raio sem registrar cada morte; retorna quantas. */
@@ -5437,6 +6234,16 @@ export class Ecosystem {
       if (other || !this.canFound(Math.floor(x), Math.floor(y))) {
         this.hint = `Muito perto de ${other?.name ?? 'outro assentamento'}: escolha um lugar fora da área`;
         return 0;
+      }
+      // Lugar ruim para morar (seção 19.18): eles chegam, olham em volta e saem procurando um lugar melhor.
+      const why = this.siteProblem(s, x, y);
+      if (why) {
+        for (let k = 0; k < Math.max(4, amount); k++) {
+          if (this.spawn(s, (((x + (this.rnd() - 0.5) * 3) % w) + w) % w, y + (this.rnd() - 0.5) * 3, -1, this.species[s].maturity + this.rnd() * 10) >= 0) born++;
+        }
+        this.hint = `Aqui não dá para fundar (${why}): eles vão procurar um lugar melhor`;
+        this.note(`Você trouxe ${this.species[s].name.toLowerCase()}s, que saíram procurando onde morar`, 'jogador', { x, y });
+        return born;
       }
       const v = this.foundVillage(s, ((Math.floor(x) % w) + w) % w, Math.floor(y), Math.max(4, amount));
       this.note(`Você trouxe ${this.species[s].name.toLowerCase()}s, que fundaram ${v.name}`, 'jogador', v);

@@ -305,3 +305,64 @@ export const TRANSHUMANCE_RANGE = 30;
 export const FLOCK_SPEED = 1.2;
 export const TRANSHUMANCE_GROWTH = 0.12;
 export const TRANSHUMANCE_TENSION = 1;
+
+// Relevo, movimento e escolha do lugar (pedido do Joab em 21/10/2026, seção 19.18) ----------
+
+/**
+ * Diferença de altitude máxima entre dois tiles vizinhos que um bicho de terra
+ * ou uma pessoa sobe ou desce a pé. O relevo natural fica abaixo de ~0,1; acima
+ * disso é penhasco (terremoto, montanha erguida pelo jogador) e é preciso contornar.
+ */
+export const MAX_CLIMB = 0.12;
+/** Segundos que a criatura segue contornando o obstáculo antes de voltar a mirar o destino. */
+export const DETOUR_SECONDS = 1.6;
+/** Segundos travada na beira da água, com destino do outro lado, até um inteligente pensar em fazer uma jangada. */
+export const RAFT_STUCK = 3;
+/** Raio (tiles) em que ele procura árvores para cortar, vegetação mínima de uma árvore e quantas árvores a jangada gasta. */
+export const RAFT_TREE_RANGE = 5;
+export const RAFT_TREE_VEG = 0.45;
+export const RAFT_TREES = 3;
+/** Madeira do estoque que a jangada gasta quando a pessoa é de um assentamento (no lugar das árvores, se der). */
+export const RAFT_WOOD = 4;
+/** Travessia máxima de jangada, em tiles de água, e velocidade (tiles por segundo). */
+export const RAFT_RANGE = 30;
+export const RAFT_SPEED = 0.9;
+/** Segundos que um barco ou caravana fica parado tentando seguir antes de refazer a rota. */
+export const REROUTE_SECONDS = 2.5;
+
+/** Raio (tiles) avaliado antes de fundar um assentamento: área útil, relevo, água, comida e perigo. */
+export const SITE_RADIUS = 8;
+/** Parte mínima da terra da área de fundação que precisa ser plana e segura para construir (e ao menos 30% da área tem de ser terra). */
+export const SITE_MIN_AREA = 0.6;
+/** Desnível máximo entre vizinhos num lote de casa (2x2) e no centro do assentamento. */
+export const SITE_MAX_SLOPE = 0.07;
+/** Diferença máxima entre o ponto mais alto e o mais baixo da área de fundação (vila sobre penhasco). */
+export const SITE_MAX_RELIEF = 0.3;
+/** Até onde precisa haver água doce ou mar (tiles); da Idade do Ferro em diante, poços dispensam se o solo é úmido. */
+export const SITE_WATER_RANGE = 12;
+export const SITE_WELL_MOISTURE = 0.4;
+/** Vegetação média mínima por perto (comida da coleta, caça e roças), a não ser que haja mar para pescar. */
+export const SITE_MIN_FOOD = 0.22;
+/** Distância mínima (tiles) de lava ou de chão quente demais: lava por perto pega fogo nas redondezas. */
+export const SITE_LAVA_RANGE = 10;
+
+/** Lava ainda quente queima o que estiver em volta: alcance (tiles) e chance por ano de cada tile de lava acender o vizinho. */
+export const LAVA_FIRE_RANGE = 2;
+export const LAVA_FIRE_RATE = 0.6;
+
+// Aproveitamento dos recursos (seção 19.18) ------------------------------------------------
+
+/** Parte do custo de uma construção destruída que volta ao estoque como entulho aproveitável. */
+export const SALVAGE = 0.4;
+/** Parte do estoque de um assentamento abandonado que os vizinhos do reino recolhem. */
+export const ABANDON_RECOVER = 0.5;
+/** Excedente acima do teto vendido no mercado: ouro por unidade de troca (o resto se perde). */
+export const SURPLUS_SALE = 0.5;
+/** Desnível máximo dentro de uma casa (2x2) antes de ela desabar num barranco (terremoto, terreno erguido). */
+export const HOUSE_MAX_RELIEF = 0.2;
+/** Alcance (tiles) em que o material que o jogador tira do mapa (árvore, pedra, minério) vai para o assentamento mais perto. */
+export const HAUL_FROM_MAP = 40;
+/** Madeira por tile de árvore, pedra por pedregulho e parte do minério de uma jazida que o povo aproveita quando o jogador limpa o mapa. */
+export const CLEAR_WOOD = 1.5;
+export const CLEAR_STONE = 1;
+export const CLEAR_ORE = 0.3;

@@ -88,6 +88,8 @@ export interface SurfaceMap {
   /** Cobertura de vida vegetal (0..1). */
   vegetation: Float32Array;
   biome: Uint8Array;
+  /** Tiles limpos pelo jogador (pedra, cacto): sem enfeite até o terreno mudar. Criado quando preciso. */
+  bare?: Uint8Array;
 }
 
 const FEATURE_SCALE = 80;
@@ -217,6 +219,7 @@ export function tileHash(i: number): number {
 }
 
 export function decorAt(map: SurfaceMap, i: number): Decor {
+  if (map.bare?.[i]) return Decor.None;
   const h = tileHash(i);
   const veg = map.vegetation[i];
   switch (map.biome[i] as Biome) {
