@@ -233,7 +233,7 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       prepYears: eco.tally.wars ? eco.tally.prepYears / eco.tally.wars : 0,
       warsDeclared: eco.tally.wars,
       // Toda declaração de guerra na crônica diz o motivo (RF-VIDA-244): "para tomar", "para arrasar" ou guerra civil.
-      warsNoMotive: eco.chronicle.filter((c) => c.kind === 'guerra' && /^Guerra!|atacou/.test(c.text) && !/para tomar|para arrasar/.test(c.text)).length,
+      warsNoMotive: eco.chronicle.filter((c) => c.kind === 'guerra' && /^Guerra!|atacou/.test(c.text) && !/para tomar|para arrasar|para dominar|por vingança|em nome da fé/.test(c.text)).length,
       looted: eco.tally.looted,
       burned: eco.tally.burned,
       refugees: eco.tally.refugees,

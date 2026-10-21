@@ -52,7 +52,7 @@
 | Preparos que caíram (desistência, paz, alvo perdido) | 26,70 | 28 | 22 a 33 |  |  |
 | Anos de preparo até declarar (média) | 16,84 | 13,67 | 0 a 24,50 |  |  |
 | Guerras declaradas | 4,90 | 5 | 0 a 9 |  |  |
-| Declarações de guerra sem motivo na crônica | 0,20 | 0 | 0 a 1 | 0 a 0 | **fora** |
+| Declarações de guerra sem motivo na crônica | 0 | 0 | 0 a 0 | 0 a 0 | dentro |
 | Saques que chegaram ao alvo | 0,15 | 0 | 0 a 1 |  |  |
 | Casas e roças queimadas | 1,25 | 0 | 0 a 5 |  |  |
 | Refugiados de guerra | 1,55 | 0 | 0 a 6 |  |  |
