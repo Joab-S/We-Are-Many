@@ -11,7 +11,7 @@ import {
   type PlanetParams,
   type SurfaceMap,
 } from '../../procgen/surface';
-import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, HERD_NAMES, isLand, YEAR_SECONDS, type ChronicleKind, type Village } from '../../sim/ecosystem';
+import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, HERD_NAMES, isLand, WAR_MOTIVES, YEAR_SECONDS, type ChronicleKind, type Village } from '../../sim/ecosystem';
 import { NEED_NAMES, NEEDS, SEASONS, VOCATION_COLORS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../sim/needs';
 import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from '../../sim/economy';
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
@@ -55,7 +55,7 @@ interface ToolOpts {
   limit: boolean;
 }
 
-type FxKind = 'heat' | 'cool' | 'snow' | 'thaw' | 'rain' | 'dry' | 'rise' | 'sink' | 'sea' | 'flatten' | 'sand' | 'grow' | 'clear' | 'demolish';
+type FxKind = 'heat' | 'cool' | 'snow' | 'thaw' | 'rain' | 'dry' | 'rise' | 'sink' | 'sea' | 'flatten' | 'sand' | 'grow' | 'clear' | 'demolish' | 'rage' | 'calm';
 
 /** Partícula da animação do pincel, em coordenadas do mapa (y para o norte, como a vista). */
 interface Particle {
@@ -86,6 +86,8 @@ const FX: Record<FxKind, { glow: [number, number, number, number]; kind: Particl
   grow: { glow: [70, 190, 80, 0.24], kind: 'spark', rgb: [140, 240, 120], vx: 0, vy: 1.4, spread: 0.6, size: 0.18 },
   clear: { glow: [190, 190, 170, 0.22], kind: 'dust', rgb: [200, 196, 180], vx: 0.4, vy: 0.8, spread: 0.9, size: 0.3 },
   demolish: { glow: [150, 100, 70, 0.26], kind: 'chunk', rgb: [150, 112, 80], vx: 0, vy: 1.2, spread: 1.2, size: 0.24 },
+  rage: { glow: [220, 40, 30, 0.3], kind: 'ember', rgb: [235, 70, 50], vx: 0, vy: 2.6, spread: 1.2, size: 0.16 },
+  calm: { glow: [130, 210, 230, 0.26], kind: 'drop', rgb: [170, 235, 245], vx: 0, vy: -1.2, spread: 0.3, size: 0.13 },
 };
 
 interface Tool {
@@ -220,8 +222,8 @@ const TERRAIN_TOOLS: Tool[] = [
   },
   { id: 'rain', fx: 'rain', tab: 'climate', label: 'Chuva', icon: '🌧', tip: 'Deixa o clima mais úmido: a mata cresce melhor.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] + 0.04 * s, 0, 1)) },
   { id: 'dry', fx: 'dry', tab: 'climate', label: 'Secar', icon: '☀', tip: 'Deixa o clima mais seco.', mode: 'brush', apply: (m, i, s) => (m.moisture[i] = clamp(m.moisture[i] - 0.04 * s, 0, 1)) },
-  { id: 'plant', fx: 'grow', tab: 'climate', label: 'Semear vida', icon: '🌱', tip: 'Espalha a vegetação que o lugar dá: cactos no deserto, pinheiros na tundra, acácias na savana, mata onde é úmido. Na água, no gelo e na rocha nua nada pega.', mode: 'brush', apply: (m, i, s) => sowVegetation(m, i, 0.06 * s) },
-  { id: 'forest', fx: 'grow', tab: 'climate', label: 'Floresta', icon: '🌳', tip: 'Umedece o solo e planta mata fechada onde o clima deixa; no deserto, só depois de umedecer bastante.', mode: 'brush', apply: (m, i, s) => { m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1); sowVegetation(m, i, 0.15 * s); } },
+  { id: 'plant', fx: 'grow', tab: 'climate', label: 'Semear vida', icon: '🌱', tip: 'Semeia sem mudar a umidade: cactos no deserto, pinheiros na tundra, acácias na savana, capim e árvores onde já é úmido. Faz tocos brotarem.', mode: 'brush', apply: (m, i, s) => sowVegetation(m, i, 0.06 * s) },
+  { id: 'forest', fx: 'grow', tab: 'climate', label: 'Floresta', icon: '🌳', tip: 'Umedece o solo e ergue mata fechada rápido, transformando tocos e mudas em árvores adultas.', mode: 'brush', apply: (m, i, s) => { m.moisture[i] = clamp(m.moisture[i] + 0.03 * s, 0, 1); sowVegetation(m, i, Math.max(0.18 * s, m.felled?.[i] ? 0.3 : 0)); } },
 ];
 
 /** Eventos que o jogador pode provocar (aba Eventos). */
@@ -270,6 +272,8 @@ function bodyOf(sp: Species): string {
 }
 
 const SPEEDS = [0, 1, 2, 5];
+/** Pelagem do cavalo da cavalaria. */
+const HORSE_COAT: [number, number, number] = [122, 84, 52];
 
 /**
  * Visão da superfície no estilo WorldBox (REQUISITOS.md, seção 4.7). Enquanto
@@ -492,6 +496,23 @@ export class SurfaceMode {
         act: (ctx, x, y) => ctx.harvest(x, y),
       },
     );
+    const politic = (id: string, label: string, icon: string, tip: string, fx: FxKind, pair: boolean, run: (eco: Ecosystem, a: Village, b: Village) => boolean): Tool => ({
+      id,
+      tab: 'civ',
+      group: 'Influenciar os povos',
+      label,
+      icon,
+      tip,
+      mode: 'click',
+      act: (ctx, x, y) => ctx.influence(id, label, fx, pair, run, x, y),
+    });
+    civ.push(
+      politic('provoke', 'Provocar', '😠', 'Clique em um reino e depois em outro: a tensão entre eles sobe e a trégua acaba. Eles ainda precisam de preparo para guerrear.', 'rage', true, (e, a, b) => e.provoke(a, b)),
+      politic('soothe', 'Amenizar', '🕊', 'Clique em um reino e depois em outro: a tensão cai e os planos de guerra entre eles se desfazem; a trégua dura mais.', 'calm', true, (e, a, b) => e.soothe(a, b)),
+      politic('incite', 'Declarar guerra', '⚔', 'Clique no reino que ataca e depois no alvo: a guerra começa já, sem esperar o preparo.', 'rage', true, (e, a, b) => e.incite(a, b)),
+      politic('inflame', 'Inflamar', '🔥', 'Clique em um reino: ele fica mais belicoso (ganha motivos com mais facilidade e se dá por pronto com menos).', 'rage', false, (e, a) => (e.sway(a, 1), true)),
+      politic('pacify', 'Acalmar', '🌿', 'Clique em um reino: ele fica mais pacato (exige muito mais vantagem e preparo antes de atacar).', 'calm', false, (e, a) => (e.sway(a, -1), true)),
+    );
     const surprise: Tool = {
       id: 'surprise',
       tab: 'events',
@@ -533,12 +554,59 @@ export class SurfaceMode {
     if (ev && e && e.x >= 0) this.goTo(e.x, e.y);
   }
 
+  /** Primeiro clique escolhe o reino de origem; nos que pedem par, o segundo escolhe o outro. Anima nos dois. */
+  private pendingInfluence: { id: string; village: Village } | null = null;
+
+  influence(id: string, label: string, fx: FxKind, pair: boolean, run: (eco: Ecosystem, a: Village, b: Village) => boolean, x: number, viewY: number): void {
+    const v = this.eco.settlementAt(x, this.toRow(viewY));
+    if (!v) {
+      this.pendingInfluence = null;
+      this.eco.hint = `${label}: clique sobre um assentamento`;
+      return;
+    }
+    this.burst(fx, v.x, this.map.height - v.y);
+    if (!pair) {
+      run(this.eco, v, v);
+      return;
+    }
+    const first = this.pendingInfluence;
+    if (!first || first.id !== id) {
+      this.pendingInfluence = { id, village: v };
+      this.eco.hint = `${label}: agora clique no outro reino`;
+      return;
+    }
+    this.pendingInfluence = null;
+    if (!run(this.eco, first.village, v)) this.eco.hint = `${label}: não deu (mesmo reino, ou já em guerra)`;
+    else this.burst(fx, first.village.x, this.map.height - first.village.y);
+  }
+
+  /** Explosão pontual de partículas da animação `kind` ao redor de um ponto (coordenadas da vista). */
+  private burst(kind: FxKind, x: number, y: number): void {
+    const def = FX[kind];
+    for (let k = 0; k < 60 && this.particles.length < 700; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.sqrt(Math.random()) * 5;
+      this.particles.push({
+        x: x + Math.cos(a) * d,
+        y: y + Math.sin(a) * d,
+        vx: def.vx + (Math.random() - 0.5) * def.spread,
+        vy: def.vy * (0.6 + Math.random() * 0.8),
+        age: Math.random() * 0.2,
+        life: 1 + Math.random() * 1.2,
+        kind: def.kind,
+        size: def.size * (0.8 + Math.random() * 0.8),
+        rgb: def.rgb,
+      });
+    }
+  }
+
   /** Boa colheita: comida para os assentamentos no pincel e mata viçosa em volta. */
   harvest(x: number, viewY: number): void {
     const row = this.toRow(viewY);
     const helped = this.eco.villages.filter((v) => !v.abandoned && Math.hypot(((v.x - x + this.map.width * 1.5) % this.map.width) - this.map.width / 2, v.y - row) < this.brush + 6);
     for (const v of helped) v.food = Math.min(60, v.food + 25);
-    this.forBrush(x, viewY, this.brush, (i) => (this.map.vegetation[i] = clamp(this.map.vegetation[i] + 0.2, 0, 1)));
+    this.forBrush(x, viewY, this.brush, (i) => sowVegetation(this.map, i, 0.2));
+    this.eco.sweep(x, row, this.brush);
     if (helped.length) this.eco.note(`Você deu uma boa colheita a ${helped.map((v) => v.name).join(', ')}`, 'jogador', helped[0]);
     else this.eco.hint = 'Nenhum assentamento no pincel';
   }
@@ -1552,7 +1620,7 @@ export class SurfaceMode {
     this.drawOpenSettlement(ctx, w, h);
     this.drawSelection(ctx, w, h);
     this.drawFx(ctx, w, h);
-    if (!this.showTerritory || this.zoom < 1) return;
+    if (!this.showTerritory) return;
     const z = this.zoom;
     for (const v of this.eco.villages) {
       if (v.abandoned) continue;
@@ -1562,18 +1630,51 @@ export class SurfaceMode {
       if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
       const c = this.layerColor(v).join(',');
       const capital = v.kingdom === v.id;
-      ctx.beginPath();
-      ctx.arc(sx, sy, r, 0, Math.PI * 2);
-      // De perto o véu quase some, para não apagar a arte das casas, ruas e plantações.
+      this.regionPath(ctx, v, w, h);
+      // De perto o véu fica leve, para não apagar a arte das casas, ruas e plantações, mas a área segue visível.
       const strong = this.layer === 'kingdoms' ? 1 : 2;
-      ctx.fillStyle = `rgba(${c},${Math.min(0.18 * strong, Math.max(0.03, (0.7 * strong) / z)).toFixed(3)})`;
+      const near = Math.max(0.45, Math.min(1, (14 - z) / 8));
+      ctx.fillStyle = `rgba(${c},${(near * Math.min(0.18 * strong, Math.max(0.03, (0.7 * strong) / z))).toFixed(3)})`;
       ctx.fill();
       ctx.lineWidth = Math.min(capital ? 4 : 3, Math.max(1.5, z * (capital ? 0.35 : 0.22)));
       ctx.setLineDash(capital ? [] : [z * 0.8, z * 0.5]);
-      ctx.strokeStyle = `rgba(${c},0.9)`;
+      ctx.strokeStyle = `rgba(${c},${(0.9 * near).toFixed(3)})`;
       ctx.stroke();
     }
     ctx.setLineDash([]);
+  }
+
+  /**
+   * Contorno orgânico da região do assentamento: o raio varia suavemente com o ângulo
+   * (cada assentamento tem a sua forma) e nunca passa da fronteira com os vizinhos.
+   */
+  private regionPath(ctx: CanvasRenderingContext2D, v: Village, w: number, h: number): void {
+    const N = 56;
+    const mw = this.map.width;
+    const base = this.eco.radius(v);
+    const near = this.eco.villages.filter((o) => o !== v && !o.abandoned && Math.hypot(((o.x - v.x + mw * 1.5) % mw) - mw / 2, o.y - v.y) < base * 2 + this.eco.radius(o));
+    ctx.beginPath();
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * Math.PI * 2;
+      const ux = Math.cos(a);
+      const uy = Math.sin(a);
+      let r = base * (1 + 0.16 * Math.sin(2 * a + v.id * 1.7) + 0.1 * Math.sin(3 * a + v.id * 4.1) + 0.06 * Math.sin(5 * a + v.id * 0.9));
+      for (const o of near) {
+        const dx = ((o.x - v.x + mw * 1.5) % mw) - mw / 2;
+        const dy = o.y - v.y;
+        const d2 = dx * dx + dy * dy;
+        const proj = ux * dx + uy * dy;
+        if (proj <= 0.01) continue;
+        const ro = this.eco.radius(o);
+        // Fronteira ponderada pelo tamanho de cada um (eixo radical): onde os dois alcances se igualam.
+        r = Math.min(r, (d2 + base * base - ro * ro) / (2 * proj) - 0.3);
+      }
+      r = Math.max(r, base * 0.45);
+      const [sx, sy] = this.screenOf(v.x + ux * r, v.y + uy * r, w, h);
+      if (k === 0) ctx.moveTo(sx, sy);
+      else ctx.lineTo(sx, sy);
+    }
+    ctx.closePath();
   }
 
   /** Ponto de tela (canvas das áreas) de uma posição do mapa (x, linha). */
@@ -1593,9 +1694,7 @@ export class SurfaceMode {
     const z = this.zoom;
     const c = v.color.join(',');
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
-    const [cx, cy] = this.screenOf(v.x, v.y, w, h);
-    ctx.beginPath();
-    ctx.arc(cx, cy, this.eco.radius(v) * z, 0, Math.PI * 2);
+    this.regionPath(ctx, v, w, h);
     ctx.fillStyle = `rgba(${c},0.14)`;
     ctx.fill();
     ctx.lineWidth = 2;
@@ -2004,6 +2103,12 @@ export class SurfaceMode {
           continue;
         }
         const elder = eco.age[i] >= elderAge(sp, era) && role < ROLES.indexOf('leader');
+        // Soldado montado (RF-VIDA-223): o cavalo embaixo e o soldado em cima.
+        if (eco.mounted(i)) {
+          layer.push(eco.vx[i] < 0 && SPRITES['horse:l'] ? 'horse:l' : 'horse', sx, sy - z * 0.45, z * 0.9, HORSE_COAT);
+          layer.push(`${body}:soldier`, sx, sy - z * 1.15, z * 0.95 * (11 / 9), tint, sp.color);
+          continue;
+        }
         layer.push(`${body}:${elder ? 'elder' : ROLES[role]}`, sx, sy - z * 0.5, z * 1.05 * (11 / 9), tint, sp.color);
         continue;
       }
@@ -2646,7 +2751,7 @@ export class SurfaceMode {
       <div class="wb-pop">Assentamentos<b>${live.length}</b></div>
       ${kingdoms ? `<button class="wb-goto" data-open="kingdoms">Reinos e povos<b>${kingdoms}</b></button>` : ''}
       ${eco.alliances.size ? `<div class="wb-pop">Alianças<b>${eco.alliances.size}</b></div>` : ''}
-      ${eco.wars.map((war) => `<button class="wb-goto bad" data-village="${war.target}">⚔ ${eco.villages[war.a].name} × ${eco.villages[war.b].name}<b>${war.losses[0] + war.losses[1]}†</b></button>`).join('')}
+      ${eco.wars.map((war) => `<button class="wb-goto bad" data-village="${war.target}" title="${WAR_MOTIVES[war.motive]}">⚔ ${eco.villages[war.a].name} × ${eco.villages[war.b].name} · ${WAR_MOTIVES[war.motive]}<b>${war.losses[0] + war.losses[1]}†</b></button>`).join('')}
       ${[...live].sort((a, b) => b.population - a.population).slice(0, 4).map((v) => `<button class="wb-goto" data-village="${v.id}"><i style="background:rgb(${v.color.join(',')})"></i>${TIER_NAMES[v.tier]} ${v.name}<b>${v.population}</b></button>`).join('')}
       ${events.length ? `<div class="wb-section">Acontecimentos</div>${events.map((e) => `<button class="wb-log"${e.x >= 0 ? ` data-go="${e.x.toFixed(1)},${e.y.toFixed(1)}"` : ''}><span class="wb-yr">${Math.floor(e.year)}</span> ${Ecosystem.describe(e)}</button>`).join('')}<button class="wb-goto" data-open="chronicle">Crônica completa…</button>` : ''}`;
     if (html !== this.lastPanelHtml) {

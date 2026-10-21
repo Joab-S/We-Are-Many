@@ -79,6 +79,24 @@ export interface Indicators {
   forestLeft: number;
   /** Árvores de pé no planeta no fim ÷ no começo. */
   worldTrees: number;
+  /** Etapa F: guerras por motivo, pico ao mesmo tempo, vezes acima do teto, crônica sem motivo e o que as guerras deixaram. */
+  lootWars: number;
+  landWars: number;
+  exterminations: number;
+  civilWars: number;
+  warsPeak: number;
+  plans: number;
+  plansDropped: number;
+  /** Anos médios de preparo até declarar. */
+  prepYears: number;
+  warsDeclared: number;
+  warsNoMotive: number;
+  looted: number;
+  burned: number;
+  refugees: number;
+  mercenaries: number;
+  retreats: number;
+  cavalry: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -111,6 +129,7 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
     }
   }
   let wars = 0;
+  let cavalry = 0;
   let caravans = 0;
   let caravansMax = 0;
   let mid = 0;
@@ -125,6 +144,7 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
     for (let t = 0; t < YEAR_SECONDS; t += 0.25) eco.step(0.25);
     if (y === Math.floor(years * 0.6)) mid = sapient();
     wars += eco.wars.length;
+    for (let i = 0; i < eco.count; i++) if (eco.alive[i] && eco.mounted(i)) cavalry++;
     const moving = eco.caravans.filter((c) => c.kind !== 'flock').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
     caravans += moving;
     caravansMax = Math.max(caravansMax, moving);
@@ -208,6 +228,23 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       replanted: eco.treesCut ? eco.treesPlanted / eco.treesCut : 0,
       forestry: live.filter((v) => v.forestry).length,
       worldTrees: countTrees() / Math.max(1, trees0),
+      lootWars: eco.tally.lootWars,
+      landWars: eco.tally.landWars,
+      exterminations: eco.tally.exterminations,
+      civilWars: eco.tally.civilWars,
+      warsPeak: eco.tally.warsPeak,
+      plans: eco.tally.plans,
+      plansDropped: eco.tally.plansDropped,
+      prepYears: eco.tally.wars ? eco.tally.prepYears / eco.tally.wars : 0,
+      warsDeclared: eco.tally.wars,
+      // Toda declaração de guerra na crônica diz o motivo (RF-VIDA-244): "para tomar", "para arrasar" ou guerra civil.
+      warsNoMotive: eco.chronicle.filter((c) => c.kind === 'guerra' && /^Guerra!|atacou/.test(c.text) && !/para tomar|para arrasar|para dominar|por vingança|em nome da fé/.test(c.text)).length,
+      looted: eco.tally.looted,
+      burned: eco.tally.burned,
+      refugees: eco.tally.refugees,
+      mercenaries: eco.tally.mercenaries,
+      retreats: eco.tally.retreats,
+      cavalry: cavalry / Math.max(1, years),
       forestLeft: live.reduce((n, v) => n + (v.treesStart ? (v.trees ?? 0) / v.treesStart : 1), 0) / Math.max(1, live.length),
     },
   };
@@ -230,9 +267,13 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
   { key: 'caravansMax', label: 'Caravanas e barcos mercantes ao mesmo tempo (máximo)', min: 1, max: 10 },
   // Recursos com peso (seção 19.19): a fome existe mas não acaba com o mundo, a população não explode nem some e a mata não some nem toma tudo.
   { key: 'hunger', label: 'Mortes de fome por ano, por 100 moradores', min: 0.05, max: 3 },
+  // Casas que desabam por falta de conserto (seção 19.20).
+  { key: 'collapsed', label: 'Casas desabadas sem conserto por ano', min: 0, max: 0.2 },
   { key: 'peopleTrend', label: 'Moradores: fim ÷ 60% da rodada', min: 0.7, max: 1.5 },
   { key: 'worldTrees', label: 'Árvores do mundo: fim ÷ começo', min: 0.7, max: 1.3 },
   { key: 'forestry', label: 'Assentamentos que replantam', min: 1, max: 99 },
+  // Etapa F (seção 19.7): sem teto de guerras; toda guerra tem motivo na crônica.
+  { key: 'warsNoMotive', label: 'Declarações de guerra sem motivo na crônica', min: 0, max: 0 },
 ];
 
 /** Nome de cada indicador no relatório. */
@@ -267,6 +308,21 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   forestry: 'Assentamentos que manejam a mata',
   forestLeft: 'Mata que sobrou em volta (÷ a do começo)',
   worldTrees: 'Árvores no planeta (fim ÷ começo)',
+  lootWars: 'Guerras de saque',
+  landWars: 'Guerras de território',
+  exterminations: 'Guerras de extermínio',
+  civilWars: 'Guerras civis',
+  warsPeak: 'Guerras ao mesmo tempo (pico)',
+  plans: 'Preparos de guerra começados',
+  plansDropped: 'Preparos que caíram (desistência, paz, alvo perdido)',
+  prepYears: 'Anos de preparo até declarar (média)',
+  warsDeclared: 'Guerras declaradas',
+  looted: 'Saques que chegaram ao alvo',
+  burned: 'Casas e roças queimadas',
+  refugees: 'Refugiados de guerra',
+  mercenaries: 'Mercenários contratados',
+  retreats: 'Exércitos que voltaram sem comida',
+  cavalry: 'Soldados montados (média por ano)',
 };
 
 /** Média, mediana e faixa de 10% a 90% de uma lista. */

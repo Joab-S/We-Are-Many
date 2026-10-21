@@ -403,11 +403,11 @@ export const TREE_SPREAD = 0.25;
 /** Vegetação máxima de um tile com toco ou muda (capim em volta) e a de uma árvore adulta de volta. */
 export const FELLED_VEG_MAX = 0.45;
 /** Chance por ano de um toco brotar sozinho com árvore adulta ao lado, e o fator longe da mata (clareira grande). */
-export const SPROUT_RATE = 0.06;
+export const SPROUT_RATE = 0.1;
 export const SPROUT_FAR = 0.1;
 /** Anos de uma muda até virar árvore adulta: a que brotou sozinha e a plantada e cuidada. */
-export const TREE_YEARS = 50;
-export const REPLANT_YEARS = 28;
+export const TREE_YEARS = 35;
+export const REPLANT_YEARS = 18;
 /**
  * Manejo da mata: a partir desta era (ou desde o começo, se o povo cultua a Floresta) o
  * assentamento passa a replantar quando a mata ao alcance dá para menos de FORESTRY_YEARS
@@ -415,7 +415,7 @@ export const REPLANT_YEARS = 28;
  * planta PLANT_RATE mudas por ano nos tocos antigos.
  */
 export const FORESTRY_TECH = 0.5;
-export const FORESTRY_YEARS = 40;
+export const FORESTRY_YEARS = 60;
 export const REPLANT_WORK = 0.25;
 export const PLANT_RATE = 1;
 
@@ -431,12 +431,19 @@ export const QUARRY_RATE = 1;
  * Conserto das casas (uma casa consome madeira): madeira por ano por casa (mais por andar) e
  * por prédio; da Era Medieval, casa de pedra gasta pouca madeira e um pouco de pedra.
  */
-export const HOUSE_UPKEEP = 0.3;
-export const BUILDING_UPKEEP = 0.4;
-export const STONE_HOUSE_UPKEEP = 0.12;
+/**
+ * Antes (21/10): 0,3 por casa e 0,4 por prédio, 5 anos até a casa esvaziar e 12 até desabar, árvore
+ * em 50 anos (28 plantada): casa nova e conserto brigavam pela mesma madeira e alguns lugares não
+ * se sustentavam. Agora o conserto é mais leve, dá mais tempo, a mata volta mais depressa e a obra
+ * nova só começa com o conserto do ano garantido (REPAIR_RESERVE anos de conserto guardados).
+ */
+export const HOUSE_UPKEEP = 0.15;
+export const REPAIR_RESERVE = 1;
+export const BUILDING_UPKEEP = 0.25;
+export const STONE_HOUSE_UPKEEP = 0.08;
 /** Anos sem conserto até a casa ficar vazia (caindo aos pedaços) e até desabar. */
-export const DECAY_YEARS = 5;
-export const COLLAPSE_YEARS = 12;
+export const DECAY_YEARS = 8;
+export const COLLAPSE_YEARS = 20;
 /** Energia por segundo que perde quem passa o inverno frio sem lenha (vezes a falta). */
 export const FREEZE = 0.03;
 
@@ -467,3 +474,73 @@ export const LABOR_CRISIS_MAX = 0.6;
 export const CHILD_NEED = 0.65;
 /** Atendimento abaixo do qual até soldados e guardas largam as armas para buscar comida ou lenha. */
 export const SEVERE_NEED = 0.4;
+
+// Guerras com motivo (seção 19.7, Etapa F).
+
+/** Trégua mínima entre dois reinos depois de uma paz; depois dela, só a prontidão (READY_LEVEL) segura uma guerra nova. */
+export const TRUCE_MIN = 3;
+/** Chance anual de guerra de extermínio por par que cumpre as condições (relação ≤ EXTERMINATION_RELATION, interesse em conflito, alvo fraco). */
+export const EXTERMINATION_RATE = 0.002;
+export const EXTERMINATION_RELATION = -80;
+/** Cansaço de guerra: chance de paz por ano (base, mais por ano de guerra e por morto). */
+export const PEACE_BASE = 0.03;
+export const PEACE_PER_YEAR = 0.004;
+export const PEACE_PER_DEATH = 1 / 150;
+/** Chance anual de uma guerra de saque por cavalos, ferro ou ouro (vezes a cobiça), para um reino mais forte em relação ruim. */
+export const COVET_WAR = 0.05;
+/** Chance anual de guerra por vingança (rancor de quem perdeu) e por fé (povo devoto contra crença diferente, vezes a intolerância). */
+export const REVENGE_WAR = 0.15;
+export const FAITH_WAR = 0.03;
+
+/**
+ * Preparo para a guerra: quem tem motivo não declara na hora, junta primeiro comida (PREP_FOOD_YEARS anos
+ * de exército), armas (uma por soldado), armaduras (PREP_ARMOR por soldado) e ouro (PREP_GOLD por era) até a
+ * prontidão chegar a READY_LEVEL e a força passar a do alvo (como ele a vê, com erro de BELIEF_NOISE) pela
+ * vantagem do motivo. Desiste depois de PREP_MAX_YEARS ou quando a tensão passa (relação acima de PEACE_REL).
+ */
+export const READY_LEVEL = 0.75;
+export const ADVANTAGE = 1.25;
+export const ADVANTAGE_RAID = 0.9;
+export const ADVANTAGE_EXTERMINATION = 2;
+export const PREP_FOOD_YEARS = 3;
+export const PREP_ARMOR = 0.5;
+export const PREP_GOLD = 3;
+export const PREP_MAX_YEARS = 40;
+export const PEACE_REL = 25;
+export const BELIEF_NOISE = 0.2;
+/** Agressividade de um reino (-1 passivo a 1 agressivo): cada intervenção do jogador soma TEMPER_STEP e some TEMPER_FADE por ano; muda a chance de ter motivo (vezes 1 + agressividade) e o preparo exigido (TEMPER_READY, TEMPER_ADVANTAGE por unidade). */
+export const TEMPER_STEP = 0.5;
+export const TEMPER_FADE = 0.03;
+export const TEMPER_READY = 0.2;
+export const TEMPER_ADVANTAGE = 0.3;
+/** Tensão que o jogador soma ou tira da relação entre dois reinos. */
+export const PLAYER_TENSION = 25;
+
+/** Força do soldado montado (RF-VIDA-223): carro de guerra no Bronze e cavalaria do Ferro em diante; um cavalo por soldado. */
+export const CHARIOT_STRENGTH = 1.6;
+export const CAVALRY_STRENGTH = 2.0;
+/** Logística: comida por soldado por ano de guerra, tirada do celeiro de casa; longe de casa (tiles) o exército perde força. */
+export const ARMY_FOOD = 1;
+export const ARMY_REACH = 60;
+export const FAR_FROM_HOME = 0.8;
+/** Força do exército sem comida nenhuma (com metade, metade do caminho até 1); dois anos seguidos abaixo de RETREAT_SUPPLY e ele volta. */
+export const HUNGRY_ARMY = 0.6;
+export const RETREAT_SUPPLY = 0.35;
+
+/** Saque: parte do bem cobiçado e do rebanho que o bando leva, e roças queimadas na passagem. */
+export const LOOT_SHARE = 0.5;
+export const LOOT_HERD = 0.3;
+export const BURNED_FIELDS = 2;
+/** Anos que o bando leva no máximo para voltar com o saque antes de a guerra acabar sem ele. */
+export const LOOT_RETURN_YEARS = 3;
+/** Conquista: parte das casas queimadas e dos moradores que fogem para os vizinhos. */
+export const RAZE_SHARE = 0.2;
+export const REFUGEE_SHARE = 0.25;
+/** Rancor: anos em que o povo vencido perde relação com o vencedor, e quanto por ano. */
+export const GRUDGE_YEARS = 60;
+export const GRUDGE_PULL = 1.5;
+
+/** Mercenários (RF-VIDA-295): chance por ano de guerra (do 2º ano), quantos no máximo e o ouro que cada um custa. */
+export const MERCENARY_RATE = 0.5;
+export const MERCENARY_MAX = 4;
+export const MERCENARY_PRICE = 2;
