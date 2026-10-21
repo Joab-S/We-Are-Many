@@ -1805,7 +1805,7 @@ export class SurfaceMode {
         for (let col = c0; col <= c1; col++) {
           const i = row * mw + (((col % mw) + mw) % mw);
           const kind = this.pixels[i * 4 + 3] >> 4;
-          if (kind < 1 || kind > 7) continue;
+          if (kind < 1 || (kind > 7 && kind !== 11 && kind !== 12)) continue;
           ctx.drawImage(this.decorCanvas, (kind - 1) * 16, 0, 16, 16, Math.floor((col - this.center.x) * z + w / 2), Math.floor(sy), size, size);
         }
       }

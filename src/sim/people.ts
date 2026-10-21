@@ -53,7 +53,7 @@ export function animalStage(age: number, maturity: number, maxAge: number): stri
 }
 
 /** Como alguém deixou o assentamento: morte (com a causa) ou partida. */
-export const DEATH_CAUSES = ['velhice', 'fome', 'doença', 'guerra', 'predador', 'desastre', 'jogador', 'outra'] as const;
+export const DEATH_CAUSES = ['velhice', 'fome', 'frio', 'doença', 'guerra', 'predador', 'desastre', 'jogador', 'outra'] as const;
 export type DeathCause = (typeof DEATH_CAUSES)[number];
 /** `partiu` não é morte: embarcou, foi para a guerra por mar ou virou colono. */
 export type Exit = DeathCause | 'partiu';
@@ -61,6 +61,7 @@ export type Exit = DeathCause | 'partiu';
 export const DEATH_TEXT: Record<DeathCause, string> = {
   velhice: 'de velhice',
   fome: 'de fome',
+  frio: 'de frio',
   doença: 'de doença',
   guerra: 'em combate',
   predador: 'atacado por um predador',

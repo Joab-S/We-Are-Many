@@ -1,7 +1,7 @@
 import { mulberry32 } from '../core/rng';
 import * as B from './balance';
 import { binomial, happens, ouStep, streams } from './stochastic';
-import { Biome, classify, Decor, decorAt, temperatureAt, vegetationCap, type SurfaceMap } from '../procgen/surface';
+import { Biome, classify, Decor, decorAt, isTree, temperatureAt, vegetationCap, type SurfaceMap } from '../procgen/surface';
 import {
   WONDER_NAMES,
   buildCost,
@@ -357,6 +357,8 @@ export interface Building {
   era?: number;
   /** Casa vazia num assentamento em crise (RF-VIDA-254). */
   empty?: boolean;
+  /** Anos seguidos sem conserto por falta de madeira ou pedra (seção 19.19). */
+  wear?: number;
 }
 
 export interface Village {
@@ -454,6 +456,29 @@ export interface Village {
   refused?: number;
   /** A capital cunha moeda própria (RF-VIDA-291). */
   mint?: boolean;
+  /**
+   * Recursos do mapa (seção 19.19): árvores de pé ao alcance, a lista delas da mais perto
+   * para a mais longe, a próxima a cair (onde os lenhadores trabalham) e o trabalho de corte
+   * acumulado; o povo replanta a mata (manejo).
+   */
+  trees?: number;
+  treesStart?: number;
+  treeList?: number[];
+  treeNext?: number;
+  treeScan?: number;
+  fellAt?: number;
+  chop?: number;
+  forestry?: boolean;
+  /** Pedreira: tiles com pedra ao alcance, do melhor para o pior, e a pedra que ainda dão. */
+  stoneList?: number[];
+  stoneNext?: number;
+  stoneScan?: number;
+  stoneLeft?: number;
+  /** Coleta acumulada (porções) e a parte do inverno frio que passou sem lenha. */
+  gatherWork?: number;
+  chill?: number;
+  /** Anos seguidos de falta de comida ou madeira (cobiça e êxodo). */
+  want?: number;
 }
 
 /** Quem a pessoa é, guardado quando ela embarca e devolvido quando desembarca. */
@@ -649,6 +674,17 @@ export class Ecosystem {
   readonly mainStreet: Uint8Array;
   /** Tiles ocupados por casas. */
   readonly built: Uint8Array;
+  /** Crescimento da muda (0 a 1), vegetação da árvore antes do corte e tiles com toco ou muda (seção 19.19). */
+  private readonly treeGrow: Float32Array;
+  private readonly treeVeg: Float32Array;
+  private readonly stumps = new Set<number>();
+  /** Pedra já tirada de cada tile (seção 19.19). */
+  readonly stoneTaken: Float32Array;
+  /** Árvores cortadas e plantadas no mundo (calibração). */
+  treesCut = 0;
+  treesPlanted = 0;
+  /** Contas da falta no mundo inteiro (calibração, seção 19.19): mortes de fome e frio, casas desabadas, guerras por cobiça, êxodos e migrantes. */
+  readonly tally = { hunger: 0, cold: 0, collapsed: 0, greedWars: 0, exodus: 0, migrants: 0 };
   readonly population: number[] = [];
   /** Teto de cada espécie neste planeta, proporcional ao habitat. */
   private readonly caps: number[] = [];
@@ -700,6 +736,10 @@ export class Ecosystem {
     this.trafficEra = new Uint8Array(map.width * map.height);
     this.mainStreet = new Uint8Array(map.width * map.height);
     this.built = new Uint8Array(map.width * map.height);
+    this.treeGrow = new Float32Array(map.width * map.height);
+    this.treeVeg = new Float32Array(map.width * map.height);
+    this.stoneTaken = new Float32Array(map.width * map.height);
+    map.felled = new Uint8Array(map.width * map.height);
     this.cols = Math.ceil(map.width / CELL);
     this.rows = Math.ceil(map.height / CELL);
     this.gridHead = new Int32Array(this.cols * this.rows);
@@ -1013,6 +1053,8 @@ export class Ecosystem {
       const vital = (this.villages[this.village[i]].vitalNow ??= emptyVital());
       if (cause === 'partiu') vital.left++;
       else vital.deaths[cause] = (vital.deaths[cause] ?? 0) + 1;
+      if (cause === 'fome') this.tally.hunger++;
+      else if (cause === 'frio') this.tally.cold++;
     }
     this.population[s]--;
     this.expedition.delete(i);
@@ -1155,37 +1197,50 @@ export class Ecosystem {
   }
 
   /**
-   * Migração interna (RF-VIDA-281): de um assentamento apertado ou com fome,
-   * um adulto muda para um vizinho do mesmo povo e espécie com lugar sobrando,
-   * a até 60 tiles e alcançável a pé.
+   * Migração interna (RF-VIDA-281): de um assentamento apertado, com fome ou sem lenha, gente
+   * muda para um vizinho do mesmo povo e espécie com lugar e comida sobrando, a até 60 tiles e
+   * alcançável a pé. Na falta (seção 19.19) saem até SCARCITY_MOVERS por ano; sem vizinho, depois
+   * de alguns anos de falta, parte do povo sai para fundar outro lugar (êxodo).
    */
   private migrate(): void {
     for (const v of this.villages) {
       if (v.abandoned || v.population < 6) continue;
       const tight = v.population > this.housing(v) - 1;
-      const hungry = v.food < 1 && v.fields === 0 && v.port < 0;
-      if (!(tight || hungry) || !happens(this.civRnd, B.MIGRATION_RATE, 1)) continue;
+      const lack = this.scarcity(v);
+      if (!(tight || lack > 0) || !happens(this.civRnd, B.MIGRATION_RATE * (1 + 2 * lack), 1)) continue;
       let best: Village | null = null;
       let bd = 60;
       for (const o of this.villages) {
         if (o === v || o.abandoned || o.species !== v.species || o.culture !== v.culture) continue;
-        if (this.housing(o) - o.population < 3) continue;
+        if (this.housing(o) - o.population < 3 || this.scarcity(o) > 0) continue;
         const d = this.distance(o, v.x, v.y);
         if (d < bd && this.landPath(v.x, v.y, o.x, o.y)) {
           bd = d;
           best = o;
         }
       }
-      if (!best) continue;
-      for (let i = 0; i < this.count; i++) {
+      const why = lack > 0 ? ((v.needs?.food ?? 1) <= (v.needs?.fuel ?? 1) ? 'comida' : 'lenha') : 'lugar';
+      if (!best) {
+        // Êxodo: anos de falta sem vizinho para onde ir; parte do povo sai para fundar outro lugar.
+        if (lack > 0 && (v.want ?? 0) >= 3 && v.population >= 10 && v.tier >= 0 && this.colonizeByLand(v)) {
+          this.note(`Sem ${why}, parte do povo de ${v.name} partiu para longe`, 'povo', v, { key: `exodus-${v.id}` });
+          v.want = 0;
+          this.tally.exodus++;
+        }
+        continue;
+      }
+      const movers = lack > 0 ? Math.max(1, Math.round(B.SCARCITY_MOVERS * lack)) : 1;
+      let moved = 0;
+      for (let i = 0; i < this.count && moved < movers; i++) {
         if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD) continue;
         v.population--;
         this.village[i] = -1;
         (v.vitalNow ??= emptyVital()).left++;
         this.join(i, best);
-        this.note(`Gente de ${v.name} se mudou para ${best.name} em busca de ${hungry ? 'comida' : 'lugar'}`, 'povo', best, { key: `migra-${v.id}-${best.id}` });
-        break;
+        moved++;
+        this.tally.migrants++;
       }
+      if (moved) this.note(`Gente de ${v.name} se mudou para ${best.name} em busca de ${why}`, 'povo', best, { key: `migra-${v.id}-${best.id}` });
     }
   }
 
@@ -1232,9 +1287,12 @@ export class Ecosystem {
       this.updateVocation(v);
       this.updateHerd(v);
       this.updateSoil(v);
+      this.upkeep(v);
       this.neglect(v);
+      this.woodland(v);
       this.luxuryYear(v);
       this.clampStock(v);
+      this.hardship(v);
       v.ledger = v.ledgerNow ?? {};
       v.ledgerNow = {};
       v.vital = v.vitalNow ?? emptyVital();
@@ -1261,7 +1319,10 @@ export class Ecosystem {
     const n = v.needs ?? fullNeeds();
     n.food = 0.6 * ratio('_fed') + 0.4 * Math.min(1, v.food / (pop * B.CONSUME_FOOD));
     n.water = v.wet ? 1 : this.has(v, 'aqueduct') ? 1 : v.tier >= 3 ? 0.5 : era >= 1 ? 0.85 : 0.75;
-    n.fuel = ratio('_fuel');
+    // Lenha para o fogo e madeira para consertar as casas (seção 19.19).
+    const fuel = l['_fuel'] ?? [0, 0];
+    const fix = l['_upkeep'] ?? [0, 0];
+    n.fuel = fuel[1] + fix[1] > 0 ? Math.min(1, (fuel[0] + fix[0]) / (fuel[1] + fix[1])) : 1;
     n.material = Math.min(1, this.housing(v) / pop);
     n.cloth = ratio('_cloth');
     n.tools = Math.min(1, v.stock.tools / Math.max(1, adults * 0.15));
@@ -1296,7 +1357,7 @@ export class Ecosystem {
    */
   private shiftLabor(v: Village, adults: number[]): void {
     const n = v.needs;
-    if (!n || adults.length < 4) return;
+    if (!n || adults.length < 2) return;
     const favour = v.vocation ? VOCATION_NEED[v.vocation] : undefined;
     const need = worstNeed(n, favour);
     const ctx = {
@@ -1317,22 +1378,54 @@ export class Ecosystem {
     if (role === 'shepherd' && !ctx.herd) return;
     if (role === 'miner' && calm && !v.mines.length) return;
     const target = ROLE[role];
+    // Sobrevivência (seção 19.19): com fome ou sem lenha, muita gente larga o que faz (até soldados e mineradores).
+    const crisis = !calm && (need === 'food' || need === 'fuel') && n[need] < B.CRISIS_NEED;
     let already = 0;
     for (const i of adults) if (this.role[i] === target) already++;
-    const space = Math.floor(adults.length * B.LABOR_ROLE_MAX) - already;
+    const space = Math.max(1, Math.floor(adults.length * (crisis ? B.LABOR_CRISIS_MAX : B.LABOR_ROLE_MAX))) - already;
     if (space <= 0) return;
-    let movers = Math.min(space, binomial(this.civRnd, adults.length, B.LABOR_SHIFT * (calm ? 0.15 : 1 - n[need])));
+    let movers = Math.min(space, binomial(this.civRnd, adults.length, (crisis ? B.LABOR_CRISIS_SHIFT : B.LABOR_SHIFT) * (calm ? 0.15 : 1 - n[need])));
     for (const i of adults) {
       if (movers <= 0) break;
+      // Idosos não mudam de trabalho: já não trabalham.
+      if (this.age[i] >= elderAge(this.species[this.kind[i]], Math.floor(v.tech))) continue;
       const from = ROLES[this.role[i]];
       const sector = ROLE_NEED[from];
-      // Ferreiros e mineradores ficam: o trabalho deles também leva à próxima era.
-      if (!sector || this.role[i] === target || i === v.leader || from === 'blacksmith' || from === 'miner') continue;
-      if (!calm && n[sector] < n[need] + 0.15) continue;
+      if (this.role[i] === target || i === v.leader || from === 'leader' || from === 'king') continue;
+      // Fora da crise, ferreiros e mineradores ficam (o trabalho deles também leva à próxima era), e só muda quem tem setor.
+      if (!crisis && (!sector || from === 'blacksmith' || from === 'miner')) continue;
+      // Soldados e guardas só largam as armas na fome brava.
+      if ((from === 'soldier' || from === 'guard') && n[need] >= B.SEVERE_NEED) continue;
+      if (!calm && sector && n[sector] < n[need] + 0.15) continue;
       if (calm && sector === need) continue;
       this.role[i] = target;
       movers--;
     }
+  }
+
+  /** Profissão de quem vira adulto: o que mais falta no assentamento, ou o sorteio pela era (seção 19.19). */
+  private firstRole(v: Village, era: number): number {
+    const n = v.needs;
+    const drawn = pickRole(era, v.tier, this.rnd(), this.roleContext(v));
+    // Quem foi chamado para as armas vai, com ou sem falta: o exército é escolha do líder.
+    if (drawn === ROLE.soldier || drawn === ROLE.guard) return drawn;
+    if (n) {
+      const need = worstNeed(n, v.vocation ? VOCATION_NEED[v.vocation] : undefined);
+      if (n[need] < B.CHILD_NEED && this.rnd() < 1 - n[need]) {
+        const role = roleFor(need, {
+          era,
+          fields: v.fields > 0,
+          port: v.port >= 0,
+          herd: !!v.herd && v.herd.head > 0,
+          loom: this.has(v, 'loom'),
+          pottery: this.has(v, 'pottery') && !!v.wet,
+          smithy: this.has(v, 'smithy'),
+          vocation: v.vocation,
+        });
+        if (!(role === 'fisher' && v.port < 0) && !(role === 'shepherd' && !(v.herd && v.herd.head > 0))) return ROLE[role];
+      }
+    }
+    return drawn;
   }
 
   /** Vocação que muda devagar quando a base acaba (RF-VIDA-222). */
@@ -1579,19 +1672,35 @@ export class Ecosystem {
     if (v.fields > 0 && this.harvest(v) < B.CROP_FAILURE) this.note(`Quebra de safra em ${v.name}`, 'natureza', v, { key: `safra-${v.id}` });
   }
 
+  /**
+   * Fome, frio e falta (seção 19.19): mortes de fome e de frio vão para a crônica, e os anos
+   * seguidos de falta de comida, lenha ou casa contam para a migração, o êxodo e a cobiça.
+   */
+  private hardship(v: Village): void {
+    const dead = v.vitalNow?.deaths ?? {};
+    const hunger = dead.fome ?? 0;
+    const cold = dead.frio ?? 0;
+    if (hunger >= B.FAMINE_DEATHS) this.note(`Fome em ${v.name}: ${hunger} morreram este ano`, 'natureza', v, { key: `famine-${v.id}`, major: hunger >= 6 });
+    if (cold >= B.FAMINE_DEATHS) this.note(`Frio em ${v.name}: sem lenha, ${cold} morreram no inverno`, 'natureza', v, { key: `freeze-${v.id}` });
+    v.want = this.scarcity(v) > 0 ? (v.want ?? 0) + 1 : 0;
+  }
+
+  /** Quanto falta de comida e de lenha no assentamento, de 0 (nada) a 1 (tudo). */
+  scarcity(v: Village): number {
+    const n = v.needs;
+    if (!n) return 0;
+    return Math.max(0, B.SCARCITY_LEVEL - Math.min(n.food, n.fuel)) / B.SCARCITY_LEVEL;
+  }
+
   /** O que passou do teto se perde (sobra que não cabe no armazém). */
   private clampStock(v: Village): void {
     const c = this.capContext(v);
     const cap = foodCap(c);
-    // O que passa do teto não se joga fora: parte é vendida no mercado vizinho por ouro (seção 19.18).
-    const sell = (g: Good | 'food', extra: number) => {
-      this.spend(v, g, extra);
-      if (g !== 'gold') this.gain(v, 'gold', (extra * this.priceAt(v, g) * B.SURPLUS_SALE) / B.GOLD_VALUE);
-    };
-    if (v.food > cap) sell('food', v.food - cap);
+    // Não vira ouro nem vai para outro lugar: o que não cabe estraga ou se perde (pedido do Joab, seção 19.19).
+    if (v.food > cap) this.spend(v, 'food', v.food - cap);
     for (const g of GOODS) {
       const max = goodCap(g, c);
-      if (v.stock[g] > max) sell(g, v.stock[g] - max);
+      if (v.stock[g] > max) this.spend(v, g, v.stock[g] - max);
     }
   }
 
@@ -1711,10 +1820,12 @@ export class Ecosystem {
       const before = m.vegetation[i];
       // Espalha a partir dos vizinhos; um tile pastado ainda rebrota devagar pelas raízes.
       const season = ok ? Math.max(0.2, 1 + B.HARVEST_SENSITIVITY * this.climate[this.region(x, y)]) : 1;
-      // Nada passa do que o lugar aguenta: o deserto só segura cactos, o gelo e a rocha nada.
+      // Nada passa do que o lugar aguenta; mato baixo rebrota rápido e mata fechada (acima de TREE_BAND) cresce devagar (seção 19.19).
       if (before > cap) m.vegetation[i] = Math.max(cap, before - 0.05);
-      else if (ok && neighbour > 0.3) m.vegetation[i] = Math.min(cap, before + 0.05 * season);
+      else if (ok && neighbour > 0.3) m.vegetation[i] = Math.min(cap, before + 0.05 * season * (before >= B.TREE_BAND ? B.TREE_SPREAD : 1));
       else if (ok && before > 0.02 && before < 0.35) m.vegetation[i] = Math.min(cap, before + 0.02 * season);
+      // Toco e muda: o capim cresce em volta, mas a árvore só volta no tempo dela (growForests).
+      if (m.felled?.[i] && m.vegetation[i] > B.FELLED_VEG_MAX) m.vegetation[i] = Math.max(Math.min(before, m.vegetation[i]), B.FELLED_VEG_MAX);
       if (m.vegetation[i] !== before) {
         m.biome[i] = classify(m, i);
         this.onTileChanged(i);
@@ -1914,8 +2025,18 @@ export class Ecosystem {
         const v = this.village[i] >= 0 ? this.villages[this.village[i]] : null;
         const era = Math.floor(v?.tech ?? 0);
         const veg = map.vegetation[tile];
-        if (veg > 0.1) e += 0.06 * dt * (1 + (v?.tech ?? 0) * 0.5);
-        if (this.nearWater(tile)) e += 0.05 * dt;
+        // Quem vive num assentamento belisca pouco no mato: o grosso da comida vem do estoque (seção 19.19).
+        // Sozinho no mato, vive do que acha.
+        if (v) {
+          // Um bando pequeno ainda vive do mato; com mais gente em volta, cada um acha menos.
+          if (veg > 0.25) e += Math.max(B.FORAGE, B.FORAGE_WILD / (1 + v.population / B.FORAGE_CROWD)) * dt;
+          if (this.nearWater(tile)) e += B.SHORE_FORAGE * dt;
+          // Inverno frio sem lenha.
+          if (v.chill) e -= B.FREEZE * v.chill * dt;
+        } else {
+          if (veg > 0.1) e += 0.06 * dt;
+          if (this.nearWater(tile)) e += 0.05 * dt;
+        }
         // Quem tem fome come o peixe que os barcos trouxeram.
         if (v && v.food >= 1 && e < 0.6) {
           v.food -= 1;
@@ -1923,7 +2044,7 @@ export class Ecosystem {
           e += 0.35;
         }
         // Crianças ganham uma profissão ao virar adultas.
-        if (v && this.role[i] === CHILD && this.age[i] >= sp.maturity) this.role[i] = pickRole(era, v.tier, this.rnd(), this.roleContext(v));
+        if (v && this.role[i] === CHILD && this.age[i] >= sp.maturity) this.role[i] = this.firstRole(v, era);
         const elder = this.age[i] >= elderAge(sp, era);
         const working = this.role[i] !== CHILD && !elder;
         let bias: { x: number; y: number } | undefined = lone;
@@ -1945,6 +2066,15 @@ export class Ecosystem {
             dx = wrapDx(d.x + 0.5 - this.x[i], map.width);
             dy = d.y + 0.5 - this.y[i];
             range = 2;
+          } else if (role === ROLE.woodcutter && working && (v.fellAt ?? -1) >= 0) {
+            // Lenhadores vão até a mata onde a próxima árvore vai cair (seção 19.19).
+            const t = v.fellAt!;
+            dx = wrapDx((t % map.width) + 0.5 - this.x[i], map.width);
+            dy = Math.floor(t / map.width) + 0.5 - this.y[i];
+            range = 2.5;
+          } else if (role === ROLE.gatherer && working) {
+            // Coletores andam até onde ainda há o que colher, além da borda.
+            range = this.radius(v) + B.GATHER_REACH * 0.6;
           } else if (working && (role === ROLE.hunter || role === ROLE.miner)) {
             // Caçadores e mineradores sem mina exploram longe de casa, mais longe a cada era.
             range = this.radius(v) * (role === ROLE.miner ? 2.5 : 1.8) * (1 + 0.25 * era);
@@ -1968,8 +2098,9 @@ export class Ecosystem {
             });
             if (prey >= 0) {
               this.kill(prey, false, 'predador');
-              e += 0.4;
-              // A caça também dá peles (roupa na Idade da Pedra).
+              // A carne vai para o estoque e alimenta o assentamento (seção 19.19); a caça também dá peles.
+              e += B.HUNT_EAT;
+              this.book(v, '_hunt', this.put(v, 'food', B.HUNT_FOOD), 0);
               this.gain(v, 'hides', 1);
             }
           }
@@ -1991,8 +2122,10 @@ export class Ecosystem {
     const life = lifespan(sp, era);
     const old = this.age[i] > life * (0.85 + 0.3 * ((i * 2654435761) % 1000) / 1000);
     if (this.energy[i] <= 0 || old) {
-      if (v >= 0 && this.villages[v].population === 1) this.villages[v].lastCause = this.energy[i] <= 0 ? 'de fome' : 'de velhice';
-      this.kill(i, false, this.energy[i] <= 0 ? 'fome' : 'velhice');
+      const cold = v >= 0 && (this.villages[v].chill ?? 0) > 0.3 && (this.villages[v].food ?? 0) >= 1;
+      const cause: DeathCause = this.energy[i] > 0 ? 'velhice' : cold ? 'frio' : 'fome';
+      if (v >= 0 && this.villages[v].population === 1) this.villages[v].lastCause = cause === 'velhice' ? 'de velhice' : cause === 'frio' ? 'de frio' : 'de fome';
+      this.kill(i, false, cause);
       return;
     }
     // Reprodução (idosos não têm filhos).
@@ -2631,6 +2764,82 @@ export class Ecosystem {
     return true;
   }
 
+  /** Madeira e pedra por ano para consertar as casas e os prédios (seção 19.19). */
+  private repairs(v: Village): { wood: number; stone: number } {
+    const era = Math.floor(v.tech);
+    let wood = 0;
+    let stone = 0;
+    for (const h of v.houses) {
+      if (h.kind === 'house') {
+        const k = 1 + 0.5 * (h.level ?? 0);
+        if (era >= 3) {
+          wood += B.STONE_HOUSE_UPKEEP * k;
+          stone += B.STONE_HOUSE_UPKEEP * k;
+        } else wood += B.HOUSE_UPKEEP * k;
+      } else if (h.kind !== 'port') wood += B.BUILDING_UPKEEP;
+    }
+    return { wood, stone };
+  }
+
+  /**
+   * Conserto das casas (seção 19.19), uma vez por ano, pelo que foi pago ao longo do ano (em
+   * `consume`): sem material, as casas mais longe do centro ficam sem conserto; com DECAY_YEARS
+   * anos ficam vazias, caindo aos pedaços, e com COLLAPSE_YEARS desabam.
+   */
+  private upkeep(v: Village): void {
+    const era = Math.floor(v.tech);
+    const e = v.ledgerNow?.['_upkeep'];
+    if (!e || e[1] <= 0) return;
+    const share = Math.min(1, e[0] / e[1]);
+    // As casas mais perto do centro são consertadas primeiro.
+    const order = v.houses.filter((h) => h.kind !== 'port').sort((p, q) => this.distance(v, q.x + 1, q.y + 1) - this.distance(v, p.x + 1, p.y + 1));
+    const unpaid = Math.round((1 - share) * order.length);
+    let empty = 0;
+    let fallen = 0;
+    for (let k = 0; k < order.length; k++) {
+      const h = order[k];
+      if (k >= unpaid) {
+        h.wear = Math.max(0, (h.wear ?? 0) - 1);
+        continue;
+      }
+      h.wear = (h.wear ?? 0) + 1;
+      if (h.kind === 'house' && h.wear >= B.DECAY_YEARS && !h.empty) {
+        h.empty = true;
+        empty++;
+      }
+      if (h.wear >= B.COLLAPSE_YEARS && h.kind !== 'port') {
+        const at = v.houses.indexOf(h);
+        if (at >= 0) {
+          this.raze(v, at);
+          fallen++;
+          this.tally.collapsed++;
+        }
+      }
+    }
+    const what = era >= 3 ? 'madeira e pedra' : 'madeira';
+    if (fallen) this.note(`${fallen > 1 ? `${fallen} casas desabaram` : 'Uma casa desabou'} em ${v.name}: faltou ${what} para os consertos`, 'economia', v, { key: `collapse-${v.id}` });
+    else if (empty) this.note(`Casas de ${v.name} estão caindo aos pedaços: falta ${what} para os consertos`, 'economia', v, { key: `decay-${v.id}` });
+  }
+
+  /**
+   * A mata ao alcance, uma vez por ano (seção 19.19): conta as árvores de pé e decide se o povo
+   * passa a replantar. Sem manejo, quando a mata acaba os lenhadores ficam sem o que cortar.
+   */
+  private woodland(v: Village): void {
+    const before = v.trees ?? -1;
+    this.scanTrees(v);
+    const trees = v.trees ?? 0;
+    const used = (v.ledgerNow?.['wood']?.[1] ?? 0) / B.WOOD_PER_TREE;
+    if (!v.forestry && used > 0.5 && trees < used * B.FORESTRY_YEARS) {
+      const tech = v.culture.belief === 'a Floresta' ? 0 : B.FORESTRY_TECH;
+      if (v.tech >= tech) {
+        v.forestry = true;
+        this.note(`${v.name} passou a replantar a mata: as árvores por perto estavam acabando`, 'economia', v, { key: `forestry-${v.id}` });
+      }
+    }
+    if (before > 0 && trees === 0) this.note(`Acabou a mata em volta de ${v.name}: não há mais árvore para cortar ao alcance`, 'economia', v, { key: `deforest-${v.id}` });
+  }
+
   /** Casas vazias na crise e ocupadas de novo na melhora (RF-VIDA-254). */
   private neglect(v: Village): void {
     const w = v.needs ? welfare(v.needs) : 1;
@@ -2652,7 +2861,7 @@ export class Ecosystem {
         this.note(`Casas ficaram vazias em ${v.name}`, 'economia', v, { key: `empty-${v.id}` });
       }
     } else if (w >= 0.7 && happens(this.civRnd, B.CRISIS_REFILL_RATE, 1)) {
-      const h = homes.find((o) => o.empty);
+      const h = homes.find((o) => o.empty && (o.wear ?? 0) < B.DECAY_YEARS);
       if (h) h.empty = false;
     }
   }
@@ -3066,8 +3275,24 @@ export class Ecosystem {
         this.road[t] = 0;
         this.onTileChanged(t);
       },
-      (x, y) => {
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (this.built[at(x + dx, y + dy)]) return true;
+      // Fica o toco que é a única rua de uma casa ao lado (a até 2 tiles dela).
+      (x, y, gone) => {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const bx = x + dx;
+            const by = y + dy;
+            const b = at(bx, by);
+            if (b < 0 || !this.built[b]) continue;
+            let other = false;
+            for (let ey = -2; ey <= 2 && !other; ey++) {
+              for (let ex = -2; ex <= 2 && !other; ex++) {
+                const t = at(bx + ex, by + ey);
+                if (t >= 0 && isStreet(this.road[t]) && !gone(bx + ex, by + ey)) other = true;
+              }
+            }
+            if (!other) return true;
+          }
+        }
         return false;
       },
     );
@@ -3167,12 +3392,10 @@ export class Ecosystem {
         }
       }
     }
-    // Os vizinhos do reino recolhem parte do que sobrou no estoque (seção 19.18); o resto estraga com o tempo.
-    const heir = this.villages.filter((o) => o !== v && !o.abandoned && o.kingdom === v.kingdom).sort((p, q) => this.distance(p, v.x, v.y) - this.distance(q, v.x, v.y))[0];
-    if (heir && this.distance(heir, v.x, v.y) < B.HAUL_RANGE) {
-      for (const g of GOODS) this.gain(heir, g, v.stock[g] * B.ABANDON_RECOVER);
-      this.gain(heir, 'food', v.food * B.ABANDON_RECOVER);
-    }
+    // O que sobrou no estoque se perde com o lugar: ninguém herda (pedido do Joab, seção 19.19). Só o saque leva bens embora.
+    v.stock = emptyStock();
+    v.stock.wood = 0;
+    v.food = 0;
     v.houses.length = 0;
     v.port = -1;
     for (const id of v.mines) this.deposits[id].mine = -1;
@@ -3326,7 +3549,7 @@ export class Ecosystem {
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
         const season = B.SEASON_HARVEST[seasonOf(this.yearClock / YEAR_SECONDS)];
-        this.gain(v, 'food', worked * B.FIELD_YIELD * this.harvest(v) * (v.soil ?? 1) * fallow * mill * bonus * season * yr);
+        this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * this.harvest(v) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
       }
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
       // Roças no fim da Idade da Pedra (uma para cada quatro casas); da Idade do Bronze em diante, uma para cada duas.
@@ -3483,7 +3706,17 @@ export class Ecosystem {
     const season = seasonOf(this.yearClock / YEAR_SECONDS);
     const cold = temperatureAt(this.map, this.tileAt(v.x, Math.floor(v.y))) < B.COLD_K ? 2 : 1;
     const fuel = v.population * B.CONSUME_FUEL * cold * B.SEASON_FUEL[season] * yr;
-    this.book(v, '_fuel', this.spend(v, 'wood', fuel), fuel);
+    const burnt = this.spend(v, 'wood', fuel);
+    this.book(v, '_fuel', burnt, fuel);
+    // Consertos das casas ao longo do ano (seção 19.19); tijolo serve no lugar da pedra.
+    const fix = this.repairs(v);
+    if (fix.wood + fix.stone > 0) {
+      const brick = Math.min(st.brick, fix.stone * yr);
+      const paid = this.spend(v, 'wood', fix.wood * yr) + this.spend(v, 'brick', brick) + this.spend(v, 'stone', fix.stone * yr - brick);
+      this.book(v, '_upkeep', paid, (fix.wood + fix.stone) * yr);
+    }
+    // Inverno frio sem lenha: a falta tira energia dos moradores (seção 19.19).
+    v.chill = cold > 1 && season === 3 && fuel > 0 ? 1 - burnt / fuel : 0;
     const cloth = v.population * B.CONSUME_CLOTH * yr;
     const worn = this.spend(v, 'cloth', cloth);
     this.book(v, '_cloth', worn + this.spend(v, 'hides', cloth - worn), cloth);
@@ -3552,21 +3785,12 @@ export class Ecosystem {
     const tools = st.tools > 0 ? 1.4 : 1;
     const bonus = (voc: Vocation) => (v.vocation === voc ? 1 + B.VOCATION_BONUS : 1);
     const season = seasonOf(this.yearClock / YEAR_SECONDS);
-    // Lenha: quanto mais floresta por perto, mais madeira; o corte desbasta a mata. Coletores juntam gravetos.
-    const cutters = w[ROLE.woodcutter] + w[ROLE.gatherer] * 0.3;
-    if (cutters) {
-      const sawmill = this.has(v, 'sawmill') ? 1.3 : 1;
-      const wood = this.gain(v, 'wood', cutters * 3 * yr * tools * sawmill * bonus('madeireira') * Math.min(1, v.forest * 2 + 0.1));
-      if (this.civRnd() < wood * 0.4) {
-        const a = this.civRnd() * Math.PI * 2;
-        const d = this.radius(v) * (0.8 + this.civRnd() * 0.6);
-        const t = this.tileAt(v.x + Math.cos(a) * d, Math.floor(v.y + Math.sin(a) * d));
-        if (t >= 0 && this.map.vegetation[t] > 0.35) {
-          this.map.vegetation[t] -= 0.08;
-          this.onTileChanged(t);
-        }
-      }
-    }
+    // Lenha (seção 19.19): os lenhadores derrubam árvores de verdade, da mais perto para a mais longe;
+    // quanto mais longe a mata, menos madeira chega por ano. A serraria aproveita mais de cada tronco.
+    const cutters = w[ROLE.woodcutter];
+    if (cutters) this.cutWood(v, cutters * B.CUT_RATE * yr * tools * bonus('madeireira'), this.has(v, 'sawmill') ? 1.3 : 1);
+    // Coletores trazem frutos, raízes e mel do mato, que se gasta e rebrota (seção 19.19).
+    if (w[ROLE.gatherer]) this.gather(v, w[ROLE.gatherer] * B.GATHER_RATE * yr * this.harvest(v) * B.SEASON_HARVEST[season] ** 0.5);
     // Minas: o minério sai da jazida (limitada) para o estoque do assentamento que a explora.
     const mines = v.mines.map((id) => this.deposits[id]);
     if (mines.length && w[ROLE.miner]) {
@@ -3582,9 +3806,10 @@ export class Ecosystem {
         }
       }
     }
-    // Pedra: mineradores sem mina e construtores tiram pedra (muito mais onde há rocha).
+    // Pedra (seção 19.19): mineradores sem mina e construtores tiram pedra da rocha por perto, ou
+    // juntam pedras soltas do chão; cada tile tem um tanto e acaba.
     const quarry = (mines.length ? 0 : w[ROLE.miner]) + w[ROLE.builder] * 0.5;
-    if (quarry) made.stone += this.gain(v, 'stone', quarry * yr * tools * (v.rock ? 1 : 0.25));
+    if (quarry) made.stone += this.quarry(v, quarry * B.QUARRY_RATE * yr * tools);
     // Barro e tijolo (RF-VIDA-211): o oleiro tira barro perto da água e queima tijolo e telha na olaria.
     if (w[ROLE.potter] && v.wet && this.has(v, 'pottery')) {
       this.gain(v, 'clay', w[ROLE.potter] * 2 * yr * tools);
@@ -3597,16 +3822,18 @@ export class Ecosystem {
       const tend = Math.min(1, 0.4 + (w[ROLE.shepherd] * 6) / herd.head);
       const extra = herd.kind === 'sheep' ? bonus('ovelhas') : herd.kind === 'cattle' || herd.kind === 'goat' ? bonus('gado') : bonus('cavalos');
       const k = herd.head * tend * extra * yr;
+      let meat = 0;
       if (herd.kind === 'sheep') {
         this.gain(v, 'wool', k * 0.35 * B.SEASON_WOOL[season]);
-        this.gain(v, 'food', k * 0.08);
+        meat = this.gain(v, 'food', k * 0.08);
       } else if (herd.kind === 'cattle') {
-        this.gain(v, 'food', k * 0.3);
+        meat = this.gain(v, 'food', k * 0.3);
         this.gain(v, 'hides', k * 0.06);
       } else if (herd.kind === 'goat') {
-        this.gain(v, 'food', k * 0.22);
+        meat = this.gain(v, 'food', k * 0.22);
         this.gain(v, 'hides', k * 0.04);
-      } else this.gain(v, 'food', k * 0.05);
+      } else meat = this.gain(v, 'food', k * 0.05);
+      this.book(v, '_herd', meat, 0);
     }
     // Tear: a lã vira roupa.
     if (w[ROLE.weaver] && this.has(v, 'loom')) this.gain(v, 'cloth', this.spend(v, 'wool', Math.min(st.wool, w[ROLE.weaver] * 1.5 * yr)) * bonus('ovelhas'));
@@ -3648,6 +3875,315 @@ export class Ecosystem {
     }
     // Abre uma mina numa jazida conhecida, de preferência do minério que falta para a próxima era.
     if (w[ROLE.miner] && v.mines.length < 1 + v.tier && happens(this.civRnd, B.MINE_RATE, dt / YEAR_SECONDS)) this.openMine(v);
+  }
+
+  // Recursos do mapa (seção 19.19) ----------------------------------------------
+
+  /**
+   * Põe no estoque o que alguém trouxe carregado (árvore, pedra, colheita, caça), sem o retorno
+   * decrescente da produção: o que não cabe no teto se perde. Retorna quanto entrou.
+   */
+  private put(v: Village, good: Good | 'food', amount: number): number {
+    if (amount <= 0) return 0;
+    const have = good === 'food' ? v.food : v.stock[good];
+    const got = Math.max(0, Math.min(this.capOf(v, good) - have, amount));
+    if (good === 'food') v.food += got;
+    else v.stock[good] += got;
+    this.book(v, good, got, 0);
+    return got;
+  }
+
+  /** Alcance do corte, da pedreira e da coleta além da borda: cresce com a era (estradas, carroças). */
+  private reachOf(v: Village, base: number): number {
+    return this.radius(v) + base * (1 + B.REACH_PER_ERA * Math.floor(v.tech));
+  }
+
+  /** Parte do trabalho que sobra depois de carregar de longe até o assentamento: metade a HAUL_TILES além da borda. */
+  private haulFactor(v: Village, t: number): number {
+    const w = this.map.width;
+    const d = Math.max(0, this.distance(v, (t % w) + 0.5, Math.floor(t / w) + 0.5) - this.radius(v));
+    const horses = v.stock.horses > 0 || (!!v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat');
+    const carts = 1 + B.CART_PER_ERA * Math.floor(v.tech) + (horses ? B.HORSE_HAUL : 0);
+    return 1 / (1 + d / (B.HAUL_TILES * carts));
+  }
+
+  /** Tile com uma árvore de pé que o povo pode cortar. */
+  standingTree(t: number): boolean {
+    return isLand(this.map, t) && !this.road[t] && !this.built[t] && isTree(decorAt(this.map, t));
+  }
+
+  /** Árvores de pé ao alcance, da mais perto para a mais longe (refeita quando acaba, no máximo uma vez por ano). */
+  private scanTrees(v: Village): void {
+    const r = this.reachOf(v, B.WOOD_REACH);
+    const ri = Math.ceil(r);
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    const found: [number, number][] = [];
+    for (let dy = -ri; dy <= ri; dy++) {
+      for (let dx = -ri; dx <= ri; dx++) {
+        const d = dx * dx + dy * dy;
+        if (d > r * r) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t >= 0 && this.standingTree(t)) found.push([t, d]);
+      }
+    }
+    found.sort((a, b) => a[1] - b[1]);
+    v.treeList = found.map((f) => f[0]);
+    v.treeNext = 0;
+    v.trees = found.length;
+    v.treesStart ??= found.length;
+    v.treeScan = Math.floor(this.year);
+  }
+
+  /** Próxima árvore de pé a cortar (a mais perto), ou -1 quando a mata ao alcance acabou. */
+  private nextTree(v: Village): number {
+    for (;;) {
+      if (!v.treeList || (v.treeNext ?? 0) >= v.treeList.length) {
+        if (v.treeList && v.treeScan === Math.floor(this.year)) return -1;
+        this.scanTrees(v);
+        if (!v.treeList!.length) return -1;
+      }
+      const t = v.treeList![v.treeNext!];
+      if (this.standingTree(t)) return t;
+      v.treeNext!++;
+    }
+  }
+
+  /** Derruba a árvore do tile: fica o toco (ou a muda, quando o povo replanta). */
+  private fellTree(t: number, replant: boolean): void {
+    const map = this.map;
+    this.treeVeg[t] = Math.max(map.vegetation[t], B.FELLED_VEG_MAX + 0.1);
+    this.treeGrow[t] = 0;
+    map.felled![t] = replant ? 3 : 1;
+    this.stumps.add(t);
+    map.vegetation[t] = Math.min(map.vegetation[t], B.FELLED_VEG_MAX);
+    map.biome[t] = classify(map, t);
+    this.treesCut++;
+    if (replant) this.treesPlanted++;
+    this.onTileChanged(t);
+  }
+
+  /**
+   * Corte de lenha (seção 19.19): `work` em árvores por ano com a mata na porta; mata longe rende
+   * menos. Só corta o que cabe no estoque (nada se desperdiça) e, com manejo, planta uma muda no
+   * lugar de cada árvore cortada.
+   */
+  private cutWood(v: Village, work: number, yieldK: number): void {
+    const per = B.WOOD_PER_TREE * yieldK;
+    const cost = 1 + (v.forestry ? B.REPLANT_WORK : 0);
+    let t = this.nextTree(v);
+    v.fellAt = t;
+    if (t < 0 || v.stock.wood + per > this.capOf(v, 'wood')) return;
+    v.chop = (v.chop ?? 0) + work * this.haulFactor(v, t);
+    while (v.chop >= cost && t >= 0 && v.stock.wood + per <= this.capOf(v, 'wood')) {
+      v.chop -= cost;
+      this.fellTree(t, !!v.forestry);
+      this.put(v, 'wood', per);
+      this.book(v, '_trees', 1, 0);
+      t = this.nextTree(v);
+      v.fellAt = t;
+    }
+    if (t < 0) v.chop = 0;
+  }
+
+  /** Pedra que um tile ainda dá: muita na rocha e na montanha, menos na colina, pedras soltas no chão comum. */
+  stoneOf(t: number): number {
+    const map = this.map;
+    if (!isLand(map, t)) return 0;
+    const b = map.biome[t] as Biome;
+    if (b === Biome.Snow || b === Biome.Ice || b === Biome.Lava) return 0;
+    const total = b === Biome.Rock || b === Biome.Mountain ? B.STONE_ROCK : map.elevation[t] > 0.35 ? B.STONE_HILL : B.STONE_FIELD;
+    return Math.max(0, total - this.stoneTaken[t]);
+  }
+
+  /** Quanto rende o trabalho num tile: rocha inteira, colina um pouco menos, pedra solta bem menos. */
+  private stoneRate(t: number): number {
+    const b = this.map.biome[t] as Biome;
+    return b === Biome.Rock || b === Biome.Mountain ? 1 : this.map.elevation[t] > 0.35 ? 0.7 : B.FIELD_STONE_RATE;
+  }
+
+  /** Tiles com pedra ao alcance, do que mais rende (rocha perto) para o que menos rende. */
+  private scanStone(v: Village): void {
+    const r = this.reachOf(v, B.STONE_REACH);
+    const ri = Math.ceil(r);
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    const found: [number, number][] = [];
+    let left = 0;
+    for (let dy = -ri; dy <= ri; dy++) {
+      for (let dx = -ri; dx <= ri; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t < 0 || this.built[t] || this.road[t]) continue;
+        const n = this.stoneOf(t);
+        if (n <= 0) continue;
+        left += n;
+        found.push([t, this.stoneRate(t) * this.haulFactor(v, t)]);
+      }
+    }
+    found.sort((a, b) => b[1] - a[1]);
+    v.stoneList = found.slice(0, 400).map((f) => f[0]);
+    v.stoneNext = 0;
+    v.stoneLeft = left;
+    v.stoneScan = Math.floor(this.year);
+  }
+
+  /** Pedreira (seção 19.19): `work` em pedra por ano na rocha da porta; tira de cada tile até ele acabar. Retorna a pedra que entrou. */
+  private quarry(v: Village, work: number): number {
+    const cap = this.capOf(v, 'stone');
+    let got = 0;
+    let left = work;
+    for (let guard = 0; left > 1e-6 && guard < 50 && v.stock.stone < cap; guard++) {
+      if (!v.stoneList || (v.stoneNext ?? 0) >= v.stoneList.length) {
+        if (v.stoneList && v.stoneScan === Math.floor(this.year)) break;
+        this.scanStone(v);
+        if (!v.stoneList!.length) break;
+      }
+      const t = v.stoneList![v.stoneNext!];
+      const have = this.stoneOf(t);
+      if (have <= 0 || this.built[t] || this.road[t]) {
+        v.stoneNext!++;
+        continue;
+      }
+      const rate = this.stoneRate(t) * this.haulFactor(v, t);
+      const take = Math.min(have, left * rate, cap - v.stock.stone);
+      if (take <= 0) break;
+      this.stoneTaken[t] += take;
+      v.stoneLeft = Math.max(0, (v.stoneLeft ?? 0) - take);
+      got += this.put(v, 'stone', take);
+      left -= take / rate;
+      if (this.stoneOf(t) <= 0) {
+        v.stoneNext!++;
+        // Pedregulho que virou pedra de construção some do mapa.
+        if (decorAt(this.map, t) === Decor.Boulder) {
+          this.map.bare ??= new Uint8Array(this.map.width * this.map.height);
+          this.map.bare[t] = 1;
+          this.onTileChanged(t);
+        }
+      }
+    }
+    return got;
+  }
+
+  /**
+   * Coleta (seção 19.19): cada porção vem de um tile com vegetação ao alcance e a desbasta um
+   * pouco; o mato rebrota com o tempo. Em volta de um lugar cheio de gente a coleta rende cada
+   * vez menos, e o povo precisa de roças, rebanho, caça e pesca.
+   */
+  private gather(v: Village, work: number): void {
+    const map = this.map;
+    const r = this.radius(v) + B.GATHER_REACH;
+    v.gatherWork = (v.gatherWork ?? 0) + work;
+    let fails = 0;
+    while (v.gatherWork >= 1 && fails < 10) {
+      const a = this.civRnd() * Math.PI * 2;
+      const d = Math.sqrt(this.civRnd()) * r;
+      const t = this.tileAt(v.x + Math.cos(a) * d, Math.floor(v.y + Math.sin(a) * d));
+      if (t < 0 || !isLand(map, t) || this.built[t] || this.road[t]) {
+        fails++;
+        continue;
+      }
+      const veg = map.vegetation[t];
+      const floor = isTree(decorAt(map, t)) ? B.GATHER_TREE_FLOOR : B.GATHER_MIN;
+      if (veg - B.GATHER_BITE < floor) {
+        fails++;
+        continue;
+      }
+      map.vegetation[t] = veg - B.GATHER_BITE;
+      const biome = classify(map, t);
+      if (biome !== map.biome[t]) {
+        map.biome[t] = biome;
+        this.onTileChanged(t);
+      }
+      v.gatherWork -= 1;
+      this.book(v, '_gather', this.put(v, 'food', 1), 0);
+    }
+    // Nada mais para colher por perto neste momento: o trabalho do resto do passo se perde.
+    if (fails >= 10) v.gatherWork = 0;
+  }
+
+  /** Alguma árvore adulta nos 8 vizinhos (as sementes caem perto). */
+  private treeNear(t: number): boolean {
+    const w = this.map.width;
+    const x = t % w;
+    const y = (t - x) / w;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const n = this.tileAt(x + dx, y + dy);
+        if (n >= 0 && !this.map.felled![n] && isTree(decorAt(this.map, n))) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Uma vez por ano (seção 19.19): tocos brotam sozinhos perto da mata (clareira grande demora
+   * muito), mudas crescem até virar árvore e o povo que maneja a mata planta nos tocos antigos.
+   */
+  private growForests(): void {
+    const map = this.map;
+    const felled = map.felled!;
+    const w = map.width;
+    // Plantio nos tocos antigos: cada lenhador de um povo que maneja a mata planta algumas mudas.
+    const planters = new Map<number, number>();
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || this.role[i] !== ROLE.woodcutter || this.village[i] < 0) continue;
+      const v = this.villages[this.village[i]];
+      if (v.forestry) planters.set(v.id, (planters.get(v.id) ?? 0) + B.PLANT_RATE);
+    }
+    for (const t of this.stumps) {
+      if (!isLand(map, t) || this.road[t] || this.built[t]) {
+        felled[t] = 0;
+        this.stumps.delete(t);
+        this.onTileChanged(t);
+        continue;
+      }
+      const temp = temperatureAt(map, t);
+      if (temp <= 262 || temp >= 320 || map.moisture[t] <= 0.25) continue;
+      let state = felled[t];
+      if (state !== 3 && planters.size) {
+        const v = this.settlementNear(t % w + 0.5, Math.floor(t / w) + 0.5, B.WOOD_REACH);
+        const n = v ? (planters.get(v.id) ?? 0) : 0;
+        if (v && n >= 1) {
+          planters.set(v.id, n - 1);
+          felled[t] = state = 3;
+          this.treesPlanted++;
+          this.onTileChanged(t);
+        }
+      }
+      if (state === 1) {
+        if (this.rnd() < B.SPROUT_RATE * (this.treeNear(t) ? 1 : B.SPROUT_FAR)) {
+          felled[t] = 2;
+          this.onTileChanged(t);
+        }
+        continue;
+      }
+      const x = t % w;
+      const climate = Math.max(0.2, 1 + B.HARVEST_SENSITIVITY * this.climate[this.region(x, (t - x) / w)]);
+      this.treeGrow[t] += climate / (state === 3 ? B.REPLANT_YEARS : B.TREE_YEARS);
+      if (this.treeGrow[t] < 1) continue;
+      felled[t] = 0;
+      this.stumps.delete(t);
+      map.vegetation[t] = Math.max(map.vegetation[t], this.treeVeg[t]);
+      map.biome[t] = classify(map, t);
+      this.onTileChanged(t);
+    }
+  }
+
+  /** Assentamento vivo cuja área de corte (até `reach` além da borda) cobre o ponto, o mais perto. */
+  private settlementNear(x: number, y: number, reach: number): Village | null {
+    let best: Village | null = null;
+    let bd = Infinity;
+    for (const v of this.villages) {
+      if (v.abandoned) continue;
+      const d = this.distance(v, x, y);
+      if (d < this.radius(v) + reach && d < bd) {
+        bd = d;
+        best = v;
+      }
+    }
+    return best;
   }
 
   /** O que falta mais: ferramentas para quem trabalha, armas e armaduras para quem luta (antes, na guerra). */
@@ -3980,6 +4516,7 @@ export class Ecosystem {
     this.diplomacy();
     this.coolLava();
     this.lavaFires();
+    this.growForests();
     for (let k = this.ruins.length - 1; k >= 0; k--) if (++this.ruins[k].age > 40) this.ruins.splice(k, 1);
     yearlyEvents(this);
   }
@@ -4041,6 +4578,13 @@ export class Ecosystem {
         }
         rel += (a.culture.tolerance + b.culture.tolerance) * 1.2;
         if (this.allied(a.id, b.id)) rel += 2;
+        // Cobiça (seção 19.19): um reino com falta de comida ou lenha olha torto para o vizinho que tem de sobra.
+        const lackA = border ? this.kingdomLack(members.get(a.id) ?? [a]) : 0;
+        const lackB = border ? this.kingdomLack(members.get(b.id) ?? [b]) : 0;
+        const richA = this.kingdomPlenty(members.get(a.id) ?? [a]);
+        const richB = this.kingdomPlenty(members.get(b.id) ?? [b]);
+        const greed = Math.max(lackA * richB, lackB * richA);
+        rel -= B.SCARCITY_TENSION * greed;
         const atWar = this.warBetween(a.id, b.id);
         const busy = this.warOf(a.id) || this.warOf(b.id);
         // Comércio: por terra entre vizinhos com mercado; por mar entre contatos com mercado e porto.
@@ -4061,10 +4605,21 @@ export class Ecosystem {
         const strong = Math.max(fa, fb) >= 2 * Math.max(1, Math.min(fa, fb)) && Math.floor(Math.max(a.tech, b.tech)) >= 2;
         const hostile = rel < (warlike ? -20 : -35);
         const ambition = strong && rel < 0 && this.polRnd() < 0.04;
-        if (!ambition && (!hostile || this.polRnd() > 0.15 * (warlike ? 2 : 1))) continue;
-        if (Math.max(fa, fb) < 4 || this.allied(a.id, b.id) || (this.truces.get(key) ?? 0) > this.year) continue;
-        const [att, def, target] = fa >= fb ? [a, b, pb] : [b, a, pa];
-        if (this.declareWar(att, def, target, members)) this.callAllies(att, def, members);
+        // Guerra pela comida ou pela mata: o reino em falta, mais forte, ataca o vizinho farto.
+        const hungryA = lackA * richB > 0 && fa > fb;
+        const hungryB = lackB * richA > 0 && fb > fa;
+        const raid = (hungryA || hungryB) && rel < 20 && this.polRnd() < B.RESOURCE_WAR * greed * (warlike ? 2 : 1);
+        if (!ambition && !raid && (!hostile || this.polRnd() > 0.15 * (warlike ? 2 : 1))) continue;
+        // Um bando pequeno basta para saquear o vizinho farto; guerra de conquista pede exército.
+        if (Math.max(fa, fb) < (raid ? B.RAID_FORCE : 4) || this.allied(a.id, b.id) || (this.truces.get(key) ?? 0) > this.year) continue;
+        const [att, def, target] = raid ? (hungryA ? [a, b, pb] : [b, a, pa]) : fa >= fb ? [a, b, pb] : [b, a, pa];
+        if (this.declareWar(att, def, target, members)) {
+          if (raid) {
+            this.tally.greedWars++;
+            this.note(`Com ${this.kingdomLackName(members.get(att.id) ?? [att])} faltando, ${att.name} foi à guerra atrás da fartura de ${def.name}`, 'guerra', att, { key: `greed-${key}` });
+          }
+          this.callAllies(att, def, members);
+        }
       }
     }
     for (let k = this.wars.length - 1; k >= 0; k--) {
@@ -4081,6 +4636,34 @@ export class Ecosystem {
     this.vassals(members);
     this.rebuildEnemies();
     this.caravanPairs.clear();
+  }
+
+  /** Falta de comida e madeira num reino, pelo assentamento que mais sofre (0 a 1, seção 19.19). */
+  private kingdomLack(list: Village[]): number {
+    let worst = 0;
+    for (const v of list) {
+      const n = v.needs;
+      if (n) worst = Math.max(worst, Math.max(0, B.GREED_LEVEL - Math.min(n.food, n.fuel)) / B.GREED_LEVEL);
+    }
+    return worst;
+  }
+
+  /** O que mais falta num reino, para a crônica. */
+  private kingdomLackName(list: Village[]): string {
+    let food = 0;
+    let fuel = 0;
+    for (const v of list) {
+      food += v.needs?.food ?? 1;
+      fuel += v.needs?.fuel ?? 1;
+    }
+    return food <= fuel ? 'comida' : 'lenha';
+  }
+
+  /** Fartura de um reino: comida e madeira guardadas perto do teto (0 a 1). */
+  private kingdomPlenty(list: Village[]): number {
+    let n = 0;
+    for (const v of list) n += Math.min(1, (v.food / this.capOf(v, 'food') + v.stock.wood / this.capOf(v, 'wood')) / 2);
+    return list.length ? Math.max(0, n / list.length - 0.3) / 0.7 : 0;
   }
 
   /** Declara guerra se houver caminho por terra ou, sem ele, por mar. Retorna se começou. */
@@ -4785,7 +5368,7 @@ export class Ecosystem {
           this.forEachNear(b.x, b.y, 2, (j) => {
             if (this.species[this.kind[j]].kind === 'fish' && this.civRnd() < 0.5) {
               this.kill(j);
-              this.gain(v, 'food', v.vocation === 'pesqueira' ? 1 + B.VOCATION_BONUS : 1);
+              this.book(v, '_fish', this.gain(v, 'food', v.vocation === 'pesqueira' ? 1 + B.VOCATION_BONUS : 1), 0);
             }
           });
         }
@@ -5897,8 +6480,7 @@ export class Ecosystem {
 
   /**
    * Derruba a construção `k` do assentamento: libera o terreno, deixa uma
-   * ruína (se o chão ainda é terra) e devolve ao estoque uma parte do
-   * material como entulho aproveitável (SALVAGE, seção 19.18).
+   * ruína (se o chão ainda é terra). O material se perde (seção 19.19).
    */
   private raze(v: Village, k: number): void {
     const h = v.houses[k];
@@ -5911,15 +6493,14 @@ export class Ecosystem {
         if (isLand(this.map, t)) land = true;
         this.built[t] = 0;
         this.onTileChanged(t);
+        // Sem a casa ao lado, um bloco de rua que ela segurava pode sair na limpeza do ano.
+        this.roadDirty.push(t);
       }
     }
     if (h.kind === 'port') v.port = -1;
     v.houses.splice(k, 1);
     if (!land) return;
     this.ruins.push({ x: h.x + size / 2, y: h.y + size, age: 0 });
-    const c = buildCost(h.kind, Math.floor(v.tech));
-    this.gain(v, 'wood', c.wood * B.SALVAGE);
-    this.gain(v, 'stone', c.stone * B.SALVAGE);
   }
 
   /**
@@ -6083,26 +6664,11 @@ export class Ecosystem {
     return d;
   }
 
-  /** Assentamento ativo mais perto de um ponto, dentro do alcance em que o material do mapa chega até ele. */
-  private receiver(x: number, y: number): Village | null {
-    let best: Village | null = null;
-    let bd: number = B.HAUL_FROM_MAP;
-    for (const v of this.villages) {
-      if (v.abandoned) continue;
-      const d = this.distance(v, x, y);
-      if (d < bd) {
-        bd = d;
-        best = v;
-      }
-    }
-    return best;
-  }
-
   /**
    * Ferramenta Limpar (seção 19.18): tira do mapa o que é da natureza num
    * raio: árvores (a mata fica rala e rebrota), pedregulhos e cactos, jazidas
-   * de minério e ruínas. Nada se perde: a madeira, a pedra e o minério vão
-   * para o assentamento mais perto (HAUL_FROM_MAP). Retorna quantos itens.
+   * de minério e ruínas. O material se perde: só o trabalho do povo põe
+   * madeira, pedra e minério no estoque (seção 19.19). Retorna quantos itens.
    */
   clearNature(x: number, y: number, r: number): number {
     const map = this.map;
@@ -6111,7 +6677,6 @@ export class Ecosystem {
     let trees = 0;
     let rocks = 0;
     let ores = 0;
-    const gold = new Map<Ore, number>();
     for (let dy = -ri; dy <= ri; dy++) {
       for (let dx = -ri; dx <= ri; dx++) {
         if (dx * dx + dy * dy > r * r) continue;
@@ -6124,6 +6689,11 @@ export class Ecosystem {
           map.vegetation[t] = Math.min(map.vegetation[t], 0.26);
           trees++;
           changed = true;
+        } else if (decor === Decor.Stump || decor === Decor.Sapling) {
+          map.felled![t] = 0;
+          this.stumps.delete(t);
+          trees++;
+          changed = true;
         } else if (decor === Decor.Boulder || decor === Decor.Cactus) {
           map.bare[t] = 1;
           if (decor === Decor.Boulder) rocks++;
@@ -6132,7 +6702,6 @@ export class Ecosystem {
         const id = this.depositAt[t];
         if (id >= 0 && this.deposits[id].amount > 0) {
           const d = this.deposits[id];
-          gold.set(d.ore, (gold.get(d.ore) ?? 0) + d.amount * B.CLEAR_ORE);
           d.amount = 0;
           if (d.mine >= 0) {
             const owner = this.villages[d.mine];
@@ -6155,22 +6724,16 @@ export class Ecosystem {
         rocks++;
       }
     }
-    const v = this.receiver(x, y);
-    if (v) {
-      this.gain(v, 'wood', trees * B.CLEAR_WOOD);
-      this.gain(v, 'stone', rocks * B.CLEAR_STONE);
-      for (const [ore, amount] of gold) this.gain(v, ore, amount);
-    }
     const n = trees + rocks + ores;
-    if (n) this.note(`Você limpou o terreno${v ? `; o material foi para ${v.name}` : ''}`, 'jogador', { x, y }, { key: 'limpar' });
+    if (n) this.note('Você limpou o terreno', 'jogador', { x, y }, { key: 'limpar' });
     return n;
   }
 
   /**
    * Ferramenta Demolir (seção 19.18): derruba as construções do povo num
    * raio: casas e prédios que encostam no pincel, ruas, praça, roças e
-   * pastos. O entulho volta em parte ao estoque (SALVAGE). O povo reconstrói
-   * depois, se precisar. Retorna quantas construções caíram.
+   * pastos. O material se perde; o povo reconstrói depois, se precisar,
+   * pagando de novo. Retorna quantas construções caíram.
    */
   demolish(x: number, y: number, r: number): number {
     const w = this.map.width;

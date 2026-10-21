@@ -142,7 +142,7 @@ describe('construções e o terreno', () => {
     expect(v.population).toBe(0);
   });
 
-  it('Limpar tira árvores, pedras e minério e manda o material ao assentamento', () => {
+  it('Limpar tira árvores, pedras e minério e o material se perde', () => {
     const { map, eco } = world();
     const v = eco.villages[0];
     const x = Math.floor(v.x) + 14;
@@ -158,7 +158,7 @@ describe('construções e o terreno', () => {
     const wood = v.stock.wood;
     const n = eco.clearNature(x, y, 4);
     expect(n).toBeGreaterThan(0);
-    expect(v.stock.wood).toBeGreaterThan(wood);
+    expect(v.stock.wood).toBe(wood);
     expect(gold === null || gold.amount === 0).toBe(true);
     for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (dx * dx + dy * dy <= 16) expect(decorAt(map, (y + dy) * map.width + x + dx)).toBe(Decor.None);
   });

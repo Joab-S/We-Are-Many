@@ -18,7 +18,7 @@ export type Needs = Record<Need, number>;
 export const NEED_NAMES: Record<Need, string> = {
   food: 'comida',
   water: 'água',
-  fuel: 'lenha',
+  fuel: 'lenha e madeira',
   material: 'moradia',
   cloth: 'roupa',
   tools: 'ferramentas',
@@ -242,7 +242,8 @@ export function roleFor(need: Need, c: WorkContext): Role {
     case 'food':
       if (voc === 'fisher' && c.port) return 'fisher';
       if (voc === 'shepherd' && c.herd) return 'shepherd';
-      if (c.fields && c.era >= 1) return 'farmer';
+      // Roça plantada pede agricultor desde a Idade da Pedra (seção 19.19; antes só do Bronze em diante).
+      if (c.fields) return 'farmer';
       if (c.port) return 'fisher';
       return c.era === 0 ? 'gatherer' : 'hunter';
     case 'fuel':

@@ -155,6 +155,7 @@ function economyHtml(eco: Ecosystem, v: Village): string {
   return `
     <div class="wb-section">Necessidades</div>
     ${needs}
+    ${resourcesHtml(v)}
     <div class="wb-section">Estoque e balança do ano passado</div>
     ${table ? `<table class="wb-table"><tr><th>Recurso</th><th>Estoque e teto</th><th>Fez</th><th>Gastou</th><th>Saldo</th><th title="Quanto vale aqui, pela falta que faz (RF-VIDA-231)">Preço</th><th></th></tr>${table}</table>` : '<div class="wb-empty">Nada guardado.</div>'}
     <div class="wb-kv"><span>Caixa</span><b>${Math.floor(v.stock.gold)} de ouro</b></div>
@@ -162,7 +163,35 @@ function economyHtml(eco: Ecosystem, v: Village): string {
     ${v.soil !== undefined ? `<div class="wb-kv"><span>Solo</span>${bar(v.soil, `fertilidade ${pct(v.soil)}`)}</div>` : ''}
     <div class="wb-kv"><span>Estação</span><b>${SEASONS[eco.season()]}</b></div>
     ${tradeHtml(eco, v)}
-    <div class="wb-note">O preço sobe com a falta que o bem faz; as caravanas levam o que vale mais lá do que aqui. Caixa, falência e crise chegam com a Etapa G.</div>`;
+    <div class="wb-note">Tudo sai do mapa: a madeira de árvores cortadas, que demoram a crescer de novo; a pedra da rocha e das pedras soltas, que acabam; a comida da coleta, da caça, das roças, do rebanho e da pesca. O que não cabe no estoque se perde. O preço sobe com a falta que o bem faz; as caravanas levam o que vale mais lá do que aqui.</div>`;
+}
+
+/** Recursos do mapa ao alcance (seção 19.19): a mata, a pedra, de onde veio a comida e as casas sem conserto. */
+function resourcesHtml(v: Village): string {
+  const l = v.ledger ?? {};
+  const made = (k: string) => Math.round(l[k]?.[0] ?? 0);
+  const trees = v.trees ?? 0;
+  const cut = made('_trees');
+  const years = cut > 0 ? Math.floor(trees / cut) : 0;
+  const start = v.treesStart ?? trees;
+  const forest = `${trees} árvores${start > 0 ? ` (${pct(Math.min(1, trees / start))} da mata do começo)` : ''}${cut ? ` · ${cut} cortadas no ano${years < 60 ? `, <span class="${years < 20 ? 'bad' : 'warn'}">dá para ${years} anos</span>` : ''}` : ''}${v.forestry ? ' · <span class="good">replanta</span>' : ''}`;
+  const food = [
+    ['coleta', made('_gather')],
+    ['caça', made('_hunt')],
+    ['roças', made('_fields')],
+    ['rebanho', made('_herd')],
+    ['pesca', made('_fish')],
+  ]
+    .filter(([, n]) => n)
+    .map(([k, n]) => `${k} ${n}`)
+    .join(' · ');
+  const worn = v.houses.filter((h) => (h.wear ?? 0) > 0).length;
+  return `
+    <div class="wb-section">Recursos por perto</div>
+    <div class="wb-kv"><span>Mata ao alcance</span><b>${trees ? forest : '<span class="bad">acabou</span>'}</b></div>
+    ${v.stoneLeft !== undefined ? `<div class="wb-kv"><span>Pedra ao alcance</span><b>${v.stoneLeft >= 1 ? `${Math.floor(v.stoneLeft)}` : '<span class="bad">acabou</span>'}</b></div>` : ''}
+    <div class="wb-kv"><span>Comida do ano</span><b>${food || 'nenhuma'}</b></div>
+    ${worn ? `<div class="wb-kv"><span>Sem conserto</span><b class="bad">${worn} ${worn > 1 ? 'construções' : 'construção'} sem madeira para os consertos</b></div>` : ''}`;
 }
 
 /** Comércio do assentamento (19.6): moeda, luxo, caravanas, acordos, feira e pedidos da capital. */

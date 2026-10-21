@@ -200,15 +200,15 @@ export function streetPlan(tier: number, seed = 0, grow = 0): Street[] {
  * quando a retirada não desliga nenhum vizinho (ligação conferida numa janela
  * de 7x7 tiles). `loose(x, y)` diz se o tile é rua que pode sair, `road(x, y)`
  * se é qualquer rua (inclusive praça), e `remove` tira o tile. Tocos de rua
- * sem saída também saem, menos os tiles marcados por `keep` (ex.: que dão
- * acesso a uma casa).
+ * sem saída também saem, menos os tiles marcados por `keep` (ex.: o único
+ * acesso de uma casa); `keep` recebe também quais tiles sairiam juntos.
  */
 export function pruneBlocks(
   candidates: Iterable<[number, number]>,
   loose: (x: number, y: number) => boolean,
   road: (x: number, y: number) => boolean,
   remove: (x: number, y: number) => void,
-  keep: (x: number, y: number) => boolean = () => false,
+  keep: (x: number, y: number, gone: (x: number, y: number) => boolean) => boolean = () => false,
 ): void {
   const list = [...candidates];
   for (let pass = 0; pass < 4; pass++) {
@@ -223,42 +223,46 @@ export function pruneBlocks(
       const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dy]) => road(x + dx, y + dy));
       if (!nb.length) continue;
       const R = 3;
-      const seen = new Set<string>([`${nb[0][0]},${nb[0][1]}`]);
-      const stack = [nb[0]];
-      while (stack.length) {
-        const [cx, cy] = stack.pop()!;
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const nx = cx + dx;
-          const ny = cy + dy;
-          if (Math.abs(nx) > R || Math.abs(ny) > R || (nx === 0 && ny === 0) || seen.has(`${nx},${ny}`) || !road(x + nx, y + ny)) continue;
-          seen.add(`${nx},${ny}`);
-          stack.push([nx, ny]);
-        }
-      }
-      // Um vizinho que ficaria solto só pode ser um toco curto de rua sem saída (até 6 tiles): sai junto.
-      const stubs: [number, number][] = [];
-      let ok = true;
-      for (const [dx, dy] of nb) {
-        if (seen.has(`${dx},${dy}`)) continue;
-        const part: [number, number][] = [[dx, dy]];
-        const mine = new Set<string>([`${dx},${dy}`]);
-        for (let k = 0; k < part.length && part.length <= 6; k++) {
-          const [cx, cy] = part[k];
-          for (const [ex, ey] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-            const nx = cx + ex;
-            const ny = cy + ey;
-            if ((nx === 0 && ny === 0) || mine.has(`${nx},${ny}`) || !road(x + nx, y + ny)) continue;
-            mine.add(`${nx},${ny}`);
-            part.push([nx, ny]);
+      // A rua que fica é a de um dos vizinhos (o primeiro com que a retirada dá certo).
+      const tryRoot = (root: number[]): [number, number][] | null => {
+        const seen = new Set<string>([`${root[0]},${root[1]}`]);
+        const stack = [root];
+        while (stack.length) {
+          const [cx, cy] = stack.pop()!;
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = cx + dx;
+            const ny = cy + dy;
+            if (Math.abs(nx) > R || Math.abs(ny) > R || (nx === 0 && ny === 0) || seen.has(`${nx},${ny}`) || !road(x + nx, y + ny)) continue;
+            seen.add(`${nx},${ny}`);
+            stack.push([nx, ny]);
           }
         }
-        if (part.length > 6 || !part.every(([px, py]) => loose(x + px, y + py) && !keep(x + px, y + py))) {
-          ok = false;
-          break;
+        // Um vizinho que ficaria solto só pode ser um toco curto de rua sem saída (até 6 tiles): sai junto.
+        const stubs: [number, number][] = [];
+        for (const [dx, dy] of nb) {
+          if (seen.has(`${dx},${dy}`)) continue;
+          const part: [number, number][] = [[dx, dy]];
+          const mine = new Set<string>([`${dx},${dy}`]);
+          for (let k = 0; k < part.length && part.length <= 6; k++) {
+            const [cx, cy] = part[k];
+            for (const [ex, ey] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              const nx = cx + ex;
+              const ny = cy + ey;
+              if ((nx === 0 && ny === 0) || mine.has(`${nx},${ny}`) || !road(x + nx, y + ny)) continue;
+              mine.add(`${nx},${ny}`);
+              part.push([nx, ny]);
+            }
+          }
+          if (part.length > 6 || !part.every(([px, py]) => loose(x + px, y + py))) return null;
+          stubs.push(...part);
         }
-        stubs.push(...part);
-      }
-      if (!ok) continue;
+        const gone = new Set<string>([`${x},${y}`, ...stubs.map(([px, py]) => `${x + px},${y + py}`)]);
+        const out = (gx: number, gy: number) => gone.has(`${gx},${gy}`);
+        return stubs.some(([px, py]) => keep(x + px, y + py, out)) ? null : stubs;
+      };
+      let stubs: [number, number][] | null = null;
+      for (const root of nb) if ((stubs = tryRoot(root))) break;
+      if (!stubs) continue;
       for (const [px, py] of stubs) remove(x + px, y + py);
       remove(x, y);
       changed = true;

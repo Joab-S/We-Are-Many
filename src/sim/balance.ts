@@ -350,19 +350,120 @@ export const SITE_LAVA_RANGE = 10;
 export const LAVA_FIRE_RANGE = 2;
 export const LAVA_FIRE_RATE = 0.6;
 
-// Aproveitamento dos recursos (seção 19.18) ------------------------------------------------
+// Construções e terreno (seção 19.18) -----------------------------------------------------
 
-/** Parte do custo de uma construção destruída que volta ao estoque como entulho aproveitável. */
-export const SALVAGE = 0.4;
-/** Parte do estoque de um assentamento abandonado que os vizinhos do reino recolhem. */
-export const ABANDON_RECOVER = 0.5;
-/** Excedente acima do teto vendido no mercado: ouro por unidade de troca (o resto se perde). */
-export const SURPLUS_SALE = 0.5;
 /** Desnível máximo dentro de uma casa (2x2) antes de ela desabar num barranco (terremoto, terreno erguido). */
 export const HOUSE_MAX_RELIEF = 0.2;
-/** Alcance (tiles) em que o material que o jogador tira do mapa (árvore, pedra, minério) vai para o assentamento mais perto. */
-export const HAUL_FROM_MAP = 40;
-/** Madeira por tile de árvore, pedra por pedregulho e parte do minério de uma jazida que o povo aproveita quando o jogador limpa o mapa. */
-export const CLEAR_WOOD = 1.5;
-export const CLEAR_STONE = 1;
-export const CLEAR_ORE = 0.3;
+
+// Recursos com peso (pedido do Joab em 21/10/2026, seção 19.19) ------------------------------
+// Nada aparece no estoque sem trabalho: a madeira sai de árvores cortadas no mapa, a pedra de
+// rocha e pedras soltas que acabam, a comida da coleta, da caça, das roças, do rebanho e da pesca.
+// O que não cabe no estoque se perde, e só o saque leva bens de um lugar para outro sem troca.
+
+/**
+ * Energia por segundo que um morador tira sozinho do mato em volta (frutas, raízes), sem gastar
+ * o mapa, e a de quem vive na beira da água (mariscos). Antes: 0,06 × (1 + era/2) e 0,05, mais que
+ * o gasto do corpo (0,045): ninguém dependia do estoque e a comida não pesava.
+ */
+export const FORAGE = 0.02;
+export const SHORE_FORAGE = 0.01;
+/** Um bando pequeno ainda vive do mato: o forrageio de cada um é FORAGE_WILD ÷ (1 + moradores ÷ FORAGE_CROWD), nunca abaixo de FORAGE. */
+export const FORAGE_WILD = 0.06;
+export const FORAGE_CROWD = 3;
+/** Porções por ano que um coletor traz quando acha o que colher, e quanto cada porção tira da vegetação do tile. */
+export const GATHER_RATE = 2.4;
+export const GATHER_BITE = 0.06;
+/** Vegetação mínima de um tile para dar coleta; num tile de árvore a coleta para antes de derrubar a mata. */
+export const GATHER_MIN = 0.3;
+export const GATHER_TREE_FLOOR = 0.52;
+/** Alcance da coleta além da borda do assentamento, em tiles. */
+export const GATHER_REACH = 10;
+/** Porções de carne que cada animal caçado põe no estoque, e a energia que o caçador ganha comendo na hora. */
+export const HUNT_FOOD = 2;
+export const HUNT_EAT = 0.15;
+
+/** Madeira de uma árvore cortada. */
+export const WOOD_PER_TREE = 2;
+/** Árvores que um lenhador derruba por ano com a mata logo na borda do assentamento. */
+export const CUT_RATE = 1.2;
+/** Alcance do corte e da pedreira além da borda (tiles), +REACH_PER_ERA por era (estradas, carroças). */
+export const WOOD_REACH = 12;
+export const STONE_REACH = 18;
+export const REACH_PER_ERA = 0.25;
+/** Distância além da borda que corta pela metade o que um trabalhador traz; carroças por era e cavalos alongam. */
+export const HAUL_TILES = 10;
+export const CART_PER_ERA = 0.3;
+export const HORSE_HAUL = 0.5;
+/**
+ * A mata fechada avança devagar: acima de TREE_BAND de vegetação o rebrotar natural anda a esta
+ * fração do ritmo do capim (antes: o mesmo ritmo, e o planeta ganhava 60% de árvores em 250 anos).
+ */
+export const TREE_BAND = 0.4;
+export const TREE_SPREAD = 0.25;
+/** Vegetação máxima de um tile com toco ou muda (capim em volta) e a de uma árvore adulta de volta. */
+export const FELLED_VEG_MAX = 0.45;
+/** Chance por ano de um toco brotar sozinho com árvore adulta ao lado, e o fator longe da mata (clareira grande). */
+export const SPROUT_RATE = 0.06;
+export const SPROUT_FAR = 0.1;
+/** Anos de uma muda até virar árvore adulta: a que brotou sozinha e a plantada e cuidada. */
+export const TREE_YEARS = 50;
+export const REPLANT_YEARS = 28;
+/**
+ * Manejo da mata: a partir desta era (ou desde o começo, se o povo cultua a Floresta) o
+ * assentamento passa a replantar quando a mata ao alcance dá para menos de FORESTRY_YEARS
+ * anos de corte. Replantar custa REPLANT_WORK do trabalho de cortar uma árvore; cada lenhador
+ * planta PLANT_RATE mudas por ano nos tocos antigos.
+ */
+export const FORESTRY_TECH = 0.5;
+export const FORESTRY_YEARS = 40;
+export const REPLANT_WORK = 0.25;
+export const PLANT_RATE = 1;
+
+/** Pedra de cada tile: rocha e montanha, colina e chão comum (pedras soltas); o chão comum rende menos por trabalho. */
+export const STONE_ROCK = 40;
+export const STONE_HILL = 15;
+export const STONE_FIELD = 1;
+export const FIELD_STONE_RATE = 0.3;
+/** Pedra por ano de cada minerador sem mina na rocha (construtores tiram metade). */
+export const QUARRY_RATE = 1;
+
+/**
+ * Conserto das casas (uma casa consome madeira): madeira por ano por casa (mais por andar) e
+ * por prédio; da Era Medieval, casa de pedra gasta pouca madeira e um pouco de pedra.
+ */
+export const HOUSE_UPKEEP = 0.3;
+export const BUILDING_UPKEEP = 0.4;
+export const STONE_HOUSE_UPKEEP = 0.12;
+/** Anos sem conserto até a casa ficar vazia (caindo aos pedaços) e até desabar. */
+export const DECAY_YEARS = 5;
+export const COLLAPSE_YEARS = 12;
+/** Energia por segundo que perde quem passa o inverno frio sem lenha (vezes a falta). */
+export const FREEZE = 0.03;
+
+/** Mortes de fome num ano a partir das quais a crônica fala de fome. */
+export const FAMINE_DEATHS = 2;
+/** Atendimento abaixo do qual o assentamento vê gente partir em busca de comida, lenha ou casa (migração), e quantos por ano no máximo. */
+export const SCARCITY_LEVEL = 0.55;
+export const SCARCITY_MOVERS = 3;
+/**
+ * Cobiça: reino com um assentamento abaixo de GREED_LEVEL de comida ou madeira, ao lado de um
+ * vizinho que tem de sobra, perde relação com ele por ano (vezes a falta), e o reino mais forte
+ * com fome parte para a guerra (chance por ano, vezes a falta e a fartura do outro).
+ */
+export const GREED_LEVEL = 0.7;
+export const SCARCITY_TENSION = 4;
+export const RESOURCE_WAR = 0.12;
+/** Soldados (pela força das armas) que bastam para uma guerra de saque; a de conquista pede 4. */
+export const RAID_FORCE = 2;
+
+/**
+ * Trabalho na falta: com comida ou lenha abaixo de CRISIS_NEED, a parte dos adultos que muda de
+ * profissão por ano (até soldados e mineradores) e o teto de gente numa profissão; quem vira
+ * adulto vai para o que mais falta quando o atendimento está abaixo de CHILD_NEED.
+ */
+export const CRISIS_NEED = 0.65;
+export const LABOR_CRISIS_SHIFT = 0.4;
+export const LABOR_CRISIS_MAX = 0.6;
+export const CHILD_NEED = 0.65;
+/** Atendimento abaixo do qual até soldados e guardas largam as armas para buscar comida ou lenha. */
+export const SEVERE_NEED = 0.4;
