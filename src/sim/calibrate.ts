@@ -166,7 +166,8 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
 /** Faixas-alvo da tabela de 19.15 que já podem ser medidas. */
 export const TARGETS: { key: keyof Indicators; label: string; min: number; max: number }[] = [
   { key: 'extinct', label: 'Espécies extintas', min: 0, max: 2 },
-  { key: 'settlements', label: 'Assentamentos vivos', min: 12, max: 40 },
+  // Antes: 12 a 40. O povo agora evolui o assentamento inicial antes de fundar outros (pedido do Joab), então são menos e maiores.
+  { key: 'settlements', label: 'Assentamentos vivos', min: 6, max: 40 },
   { key: 'cities', label: 'Cidades', min: 1, max: 99 },
   { key: 'wars', label: 'Guerras ao mesmo tempo (média)', min: 0, max: 3 },
   { key: 'roadBlocks', label: 'Blocos 2x2 de rua fora das praças', min: 0, max: 0 },
@@ -175,7 +176,7 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
   { key: 'vocations', label: 'Vocações diferentes', min: 4, max: 8 },
   { key: 'stockFill', label: 'Preenchimento médio dos estoques', min: 0.3, max: 0.8 },
   { key: 'overCap', label: 'Recursos acima do teto', min: 0, max: 0 },
-  { key: 'caravansMax', label: 'Caravanas e barcos mercantes ao mesmo tempo (máximo)', min: 1, max: 24 },
+  { key: 'caravansMax', label: 'Caravanas e barcos mercantes ao mesmo tempo (máximo)', min: 1, max: 10 },
 ];
 
 /** Nome de cada indicador no relatório. */

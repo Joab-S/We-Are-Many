@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AVENUE, houseStyle, isStreet, mainStreets, pickMaterial, wallProfile } from './architecture';
+import { AVENUE, houseStyle, isStreet, mainStreets, pickMaterial } from './architecture';
 import { runWorld } from './calibrate';
 import { YEAR_SECONDS } from './ecosystem';
 import { roadBlocks } from './settlement';
@@ -64,25 +64,4 @@ describe('arquitetura que acompanha a era (19.8)', () => {
     for (let t = 0; t < YEAR_SECONDS * 30; t += 0.25) eco.step(0.25);
     expect(old()).toBeLessThan(before);
   }, 120000);
-});
-
-describe('wallProfile', () => {
-  it('abraça as casas em vez de seguir o raio da área', () => {
-    const points = [{ dx: 3, dy: 0 }, { dx: -2, dy: 1 }, { dx: 0, dy: -4 }];
-    const p = wallProfile(points, 16, 20);
-    expect(Math.max(...p)).toBeLessThan(7);
-    expect(Math.min(...p)).toBeGreaterThanOrEqual(2.5);
-  });
-  it('nunca passa do raio da área', () => {
-    const p = wallProfile([{ dx: 30, dy: 0 }], 8, 12);
-    expect(Math.max(...p)).toBe(12);
-  });
-  it('o contorno é convexo e passa por fora de todas as casas', () => {
-    const points = [{ dx: 5, dy: 0 }, { dx: -5, dy: 0 }, { dx: 0, dy: 6 }];
-    const p = wallProfile(points, 32, 20);
-    expect(p.every((r) => r >= 2.5 && r <= 7.5)).toBe(true);
-    // Leste (direção 0) e norte (direção 8 de 32) ficam além da casa mais longe.
-    expect(p[0]).toBeGreaterThan(5);
-    expect(p[8]).toBeGreaterThan(6);
-  });
 });

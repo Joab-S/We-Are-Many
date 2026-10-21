@@ -68,7 +68,7 @@ import {
   type SiteSample,
   type Vocation,
 } from './needs';
-import { lotsFor, plotSeed, pruneBlocks, radiusFor, streetOrder, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
+import { lotsFor, maxFieldsOf, maxPensOf, plotSeed, pruneBlocks, radiusFor, streetOrder, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, habitatOf, type Species, type SpeciesKind } from './species';
 
 /**
@@ -1039,7 +1039,7 @@ export class Ecosystem {
     return [
       { name: 'casa nova', perYear: v.population > homes * 3 ? B.HOUSE_RATE : 0 },
       { name: 'andarilho', perYear: B.WANDERER_RATE[v.population <= 3 ? 0 : v.population < 10 ? 1 : v.population < 30 ? 2 : 3] },
-      { name: 'colonos', perYear: v.population > 26 || crowded ? B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) : 0 },
+      { name: 'colonos', perYear: crowded && v.tier >= B.COLONY_MIN_TIER ? B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * B.COLONY_PRESSURE_CROWDED : 0 },
       { name: 'porto', perYear: v.port < 0 && v.tech >= 0.5 ? B.PORT_RATE : 0 },
       { name: 'exploração', perYear: v.port >= 0 && v.tech >= 1 ? B.EXPLORE_RATE * curious : 0 },
       { name: 'colheita (× ano normal)', perYear: this.harvest(v) },
@@ -1337,7 +1337,7 @@ export class Ecosystem {
     if ((h.plague ?? 0) <= this.year && happens(this.civRnd, B.HERD_PLAGUE_RATE * (1 + h.head / 40), 1)) this.herdPlague(v, null);
     if (horses) v.stock.horses = h.head;
     // Pasto cheio: mais um cercado, até o limite do nível.
-    const maxPens = 1 + v.tier * 2 + (v.vocation === 'gado' || v.vocation === 'ovelhas' || v.vocation === 'cavalos' ? 2 : 0);
+    const maxPens = maxPensOf(v.tier, v.vocation);
     if (h.head > cap * 0.8 && pens < maxPens && happens(this.civRnd, B.PEN_RATE, 1)) this.addPen(v);
     // Cercados demais para o rebanho que sobrou (ou acima do limite): o mais longe é desmontado.
     const needed = Math.max(1, Math.ceil((h.head * B.PASTURE_PER_HEAD) / (B.PEN_AREA * 0.8)));
@@ -2128,8 +2128,7 @@ export class Ecosystem {
     return y * w + (((Math.floor(x) % w) + w) % w);
   }
 
-  /** Distância de um ponto ao centro do assentamento, dando a volta no mapa. */
-  distance(v: Village, x: number, y: number): number {
+  private distance(v: Village, x: number, y: number): number {
     return Math.hypot(wrapDx(v.x - x, this.map.width), v.y - y);
   }
 
@@ -3093,7 +3092,8 @@ export class Ecosystem {
       if (v.fields > 0 && workers[v.id]) {
         const w = workers[v.id];
         const plough = v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5;
-        const worked = Math.min(v.fields, Math.ceil(w[ROLE.farmer] * plough) + 1);
+        // Cada roça no mapa é um lote grande, que até FIELD_HANDS agricultores trabalham (o mapa tem no máximo 5 roças).
+        const worked = Math.min(v.fields * B.FIELD_HANDS, Math.ceil(w[ROLE.farmer] * plough) + 1);
         const mill = v.houses.some((h) => h.kind === 'windmill') ? 1 + 0.3 * Math.min(1, w[ROLE.miller]) : 1;
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
@@ -3103,9 +3103,11 @@ export class Ecosystem {
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
       // Roças no fim da Idade da Pedra (uma para cada quatro casas); da Idade do Bronze em diante, uma para cada duas.
       // Só planta o que os agricultores dão conta (mais uma); roça sem ninguém para trabalhar volta a ser campo.
-      const hands = Math.ceil((workers[v.id]?.[ROLE.farmer] ?? 0) * (v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5)) + 2;
-      if (v.fields < Math.min(hands, homes / (Math.floor(v.tech) >= 1 ? 2 : 4)) && v.tech >= 0.12 && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
-      else if (v.fields > hands + 1 && happens(this.civRnd, B.FIELD_FALLOW_RATE, dt / YEAR_SECONDS)) this.dropField(v);
+      // No máximo maxFieldsOf(nível) roças no mapa (pedido do Joab: até 5 na metrópole).
+      const hands = Math.ceil((workers[v.id]?.[ROLE.farmer] ?? 0) * (v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5)) + 1;
+      const room = Math.min(maxFieldsOf(v.tier), Math.ceil(hands / B.FIELD_HANDS) + 1);
+      if (v.fields < Math.min(room, homes / (Math.floor(v.tech) >= 1 ? 2 : 4)) && v.tech >= 0.12 && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
+      else if (v.fields > room && happens(this.civRnd, B.FIELD_FALLOW_RATE, dt / YEAR_SECONDS)) this.dropField(v);
       // De vez em quando aparece um andarilho do mesmo povo, mais fácil quando o lugar tem pouca gente.
       const rush = (v.goldRush ?? 0) > this.year ? B.GOLD_RUSH_WANDERERS : 0;
       const wander = B.WANDERER_RATE[v.population <= 3 ? 0 : v.population < 10 ? 1 : v.population < 30 ? 2 : 3] + rush;
@@ -3126,7 +3128,8 @@ export class Ecosystem {
       const crowded = v.population >= 8 && squeezed && !planLeft && !this.reformable(v) && (v.growth ?? 0) >= 1;
       const ready = B.COLONY_MIN_FACTOR + (1 - B.COLONY_MIN_FACTOR) * v.completeness ** 2;
       const pressure = crowded ? B.COLONY_PRESSURE_CROWDED : B.COLONY_PRESSURE_ROOM;
-      if ((v.population > B.COLONY_MIN_POP || crowded) && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * ready * pressure, yr) && live < 100) {
+      // Primeiro o assentamento cresce o quanto pode; só manda colonos quando não há mais lote, reforma nem rua (pedido do Joab).
+      if (crowded && v.tier >= B.COLONY_MIN_TIER && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * ready * pressure, yr) && live < 100) {
         if (!this.colonizeByLand(v)) this.colonizeBySea(v);
       }
     }
@@ -3741,6 +3744,8 @@ export class Ecosystem {
     this.migrate();
     this.epidemics();
     this.linkRoads();
+    // Estradas novas mudam por onde passa mais gente: as cidades revêem ruas principais e avenida a cada 10 anos.
+    for (const v of this.villages) if (!v.abandoned && v.tier >= 2 && (Math.floor(this.year) + v.id) % 10 === 0) this.rankStreets(v);
     this.economyYear();
     for (const k of this.crises) this.succession(this.villages[k]);
     this.crises.clear();

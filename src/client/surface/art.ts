@@ -727,34 +727,6 @@ export const ART = {
     'KqqqqqqK',
     '.KKKKKK.',
   ],
-  // Defesa por era (19.8): estacas e paliçada de madeira, muralha de pedra e portão.
-  palisade: [
-    '.K.K.K.K',
-    'KPKPKPKP',
-    'KPKPKPKP',
-    'KpKpKpKp',
-    'KpKpKpKp',
-    'KqKqKqKq',
-    'KKKKKKKK',
-  ],
-  wall: [
-    'KK.KK.KK',
-    'KGKKGKKG',
-    'KGGgGGgK',
-    'KgGGgGGK',
-    'KGGgGGgK',
-    'KgnggngK',
-    'KKKKKKKK',
-  ],
-  gate: [
-    'KK.KK.KK',
-    'KGKKKKgK',
-    'KGKddKgK',
-    'KgKddKnK',
-    'KGKddKgK',
-    'KnKddKnK',
-    'KKKKKKKK',
-  ],
   // Caravanas (RF-VIDA-230): fardos no lombo, carroça e carroção coberto, pela era.
   packs: [
     '.KKKKKK.',

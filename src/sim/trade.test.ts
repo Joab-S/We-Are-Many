@@ -35,7 +35,8 @@ describe('luxo, moeda e caravanas', () => {
   });
   it('limite por assentamento, animal e veículo (RF-VIDA-236 e 223)', () => {
     expect(caravanCap(0, false)).toBe(1);
-    expect(caravanCap(2, true)).toBe(4);
+    expect(caravanCap(2, true)).toBe(3);
+    expect(caravanCap(3, false)).toBe(2);
     expect(packAnimal(true, 5)).toBe('camel');
     expect(packAnimal(false, 2)).toBe('horse');
     expect(packAnimal(false, 0)).toBe('donkey');
