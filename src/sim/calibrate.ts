@@ -219,7 +219,8 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
   { key: 'housesOffStreet', label: 'Casas longe de rua', min: 0, max: 0 },
   { key: 'completeness', label: 'Completude média da planta', min: 0.5, max: 1 },
   { key: 'vocations', label: 'Vocações diferentes', min: 4, max: 8 },
-  { key: 'stockFill', label: 'Preenchimento médio dos estoques', min: 0.3, max: 0.8 },
+  // Antes: 0,3 a 0,8. Com recursos finitos (seção 19.19) o estoque vive mais vazio, sem fartura.
+  { key: 'stockFill', label: 'Preenchimento médio dos estoques', min: 0.2, max: 0.8 },
   { key: 'overCap', label: 'Recursos acima do teto', min: 0, max: 0 },
   { key: 'caravansMax', label: 'Caravanas e barcos mercantes ao mesmo tempo (máximo)', min: 1, max: 10 },
   // Recursos com peso (seção 19.19): a fome existe mas não acaba com o mundo, a população não explode nem some e a mata não some nem toma tudo.

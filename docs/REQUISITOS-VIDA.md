@@ -856,7 +856,7 @@ Pedido do Joab: todo evento e acontecimento é tratado como **simulação estoc�
 | Espécies extintas | 0 a 2 |
 | Assentamentos vivos | 12 a 40, com pelo menos 1 cidade |
 | Completude média da planta (RF-VIDA-201) | 50% a 85% |
-| Preenchimento médio dos estoques | 30% a 80% (medido nos recursos que o assentamento produz além do que gasta no ano) |
+| Preenchimento médio dos estoques | 20% a 80% (antes: 30% a 80%; com os recursos finitos da seção 19.19 o estoque vive mais vazio) (medido nos recursos que o assentamento produz além do que gasta no ano) |
 | Guerras ao mesmo tempo (média no período) | até 1 a cada 6 reinos |
 | Guerras de extermínio | 0 a 1 |
 | Falências de assentamento | 1 a 4 |
