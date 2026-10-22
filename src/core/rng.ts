@@ -26,6 +26,22 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
+/** PRNG cujo estado pode ser lido e restaurado (salvamento do jogo): a sequência continua de onde parou. */
+export type StatefulRng = (() => number) & { state: number };
+
+export function statefulMulberry32(seed: number): StatefulRng {
+  let a = seed >>> 0;
+  const next = (): number => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  Object.defineProperty(next, 'state', { get: () => a, set: (v: number) => { a = v >>> 0; } });
+  return next as StatefulRng;
+}
+
 /** Semente estável para um objeto do universo e uma versão do gerador. */
 export function seedFor(objectId: string, generatorVersion = 1): number {
   return hashString(`${objectId}#v${generatorVersion}`);

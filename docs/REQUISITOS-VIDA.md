@@ -405,7 +405,7 @@ As guerras são entre os povos: o jogador não as comanda e influencia pouco, s�
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RNF-VIDA-09 | O save guarda, por planeta com vida: espécies e populações, assentamentos (posição, nível, casas, ruas, reino, era, recursos, estabilidade), reinos e relações, a crônica e as camadas alteradas do terreno (como diff, RF-SUP). | A fazer (Fase 2, RF-SAV-01) |
+| RNF-VIDA-09 | O save guarda, por planeta com vida: espécies e populações, assentamentos (posição, nível, casas, ruas, reino, era, recursos, estabilidade), reinos e relações, a crônica e as camadas alteradas do terreno (como diff, RF-SUP). | Feito em 22/10/2026 (RF-VIDA-381; guarda tudo, sem diff) |
 | RNF-VIDA-10 | Indivíduos podem ser salvos de forma compacta (posição quantizada, idade, espécie, assentamento) ou regenerados a partir das populações se o save precisar ser pequeno. | A fazer (Fase 2) |
 | RNF-VIDA-11 | O save do planeta entra no backup único da base secreta (regra do backup em aberto no REQUISITOS.md). | A fazer (Fase 3) |
 
@@ -430,7 +430,7 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 
 | ID | Requisito | Fase | Origem |
 |---|---|---|---|
-| RF-VIDA-170 | **Save do planeta:** espécies, indivíduos (compactos), assentamentos, reinos, relações, crônica e terreno alterado entram no save do jogo e voltam iguais. | 2 | Novo: hoje tudo dura só a sessão (RNF-VIDA-09, RF-SAV-01) |
+| RF-VIDA-170 | **Save do planeta:** espécies, indivíduos (compactos), assentamentos, reinos, relações, crônica e terreno alterado entram no save do jogo e voltam iguais. | 2 | Feito em 22/10/2026 (RF-VIDA-381) |
 | RF-VIDA-171 | **Vida fora da observação:** ao sair do planeta, a simulação continua agregada (populações, eras, relações, guerras) e, ao voltar, os indivíduos são reconstituídos; a crônica registra o que houve no intervalo. | 5 | RNF-VIDA-05; hoje o planeta para no tempo |
 | RF-VIDA-172 | **Testes que protegem o que já existe:** extinções raras na Terra em 200 anos (semente fixa), plantações e fogueiras presentes cedo, aldeia de solitário que dura enquanto ele vive, ruínas que somem ou são reocupadas; e captura de tela da superfície comparada a uma referência. | 1 | Novo: regra de preservação e regressões já relatadas (fogueiras e roças "sumidas") |
 | RF-VIDA-173 | **Simulação num Web Worker**, com a tela só desenhando o estado. | 5 | RNF-VIDA-01; mapas maiores e até 100 assentamentos vivos |
@@ -1012,3 +1012,14 @@ Pedido do Joab em 21/10/2026: os recursos existem, mas não pesam; parecem abund
 | RF-VIDA-378 | **Casas não desabam em massa (ajuste de 21/10/2026):** a madeira que o assentamento tem é reservada para o conserto antes de qualquer obra nova (`REPAIR_RESERVE`), a mata volta mais depressa (`SPROUT_RATE` 0,1, `TREE_YEARS` 35, `REPLANT_YEARS` 18, `FORESTRY_YEARS` 60), e o conserto é mais barato e mais tolerante (`HOUSE_UPKEEP` 0,15, `BUILDING_UPKEEP` 0,25, `STONE_HOUSE_UPKEEP` 0,08, `DECAY_YEARS` 8, `COLLAPSE_YEARS` 20). Medido em simulação: casas desabadas por ano caíram de 0,53 para 0,06, sem mudar a fome nem a população. Alvo da calibração: `collapsed` entre 0 e 0,2. Altera os valores do RF-VIDA-370, 371 e 373. | Implementado |
 | RF-VIDA-379 | **Região do assentamento (território):** a área de cada assentamento volta a aparecer, em qualquer zoom, **como forma orgânica** (o raio varia suavemente com o ângulo, com uma forma própria por assentamento) e **respeitando a fronteira** dos vizinhos: nunca passa da linha onde os alcances se igualam. Véu leve de perto (para a arte das casas e ruas aparecer limpa), borda cheia para a capital e tracejada para os outros. Substitui o círculo. | Implementado: `regionPath` em `SurfaceMode` |
 | RF-VIDA-380 | **Mapa organizado (registro de mudanças já feitas):** terreiro limpo em volta das casas e ruas (`clearYards`), ruas mais largas, casas alinhadas na rua (`lotsFor`), sem cercas e muralhas, no máximo 5 currais e plantações por assentamento, menos ramificação de vilas e menos caravanas, soldado montado desenhado a cavalo. | Implementado |
+
+### 19.20 Salvar o progresso no navegador
+
+Pedido do Joab em 22/10/2026: forma simples de guardar o jogo inteiro de quem fecha a página sem querer ("dar F"). Ideia inicial dele: localStorage.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| RF-VIDA-381 | **Save local no IndexedDB.** Guarda nave, relógio, GUIA, sondas, espécies conhecidas e, por planeta visitado, o terreno e o ecossistema inteiro (criaturas, assentamentos, reinos, relações, guerras, economia, crônica, ruas, árvores cortadas, clima). O ecossistema é lido por reflexão, então campo novo na classe já entra no save; um teste confere que todo campo volta igual. IndexedDB e não localStorage porque o mapa de um planeta passa de 20 MB e a cota do localStorage é de ~5 MB. | Implementado |
+| RF-VIDA-382 | **A simulação segue igual depois de carregar.** O estado de cada gerador de sorteios (`vida`, `povos`, `politica`, `mundo`, `clima`, `saber`, RF-VIDA-306) é salvo e restaurado: carregar e seguir dá o mesmo resultado que seguir sem ter salvo (teste). | Implementado |
+| RF-VIDA-383 | **Quando salva:** a cada 60 s, ao sair da superfície, ao esconder ou fechar a aba e pelo botão ou Ctrl+S. Ao abrir a página o último save é carregado; o jogador volta ao espaço ou à superfície, com a mesma câmera e velocidade. Botões **Salvar**, **Carregar** e **Mundo novo** (com confirmação) no canto da tela. | Implementado |
+| RF-VIDA-384 | **Save inválido não derruba o jogo.** O save tem versão (`SAVE_VERSION`) e é validado antes de usar. Corrompido ou de outra versão: aviso, o save é guardado à parte (chave `recusado`) e começa um mundo novo. Se o navegador não deixa ler o armazenamento, o autosave fica desligado para não apagar um save que pode existir. | Implementado |

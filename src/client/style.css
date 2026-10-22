@@ -278,3 +278,9 @@ kbd { display: inline-block; min-width: 20px; text-align: center; border: 1px so
 .wb-goto.wb-pop { padding-left: 0; width: 100%; }
 .wb-crest { image-rendering: pixelated; width: 22px; height: 26px; flex: none; }
 .wb-vwin .wb-win-head b { display: flex; align-items: center; gap: 6px; }
+
+.save-bar { position: fixed; right: 8px; bottom: 8px; z-index: 30; display: flex; align-items: center; gap: 4px; opacity: 0.55; transition: opacity 0.15s; }
+.save-bar:hover { opacity: 1; }
+.save-bar button { font: inherit; font-size: 12px; color: #e8eef8; background: rgba(20, 28, 44, 0.92); border: 1px solid #3a4f7a; border-radius: 6px; padding: 3px 8px; cursor: pointer; }
+.save-bar button:hover { background: rgba(40, 60, 100, 0.95); }
+.save-toast { font-size: 12px; color: #e8eef8; background: rgba(20, 28, 44, 0.92); border: 1px solid #3a4f7a; border-radius: 6px; padding: 3px 8px; }

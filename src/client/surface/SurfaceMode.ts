@@ -367,6 +367,8 @@ export class SurfaceMode {
     private readonly params: PlanetParams,
     hud: HTMLElement,
     private readonly onExit: () => void,
+    /** Câmera e velocidade de um save carregado. */
+    private readonly resume?: { center: [number, number]; zoom: number; speed: number },
   ) {
     if (shared instanceof SoftRenderer) {
       this.renderer = shared;
@@ -427,6 +429,11 @@ export class SurfaceMode {
     for (let i = 0; i < eco.road.length; i++) if (eco.road[i] || eco.built[i]) this.paintSettlement(i);
     this.center.set(map.width / 2, map.height / 2);
     this.zoom = Math.max(1, window.innerHeight / map.height);
+    if (this.resume) {
+      this.center.set(...this.resume.center);
+      this.zoom = clamp(this.resume.zoom, 0.5, 48);
+      this.speed = Math.min(Math.max(0, Math.floor(this.resume.speed)), SPEEDS.length - 1);
+    }
     this.decorCanvas = makeDecorCanvas();
     this.atlas = new SpriteAtlas();
     this.sprites = new SpriteLayer(this.atlas, 12000);
@@ -2812,6 +2819,11 @@ export class SurfaceMode {
       this.eco.hint = '';
       this.toastUntil = now + 2500;
     } else if (now > this.toastUntil) el.hidden = true;
+  }
+
+  /** Câmera e velocidade, para o save. Antes de o mapa ficar pronto não há nada a guardar. */
+  snapshotView(): { mode: 'surface'; params: PlanetParams; center: [number, number]; zoom: number; speed: number } {
+    return { mode: 'surface', params: this.params, center: [this.center.x, this.center.y], zoom: this.zoom, speed: this.speed };
   }
 
   dispose(): void {
