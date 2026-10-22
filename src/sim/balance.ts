@@ -414,8 +414,8 @@ export const REPLANT_YEARS = 18;
  * anos de corte. Replantar custa REPLANT_WORK do trabalho de cortar uma árvore; cada lenhador
  * planta PLANT_RATE mudas por ano nos tocos antigos.
  */
-export const FORESTRY_TECH = 0.5;
-export const FORESTRY_YEARS = 60;
+export const FORESTRY_TECH = 0;
+export const FORESTRY_YEARS = 90;
 export const REPLANT_WORK = 0.25;
 export const PLANT_RATE = 1;
 
@@ -436,14 +436,18 @@ export const QUARRY_RATE = 1;
  * em 50 anos (28 plantada): casa nova e conserto brigavam pela mesma madeira e alguns lugares não
  * se sustentavam. Agora o conserto é mais leve, dá mais tempo, a mata volta mais depressa e a obra
  * nova só começa com o conserto do ano garantido (REPAIR_RESERVE anos de conserto guardados).
+ * Depois (22/10, vilas caindo antes de a mata voltar): a árvore plantada leva REPLANT_YEARS e a
+ * muda sozinha TREE_YEARS, então a casa agora aguenta DECAY_YEARS/COLLAPSE_YEARS sem conserto
+ * (12 e 32 anos, antes 8 e 20) e o manejo da mata começa sem exigir era (FORESTRY_TECH 0), com
+ * 90 anos de antecedência (FORESTRY_YEARS), em vez de só depois de a mata ao alcance acabar.
  */
 export const HOUSE_UPKEEP = 0.15;
 export const REPAIR_RESERVE = 1;
 export const BUILDING_UPKEEP = 0.25;
 export const STONE_HOUSE_UPKEEP = 0.08;
 /** Anos sem conserto até a casa ficar vazia (caindo aos pedaços) e até desabar. */
-export const DECAY_YEARS = 8;
-export const COLLAPSE_YEARS = 20;
+export const DECAY_YEARS = 12;
+export const COLLAPSE_YEARS = 32;
 /** Energia por segundo que perde quem passa o inverno frio sem lenha (vezes a falta). */
 export const FREEZE = 0.03;
 
