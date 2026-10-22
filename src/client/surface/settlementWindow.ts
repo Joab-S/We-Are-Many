@@ -5,10 +5,10 @@
  * cuida de abrir, fechar e atualizar (só a aba visível, 4 vezes por segundo).
  */
 
-import { BUILDING_NAMES, ERAS, HERD_NAMES, type Ecosystem, type Village } from '../../sim/ecosystem';
+import { BUILDING_NAMES, ERAS, HERD_NAMES, type Ecosystem, type Ledger, type Village } from '../../sim/ecosystem';
 import { GOODS, ORE_NAMES, STOCK_NAMES, WONDER_NAMES, type Good } from '../../sim/economy';
 import { NEED_NAMES, NEEDS, SEASONS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../sim/needs';
-import { DEATH_CAUSES, familyName, personName } from '../../sim/people';
+import { DEATH_CAUSES, emptyVital, familyName, personName, type DeathCause, type Vital } from '../../sim/people';
 import { CHILD, ROLE_NAMES, ROLES, type Role } from '../../sim/roles';
 import { TIER_NAMES } from '../../sim/settlement';
 import { MATERIAL_NAMES } from '../../sim/architecture';
@@ -17,6 +17,54 @@ import { elderAge } from '../../sim/ecosystem';
 import { ERA_POINTS, PILLARS, PILLAR_NAMES, TECHS, VOCATION_PILLAR } from '../../sim/progress';
 
 export type SettlementTab = 'summary' | 'economy' | 'people' | 'buildings' | 'relations' | 'history';
+
+/** Agrupamento temporal dos registros do assentamento (10, 50, 100 anos ou 0 = total). */
+export type PeriodSpan = 10 | 50 | 100 | 0;
+
+export const PERIOD_SPANS: [PeriodSpan, string][] = [
+  [10, '10 anos'],
+  [50, '50 anos'],
+  [100, '100 anos'],
+  [0, 'Total'],
+];
+
+function periodButtons(span: PeriodSpan): string {
+  return `<div class="wb-filters">${PERIOD_SPANS.map(([s, label]) => `<button data-span="${s}" class="${span === s ? 'on' : ''}">${label}</button>`).join('')}</div>`;
+}
+
+/** Soma o balanço de recursos nos últimos `span` anos (ou total quando `span === 0`). */
+export function sumLedger(v: Village, span: PeriodSpan): { ledger: Ledger; years: number } {
+  if (span === 0 && v.ledgerTotal) {
+    return { ledger: v.ledgerTotal, years: Math.max(1, v.history?.length ?? v.ledgers?.length ?? 1) };
+  }
+  const list = v.ledgers?.length ? (span === 0 ? v.ledgers : v.ledgers.slice(-span)) : v.ledger ? [v.ledger] : [];
+  const out: Ledger = {};
+  for (const l of list) {
+    for (const [k, [m, u]] of Object.entries(l)) {
+      const cur = out[k] ?? (out[k] = [0, 0]);
+      cur[0] += m;
+      cur[1] += u;
+    }
+  }
+  return { ledger: out, years: Math.max(1, list.length) };
+}
+
+/** Soma o movimento demográfico nos últimos `span` anos (ou total quando `span === 0`). */
+export function sumVital(v: Village, span: PeriodSpan): Vital | null {
+  if (span === 0 && v.vitalTotal) return v.vitalTotal;
+  const list = v.vitals?.length ? (span === 0 ? v.vitals : v.vitals.slice(-span)) : v.vital ? [v.vital] : [];
+  if (!list.length) return null;
+  const out = emptyVital();
+  for (const x of list) {
+    out.births += x.births;
+    out.arrived += x.arrived;
+    out.left += x.left;
+    for (const [c, n] of Object.entries(x.deaths)) {
+      if (n) out.deaths[c as DeathCause] = (out.deaths[c as DeathCause] ?? 0) + n;
+    }
+  }
+  return out;
+}
 
 export const SETTLEMENT_TABS: [SettlementTab, string][] = [
   ['summary', 'Resumo'],
@@ -149,8 +197,9 @@ function pillarsHtml(eco: Ecosystem, v: Village): string {
     ${latent.length ? `<div class="wb-kv"><span>Sem uso ainda</span><b>${latent.join('; ')}</b></div>` : ''}`;
 }
 
-function economyHtml(eco: Ecosystem, v: Village): string {
-  const ledger = v.ledger ?? {};
+function economyHtml(eco: Ecosystem, v: Village, span: PeriodSpan): string {
+  const { ledger, years } = sumLedger(v, span);
+  const spanLabel = span === 0 ? 'total acumulado' : `últimos ${span} anos`;
   const rows = ([...GOODS, 'food'] as (Good | 'food')[])
     .map((g) => {
       const have = g === 'food' ? v.food : v.stock[g];
@@ -173,10 +222,12 @@ function economyHtml(eco: Ecosystem, v: Village): string {
     ? NEEDS.map((k) => `<div class="wb-kv"><span>${NEED_NAMES[k]}</span>${bar(n[k], pct(n[k]))}</div>`).join('')
     : '<div class="wb-empty">Ainda sem um ano completo de contas.</div>';
   return `
+    <div class="wb-section">Período dos registros</div>
+    ${periodButtons(span)}
     <div class="wb-section">Necessidades</div>
     ${needs}
-    ${resourcesHtml(v)}
-    <div class="wb-section">Estoque e balança do ano passado</div>
+    ${resourcesHtml(v, ledger, years, span)}
+    <div class="wb-section">Estoque e balança (${spanLabel})</div>
     ${table ? `<table class="wb-table"><tr><th>Recurso</th><th>Estoque e teto</th><th>Fez</th><th>Gastou</th><th>Saldo</th><th title="Quanto vale aqui, pela falta que faz (RF-VIDA-231)">Preço</th><th></th></tr>${table}</table>` : '<div class="wb-empty">Nada guardado.</div>'}
     <div class="wb-kv"><span>Caixa</span><b>${Math.floor(v.stock.gold)} de ouro</b></div>
     ${v.herd ? `<div class="wb-kv"><span>Rebanho</span><b>${v.herd.head} ${HERD_NAMES[v.herd.kind]}${(v.herd.plague ?? 0) > eco.year ? ' · <span class="bad">com praga</span>' : ''}</b></div>` : ''}
@@ -187,14 +238,15 @@ function economyHtml(eco: Ecosystem, v: Village): string {
 }
 
 /** Recursos do mapa ao alcance (seção 19.19): a mata, a pedra, de onde veio a comida e as casas sem conserto. */
-function resourcesHtml(v: Village): string {
-  const l = v.ledger ?? {};
+function resourcesHtml(v: Village, l: Ledger, spanYears: number, span: PeriodSpan): string {
   const made = (k: string) => Math.round(l[k]?.[0] ?? 0);
   const trees = v.trees ?? 0;
   const cut = made('_trees');
-  const years = cut > 0 ? Math.floor(trees / cut) : 0;
+  const cutPerYear = cut / Math.max(1, spanYears);
+  const years = cutPerYear > 0 ? Math.floor(trees / cutPerYear) : 0;
   const start = v.treesStart ?? trees;
-  const forest = `${trees} árvores${start > 0 ? ` (${pct(Math.min(1, trees / start))} da mata do começo)` : ''}${cut ? ` · ${cut} cortadas no ano${years < 60 ? `, <span class="${years < 20 ? 'bad' : 'warn'}">dá para ${years} anos</span>` : ''}` : ''}${v.forestry ? ' · <span class="good">replanta</span>' : ''}`;
+  const periodText = span === 0 ? 'no total' : `nos últimos ${span} anos`;
+  const forest = `${trees} árvores${start > 0 ? ` (${pct(Math.min(1, trees / start))} da mata do começo)` : ''}${cut ? ` · ${cut} cortadas ${periodText}${years < 60 ? `, <span class="${years < 20 ? 'bad' : 'warn'}">dá para ${years} anos</span>` : ''}` : ''}${v.forestry ? ' · <span class="good">replanta</span>' : ''}`;
   const food = [
     ['coleta', made('_gather')],
     ['caça', made('_hunt')],
@@ -210,7 +262,7 @@ function resourcesHtml(v: Village): string {
     <div class="wb-section">Recursos por perto</div>
     <div class="wb-kv"><span>Mata ao alcance</span><b>${trees ? forest : '<span class="bad">acabou</span>'}</b></div>
     ${v.stoneLeft !== undefined ? `<div class="wb-kv"><span>Pedra ao alcance</span><b>${v.stoneLeft >= 1 ? `${Math.floor(v.stoneLeft)}` : '<span class="bad">acabou</span>'}</b></div>` : ''}
-    <div class="wb-kv"><span>Comida do ano</span><b>${food || 'nenhuma'}</b></div>
+    <div class="wb-kv"><span>Comida (${span === 0 ? 'total' : `${span} anos`})</span><b>${food || 'nenhuma'}</b></div>
     ${worn ? `<div class="wb-kv"><span>Sem conserto</span><b class="bad">${worn} ${worn > 1 ? 'construções' : 'construção'} sem madeira para os consertos</b></div>` : ''}`;
 }
 
@@ -245,7 +297,7 @@ function tradeHtml(eco: Ecosystem, v: Village): string {
     ${v.refused ? `<div class="wb-kv"><span>Pedidos recusados</span><b class="bad">${v.refused}</b></div>` : ''}`;
 }
 
-function peopleHtml(eco: Ecosystem, v: Village): string {
+function peopleHtml(eco: Ecosystem, v: Village, span: PeriodSpan): string {
   const sp = eco.species[v.species];
   const era = Math.floor(v.tech);
   let kids = 0;
@@ -262,7 +314,8 @@ function peopleHtml(eco: Ecosystem, v: Village): string {
     .sort((a, b) => b[1] - a[1])
     .map(([r, n]) => `<button class="wb-chip" data-role="${r}" title="Destacar no mapa">${ROLE_ICONS[ROLES[r]]} ${ROLE_NAMES[ROLES[r]]} <b>${n}</b></button>`)
     .join('');
-  const vital = v.vital;
+  const vital = sumVital(v, span);
+  const spanLabel = span === 0 ? 'total acumulado' : `últimos ${span} anos`;
   const deaths = vital
     ? DEATH_CAUSES.filter((c) => vital.deaths[c])
         .map((c) => `${c} ${vital.deaths[c]}`)
@@ -275,7 +328,8 @@ function peopleHtml(eco: Ecosystem, v: Village): string {
     <div class="wb-kv"><span>Idosos</span><b>${elders}</b></div>
     <div class="wb-section">Profissões (clique para destacar no mapa)</div>
     <div class="wb-chips">${jobs || '<span class="wb-empty">Ninguém trabalhando.</span>'}</div>
-    <div class="wb-section">Ano passado</div>
+    <div class="wb-section">Registro demográfico (${spanLabel})</div>
+    ${periodButtons(span)}
     ${vital
       ? `<div class="wb-kv"><span>Nascimentos</span><b>${vital.births}</b></div>
          <div class="wb-kv"><span>Mortes</span><b>${dead}${deaths ? ` <span class="wb-dim">(${deaths})</span>` : ''}</b></div>
@@ -371,15 +425,21 @@ function historyHtml(eco: Ecosystem, v: Village, describe: (e: Ecosystem['chroni
 }
 
 /** Conteúdo da aba pedida da janela do assentamento. */
-export function settlementTabHtml(eco: Ecosystem, v: Village, tab: SettlementTab, describe: (e: Ecosystem['chronicle'][number]) => string): string {
+export function settlementTabHtml(
+  eco: Ecosystem,
+  v: Village,
+  tab: SettlementTab,
+  describe: (e: Ecosystem['chronicle'][number]) => string,
+  span: PeriodSpan = 10,
+): string {
   if (v.abandoned) return `<div class="wb-empty">${v.name} foi abandonada${v.abandonedAt !== undefined ? ` no ano ${Math.floor(v.abandonedAt)}` : ''}.</div>`;
   switch (tab) {
     case 'summary':
       return summaryHtml(eco, v);
     case 'economy':
-      return economyHtml(eco, v);
+      return economyHtml(eco, v, span);
     case 'people':
-      return peopleHtml(eco, v);
+      return peopleHtml(eco, v, span);
     case 'buildings':
       return buildingsHtml(eco, v);
     case 'relations':

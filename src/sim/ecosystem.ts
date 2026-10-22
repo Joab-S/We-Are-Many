@@ -465,9 +465,11 @@ export interface Village {
   pens?: { x: number; y: number }[];
   /** Fertilidade do solo das roças, de 0 a 1 (RF-VIDA-294). */
   soil?: number;
-  /** Produção e consumo do ano passado e do ano corrente, por recurso (painel de economia, RF-VIDA-217). */
+  /** Produção e consumo do ano passado, do ano corrente e histórico acumulado, por recurso (painel de economia, RF-VIDA-217). */
   ledger?: Ledger;
   ledgerNow?: Ledger;
+  ledgers?: Ledger[];
+  ledgerTotal?: Ledger;
   /** Ano até o qual dura a corrida do ouro (RF-VIDA-285). */
   goldRush?: number;
   /** Tem água por perto (barro e poço). */
@@ -476,9 +478,11 @@ export interface Village {
   material?: BuildMaterial;
   /** Era do último calçamento das ruas. */
   paveEra?: number;
-  /** Nascimentos, mortes, chegadas e partidas do ano passado e do ano corrente (RF-VIDA-343). */
+  /** Nascimentos, mortes, chegadas e partidas do ano passado, do ano corrente e histórico acumulado (RF-VIDA-343). */
   vital?: Vital;
   vitalNow?: Vital;
+  vitals?: Vital[];
+  vitalTotal?: Vital;
   /** Uma amostra por ano de população e estoque, para os gráficos (RF-VIDA-347). */
   history?: Sample[];
   /** Bem de luxo da região (RF-VIDA-282); null quando a região não dá nenhum. */
@@ -775,6 +779,8 @@ export class Ecosystem {
   onSpecies: (sp: Species) => void = () => {};
   /** Anos de jogo desde a chegada. */
   year = 0;
+  /** Segundos de simulação que formam um ano no relógio (padrão YEAR_SECONDS; maior na tela para o ano durar mais sem desacelerar ações e eventos). */
+  yearSpan = YEAR_SECONDS;
   /** Crônica do planeta, do mais novo para o mais antigo (RF-VIDA-156). */
   readonly chronicle: ChronicleEntry[] = [];
   /** Ano do último acontecimento importante (para detectar marasmo). */
@@ -1210,7 +1216,7 @@ export class Ecosystem {
   /** Avança a simulação `dt` segundos de jogo (já multiplicados pela velocidade escolhida). */
   step(dt: number): void {
     if (dt <= 0) return;
-    this.year += dt / YEAR_SECONDS;
+    this.year += dt / this.yearSpan;
     this.buildGrid();
     const map = this.map;
     const w = map.width;
@@ -1234,7 +1240,7 @@ export class Ecosystem {
           this.vy[i] = -this.vy[i] + (this.rnd() - 0.5) * 0.5;
         }
       }
-      this.age[i] += dt / YEAR_SECONDS;
+      this.age[i] += dt / this.yearSpan;
       this.think[i] -= dt;
       if (this.think[i] <= 0) {
         this.think[i] += THINK_INTERVAL;
@@ -1378,13 +1384,36 @@ export class Ecosystem {
       this.luxuryYear(v);
       this.clampStock(v);
       this.hardship(v);
-      v.ledger = v.ledgerNow ?? {};
-      v.ledgerNow = {};
-      v.vital = v.vitalNow ?? emptyVital();
-      v.vitalNow = emptyVital();
-      const history = (v.history ??= []);
-      history.push({ year: Math.floor(this.year), population: v.population, stock: Math.round(v.food + GOODS.reduce((n, g) => n + v.stock[g], 0)) });
-      if (history.length > HISTORY_YEARS) history.shift();
+      const curYear = Math.floor(this.year);
+      const lastYear = v.history?.length ? v.history[v.history.length - 1].year : -1;
+      if (this.yearSpan <= YEAR_SECONDS || curYear > lastYear) {
+        v.ledger = v.ledgerNow ?? {};
+        v.ledgerNow = {};
+        const ledgers = (v.ledgers ??= []);
+        ledgers.push(v.ledger);
+        if (ledgers.length > 100) ledgers.shift();
+        const lTot = (v.ledgerTotal ??= {});
+        for (const [k, [m, u]] of Object.entries(v.ledger)) {
+          const cur = lTot[k] ?? (lTot[k] = [0, 0]);
+          cur[0] += m;
+          cur[1] += u;
+        }
+        v.vital = v.vitalNow ?? emptyVital();
+        v.vitalNow = emptyVital();
+        const vitals = (v.vitals ??= []);
+        vitals.push(v.vital);
+        if (vitals.length > 100) vitals.shift();
+        const vTot = (v.vitalTotal ??= emptyVital());
+        vTot.births += v.vital.births;
+        vTot.arrived += v.vital.arrived;
+        vTot.left += v.vital.left;
+        for (const [c, n] of Object.entries(v.vital.deaths)) {
+          if (n) vTot.deaths[c as DeathCause] = (vTot.deaths[c as DeathCause] ?? 0) + n;
+        }
+        const history = (v.history ??= []);
+        history.push({ year: curYear, population: v.population, stock: Math.round(v.food + GOODS.reduce((n, g) => n + v.stock[g], 0)) });
+        if (history.length > HISTORY_YEARS) history.shift();
+      }
     }
     this.haul();
     this.tradeYear();
@@ -2556,9 +2585,165 @@ export class Ecosystem {
     return false;
   }
 
+  private readonly contours = new WeakMap<Village, { key: number; radii: Float32Array }>();
+
   /** Assentamento cuja área contém o ponto, se houver. */
   settlementAt(x: number, y: number): Village | null {
     for (const v of this.villages) if (!v.abandoned && this.distance(v, x, y) < this.radius(v)) return v;
+    return null;
+  }
+
+  /**
+   * Contorno real do assentamento em 64 direções: envolve a praça, todas as
+   * casas, construções especiais, porto, plantações (roças), currais (pastos)
+   * e ruas internas, fechando os vãos entre vizinhos sem inventar área vazia.
+   */
+  villageContour(v: Village): Float32Array {
+    const key =
+      v.houses.length * 131071 +
+      v.fields * 8191 +
+      (v.pens?.length ?? 0) * 521 +
+      (v.streetLen ?? 0) * 31 +
+      Math.floor(this.year) * 7 +
+      this.mapVersionKey;
+    const hit = this.contours.get(v);
+    if (hit && hit.key === key) return hit.radii;
+
+    const N = 64;
+    const mw = this.map.width;
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    const base = this.radius(v);
+    const near = this.villages.filter((o) => o !== v && !o.abandoned && this.distance(o, v.x, v.y) < base * 2 + this.radius(o) + 8);
+    const disks: { dx: number; dy: number; d2: number; pad: number }[] = [];
+    const addDisk = (x: number, y: number, pad: number) => {
+      const dx = wrapDx(x - v.x, mw);
+      const dy = y - v.y;
+      disks.push({ dx, dy, d2: dx * dx + dy * dy, pad });
+    };
+    // Praça central (3x3).
+    addDisk(cx + 0.5, cy + 0.5, 3.0);
+    // Casas, construções especiais e porto.
+    for (const h of v.houses) {
+      const s = h.kind === 'port' ? 1 : 2;
+      addDisk(h.x + s * 0.5, h.y + s * 0.5, s === 1 ? 2.1 : 2.8);
+    }
+    // Currais (pastos 2x2).
+    for (const p of v.pens ?? []) addDisk(p.x + 1, p.y + 1, 2.8);
+    // Plantações (roças, road === 4) e ruas internas coladas em construções/roças/praça.
+    const scanR = Math.ceil(base) + 4;
+    for (let dy = -scanR; dy <= scanR; dy++) {
+      for (let dx = -scanR; dx <= scanR; dx++) {
+        if (dx * dx + dy * dy > scanR * scanR) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t < 0) continue;
+        const rk = this.road[t];
+        if (rk !== 4 && rk !== 5 && !(rk >= 1 && rk <= 2 && dx * dx + dy * dy <= base * base)) continue;
+        const tx = cx + dx + 0.5;
+        const ty = cy + dy + 0.5;
+        const dv = this.distance(v, tx, ty);
+        if (near.some((o) => this.distance(o, tx, ty) < dv)) continue;
+        if (rk === 4 || rk === 5) {
+          addDisk(tx, ty, 2.2);
+        } else {
+          // Rua interna: só conta quando ladeia casa, roça, pasto ou praça (ignora estrada para outra vila).
+          let urban = false;
+          for (let oy = -2; oy <= 2 && !urban; oy++) {
+            for (let ox = -2; ox <= 2 && !urban; ox++) {
+              const u = this.tileAt(cx + dx + ox, cy + dy + oy);
+              if (u >= 0 && (this.built[u] || this.road[u] >= 3)) urban = true;
+            }
+          }
+          if (urban) addDisk(tx, ty, 1.8);
+        }
+      }
+    }
+
+    const strict = new Float32Array(N);
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * Math.PI * 2;
+      const ux = Math.cos(a);
+      const uy = Math.sin(a);
+      let s = 2.8;
+      for (let j = 0; j < disks.length; j++) {
+        const c = disks[j];
+        const proj = c.dx * ux + c.dy * uy;
+        if (proj < -c.pad) continue;
+        const perp2 = c.d2 - proj * proj;
+        if (perp2 < c.pad * c.pad) {
+          const hitR = proj + Math.sqrt(c.pad * c.pad - perp2);
+          if (hitR > s) s = hitR;
+        }
+      }
+      strict[k] = s;
+    }
+
+    // Fechamento angular curto: une lotes próximos da mesma vila sem criar barriga onde não há nada.
+    const dilated = new Float32Array(N);
+    for (let k = 0; k < N; k++) {
+      let m = strict[k];
+      for (let d = -3; d <= 3; d++) {
+        const v0 = strict[(k + d + N) & 63] * Math.cos((d * Math.PI * 2) / N);
+        if (v0 > m) m = v0;
+      }
+      dilated[k] = m;
+    }
+    const radii = new Float32Array(N);
+    for (let k = 0; k < N; k++) {
+      let m = dilated[k];
+      for (let d = -2; d <= 2; d++) {
+        const v0 = dilated[(k + d + N) & 63];
+        if (v0 < m) m = v0;
+      }
+      radii[k] = Math.max(strict[k], m);
+    }
+    const tmp = new Float32Array(N);
+    for (let pass = 0; pass < 3; pass++) {
+      for (let k = 0; k < N; k++) {
+        tmp[k] = Math.max(strict[k], 0.25 * radii[(k + N - 1) & 63] + 0.5 * radii[k] + 0.25 * radii[(k + 1) & 63]);
+      }
+      radii.set(tmp);
+    }
+    // Fronteira com assentamentos vizinhos, sem cortar construções ou plantações próprias.
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * Math.PI * 2;
+      const ux = Math.cos(a);
+      const uy = Math.sin(a);
+      let r = radii[k];
+      for (const o of near) {
+        const dx = wrapDx(o.x - v.x, mw);
+        const dy = o.y - v.y;
+        const d2 = dx * dx + dy * dy;
+        const proj = ux * dx + uy * dy;
+        if (proj <= 0.01) continue;
+        r = Math.min(r, Math.max(strict[k] - 0.2, d2 / (2 * proj) - 0.3));
+      }
+      radii[k] = r;
+    }
+    this.contours.set(v, { key, radii });
+    return radii;
+  }
+
+  /** Contador de alterações em tiles para atualizar o cache do contorno na hora. */
+  private mapVersionKey = 0;
+
+  /** Assentamento cujo contorno real contém o ponto (x, y), se houver. */
+  villageAt(x: number, y: number): Village | null {
+    const mw = this.map.width;
+    for (const v of this.villages) {
+      if (v.abandoned) continue;
+      const dx = wrapDx(x - v.x, mw);
+      const dy = y - v.y;
+      const d = Math.hypot(dx, dy);
+      if (d > this.radius(v) + 7) continue;
+      const r = this.villageContour(v);
+      const a = (((Math.atan2(dy, dx) / (Math.PI * 2)) % 1) + 1) % 1;
+      const idx = a * r.length;
+      const k0 = Math.floor(idx) & 63;
+      const k1 = (k0 + 1) & 63;
+      const t = idx - Math.floor(idx);
+      if (d <= r[k0] * (1 - t) + r[k1] * t) return v;
+    }
     return null;
   }
 
@@ -3596,15 +3781,16 @@ export class Ecosystem {
         continue;
       }
       const before = Math.floor(v.tech);
+      const eraPace = this.yearSpan > YEAR_SECONDS ? 1.5 : 1;
       if (before < ERA_YEARS.length) {
         // Cresce com a população e com o tamanho do reino (troca de ideias).
         const people = Math.min(1.3, Math.max(0.4, Math.sqrt(v.population / 30)));
         const kingdom = Math.min(1.25, 1 + 0.05 * (this.kingdomSize(this.capitalOf(v)) - 1));
         const wise = v.culture.value === 'conhecimento' ? 1.2 : 1;
         const dev = v.levels ? P.devSpeed(v.levels) * (this.knew(v, 'escrita') ? 1.1 : 1) : 1;
-        this.advance(v, ((dt / YEAR_SECONDS) * people * kingdom * wise * dev) / ERA_YEARS[before]);
+        this.advance(v, ((dt / YEAR_SECONDS) * eraPace * people * kingdom * wise * dev) / ERA_YEARS[before]);
       }
-      this.develop(v, dt);
+      this.develop(v, dt * eraPace);
       if (Math.floor(v.tech) > before) {
         v.pts = P.emptyPoints();
         this.note(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`, 'era', v, { major: true });
@@ -7473,6 +7659,7 @@ export class Ecosystem {
    * incompletos e estrada que precisa ser refeita (`linked`).
    */
   private reconcile(cx: number, cy: number, ri: number): void {
+    this.mapVersionKey++;
     const w = this.map.width;
     for (const v of this.villages) {
       if (v.abandoned || this.distance(v, cx, cy) > ri + this.radius(v) + 8) continue;

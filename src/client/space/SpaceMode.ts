@@ -289,9 +289,17 @@ export class SpaceMode {
     return glow;
   }
 
+  private lastW = 0;
+  private lastH = 0;
+  private lastDpr = 0;
+
   private readonly resize = (): void => {
     const w = window.innerWidth;
     const h = window.innerHeight;
+    this.lastW = w;
+    this.lastH = h;
+    this.lastDpr = window.devicePixelRatio || 1;
+    this.resolution.reset();
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -301,6 +309,9 @@ export class SpaceMode {
 
   private readonly frame = (now: number): void => {
     this.raf = requestAnimationFrame(this.frame);
+    if (window.innerWidth !== this.lastW || window.innerHeight !== this.lastH || (window.devicePixelRatio || 1) !== this.lastDpr) {
+      this.resize();
+    }
     this.resolution.frame(now - this.lastTime, now);
     // Teto alto para o passo: em PCs lentos (sem placa de vídeo) a viagem não fica em câmera lenta.
     // A velocidade adaptativa anda no máximo ~10% da distância ao obstáculo por passo, então é seguro.

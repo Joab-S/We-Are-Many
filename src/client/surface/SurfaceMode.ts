@@ -11,7 +11,7 @@ import {
   type PlanetParams,
   type SurfaceMap,
 } from '../../procgen/surface';
-import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, HERD_NAMES, isLand, WAR_MOTIVES, YEAR_SECONDS, type ChronicleKind, type Village } from '../../sim/ecosystem';
+import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, HERD_NAMES, isLand, WAR_MOTIVES, type ChronicleKind, type Village } from '../../sim/ecosystem';
 import { NEED_NAMES, NEEDS, SEASONS, VOCATION_COLORS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../sim/needs';
 import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from '../../sim/economy';
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
@@ -29,7 +29,7 @@ import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 import { animalStage, DEATH_TEXT, familyName, personName } from '../../sim/people';
 import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, GRAVEL, houseStyle } from '../../sim/architecture';
 import { CURRENCY_NAMES } from '../../sim/trade';
-import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, type CompareKey, type SettlementTab } from './settlementWindow';
+import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, sumLedger, type CompareKey, type PeriodSpan, type SettlementTab } from './settlementWindow';
 
 /** Raio de escolha de criaturas em pixels de tela, igual em qualquer zoom (RF-VIDA-330). */
 const PICK_RADIUS_PX = 10;
@@ -271,7 +271,9 @@ function bodyOf(sp: Species): string {
   return sp.body && BODY_NAMES.includes(sp.body) ? sp.body : sp.origin === EARTH_ID ? 'human' : 'alien';
 }
 
-const SPEEDS = [0, 1, 2, 5];
+const SPEEDS = [0, 1, 2, 5, 10];
+/** Segundos reais para passar 1 ano na velocidade 1x. */
+const REAL_YEAR_SECONDS = 12;
 /** Pelagem do cavalo da cavalaria. */
 const HORSE_COAT: [number, number, number] = [122, 84, 52];
 
@@ -327,6 +329,7 @@ export class SurfaceMode {
   private highlightStep = 0;
   /** Janela do assentamento aberta e a aba visível (RF-VIDA-341). */
   private vwin: { id: number; tab: SettlementTab } | null = null;
+  private vwinSpan: PeriodSpan = 10;
   private lastVwin = 0;
   private lastVwinHtml = '';
   /** Ordem da tabela de assentamentos (RF-VIDA-349a). */
@@ -365,8 +368,10 @@ export class SurfaceMode {
     hud: HTMLElement,
     private readonly onExit: () => void,
   ) {
-    if (shared instanceof SoftRenderer) this.renderer = shared;
-    else {
+    if (shared instanceof SoftRenderer) {
+      this.renderer = shared;
+      this.renderer.setPixelRatio(1);
+    } else {
       this.renderer = new SoftRenderer();
       this.renderer.setPixelRatio(1);
       shared.domElement.after(this.renderer.domElement);
@@ -405,6 +410,7 @@ export class SurfaceMode {
       state.ecosystems.set(this.params.id, eco);
     }
     this.eco = eco;
+    eco.yearSpan = REAL_YEAR_SECONDS;
     eco.onTileChanged = (i) => this.repaint(i);
     // O banco genético da Terra vem a bordo; variantes que surgem entram no catálogo.
     for (const sp of earthCatalog()) if (!state.knownSpecies.has(sp.id)) state.knownSpecies.set(sp.id, sp);
@@ -805,7 +811,7 @@ export class SurfaceMode {
           <span><kbd>Esquerdo</kbd> usa a ferramenta; de mão vazia arrasta o mapa e um clique fixa a ficha do que está embaixo. Clicar de novo no mesmo ponto passa para a próxima criatura</span>
           <span>Clique no nome, na praça ou num prédio para abrir a janela do assentamento · <kbd>Shift</kbd> + arrastar escolhe um grupo · <kbd>F</kbd> segue a criatura escolhida</span>
           <span><kbd>Direito</kbd><kbd>WASD</kbd> movem o mapa · <kbd>Roda</kbd> zoom</span>
-          <span><kbd>Espaço</kbd> pausa · <kbd>1</kbd>–<kbd>4</kbd> velocidade</span>
+          <span><kbd>Espaço</kbd> pausa · <kbd>1</kbd>–<kbd>5</kbd> velocidade</span>
           <span><kbd>[</kbd><kbd>]</kbd> tamanho do pincel · <kbd>Esc</kbd> guarda a ferramenta, fecha a janela ou volta à órbita</span>
           <span><kbd>C</kbd> crônica · <kbd>R</kbd> reinos · <kbd>E</kbd> espécies · <kbd>I</kbd> itens · <kbd>P</kbd> painel · <kbd>T</kbd> territórios · <kbd>H</kbd> esta ajuda</span>
           <span>Cada reino tem uma cor: a área dos assentamentos e a faixa do nome mostram de quem é. Borda cheia é a capital; tracejada, os outros assentamentos do reino.</span>
@@ -879,6 +885,12 @@ export class SurfaceMode {
       const tab = el.closest<HTMLElement>('[data-vtab]');
       if (tab && this.vwin) {
         this.vwin.tab = tab.dataset.vtab as SettlementTab;
+        this.lastVwinHtml = '';
+        this.updateVwin(true);
+      }
+      const span = el.closest<HTMLElement>('[data-span]');
+      if (span && this.vwin) {
+        this.vwinSpan = Number(span.dataset.span) as PeriodSpan;
         this.lastVwinHtml = '';
         this.updateVwin(true);
       }
@@ -1014,7 +1026,7 @@ export class SurfaceMode {
     }
     this.cycle = null;
     this.follow = false;
-    if (this.eco.settlementAt(this.hover.x, row)) this.pinned = { x: this.hover.x, y: this.hover.y };
+    if (this.eco.villageAt(this.hover.x, row)) this.pinned = { x: this.hover.x, y: this.hover.y };
     else this.pinned = null;
     this.lastInfoHtml = '';
     this.updateInfo();
@@ -1146,7 +1158,7 @@ export class SurfaceMode {
     const v = this.eco.villages[this.vwin.id];
     if (!v) return;
     const tab = this.vwin.tab;
-    const html = settlementTabHtml(this.eco, v, tab, (e) => Ecosystem.describe(e));
+    const html = settlementTabHtml(this.eco, v, tab, (e) => Ecosystem.describe(e), this.vwinSpan);
     const title = `${this.crest(this.eco.villages[v.kingdom])}<span>${v.vocation ? `${VOCATION_ICONS[v.vocation]} ` : ''}${TIER_NAMES[v.tier]} ${v.name} ${stateIcons(this.eco, v)}</span>`;
     const head = this.root.querySelector<HTMLElement>('[data-vwin-title]')!;
     if (head.dataset.html !== title) {
@@ -1487,11 +1499,31 @@ export class SurfaceMode {
       <div class="wb-filters">${[['kingdoms', 'Reinos'], ['vocation', 'Vocação'], ['economy', 'Economia']].map(([k, l]) => `<button data-opt="layer:${k}" class="${on(this.layer === k)}">${l}</button>`).join('')}</div>
       <div class="wb-note">${this.layer === 'vocation' ? Object.entries(VOCATION_NAMES).map(([k, n]) => `<span style="color:rgb(${VOCATION_COLORS[k as keyof typeof VOCATION_COLORS].join(',')})">■</span> ${VOCATION_ICONS[k as keyof typeof VOCATION_ICONS]} ${n}`).join(' · ') : this.layer === 'economy' ? 'Verde: necessidades atendidas e estoque cheio · amarelo: apertado · vermelho: em crise.' : 'Cada reino com a sua cor; capitais com linha cheia.'}</div>
       <div class="wb-section">Atalhos</div>
-      <div class="wb-note">Espaço pausa · 1 a 4 mudam a velocidade · C crônica · R reinos · E espécies · I itens · Esc fecha a janela ou volta à órbita.</div>`;
+      <div class="wb-note">Espaço pausa · 1 a 5 mudam a velocidade · C crônica · R reinos · E espécies · I itens · Esc fecha a janela ou volta à órbita.</div>`;
   }
 
+  private lastW = 0;
+  private lastH = 0;
+  private lastDpr = 0;
+
   private readonly resize = (): void => {
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.lastW = w;
+    this.lastH = h;
+    this.lastDpr = window.devicePixelRatio || 1;
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(w, h);
+    const terr = this.root.querySelector<HTMLCanvasElement>('[data-terr]');
+    if (terr && (terr.width !== w || terr.height !== h)) {
+      terr.width = w;
+      terr.height = h;
+    }
+    if (this.map) {
+      const minZoom = Math.max(0.5, h / this.map.height);
+      if (this.zoom < minZoom) this.zoom = minZoom;
+    }
+    this.textureChanged = true;
     this.lastView = '';
   };
 
@@ -1499,6 +1531,9 @@ export class SurfaceMode {
 
   private readonly frame = (now: number): void => {
     this.raf = requestAnimationFrame(this.frame);
+    if (window.innerWidth !== this.lastW || window.innerHeight !== this.lastH || (window.devicePixelRatio || 1) !== this.lastDpr) {
+      this.resize();
+    }
     const dt = Math.min((now - this.lastTime) / 1000, 0.1);
     this.lastTime = now;
     this.state.time += dt;
@@ -1570,7 +1605,7 @@ export class SurfaceMode {
     }
 
     // Parado e sem mudanças, não redesenha.
-    const view = `${this.center.x},${this.center.y},${this.zoom},${this.hover.x},${this.hover.y},${this.tool?.id},${this.brush},${this.renderer.getPixelRatio()}`;
+    const view = `${window.innerWidth},${window.innerHeight},${this.center.x},${this.center.y},${this.zoom},${this.hover.x},${this.hover.y},${this.tool?.id},${this.brush},${this.renderer.getPixelRatio()}`;
     // Seleção, destaque e janela do assentamento pulsam: redesenha mesmo parado.
     const marked = !!this.pinned || !!this.highlight || !!this.vwin || this.hoverPick >= 0;
     if (simDt > 0 || this.textureChanged || view !== this.lastView || this.eco.effects.length || marked || this.particles.length || this.glow) {
@@ -1626,7 +1661,7 @@ export class SurfaceMode {
       if (v.abandoned) continue;
       const [sx, gy] = this.toScreen(v.x, v.y, z, w, h);
       const sy = h - gy;
-      const r = this.eco.radius(v) * z;
+      const r = (this.eco.radius(v) + 7) * z;
       if (sx < -r || sx > w + r || sy < -r || sy > h + r) continue;
       const c = this.layerColor(v).join(',');
       const capital = v.kingdom === v.id;
@@ -1645,34 +1680,29 @@ export class SurfaceMode {
   }
 
   /**
-   * Contorno orgânico da região do assentamento: o raio varia suavemente com o ângulo
-   * (cada assentamento tem a sua forma) e nunca passa da fronteira com os vizinhos.
+   * Contorno real do assentamento: envolve a praça, as casas, os prédios, o
+   * porto, as plantações, os currais e as ruas internas, seguindo o formato e
+   * a área verdadeira da vila.
    */
   private regionPath(ctx: CanvasRenderingContext2D, v: Village, w: number, h: number): void {
-    const N = 56;
-    const mw = this.map.width;
-    const base = this.eco.radius(v);
-    const near = this.eco.villages.filter((o) => o !== v && !o.abandoned && Math.hypot(((o.x - v.x + mw * 1.5) % mw) - mw / 2, o.y - v.y) < base * 2 + this.eco.radius(o));
-    ctx.beginPath();
+    const radii = this.eco.villageContour(v);
+    const N = radii.length;
+    const [cx, cy] = this.screenOf(v.x, v.y, w, h);
+    const z = this.zoom;
+    const pts: [number, number][] = new Array(N);
     for (let k = 0; k < N; k++) {
       const a = (k / N) * Math.PI * 2;
-      const ux = Math.cos(a);
-      const uy = Math.sin(a);
-      let r = base * (1 + 0.16 * Math.sin(2 * a + v.id * 1.7) + 0.1 * Math.sin(3 * a + v.id * 4.1) + 0.06 * Math.sin(5 * a + v.id * 0.9));
-      for (const o of near) {
-        const dx = ((o.x - v.x + mw * 1.5) % mw) - mw / 2;
-        const dy = o.y - v.y;
-        const d2 = dx * dx + dy * dy;
-        const proj = ux * dx + uy * dy;
-        if (proj <= 0.01) continue;
-        const ro = this.eco.radius(o);
-        // Fronteira ponderada pelo tamanho de cada um (eixo radical): onde os dois alcances se igualam.
-        r = Math.min(r, (d2 + base * base - ro * ro) / (2 * proj) - 0.3);
-      }
-      r = Math.max(r, base * 0.45);
-      const [sx, sy] = this.screenOf(v.x + ux * r, v.y + uy * r, w, h);
-      if (k === 0) ctx.moveTo(sx, sy);
-      else ctx.lineTo(sx, sy);
+      const r = radii[k] * z;
+      pts[k] = [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+    }
+    ctx.beginPath();
+    const [x0, y0] = pts[0];
+    const [xLast, yLast] = pts[N - 1];
+    ctx.moveTo((xLast + x0) * 0.5, (yLast + y0) * 0.5);
+    for (let k = 0; k < N; k++) {
+      const [px, py] = pts[k];
+      const [nx, ny] = pts[(k + 1) % N];
+      ctx.quadraticCurveTo(px, py, (px + nx) * 0.5, (py + ny) * 0.5);
     }
     ctx.closePath();
   }
@@ -2477,7 +2507,8 @@ export class SurfaceMode {
     const low = NEEDS.filter((k) => n[k] < 0.7);
     const needs = `<span>Necessidades ${Math.round(welfare(n) * 100)}%${low.length ? ` · falta ${low.map((k) => NEED_NAMES[k]).join(', ')}` : ' · tudo atendido'} · estabilidade ${Math.round((v.stability ?? 1) * 100)}%</span>`;
     const names = new Map<string, string>([...STOCK_NAMES.map(([k, l]) => [k, l.toLowerCase()] as [string, string]), ['food', 'comida']]);
-    const rows = Object.entries(v.ledger ?? {}).filter(([k]) => names.has(k));
+    const { ledger } = sumLedger(v, 10);
+    const rows = Object.entries(ledger).filter(([k]) => names.has(k));
     const top = (i: 0 | 1) =>
       rows
         .filter(([, e]) => e[i] >= 1)
@@ -2493,7 +2524,7 @@ export class SurfaceMode {
     });
     const season = SEASONS[eco.season()];
     return `${needs}
-      ${made || used ? `<span>Ano passado: fez ${made || 'nada'} · gastou ${used || 'nada'}${full.length ? ` · sobra ${full.map(([k]) => names.get(k)).join(', ')}` : ''}</span>` : ''}
+      ${made || used ? `<span>Últimos 10 anos: fez ${made || 'nada'} · gastou ${used || 'nada'}${full.length ? ` · sobra ${full.map(([k]) => names.get(k)).join(', ')}` : ''}</span>` : ''}
       <span>Agora é ${season}</span>`;
   }
 
@@ -2692,7 +2723,7 @@ export class SurfaceMode {
       } else {
         const t = temperatureAt(this.map, i);
         const place = this.placeAt(i);
-        const v = eco.settlementAt(at.x, this.toRow(at.y));
+        const v = eco.villageAt(at.x, this.toRow(at.y));
         html = `
           ${v ? (pin ? this.settlementInfo(v) : this.settlementHover(v)) : ''}
           <b>${place ?? BIOME_NAMES[this.map.biome[i] as keyof typeof BIOME_NAMES]}</b>
@@ -2765,8 +2796,9 @@ export class SurfaceMode {
       life += this.map.vegetation[k];
     }
     const total = this.map.elevation.length / 7;
+    const yrSec = Number((REAL_YEAR_SECONDS / Math.max(1, SPEEDS[this.speed])).toFixed(1));
     this.root.querySelector<HTMLElement>('[data-s]')!.textContent =
-      `terra ${Math.round((land / total) * 100)}% · vegetação ${Math.round((life / total) * 100)}% · 1 ano = ${YEAR_SECONDS / Math.max(1, SPEEDS[this.speed])} s`;
+      `terra ${Math.round((land / total) * 100)}% · vegetação ${Math.round((life / total) * 100)}% · 1 ano = ${yrSec} s`;
   }
 
   private toastUntil = 0;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { runWorld } from '../../sim/calibrate';
 import { Ecosystem } from '../../sim/ecosystem';
-import { compareHtml, economicState, SETTLEMENT_TABS, settlementTabHtml } from './settlementWindow';
+import { compareHtml, economicState, PERIOD_SPANS, SETTLEMENT_TABS, settlementTabHtml, sumLedger, sumVital } from './settlementWindow';
 
 describe('janela do assentamento (RF-VIDA-341 a 349b)', () => {
   const { eco } = runWorld(5, 80);
@@ -16,6 +16,21 @@ describe('janela do assentamento (RF-VIDA-341 a 349b)', () => {
     }
     expect(settlementTabHtml(eco, v, 'people', (e) => e.text)).toContain('data-role=');
     expect(settlementTabHtml(eco, v, 'summary', (e) => e.text)).toContain(`${v.population} moradores`);
+  });
+
+  it('agrupa registros econômicos e demográficos por período (10, 50, 100 e total)', () => {
+    for (const [span, label] of PERIOD_SPANS) {
+      const econ = settlementTabHtml(eco, v, 'economy', (e) => e.text, span);
+      const peop = settlementTabHtml(eco, v, 'people', (e) => e.text, span);
+      expect(econ).toContain(`data-span="${span}" class="on">${label}`);
+      expect(peop).toContain(`data-span="${span}" class="on">${label}`);
+    }
+    const l10 = sumLedger(v, 10);
+    const lTot = sumLedger(v, 0);
+    expect(lTot.years).toBeGreaterThanOrEqual(l10.years);
+    const v10 = sumVital(v, 10);
+    const vTot = sumVital(v, 0);
+    expect(vTot?.births ?? 0).toBeGreaterThanOrEqual(v10?.births ?? 0);
   });
 
   it('a tabela de comparação ordena pela coluna escolhida', () => {
