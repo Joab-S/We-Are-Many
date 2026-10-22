@@ -385,7 +385,7 @@ O GUIA (Gerenciador Unificado de Inteligência e Astronavegação) é a intelig�
 | RF-GUI-17 | **Pontos de interesse no espaço profundo** (`src/nav/poi.ts`): o espaço é dividido em células de 2 pc e cada célula gera de 0 a 2 pontos pelo próprio índice: nebulosas (vistas de até 3 pc), planetas errantes, cometas interestelares, destroços com história, sinais desconhecidos e anãs marrons. Nada é guardado; a mesma célula sempre gera os mesmos pontos. Ficam ocultos até a varredura ou até a nave chegar a 0,15 pc; visitá-los mostra a descrição e vai para o diário. Um sinal fixo na Nuvem de Oort ensina o piloto automático no começo. | Feito |
 | RF-GUI-18 | Mapa estelar em vista de cima, com zoom e rotas desenhadas. | A fazer (Fase 1) |
 | RF-GUI-19 | Alertas de perigo (Enxame, radiação, estrelas instáveis) quando as ameaças existirem (Fase 6). | A fazer |
-| RF-GUI-20 | Salvar alvo, marcadores, diário e descobertas junto com o save (Fase 2, primeiro save/load). Hoje duram a sessão inteira, inclusive na ida e volta à superfície 2D. | A fazer |
+| RF-GUI-20 | Salvar alvo, marcadores, diário e descobertas junto com o save (Fase 2, primeiro save/load). Duram a sessão inteira, inclusive na ida e volta à superfície 2D. | Feito em 22/10/2026 |
 | RF-GUI-21 | Melhorias do GUIA como progressão: alcance maior da varredura, sugestões mais detalhadas, varredura que revela recursos à distância. | A fazer (Fase 2/3) |
 
 **Teclas do GUIA:** G painel · T trava alvo na mira · N próxima sugestão · J piloto automático · C cruzeiro · V varredura · B marcador · H casa · X limpa alvo · M/R sonda.
@@ -415,9 +415,9 @@ Requisitos novos, gerados pelo que já foi implementado: hoje o estado do jogo v
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-SAV-01 | **Save local** no IndexedDB com tudo o que o jogo tem hoje: posição e rumo da nave, tempo de jogo, GUIA (alvo, marcadores, descobertas, diário), sondas (missões, porão, quanto já foi extraído de cada corpo), espécies conhecidas, e por planeta visitado o terreno alterado (diff), o ecossistema, os assentamentos, os reinos e a crônica (RNF-VIDA-09). | A fazer (Fase 2) |
-| RF-SAV-02 | **Autosave** periódico, ao sair da superfície e ao fechar a aba, e um botão para salvar e carregar. | A fazer (Fase 2) |
-| RF-SAV-03 | **Versão do save** com migração: uma versão nova do jogo não quebra saves antigos (IDs de estrela e geradores versionados, seção 3.3). | A fazer (Fase 2) |
+| RF-SAV-01 | **Save local** no IndexedDB com tudo o que o jogo tem hoje: posição e rumo da nave, tempo de jogo, GUIA (alvo, marcadores, descobertas, diário), sondas (missões, porão, quanto já foi extraído de cada corpo), espécies conhecidas, e por planeta visitado o terreno alterado (diff), o ecossistema, os assentamentos, os reinos e a crônica (RNF-VIDA-09). Também guarda onde o jogador estava (espaço ou superfície) e a câmera e a velocidade da superfície. | Feito em 22/10/2026 (versão simples: guarda o mapa e o ecossistema inteiros, não só o diff; ver seção 19.20 do REQUISITOS-VIDA.md) |
+| RF-SAV-02 | **Autosave** periódico (a cada 60 s), ao sair da superfície e ao esconder ou fechar a aba, e botões para salvar (Ctrl+S), carregar e começar mundo novo. | Feito em 22/10/2026 |
+| RF-SAV-03 | **Versão do save** com migração: uma versão nova do jogo não quebra saves antigos (IDs de estrela e geradores versionados, seção 3.3). | Parcial: o save tem versão (`SAVE_VERSION`) e é validado; save de outra versão ou corrompido é recusado, guardado à parte e o jogo começa um mundo novo. Falta a migração entre versões |
 | RF-SAV-04 | **Tempo que passou fora:** ao carregar, o que estava em andamento (sondas, planetas com vida) avança pelo tempo de jogo que passou, calculado por evento ou de forma agregada (RF-SON-10, RNF-VIDA-05, RF-ONL-06). | A fazer (Fase 2/5) |
 | RF-SAV-05 | Exportar e importar o save como arquivo, para levar a outro computador antes de existir a nuvem. | A avaliar (Fase 2) |
 
@@ -436,7 +436,7 @@ Requisitos novos, gerados pelo que já foi implementado: hoje o estado do jogo v
 | RNF-07 | Compatibilidade | Chrome, Edge, Firefox e Safari atuais com WebGL2. WebGPU como melhoria opcional futura. | Feito, com mudança: o 3D usa WebGL quando existe e cai num renderizador por software em Canvas 2D quando não existe (RF-NAV-16); a superfície 2D não usa placa de vídeo (RNF-15) |
 | RNF-08 | Escalabilidade do coop | Grupos cooperativos pequenos (alvo inicial: até 4 jogadores por universo) com baixa latência; arquitetura que permita, no futuro, um universo público escalável por região do espaço. | A fazer (Fase 7) |
 | RNF-09 | Segurança | No coop, servidor autoritativo: o cliente nunca decide recursos, produção ou combate; validação de todas as ações. No solo, a simulação roda localmente. | A fazer (Fase 7); no solo a simulação já roda localmente |
-| RNF-10 | Persistência | O estado do universo é salvo como diferenças em relação à geração procedural (não se armazena o universo inteiro). | Parcial: as sondas guardam só o quanto foi extraído de cada corpo; o save ainda não existe (Fase 2) |
+| RNF-10 | Persistência | O estado do universo é salvo como diferenças em relação à geração procedural (não se armazena o universo inteiro). | Parcial: as sondas guardam só o quanto foi extraído de cada corpo; o save local guarda o mapa e o ecossistema inteiros por enquanto (RF-SAV-01), sem diff |
 | RNF-11 | Manutenibilidade | TypeScript estrito; núcleo de simulação independente de renderização e testável em Node. | Feito: TypeScript estrito, núcleo em `src/core`, `src/sim`, `src/nav`, `src/explore` e `src/procgen` sem three.js, testado com vitest (76 testes) |
 | RNF-12 | Licenciamento | Respeitar licenças dos dados (CC BY-SA do HYG, crédito ESA/Gaia, crédito NASA) e evitar elementos protegidos da obra original. | Feito: créditos no rodapé e nomes próprios (GUIA, Enxame) em vez dos do livro |
 | RNF-13 | Acessibilidade | Tamanho de fonte ajustável, paleta amigável a daltônicos nas camadas do mapa 2D, remapeamento de teclas. | A fazer (Fase 6) |
@@ -710,7 +710,7 @@ O que foi implementado gerou requisitos novos e mudou a ordem do que falta. A li
 | Propriedade intelectual da obra original | Alto | Termos genéricos permitidos; nomes específicos da obra proibidos. |
 | Custo de servidor no coop | Baixo | Grupos pequenos, simulação por eventos, dados estáticos em CDN. |
 | Perder algo já implementado numa mudança (regressão) | Alto | Regra de preservação (seção 0), registro de remoções (seção 13), testes do núcleo e teste automático de captura de tela (RNF-14). |
-| Perder o progresso ao fechar a aba (não há save) | Alto | Save e autosave como primeiro item do backlog (RF-SAV, seção 8.1). |
+| Perder o progresso ao fechar a aba (save local feito em 22/10/2026) | Alto | Save e autosave como primeiro item do backlog (RF-SAV, seção 8.1). |
 | Custo da publicação (créditos do Netlify) | Baixo | Só a `main` compila; mudanças acumuladas na `development` (RNF-16). |
 
 ---
@@ -790,6 +790,7 @@ O que foi implementado gerou requisitos novos e mudou a ordem do que falta. A li
 | 20/10/2026 | **Regra de preservação:** nada é removido sem necessidade ou pedido, e toda remoção é registrada com o motivo (seção 0 e seção 13). Os documentos ganharam a coluna Situação e o backlog revisado (seção 8.1). |
 
 ---
+| 22/10/2026 | Joab pediu salvar o progresso no navegador, de forma simples. Escolhido o IndexedDB em vez do localStorage porque o mapa de um planeta (arrays tipados de até 2048×1024) passa de 20 MB, muito acima da cota do localStorage (~5 MB). O localStorage ficou fora. |
 
 ## 13. Registro de remoções
 

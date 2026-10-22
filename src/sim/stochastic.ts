@@ -8,7 +8,7 @@
  * que varia de ano em ano segue um ruído com retorno à média.
  */
 
-import { hashString, mulberry32 } from '../core/rng';
+import { hashString, statefulMulberry32 } from '../core/rng';
 
 export type Rng = () => number;
 
@@ -118,6 +118,6 @@ export type Stream = (typeof STREAMS)[number];
  */
 export function streams(seed: number): Record<Stream, Rng> {
   const out = {} as Record<Stream, Rng>;
-  for (const name of STREAMS) out[name] = mulberry32((seed ^ hashString(name)) >>> 0);
+  for (const name of STREAMS) out[name] = statefulMulberry32((seed ^ hashString(name)) >>> 0);
   return out;
 }

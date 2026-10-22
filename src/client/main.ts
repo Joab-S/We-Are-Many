@@ -2,14 +2,23 @@ import * as THREE from 'three';
 import { loadManifest, loadNames } from '../universe/loader';
 import { AdaptiveResolution } from './quality';
 import { SoftRenderer, webglAvailable, type GameRenderer } from './renderer';
+import { seedFor } from '../core/rng';
+import { SaveManager } from '../save/manager';
+import { indexedDbStore } from '../save/store';
+import type { ViewSnapshot } from '../save/snapshot';
+import { createSaveUi } from './saveUi';
 import { nativeSpecies } from '../sim/species';
 import { createNavState } from '../nav/guide';
 import { createProbeState } from '../explore/probes';
-import { planetParams, SOL_PLANETS, type PlanetData } from './space/bodies';
+import type { PlanetParams } from '../procgen/surface';
+import { planetParams, SOL_PLANETS } from './space/bodies';
 import { SpaceMode } from './space/SpaceMode';
 import type { GameState } from './state';
 import { SurfaceMode } from './surface/SurfaceMode';
 import './style.css';
+
+/** Intervalo do autosave. */
+const AUTOSAVE_MS = 60_000;
 
 const app = document.getElementById('app')!;
 const hud = document.getElementById('hud')!;
@@ -51,6 +60,11 @@ function createWebGLRenderer(): THREE.WebGLRenderer {
 
 type Mode = SpaceMode | SurfaceMode;
 let mode: Mode | null = null;
+let current: GameState | null = null;
+
+const saves = new SaveManager(indexedDbStore, (planetId) => seedFor(`${planetId}:life`));
+/** Falso se o armazenamento não respondeu ao ler: um save pode existir e não deve ser sobrescrito. */
+let canSave = true;
 
 /** Troca de modo: o modo atual é descartado por completo antes do próximo existir. */
 function switchTo(create: () => Mode): void {
@@ -65,15 +79,36 @@ function switchTo(create: () => Mode): void {
 }
 
 function enterSpace(state: GameState): void {
-  switchTo(() => new SpaceMode(renderer, resolution, state, hud, { onObserve: (p) => enterSurface(state, p) }));
+  // Ao sair da superfície (ou ao começar no espaço) o estado fica salvo.
+  void autosave({ mode: 'space' });
+  switchTo(() => new SpaceMode(renderer, resolution, state, hud, { onObserve: (p) => enterSurface(state, planetParams(p)) }));
 }
 
-function enterSurface(state: GameState, planet: PlanetData): void {
-  switchTo(() => new SurfaceMode(renderer, state, planetParams(planet), hud, () => enterSpace(state)));
+function enterSurface(state: GameState, params: PlanetParams, resume?: ConstructorParameters<typeof SurfaceMode>[5]): void {
+  switchTo(() => new SurfaceMode(renderer, state, params, hud, () => enterSpace(state), resume));
 }
 
-async function boot(): Promise<void> {
-  const [manifest, names] = await Promise.all([loadManifest(), loadNames()]);
+function startFrom(state: GameState, view: ViewSnapshot): void {
+  current = state;
+  if (view.mode === 'surface') enterSurface(state, view.params, view);
+  else enterSpace(state);
+}
+
+function currentView(): ViewSnapshot {
+  return mode instanceof SurfaceMode ? mode.snapshotView() : { mode: 'space' };
+}
+
+async function autosave(view?: ViewSnapshot): Promise<boolean> {
+  if (!current || !canSave) return false;
+  try {
+    return await saves.save(current, view ?? currentView());
+  } catch (err) {
+    console.warn('Falha ao salvar', err);
+    return false;
+  }
+}
+
+function newState(manifest: GameState['manifest'], names: GameState['names']): GameState {
   const state: GameState = {
     manifest,
     names,
@@ -91,8 +126,54 @@ async function boot(): Promise<void> {
   };
   const m = new THREE.Matrix4().lookAt(state.shipPos, new THREE.Vector3(), new THREE.Vector3(0, 0, 1));
   state.shipQuat.setFromRotationMatrix(m);
+  return state;
+}
+
+async function boot(): Promise<void> {
+  const [manifest, names] = await Promise.all([loadManifest(), loadNames()]);
+  const base = { manifest, names };
+  let notice = '';
+  let loaded: Awaited<ReturnType<SaveManager['load']>>;
+  try {
+    loaded = await saves.load(base);
+  } catch (err) {
+    loaded = { status: 'unavailable', reason: String(err) };
+  }
+  if (loaded.status === 'unavailable') {
+    canSave = false;
+    notice = 'Não foi possível acessar o armazenamento do navegador: o progresso não será salvo.';
+    console.warn(loaded.reason);
+  } else if (loaded.status === 'rejected') {
+    notice = `O save anterior não pôde ser carregado (${loaded.reason}). Começando um mundo novo; o save antigo foi guardado à parte.`;
+    console.warn(loaded.reason);
+  }
+
+  const ui = createSaveUi({
+    save: async () => ui.toast((await autosave()) ? 'Jogo salvo.' : canSave ? 'Salvar agora não foi possível.' : 'Armazenamento indisponível.'),
+    load: async () => {
+      const r = await saves.load(base);
+      if (r.status === 'ok') {
+        startFrom(r.state, r.view);
+        ui.toast('Save carregado.');
+      } else ui.toast(r.status === 'empty' ? 'Ainda não há save.' : `Save não carregado: ${r.reason}`);
+    },
+    newWorld: async () => {
+      if (!confirm('Começar um mundo novo? O progresso salvo será apagado.')) return;
+      await saves.clear();
+      startFrom(newState(manifest, names), { mode: 'space' });
+      ui.toast('Mundo novo.');
+    },
+  });
+  if (notice) ui.toast(notice);
+
+  // Autosave periódico e ao esconder ou fechar a aba (o IndexedDB copia o estado na hora da chamada).
+  setInterval(() => void autosave(), AUTOSAVE_MS);
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && void autosave());
+  window.addEventListener('pagehide', () => void autosave());
+
   loading.remove();
-  enterSpace(state);
+  if (loaded.status === 'ok') startFrom(loaded.state, loaded.view);
+  else startFrom(newState(manifest, names), { mode: 'space' });
 }
 
 boot().catch((err) => {
