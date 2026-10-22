@@ -7,9 +7,9 @@ import { nativeSpecies } from './species';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
 
-function world() {
+function world(seed = 42) {
   const map = generateSurface(earth);
-  const eco = new Ecosystem(map, 42);
+  const eco = new Ecosystem(map, seed);
   for (const sp of nativeSpecies(earth)) eco.addSpecies(sp);
   eco.populate();
   return { map, eco };
@@ -132,7 +132,7 @@ describe('soltar uma criatura', () => {
     expect(eco.population[s]).toBeLessThanOrEqual(1);
   });
   it('o fundador sozinho escolhe um lugar onde consegue viver e não morre de fome', () => {
-    const { map, eco } = world();
+    const { map, eco } = world(44);
     const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
     const { x, y } = landFar(eco, map, s);
     const villages = eco.villages.length;

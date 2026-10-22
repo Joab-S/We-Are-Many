@@ -231,7 +231,7 @@ describe('recursos não se transferem sozinhos', () => {
 describe('terreiro em volta das casas (mapa organizado)', () => {
   it('árvore colada numa casa sai e a madeira vai para o estoque', async () => {
     const { runWorld } = await import('./calibrate');
-    const { eco } = runWorld(42, 3);
+    const { eco } = runWorld(43, 3);
     const map = eco.map;
     const v = eco.villages.find((o) => !o.abandoned && o.houses.length)!;
     const h = v.houses[0];
