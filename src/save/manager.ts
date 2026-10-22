@@ -14,8 +14,6 @@ export type LoadResult =
   | { status: 'unavailable'; reason: string };
 
 export class SaveManager {
-  private busy = false;
-
   constructor(
     private readonly store: SaveStore,
     private readonly seeds: (planetId: string) => number,
@@ -23,14 +21,9 @@ export class SaveManager {
 
   /** Grava o jogo. O IndexedDB copia o objeto na hora da chamada, então o jogo pode seguir sem esperar. */
   async save(state: GameState, view: ViewSnapshot): Promise<boolean> {
-    if (this.busy) return false;
-    this.busy = true;
-    try {
-      await this.store.put(SAVE_KEY, snapshotGame(state, view, this.seeds));
-      return true;
-    } finally {
-      this.busy = false;
-    }
+    // Sem trava de "salvando": ao fechar a aba o último save não pode ser descartado porque o anterior ainda está gravando (o IndexedDB mantém a ordem).
+    await this.store.put(SAVE_KEY, snapshotGame(state, view, this.seeds));
+    return true;
   }
 
   async load(base: Pick<GameState, 'manifest' | 'names'>): Promise<LoadResult> {

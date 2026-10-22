@@ -18,7 +18,7 @@ import { SurfaceMode } from './surface/SurfaceMode';
 import './style.css';
 
 /** Intervalo do autosave. */
-const AUTOSAVE_MS = 60_000;
+const AUTOSAVE_MS = 20_000;
 
 const app = document.getElementById('app')!;
 const hud = document.getElementById('hud')!;
@@ -167,7 +167,7 @@ async function boot(): Promise<void> {
   if (notice) ui.toast(notice);
 
   // Autosave periódico e ao esconder ou fechar a aba (o IndexedDB copia o estado na hora da chamada).
-  setInterval(() => void autosave(), AUTOSAVE_MS);
+  setInterval(() => void autosave().then((ok) => ok && ui.toast('Progresso salvo.')), AUTOSAVE_MS);
   document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && void autosave());
   window.addEventListener('pagehide', () => void autosave());
 
