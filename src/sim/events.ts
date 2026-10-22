@@ -2,7 +2,6 @@ import { temperatureAt } from '../procgen/surface';
 import { makeCulture, type Ore } from './economy';
 import { isLand, isWater, type Ecosystem, type Village } from './ecosystem';
 import { CHILD } from './roles';
-import { TIER_RADIUS } from './settlement';
 import { makeVariant } from './species';
 
 /**
@@ -125,7 +124,7 @@ const xy = (eco: Ecosystem, i: number) => ({ x: (i % eco.map.width) + 0.5, y: Ma
 /** Longe de todos os assentamentos (para desastres não apagarem uma capital por acaso). */
 function farFromVillages(eco: Ecosystem, i: number, margin: number): boolean {
   const { x, y } = xy(eco, i);
-  return eco.villages.every((v) => v.abandoned || Math.hypot(wrap(eco, v.x - x), v.y - y) > TIER_RADIUS[v.tier] + margin);
+  return eco.villages.every((v) => v.abandoned || Math.hypot(wrap(eco, v.x - x), v.y - y) > eco.radius(v) + margin);
 }
 
 const wrap = (eco: Ecosystem, dx: number) => {
@@ -380,7 +379,7 @@ function nomads(eco: Ecosystem): boolean {
   const map = eco.map;
   const i = randomTile(
     eco,
-    (t) => eco.habitable(s, t) && map.vegetation[t] > 0.3 && farFromVillages(eco, t, 25) && eco.canFound(t % map.width, Math.floor(t / map.width)),
+    (t) => eco.habitable(s, t) && map.vegetation[t] > 0.3 && farFromVillages(eco, t, 25) && eco.canSettle(s, t % map.width, Math.floor(t / map.width), 1),
     600,
   );
   if (i < 0) return false;

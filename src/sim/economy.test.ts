@@ -39,8 +39,14 @@ describe('economia', () => {
     expect(v.tech).toBeLessThan(1);
     expect(eco.eraNeed(v)).toContain('bronze');
     v.made.bronze = 5;
+    // O metal sozinho não basta: faltam os pontos de desenvolvimento (RF-VIDA-270).
+    eco.teach(v.x, v.y, 3, 0.1);
+    expect(v.tech).toBeLessThan(1);
+    expect(eco.eraNeed(v)).toContain('pontos de desenvolvimento');
+    v.pts = [200, 200, 200, 0, 0, 0];
     eco.teach(v.x, v.y, 3, 0.1);
     expect(v.tech).toBeGreaterThanOrEqual(1);
+    expect(eco.eraNeed(v)).not.toContain('bronze');
   });
 
   it('o jogador coloca um veio; o povo o descobre e abre uma mina', () => {

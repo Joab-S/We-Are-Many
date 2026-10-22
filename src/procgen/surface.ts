@@ -88,6 +88,13 @@ export interface SurfaceMap {
   /** Cobertura de vida vegetal (0..1). */
   vegetation: Float32Array;
   biome: Uint8Array;
+  /** Tiles limpos pelo jogador (pedra, cacto): sem enfeite até o terreno mudar. Criado quando preciso. */
+  bare?: Uint8Array;
+  /**
+   * Árvores cortadas pelo povo (seção 19.19): 1 toco, 2 muda que brotou
+   * sozinha, 3 muda plantada. Criado quando preciso; o Ecosystem faz crescer.
+   */
+  felled?: Uint8Array;
 }
 
 const FEATURE_SCALE = 80;
@@ -196,6 +203,48 @@ export function classify(map: SurfaceMap, i: number): Biome {
   return Biome.Grass;
 }
 
+/** Vegetação que um deserto aguenta (cactos e plantas secas): abaixo do limiar em que vira pasto. */
+export const DESERT_VEGETATION = 0.1;
+
+/**
+ * Quanta vegetação o tile aguenta (0..1) pelo solo, temperatura e umidade:
+ * nada na água, no gelo, no calor extremo ou no pico das montanhas; pouco
+ * na encosta de rocha; só plantas de deserto (cactos) no solo seco ou arenoso; o resto pode fechar
+ * em mata. Semear e o crescimento natural param nesse teto, então o que nasce
+ * é sempre o que o bioma do lugar dá.
+ */
+export function vegetationCap(map: SurfaceMap, i: number): number {
+  const e = map.elevation[i];
+  if (e < 0 || e > 0.72) return 0;
+  const t = temperatureAt(map, i);
+  if (t <= 262 || t >= 320) return 0;
+  // Encosta de rocha: só capim e arbusto entre as pedras.
+  if (e > 0.55) return 0.35;
+  const m = map.moisture[i];
+  if (m < 0.25) return DESERT_VEGETATION;
+  const b = map.biome[i] as Biome;
+  if (m < 0.35 && (b === Biome.Desert || b === Biome.Beach || b === Biome.Barren)) return DESERT_VEGETATION;
+  // Clima quente e semiárido (savana): sem umedecer o solo, para na savana com acácias em vez de fechar em floresta.
+  if (t > 296 && m < 0.45) return 0.5;
+  return 1;
+}
+
+/**
+ * Semeia até o teto do lugar, sem cortar o que já passa dele; o tile limpo
+ * volta a ter enfeite e árvores cortadas (toco ou muda) voltam a crescer.
+ */
+export function sowVegetation(map: SurfaceMap, i: number, amount: number): void {
+  const cap = vegetationCap(map, i);
+  if (cap <= 0) return;
+  if (map.vegetation[i] < cap) map.vegetation[i] = Math.min(cap, map.vegetation[i] + amount);
+  if (map.bare) map.bare[i] = 0;
+  if (map.felled?.[i]) {
+    map.biome[i] = classify(map, i);
+    map.felled[i] = 0;
+    if (!isTree(decorAt(map, i)) && map.vegetation[i] <= 0.5) map.felled[i] = 2;
+  }
+}
+
 /** Enfeite desenhado dentro do tile quando há zoom (guardado no canal alfa da textura). */
 export enum Decor {
   None,
@@ -205,6 +254,9 @@ export enum Decor {
   Acacia,
   Cactus,
   Boulder,
+  /** Toco de árvore cortada e muda crescendo (seção 19.19); 7 a 10 são roça e ruas, desenhadas à parte. */
+  Stump = 11,
+  Sapling = 12,
 }
 
 /** Hash estável de um tile, em [0, 1). */
@@ -216,7 +268,15 @@ export function tileHash(i: number): number {
   return (h >>> 0) / 4294967296;
 }
 
+/** Enfeite que é uma árvore de pé (dá madeira). */
+export function isTree(d: Decor): boolean {
+  return d === Decor.Tree || d === Decor.JungleTree || d === Decor.Pine || d === Decor.Acacia;
+}
+
 export function decorAt(map: SurfaceMap, i: number): Decor {
+  if (map.bare?.[i]) return Decor.None;
+  const cut = map.felled?.[i];
+  if (cut) return cut === 1 ? Decor.Stump : Decor.Sapling;
   const h = tileHash(i);
   const veg = map.vegetation[i];
   switch (map.biome[i] as Biome) {
@@ -227,11 +287,11 @@ export function decorAt(map: SurfaceMap, i: number): Decor {
     case Biome.Grass:
       return veg > 0.3 && h < (veg - 0.3) * 0.5 ? Decor.Tree : Decor.None;
     case Biome.Savanna:
-      return h < 0.07 ? Decor.Acacia : Decor.None;
+      return h < 0.04 + veg * 0.1 ? Decor.Acacia : Decor.None;
     case Biome.Tundra:
       return veg > 0.15 && h < 0.3 ? Decor.Pine : Decor.None;
     case Biome.Desert:
-      return h < 0.012 ? Decor.Cactus : Decor.None;
+      return h < 0.012 + veg * 0.5 ? Decor.Cactus : Decor.None;
     case Biome.Rock:
     case Biome.Mountain:
       return h < 0.1 ? Decor.Boulder : Decor.None;

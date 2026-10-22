@@ -297,6 +297,7 @@ Situação em 20/10/2026: RF-RES-02, 03 e 05 implementados em parte pelas sondas
 | RF-SUP-10 | Colonização humana: naves de transporte trazem colonos humanos (de uma Terra em crise) para planetas habitáveis ou terraformados. | A fazer (Fase 5) |
 | RF-SUP-11 | Eventos naturais: terremotos, vulcões, secas, eras glaciais, pragas, impactos. | Parcial: cometa, terremoto, vulcão, ilha vulcânica, incêndio, seca, peste e tempestades no mar (RF-VIDA-68); eras glaciais e pragas na Fase 5 |
 | RF-SUP-12 | Indicador de habitabilidade do planeta (para humanos e para espécies nativas). | A fazer (Fase 5, RF-VIDA-07) |
+| RF-SUP-15 | **Limite do resfriar/aquecer e terraformação térmica.** Hoje "Resfriar" e "Aquecer" só mexem no `heat` do tile, travado em −150 a +400 K (`SurfaceMode.ts`, ferramentas `heat` e `cool`), somado à temperatura base do planeta (`temperatureK`, em `temperatureAt`, `procgen/surface.ts`), que nunca muda. Resultado: num planeta de ~440 K (tipo Mercúrio) o equador esfria no máximo a ~312 K e continua Barren (> 340 K, ou Rock/Barren com pouca vegetação), e num de ~737 K (tipo Vênus) só chega a ~609 K, ainda acima do limite de Lava (600 K). O jogador acha que a ferramenta "não funciona". A terraformação térmica precisa: (a) mostrar o limite alcançável ("mínimo possível aqui: X °C") no painel de temperatura e na dica da ferramenta; (b) ter um caminho real para mudar a temperatura média do planeta (espelhos/sombrinhas orbitais, ajuste de atmosfera e efeito estufa, cometas de gelo, remoção de CO₂), com custo e evolução lenta (RF-SUP-07), em vez de só pincelar tiles; (c) decidir se o piso de −150 K continua um limite por tile ou passa a depender do planeta; (d) rebalancear os limiares de bioma de `classify` (Lava > 600 K, Barren > 340 K, Snow < 255 K) conforme o que for decidido. | A fazer (Fase 4, ao focar em terraformação; ver questão aberta 8) |
 
 > A vida nos planetas (espécies, ecossistema, evolução, civilizações, assentamentos, guerra, diplomacia e arte em pixel) está detalhada em **[REQUISITOS-VIDA.md](REQUISITOS-VIDA.md)**.
 
@@ -384,7 +385,7 @@ O GUIA (Gerenciador Unificado de Inteligência e Astronavegação) é a intelig�
 | RF-GUI-17 | **Pontos de interesse no espaço profundo** (`src/nav/poi.ts`): o espaço é dividido em células de 2 pc e cada célula gera de 0 a 2 pontos pelo próprio índice: nebulosas (vistas de até 3 pc), planetas errantes, cometas interestelares, destroços com história, sinais desconhecidos e anãs marrons. Nada é guardado; a mesma célula sempre gera os mesmos pontos. Ficam ocultos até a varredura ou até a nave chegar a 0,15 pc; visitá-los mostra a descrição e vai para o diário. Um sinal fixo na Nuvem de Oort ensina o piloto automático no começo. | Feito |
 | RF-GUI-18 | Mapa estelar em vista de cima, com zoom e rotas desenhadas. | A fazer (Fase 1) |
 | RF-GUI-19 | Alertas de perigo (Enxame, radiação, estrelas instáveis) quando as ameaças existirem (Fase 6). | A fazer |
-| RF-GUI-20 | Salvar alvo, marcadores, diário e descobertas junto com o save (Fase 2, primeiro save/load). Hoje duram a sessão inteira, inclusive na ida e volta à superfície 2D. | A fazer |
+| RF-GUI-20 | Salvar alvo, marcadores, diário e descobertas junto com o save (Fase 2, primeiro save/load). Duram a sessão inteira, inclusive na ida e volta à superfície 2D. | Feito em 22/10/2026 |
 | RF-GUI-21 | Melhorias do GUIA como progressão: alcance maior da varredura, sugestões mais detalhadas, varredura que revela recursos à distância. | A fazer (Fase 2/3) |
 
 **Teclas do GUIA:** G painel · T trava alvo na mira · N próxima sugestão · J piloto automático · C cruzeiro · V varredura · B marcador · H casa · X limpa alvo · M/R sonda.
@@ -414,9 +415,9 @@ Requisitos novos, gerados pelo que já foi implementado: hoje o estado do jogo v
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-SAV-01 | **Save local** no IndexedDB com tudo o que o jogo tem hoje: posição e rumo da nave, tempo de jogo, GUIA (alvo, marcadores, descobertas, diário), sondas (missões, porão, quanto já foi extraído de cada corpo), espécies conhecidas, e por planeta visitado o terreno alterado (diff), o ecossistema, os assentamentos, os reinos e a crônica (RNF-VIDA-09). | A fazer (Fase 2) |
-| RF-SAV-02 | **Autosave** periódico, ao sair da superfície e ao fechar a aba, e um botão para salvar e carregar. | A fazer (Fase 2) |
-| RF-SAV-03 | **Versão do save** com migração: uma versão nova do jogo não quebra saves antigos (IDs de estrela e geradores versionados, seção 3.3). | A fazer (Fase 2) |
+| RF-SAV-01 | **Save local** no IndexedDB com tudo o que o jogo tem hoje: posição e rumo da nave, tempo de jogo, GUIA (alvo, marcadores, descobertas, diário), sondas (missões, porão, quanto já foi extraído de cada corpo), espécies conhecidas, e por planeta visitado o terreno alterado (diff), o ecossistema, os assentamentos, os reinos e a crônica (RNF-VIDA-09). Também guarda onde o jogador estava (espaço ou superfície) e a câmera e a velocidade da superfície. | Feito em 22/10/2026 (versão simples: guarda o mapa e o ecossistema inteiros, não só o diff; ver seção 19.20 do REQUISITOS-VIDA.md) |
+| RF-SAV-02 | **Autosave** periódico (a cada 60 s), ao sair da superfície e ao esconder ou fechar a aba, e botões para salvar (Ctrl+S), carregar e começar mundo novo. | Feito em 22/10/2026 |
+| RF-SAV-03 | **Versão do save** com migração: uma versão nova do jogo não quebra saves antigos (IDs de estrela e geradores versionados, seção 3.3). | Parcial: o save tem versão (`SAVE_VERSION`) e é validado; save de outra versão ou corrompido é recusado, guardado à parte e o jogo começa um mundo novo. Falta a migração entre versões |
 | RF-SAV-04 | **Tempo que passou fora:** ao carregar, o que estava em andamento (sondas, planetas com vida) avança pelo tempo de jogo que passou, calculado por evento ou de forma agregada (RF-SON-10, RNF-VIDA-05, RF-ONL-06). | A fazer (Fase 2/5) |
 | RF-SAV-05 | Exportar e importar o save como arquivo, para levar a outro computador antes de existir a nuvem. | A avaliar (Fase 2) |
 
@@ -435,7 +436,7 @@ Requisitos novos, gerados pelo que já foi implementado: hoje o estado do jogo v
 | RNF-07 | Compatibilidade | Chrome, Edge, Firefox e Safari atuais com WebGL2. WebGPU como melhoria opcional futura. | Feito, com mudança: o 3D usa WebGL quando existe e cai num renderizador por software em Canvas 2D quando não existe (RF-NAV-16); a superfície 2D não usa placa de vídeo (RNF-15) |
 | RNF-08 | Escalabilidade do coop | Grupos cooperativos pequenos (alvo inicial: até 4 jogadores por universo) com baixa latência; arquitetura que permita, no futuro, um universo público escalável por região do espaço. | A fazer (Fase 7) |
 | RNF-09 | Segurança | No coop, servidor autoritativo: o cliente nunca decide recursos, produção ou combate; validação de todas as ações. No solo, a simulação roda localmente. | A fazer (Fase 7); no solo a simulação já roda localmente |
-| RNF-10 | Persistência | O estado do universo é salvo como diferenças em relação à geração procedural (não se armazena o universo inteiro). | Parcial: as sondas guardam só o quanto foi extraído de cada corpo; o save ainda não existe (Fase 2) |
+| RNF-10 | Persistência | O estado do universo é salvo como diferenças em relação à geração procedural (não se armazena o universo inteiro). | Parcial: as sondas guardam só o quanto foi extraído de cada corpo; o save local guarda o mapa e o ecossistema inteiros por enquanto (RF-SAV-01), sem diff |
 | RNF-11 | Manutenibilidade | TypeScript estrito; núcleo de simulação independente de renderização e testável em Node. | Feito: TypeScript estrito, núcleo em `src/core`, `src/sim`, `src/nav`, `src/explore` e `src/procgen` sem three.js, testado com vitest (76 testes) |
 | RNF-12 | Licenciamento | Respeitar licenças dos dados (CC BY-SA do HYG, crédito ESA/Gaia, crédito NASA) e evitar elementos protegidos da obra original. | Feito: créditos no rodapé e nomes próprios (GUIA, Enxame) em vez dos do livro |
 | RNF-13 | Acessibilidade | Tamanho de fonte ajustável, paleta amigável a daltônicos nas camadas do mapa 2D, remapeamento de teclas. | A fazer (Fase 6) |
@@ -688,7 +689,7 @@ O que foi implementado gerou requisitos novos e mudou a ordem do que falta. A li
 | 7 | **Recursos da nave pagam as ferramentas do 2D** | RF-SON-12, RF-VIDA-143, questão aberta 6 | 3 e 5 | Liga as duas metades do jogo: o que se extrai no espaço vira terraformação e ajuda aos povos. |
 | 8 | **Fabricação, cópias e base secreta** | RF-FAB, RF-PES, RF-COM, RF-BAS, RF-SON-08 | 3 | É o "We Are Many" de fato e ainda não começou. |
 | 9 | **Superfície:** camadas do mapa inteiro, clima global que evolui, gigantes gasosos, metano líquido | RF-SUP-04, 05, 07, 14 | 4 | Fecha o critério de saída da Fase 4. |
-| 10 | **Vida, o que falta:** domesticação, doenças por contato, proteger, curar, realocar, colonos humanos, estações, evolução por adaptação, descer de nível, comerciantes visíveis | REQUISITOS-VIDA.md, seção 16.1 | 5 e 6 | Detalhado no outro documento. |
+| 10 | **Vida, o que falta:** domesticação, doenças por contato, proteger, curar, realocar, colonos humanos, estações, evolução por adaptação, descer de nível, comerciantes visíveis; e a proposta de crescimento controlado, vocação, economia viva e eras por desenvolvimento, começando pela correção das ruas em grade | REQUISITOS-VIDA.md, seções 16.1 e 19 | 5 e 6 | Detalhado no outro documento. |
 | 11 | **Ameaças e narrativa:** sondas rivais, Enxame, combate, marcos, tutorial | RF-AME, RF-GUI-19, RF-UI-03 | 6 | |
 | 12 | **Coop** e **escala** | RF-ONL, RNF-08, 09, Fase 8 | 7 e 8 | |
 
@@ -709,7 +710,7 @@ O que foi implementado gerou requisitos novos e mudou a ordem do que falta. A li
 | Propriedade intelectual da obra original | Alto | Termos genéricos permitidos; nomes específicos da obra proibidos. |
 | Custo de servidor no coop | Baixo | Grupos pequenos, simulação por eventos, dados estáticos em CDN. |
 | Perder algo já implementado numa mudança (regressão) | Alto | Regra de preservação (seção 0), registro de remoções (seção 13), testes do núcleo e teste automático de captura de tela (RNF-14). |
-| Perder o progresso ao fechar a aba (não há save) | Alto | Save e autosave como primeiro item do backlog (RF-SAV, seção 8.1). |
+| Perder o progresso ao fechar a aba (save local feito em 22/10/2026) | Alto | Save e autosave como primeiro item do backlog (RF-SAV, seção 8.1). |
 | Custo da publicação (créditos do Netlify) | Baixo | Só a `main` compila; mudanças acumuladas na `development` (RNF-16). |
 
 ---
@@ -726,6 +727,7 @@ O que foi implementado gerou requisitos novos e mudou a ordem do que falta. A li
 5. **Universo público:** confirmar, mais adiante, se vale a pena além do coop por convite.
 6. **Custo das ferramentas do 2D:** sair dos recursos que as sondas trazem (RF-SON-12), da energia da nave ou de uma recarga por tempo? (Também no REQUISITOS-VIDA.md, seção 17.)
 7. **Ordem do backlog** (seção 8.1): a sugestão é começar pelo save, que protege tudo o que já foi construído.
+8. **Limite térmico da terraformação** (RF-SUP-15): resfriar e aquecer devem continuar limitados por tile (−150 a +400 K), passar a depender da temperatura base do planeta, ou só ser vencidos por mudanças globais (espelhos orbitais, atmosfera, cometas)? Sugestão: manter o limite por tile como "ajuste local" e exigir ações globais, pagas e lentas, para mover a temperatura média; mostrar sempre o limite na interface.
 
 ---
 
@@ -788,6 +790,7 @@ O que foi implementado gerou requisitos novos e mudou a ordem do que falta. A li
 | 20/10/2026 | **Regra de preservação:** nada é removido sem necessidade ou pedido, e toda remoção é registrada com o motivo (seção 0 e seção 13). Os documentos ganharam a coluna Situação e o backlog revisado (seção 8.1). |
 
 ---
+| 22/10/2026 | Joab pediu salvar o progresso no navegador, de forma simples. Escolhido o IndexedDB em vez do localStorage porque o mapa de um planeta (arrays tipados de até 2048×1024) passa de 20 MB, muito acima da cota do localStorage (~5 MB). O localStorage ficou fora. |
 
 ## 13. Registro de remoções
 
@@ -801,6 +804,8 @@ As linhas de 19/10 e 20/10/2026 foram levantadas na revisão de 20/10/2026, a pa
 | 19/10/2026 | Exigência de WebGL para abrir o jogo | Nem todo PC tem placa de vídeo liberada | Joab | Renderizador por software em Canvas 2D (RF-NAV-16) |
 | 19/10/2026 | Vida nativa em 1% dos planetas favoráveis | Raro demais para a diversão | Joab | Três níveis: 25% vegetação, 8% animais, 1 em 10 destes inteligente (RF-VIDA-02) |
 | 19/10/2026 | Tamanhos de mapa 2D da versão 0.2 (Terra 512×256) | Caber mais coisa e ver as espécies | Joab | Terra 1024×512, teto 2048×1024 (RF-SUP-13) |
+| 21/10/2026 | Reaproveitamento automático dos recursos (RF-VIDA-368): entulho de volta ao estoque (`SALVAGE`), excedente vendido por ouro (`SURPLUS_SALE`), estoque abandonado ao vizinho (`ABANDON_RECOVER`) e material tirado do mapa ao assentamento mais perto (`HAUL_FROM_MAP`) | Recursos não podem se transferir sozinhos; a economia tem que pesar | Joab | O que sobra ou é abandonado se perde; só o saque, as carroças do reino e o comércio levam bens (RF-VIDA-376) |
+| 21/10/2026 | Cercas, estacas, paliçadas e muralhas de defesa em volta de vilas e cidades (RF-VIDA-106, 250), com os sprites `palisade`, `wall` e `gate` | Não têm função no jogo e poluem o mapa | Joab | A defesa na guerra segue pelos soldados e pela fortaleza da praça (RF-VIDA-242); a muralha como força na defesa volta só se tiver efeito de jogo |
 | 20/10/2026 | Publicação no GitHub Pages (workflow e base `/We-Are-Many/` do Vite) | Não funcionou para o Joab | Joab | Netlify (RNF-16). O `vercel.json` continua no repositório como alternativa |
 | 20/10/2026 | Ruas em cruz (decisão de 19/10/2026) e grade quadrada de ruas e casas | Traçado rígido demais | Joab | Ruas orgânicas que serpenteiam a partir da praça (RF-VIDA-101) |
 | 20/10/2026 | Ferramenta já selecionada ao entrar na superfície | Evitar alterar o mapa sem querer | Joab | Mão vazia (RF-VIDA-150b) |
@@ -811,4 +816,7 @@ As linhas de 19/10 e 20/10/2026 foram levantadas na revisão de 20/10/2026, a pa
 | 20/10/2026 | Superfície 2D desenhada com three.js e WebGL (proposta da seção 6.1 e Spike 4) | O 2D não deve depender de placa de vídeo | Joab | Canvas 2D próprio (RNF-15) |
 | 20/10/2026 | Textura granulada do chão (grama, areia, ruas de terra) | Exagerada e pesada | Joab | Só manchas suaves no chão, com 8 pixels de arte por tile (a escala das casas e criaturas), no zoom bem próximo; árvores, pedras e trigo mantêm a arte original de 16 pixels (RNF-VIDA-07) |
 | 20/10/2026 | Nas cidades que passavam da Idade da Pedra, a fogueira da praça virava fortaleza ou poço (parecia que as fogueiras tinham sumido) | Não foi removido: com as eras mais lentas, roças e fogueiras apareciam tarde | Joab (defeito relatado) | Fogueira animada em todo assentamento da Idade da Pedra e roças desde o fim dela (RF-VIDA-100, 164) |
+| 20/10/2026 | Estrada traçada na hora entre colônia e origem, entre reinos que se unem e até o reino protetor de uma vassala | Estradas grosseiras e desnecessárias, que enfeavam o mapa | Joab | Estrada só dentro do reino, até 40 tiles, quando os dois assentamentos já têm gente (RF-VIDA-190b) |
+| 20/10/2026 | Planta de ruas do nível aberta inteira de uma vez | As ruas apareciam em bloco | Joab | Ruas abertas trecho a trecho conforme faltam lotes (RF-VIDA-207) |
+| 20/10/2026 | Estoque único do reino guardado na capital (RF-VIDA-124), com limite de armazém de 200 + 20 por habitante, e a fusão dos estoques quando dois reinos se unem | Cada assentamento tem o seu estoque, e é a falta num e a sobra no outro que faz o comércio acontecer | Joab | Estoque próprio de cada assentamento com teto por recurso, carroças dentro do reino e comércio entre reinos (RF-VIDA-212 e 218) |
 | 20/10/2026 | Seção "Situação em 20/10/2026" abaixo da tabela de navegação (4.1) | O conteúdo passou para a nova coluna Situação da própria tabela | Revisão da documentação | Coluna Situação em RF-NAV-08, 09 e 11 |

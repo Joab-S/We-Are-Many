@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Biome, generateSurface, mapSizeFor, type PlanetParams } from './surface';
+import { Biome, classify, Decor, decorAt, generateSurface, mapSizeFor, sowVegetation, type PlanetParams } from './surface';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 1, temperatureK: 288, water: 0.7, life: 0.8 };
 
@@ -47,5 +47,68 @@ describe('textura de baixa resolução', () => {
       }
     }
     expect(same / (low.width * low.height)).toBeGreaterThan(0.95);
+  });
+
+  it('semear dá a vegetação do bioma: cacto no deserto, nada no gelo, mata só onde é úmido', () => {
+    const map = generateSurface(earth);
+    const n = map.width * map.height;
+    const before = Uint8Array.from(map.biome);
+    for (let k = 0; k < 40; k++) {
+      for (let i = 0; i < n; i++) {
+        sowVegetation(map, i, 0.06);
+        map.biome[i] = classify(map, i);
+      }
+    }
+    const decor = new Map<Biome, Set<Decor>>();
+    let deserts = 0;
+    let cacti = 0;
+    for (let i = 0; i < n; i++) {
+      const was = before[i] as Biome;
+      const now = map.biome[i] as Biome;
+      if (was === Biome.Desert) {
+        // O deserto segue deserto e ganha cactos, nunca árvores.
+        expect(now).toBe(Biome.Desert);
+        deserts++;
+        if (decorAt(map, i) === Decor.Cactus) cacti++;
+      }
+      if (was === Biome.Ice || was === Biome.Snow || was === Biome.Ocean || was === Biome.DeepOcean) expect(now).toBe(was);
+      if (!decor.has(now)) decor.set(now, new Set());
+      decor.get(now)!.add(decorAt(map, i));
+    }
+    expect(deserts).toBeGreaterThan(0);
+    expect(cacti / deserts).toBeGreaterThan(0.04);
+    const trees = [Decor.Tree, Decor.JungleTree, Decor.Pine, Decor.Acacia];
+    for (const b of [Biome.Desert, Biome.Snow, Biome.Ice, Biome.Barren]) for (const d of trees) expect(decor.get(b)?.has(d) ?? false).toBe(false);
+  });
+
+  it('semear faz árvores cortadas (toco) e tiles limpos voltarem a ter árvores', () => {
+    const map = generateSurface(earth);
+    const n = map.width * map.height;
+    map.felled = new Uint8Array(n);
+    map.bare = new Uint8Array(n);
+    let idx = -1;
+    for (let i = 0; i < n; i++) {
+      if (map.biome[i] === Biome.Forest && decorAt(map, i) === Decor.Tree) {
+        idx = i;
+        break;
+      }
+    }
+    expect(idx).toBeGreaterThanOrEqual(0);
+    // Toco de árvore cortada: primeiro vira muda e depois árvore adulta.
+    map.felled[idx] = 1;
+    map.vegetation[idx] = 0.28;
+    map.biome[idx] = classify(map, idx);
+    expect(decorAt(map, idx)).toBe(Decor.Stump);
+    sowVegetation(map, idx, 0.06);
+    expect(decorAt(map, idx)).toBe(Decor.Sapling);
+    sowVegetation(map, idx, 0.3);
+    expect(map.felled[idx]).toBe(0);
+    expect(decorAt(map, idx)).toBe(Decor.Tree);
+    // Tile limpo (bare = 1) mesmo já no teto de vegetação volta a ter árvore ao semear.
+    map.bare[idx] = 1;
+    expect(decorAt(map, idx)).toBe(Decor.None);
+    sowVegetation(map, idx, 0.06);
+    expect(map.bare[idx]).toBe(0);
+    expect(decorAt(map, idx)).toBe(Decor.Tree);
   });
 });

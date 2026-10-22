@@ -91,7 +91,11 @@ export function generateDeposits(map: SurfaceMap, rnd: () => number): Deposit[] 
   return out;
 }
 
-/** Estoque de um reino (guardado na capital). */
+/**
+ * Estoque de um assentamento (RF-VIDA-212): cada um guarda só o que é seu, e
+ * um bem só muda de lugar carregado (carroça, colonos, saque, comércio).
+ * A comida fica em `Village.food`.
+ */
 export interface Stock {
   wood: number;
   stone: number;
@@ -110,6 +114,19 @@ export interface Stock {
   armorTier: number;
   /** Joias de ouro (anéis, amuletos, coroas). */
   jewels: number;
+  /** Barro e tijolo da olaria, lã das ovelhas, roupa do tear, peles e couro, cavalos do haras (seção 19.4). */
+  clay: number;
+  brick: number;
+  wool: number;
+  cloth: number;
+  hides: number;
+  horses: number;
+  /** Bens de luxo da região (RF-VIDA-282): sal, vinho, especiarias, tinta e seda. */
+  salt: number;
+  wine: number;
+  spice: number;
+  dye: number;
+  silk: number;
   /** Quantos de cada item do catálogo (items.ts) o reino tem. */
   items: Record<string, number>;
 }
@@ -124,7 +141,7 @@ export interface Made {
 }
 
 export function emptyStock(): Stock {
-  return { wood: 30, stone: 0, copper: 0, tin: 0, iron: 0, gold: 0, coal: 0, tools: 0, weapons: 0, weaponTier: 0, armor: 0, armorTier: 0, jewels: 0, items: {} };
+  return { wood: 30, stone: 0, copper: 0, tin: 0, iron: 0, gold: 0, coal: 0, tools: 0, weapons: 0, weaponTier: 0, armor: 0, armorTier: 0, jewels: 0, clay: 0, brick: 0, wool: 0, cloth: 0, hides: 0, horses: 0, salt: 0, wine: 0, spice: 0, dye: 0, silk: 0, items: {} };
 }
 
 export function emptyMade(): Made {
@@ -143,7 +160,45 @@ export const STOCK_NAMES: [Exclude<keyof Stock, 'items'>, string][] = [
   ['weapons', 'Armas'],
   ['armor', 'Armaduras'],
   ['jewels', 'Joias'],
+  ['clay', 'Barro'],
+  ['brick', 'Tijolo'],
+  ['wool', 'Lã'],
+  ['cloth', 'Roupa'],
+  ['hides', 'Peles'],
+  ['horses', 'Cavalos'],
+  ['salt', 'Sal'],
+  ['wine', 'Vinho'],
+  ['spice', 'Especiarias'],
+  ['dye', 'Tinta'],
+  ['silk', 'Seda'],
 ];
+
+/** Recursos guardados (fora a comida), cada um com o grupo do seu teto (STORE_BASE em balance.ts). */
+export const GOODS = ['wood', 'stone', 'clay', 'brick', 'copper', 'tin', 'iron', 'coal', 'gold', 'tools', 'weapons', 'armor', 'jewels', 'wool', 'cloth', 'hides', 'salt', 'wine', 'spice', 'dye', 'silk'] as const;
+export type Good = (typeof GOODS)[number];
+export const GOOD_GROUP: Record<Good, 'material' | 'ore' | 'goods' | 'gold' | 'luxury'> = {
+  wood: 'material',
+  stone: 'material',
+  clay: 'material',
+  brick: 'material',
+  copper: 'ore',
+  tin: 'ore',
+  iron: 'ore',
+  coal: 'ore',
+  gold: 'gold',
+  tools: 'goods',
+  weapons: 'goods',
+  armor: 'goods',
+  jewels: 'goods',
+  wool: 'goods',
+  cloth: 'goods',
+  hides: 'goods',
+  salt: 'luxury',
+  wine: 'luxury',
+  spice: 'luxury',
+  dye: 'luxury',
+  silk: 'luxury',
+};
 
 /**
  * Condição para sair de cada era, além do conhecimento acumulado: não basta
@@ -178,6 +233,8 @@ export function forge(stock: Stock, era: number): { tier: number; kind: 'bronze'
 /** Custo de cada construção em madeira, pedra e ouro. */
 export function buildCost(kind: string, era: number): { wood: number; stone: number; gold: number } {
   if (kind === 'house') return era >= 3 ? { wood: 1, stone: 4, gold: 0 } : { wood: 4, stone: 0, gold: 0 };
+  if (kind === 'reform') return era >= 3 ? { wood: 1, stone: 3, gold: 0 } : { wood: 3, stone: era >= 2 ? 1 : 0, gold: 0 };
+  if (kind === 'aqueduct') return { wood: 6, stone: 30, gold: 2 };
   if (kind === 'port') return { wood: 12, stone: 0, gold: 0 };
   if (kind === 'mine') return { wood: 6, stone: 0, gold: 0 };
   if (kind === 'wonder') return { wood: 40, stone: 120, gold: 8 };

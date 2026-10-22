@@ -118,6 +118,12 @@ export class SoftArt {
     return this.pixels[o + 3] >> 4;
   }
 
+  /** Roça, rua, praça ou casa: borda reta, sem a fronteira ondulada do chão (toco e muda, 11 e 12, são chão). */
+  private solid(o: number): boolean {
+    const k = this.kindAt(o);
+    return (k >= 7 && k <= 10) || k === 15;
+  }
+
   private waterAt(o: number): boolean {
     const p = this.pixels;
     return p[o + 2] > p[o] + 64 && p[o + 2] > p[o + 1];
@@ -138,7 +144,7 @@ export class SoftArt {
     const fx = gx - tx * 16;
     const fy = gy - ty * 16;
     const me = this.idx(tx, ty);
-    if (this.kindAt(me) >= 7) return me;
+    if (this.solid(me)) return me;
     const ex = fx < 8 ? fx : 15 - fx;
     const ey = fy < 8 ? fy : 15 - fy;
     const vertical = ex < ey;
@@ -147,7 +153,7 @@ export class SoftArt {
     const ox = vertical ? (fx < 8 ? -1 : 1) : 0;
     const oy = vertical ? 0 : fy < 8 ? -1 : 1;
     const nb = this.idx(tx + ox, ty + oy);
-    if (this.kindAt(nb) >= 7) return me;
+    if (this.solid(nb)) return me;
     const line = vertical ? (tx + Math.max(ox, 0)) * 3.7 + 11 : (ty + Math.max(oy, 0)) * 5.3 + 47;
     const along = vertical ? gy : gx;
     const d = (this.edgeNoise(along / 5, line) - 0.5) * 9;
@@ -319,8 +325,8 @@ export class SoftArt {
       if (gx % 8 === 0 || gy % 8 === 0) return set(0.8);
       return set(0.93 + 0.1 * hash(Math.floor(gx / 8) + 2, Math.floor(gy / 8) + 2));
     }
-    // Faixa da rua: 6 pixels de arte na pedra, 4 na terra, centrada no tile.
-    const lo = kind === 9 ? 2 : 4;
+    // Faixa da rua: quase o tile todo na pedra e três quartos dele na terra, centrada (ruas largas, como nas referências do Joab).
+    const lo = kind === 9 ? 1 : 2;
     const hi = 15 - lo;
     const on = (x: number, y: number) => this.onRoad(x, y, lo, hi, rn, rs, rw, re);
     if (!on(fx, fy)) {

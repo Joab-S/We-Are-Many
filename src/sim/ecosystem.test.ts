@@ -135,7 +135,7 @@ describe('assentamentos', () => {
     }
     expect(eco.built.reduce((n, b) => n + b, 0)).toBe(tiles);
     expect(eco.road.some((r) => r > 0)).toBe(true);
-   }, 20000); // mapa inteiro por 40 anos: passa dos 5 s padrão em máquinas lentas
+   }, 60000); // mapa inteiro por 40 anos: passa dos 5 s padrão em máquinas lentas
 
   it('não deixa fundar dentro da área de outro assentamento', () => {
     const { eco } = world();
@@ -189,7 +189,7 @@ describe('tempo, idade e mar', () => {
         const dx = Math.abs(((x - Math.floor(v.x) + w * 1.5) % w) - w / 2);
         const dy = Math.abs(y - Math.floor(v.y));
         const island = dx <= 8 && dy <= 8;
-        const other = Math.abs(dx - 40) <= 10 && dy <= 10 && x > v.x;
+        const other = Math.abs(dx - 40) <= 10 && dy <= 10;
         map.elevation[i] = island || other ? 0.1 : -0.3;
         if (island || other) map.vegetation[i] = 0.8;
       }

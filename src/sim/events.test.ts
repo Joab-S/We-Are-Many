@@ -91,7 +91,7 @@ describe('soltar uma criatura', () => {
     for (let i = 0; i < map.width * map.height; i++) {
       const x = (i % map.width) + 0.5;
       const y = Math.floor(i / map.width) + 0.5;
-      if (y > map.height * 0.3 && y < map.height * 0.7 && eco.habitable(s, i) && eco.villages.every((v) => Math.hypot(v.x - x, v.y - y) > 60)) return { x, y };
+      if (y > map.height * 0.3 && y < map.height * 0.7 && eco.habitable(s, i) && eco.villages.every((v) => Math.hypot(v.x - x, v.y - y) > 60) && (eco.species[s].kind !== 'sapient' || !eco.siteProblem(s, Math.floor(x), Math.floor(y)))) return { x, y };
     }
     throw new Error('sem lugar');
   };
@@ -104,10 +104,11 @@ describe('soltar uma criatura', () => {
     const i = eco.introduceOne(s, x, y);
     expect(i).toBeGreaterThanOrEqual(0);
     expect(eco.village[i]).toBe(-1);
-    years(eco, 8);
-    expect(eco.villages.length).toBe(villages + 1);
-    const v = eco.villages[villages];
-    expect(eco.village[i]).toBe(v.id);
+    // Ele anda até achar um lugar bom e funda quando decide (sorteio), dentro de alguns anos.
+    // (Outros assentamentos também podem nascer no meio tempo, de colonos ou de êxodo: vale o dele.)
+    for (let k = 0; k < 20 && eco.village[i] < 0; k++) years(eco, 1);
+    expect(eco.village[i]).toBeGreaterThanOrEqual(villages);
+    const v = eco.villages[eco.village[i]];
     expect(v.population).toBeGreaterThanOrEqual(1);
   });
 
@@ -137,11 +138,10 @@ describe('soltar uma criatura', () => {
     const villages = eco.villages.length;
     const i = eco.introduceOne(s, x, y);
     years(eco, 15);
-    const v = eco.villages[villages];
-    expect(v).toBeDefined();
-    expect(v.abandoned).toBe(false);
     expect(eco.alive[i]).toBe(1);
-    expect(eco.village[i]).toBe(v.id);
+    expect(eco.village[i]).toBeGreaterThanOrEqual(villages);
+    const v = eco.villages[eco.village[i]];
+    expect(v.abandoned).toBe(false);
   });
 });
 
@@ -174,7 +174,12 @@ describe('ruínas', () => {
   it('quem chega perto das ruínas recomeça na antiga praça', () => {
     const { eco } = world();
     const old = emptied(eco);
-    const i = eco.introduceOne(old.species, old.x + 8, old.y);
+    // O lugar ao lado das ruínas pode ser água ou pedra, conforme o mundo: tenta alguns pontos a uns 8 tiles.
+    let i = -1;
+    for (const [ox, oy] of [[8, 0], [-8, 0], [0, 8], [0, -8], [6, 6], [-6, -6]]) {
+      i = eco.introduceOne(old.species, old.x + ox, old.y + oy);
+      if (i >= 0) break;
+    }
     expect(i).toBeGreaterThanOrEqual(0);
     years(eco, 2);
     const v = eco.villages.find((o) => o.ruinOf === old.id)!;
