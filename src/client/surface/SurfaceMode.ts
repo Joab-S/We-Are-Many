@@ -17,6 +17,7 @@ import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
 import { CATEGORIES, ITEMS, MATERIALS } from '../../sim/items';
 import { CHILD } from '../../sim/roles';
+import { bestCraft, curiosityOf, TECH_BY_ID } from '../../sim/progress';
 import { TIER_NAMES } from '../../sim/settlement';
 import { earthCatalog, EARTH_ID, habitatOf, nativeSpecies, type Species } from '../../sim/species';
 import { Input } from '../input';
@@ -2614,6 +2615,12 @@ export class SurfaceMode {
       v && eco.movedAt[i] >= 0 && (!born || born.id !== v.id) ? `mudou para ${v.name} no ano ${Math.floor(eco.movedAt[i])}` : '',
     ].filter(Boolean).join(', ');
     const carry = v && role !== CHILD ? this.carries(i) : '';
+    // Quem descobriu uma técnica e ainda a ensina, a curiosidade e o ofício em que tem mais jeito (RF-VIDA-419 e 420).
+    const teaching = v?.pendingTech?.uid === eco.uid[i] ? v.pendingTech : null;
+    const teachName = teaching ? (TECH_BY_ID[teaching.id]?.name ?? teaching.id) : '';
+    const traits = v && role !== CHILD
+      ? [curiosityOf(eco.uid[i]) >= 1.4 ? '💡 mente curiosa' : '', `⭐ jeito para ${ROLE_NAMES[ROLES[bestCraft(eco.uid[i])]].toLowerCase()}`].filter(Boolean).join(' · ')
+      : '';
     return `
       <b>${name}</b>
       <span>${sp.name} · ${job}</span>
@@ -2623,6 +2630,8 @@ export class SurfaceMode {
       ${v ? `<span>Mora em <button class="wb-link" data-village="${v.id}">${TIER_NAMES[v.tier]} ${v.name}</button>${v.kingdom !== v.id ? ` · Reino de ${eco.capitalOf(v).name}` : ''}</span>` : ''}
       ${v ? `<span>Família ${familyName(eco.family[i], v.culture.id)}${fam.parent >= 0 ? ` · filho(a) de ${person(fam.parent)}` : ''}${fam.children.length ? ` · filhos: ${fam.children.slice(0, 5).map(person).join(', ')}${fam.children.length > 5 ? ` e mais ${fam.children.length - 5}` : ''}` : ''}</span>` : ''}
       ${carry ? `<span>Leva ${carry}</span>` : ''}
+      ${teaching ? `<span class="wb-line">📜 Ensinando ${teachName} ${bar(teaching.progress, `${Math.round(teaching.progress * 100)}%`, 'good')}</span>` : ''}
+      ${traits ? `<span>${traits}</span>` : ''}
       ${story ? `<span class="wb-dim">${story[0].toUpperCase()}${story.slice(1)}.</span>` : ''}
       ${follow}`;
   }
