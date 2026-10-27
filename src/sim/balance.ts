@@ -548,3 +548,34 @@ export const GRUDGE_PULL = 1.5;
 export const MERCENARY_RATE = 0.5;
 export const MERCENARY_MAX = 4;
 export const MERCENARY_PRICE = 2;
+
+// ---- Ações com presença (REQUISITOS-VIDA.md, seção 19.21) ----
+
+/**
+ * Chave por ofício: com a presença ligada, o mundo só muda quando um NPC do ofício está no tile
+ * pelo tempo do gesto; desligada, vale a taxa agregada de antes (comparação na calibração).
+ */
+export const PRESENCE_WOOD = true;
+/** Distância (tiles) a que o NPC precisa estar do alvo para o gesto contar. */
+export const JOB_REACH = 1.6;
+/**
+ * Segundos do gesto de derrubar uma árvore sem ferramenta e com a mata na porta. A taxa de antes dava 5 s (um ano ÷ CUT_RATE);
+ * com a presença sobra tempo andando e esperando lugar no armazém, então o gesto é mais curto para a lenha por ano ficar a mesma.
+ */
+export const FELL_SECONDS = 3.1;
+/** Segundos para plantar uma muda num toco, e quantas mudas cada árvore cortada deixa a plantar (o PLANT_RATE de antes ÷ CUT_RATE). */
+export const PLANT_SECONDS = 2.5;
+export const PLANT_PER_FELL = PLANT_RATE / CUT_RATE;
+/** Ferramenta não é exigida; o assentamento com ferramentas em estoque trabalha mais rápido (TOOL_SPEED, o 1,4 de antes). */
+export const TOOL_SPEED = 1.4;
+/** Segundos andando sem chegar ao alvo antes de largar a ordem, e anos que o tile fica fora do quadro de serviços. */
+export const JOB_TIMEOUT = 40;
+export const JOB_BLOCK_YEARS = 5;
+/** Quantas árvores livres da lista o lenhador compara para escolher a mais perto de si. */
+export const JOB_CHOICES = 8;
+
+/** Obra presencial: chave, alcance (tiles até o centro da casa), construtores por obra e trabalho de um construtor por ano de obra (1 = o tempo de andaime de antes). */
+export const PRESENCE_BUILD = true;
+export const BUILD_REACH = 2.4;
+export const JOB_SLOTS_BUILD = 4;
+export const BUILD_LABOR = 1;

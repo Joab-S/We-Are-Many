@@ -78,12 +78,15 @@ export const TIER_MATERIAL: Material[] = ['stone', 'bronze', 'iron', 'steel'];
 
 /**
  * Escolhe o item que sai de uma peça de `material` na `category`, entre os
- * que a era já permite (sorteio; o mais avançado tem mais peso).
+ * que o assentamento já tem capacidade de produzir (se o material foi forjado,
+ * pelo menos o item básico daquele material sempre pode ser feito).
  */
 export function pickItem(material: Material, category: Category, era: number, r: number): ItemDef | null {
-  const options = ITEMS.filter((it) => it.material === material && it.category === category && it.era <= era);
-  if (!options.length) return null;
-  return options[Math.min(options.length - 1, Math.floor(r * options.length))];
+  const byMat = ITEMS.filter((it) => it.material === material && it.category === category);
+  if (!byMat.length) return null;
+  const options = byMat.filter((it) => it.era <= era);
+  const pool = options.length ? options : [byMat[0]];
+  return pool[Math.min(pool.length - 1, Math.floor(r * pool.length))];
 }
 
 /** Itens de pedra e madeira da Idade da Pedra (sem ferraria). */

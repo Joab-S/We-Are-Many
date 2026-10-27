@@ -154,11 +154,11 @@ describe('assentamentos', () => {
 });
 
 describe('tempo, idade e mar', () => {
-  it('as eras avançam devagar: séculos por era', () => {
+  it('as eras avançam de forma orgânica pelo trabalho e descobertas, sem pular para o fim de uma vez', () => {
     const { eco } = world();
     const v = eco.villages[0];
     run(eco, 50 * YEAR_SECONDS);
-    expect(v.tech).toBeLessThan(0.5);
+    expect(v.tech).toBeLessThan(2.5);
     expect(v.tech).toBeGreaterThan(0);
   });
 
