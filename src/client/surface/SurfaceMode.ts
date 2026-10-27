@@ -135,8 +135,8 @@ const TERRAIN_TOOLS: Tool[] = [
   { id: 'flatten', fx: 'flatten', tab: 'terrain', label: 'Nivelar', icon: '▭', tip: 'Aplaina o terreno para perto do nível de planície.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] += (0.12 - m.elevation[i]) * Math.min(1, 0.05 * s)) },
   { id: 'sand', fx: 'sand', tab: 'terrain', label: 'Areia', icon: '🏜', tip: 'Seca o solo: vira praia ou deserto.', mode: 'brush', apply: (m, i, s) => { m.moisture[i] = clamp(m.moisture[i] - 0.05 * s, 0, 1); m.vegetation[i] = clamp(m.vegetation[i] - 0.05 * s, 0, 1); } },
   { id: 'lake', fx: 'sea', tab: 'terrain', label: 'Lago', icon: '🏞', tip: 'Cava um lago raso, de margem suave, e umedece a terra em volta.', mode: 'brush', apply: (m, i, s) => { m.elevation[i] = Math.max(-0.12, m.elevation[i] - 0.05 * s); m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1); } },
-  { id: 'clear', fx: 'clear', tab: 'terrain', group: 'Remover', label: 'Limpar', icon: '🧹', tip: 'Tira árvores, pedras, cactos, ruínas e veios de minério do pincel. A madeira, a pedra e o minério vão para o assentamento mais perto.', mode: 'brush', act: (ctx, x, y) => ctx.clearNature(x, y) },
-  { id: 'demolish', fx: 'demolish', tab: 'terrain', group: 'Remover', label: 'Demolir', icon: '🧱', tip: 'Derruba casas, prédios, ruas, roças e pastos do pincel. Parte do material volta ao estoque; o povo reconstrói se precisar.', mode: 'brush', act: (ctx, x, y) => ctx.demolish(x, y) },
+  { id: 'clear', fx: 'clear', tab: 'terrain', group: 'Remover', label: 'Limpar', icon: '🧹', tip: 'Tira árvores, pedras, cactos, ruínas e veios de minério do pincel. O material removido se perde: só o trabalho do povo põe recursos no estoque.', mode: 'brush', act: (ctx, x, y) => ctx.clearNature(x, y) },
+  { id: 'demolish', fx: 'demolish', tab: 'terrain', group: 'Remover', label: 'Demolir', icon: '🧱', tip: 'Derruba casas, prédios, ruas, roças e pastos do pincel. O material se perde; o povo reconstrói depois, se precisar, pagando de novo.', mode: 'brush', act: (ctx, x, y) => ctx.demolish(x, y) },
   // Minérios: ajuda leve aos povos, que ainda precisam achar o veio e abrir a mina.
   ...ORES.map(
     (ore): Tool => ({
@@ -485,19 +485,6 @@ export class SurfaceMode {
         act: (ctx: SurfaceMode, x: number, y: number) => ctx.introduce(sp, x, y),
       }));
     civ.push(
-      {
-        id: 'teach',
-        tab: 'civ',
-        group: 'Ajudar de leve',
-        label: 'Ensinar',
-        icon: '📜',
-        tip: 'Adianta um pouco o conhecimento das aldeias no pincel (não pula a condição de era).',
-        mode: 'click',
-        act: (ctx, x, y) => {
-          const taught = ctx.eco.teach(x, ctx.toRow(y), ctx.brush, 0.35);
-          if (taught.length) ctx.eco.note(`Você ensinou ${taught.map((v) => v.name).join(', ')}`, 'jogador', taught[0]);
-        },
-      },
       {
         id: 'harvest',
         tab: 'civ',
@@ -2013,7 +2000,7 @@ export class SurfaceMode {
         // Olaria acesa: fumaça saindo da chaminé.
         if (!small && house.kind === 'pottery') buildings.push({ sprite: flame ? 'smoke' : 'smoke2', sx: sx + z * 0.45, sy: sy + z * 2.05, h: z * 0.5, tint: v.color });
         // Obra em andamento (construção ou reforma): andaime por cima.
-        if (!small && (house.workUntil ?? 0) > eco.year) buildings.push({ sprite: 'scaffold', sx, sy: sy - 0.01, h: z * 1.75, tint: v.color });
+        if (!small && eco.underWork(house)) buildings.push({ sprite: 'scaffold', sx, sy: sy - 0.01, h: z * 1.75, tint: v.color });
         // Na Idade da Pedra, algumas cabanas têm uma fogueira no quintal.
         if (!small && era === 0 && house.kind === 'house' && house.variant === 1) {
           const [cx, cy] = this.toScreen(house.x + 2.3, house.y + 2, z, w, h);

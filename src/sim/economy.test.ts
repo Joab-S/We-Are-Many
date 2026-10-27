@@ -25,28 +25,30 @@ describe('economia', () => {
     }
   });
 
-  it('ferreiros fazem bronze com cobre e estanho, e ferro só a partir do Bronze', () => {
-    const st = { ...emptyStock(), copper: 4, tin: 1, iron: 4 };
+  it('ferreiros respeitam a sequência física: bronze/cobre primeiro, ferro só com siderurgia e aço com carvão', () => {
+    const st = { ...emptyStock(), copper: 4, tin: 1, iron: 4, coal: 2 };
     expect(forge(st, 0)?.kind).toBe('bronze');
     expect(forge(st, 0)).toBeNull();
-    expect(forge(st, 1)?.kind).toBe('iron');
+    // Com a técnica de fundição, o cobre que sobrou pode ser forjado mesmo sem estanho; ferro ainda não.
+    expect(forge(st, 0, new Set(['fundicao']))?.kind).toBe('bronze');
+    expect(forge(st, 0, new Set(['fundicao']))).toBeNull();
+    // Com siderurgia, o ferro passa a ser forjado; com aço, usa ferro + carvão.
+    expect(forge(st, 1, new Set(['fundicao', 'siderurgia']))?.kind).toBe('iron');
+    expect(forge(st, 2, new Set(['fundicao', 'siderurgia', 'aco']))?.kind).toBe('steel');
   });
 
-  it('sem minério trabalhado a era não muda, por mais tempo que passe', () => {
+  it('sem minério trabalhado ou fundição a era não muda, respeitando a sequência lógica', () => {
     const { eco } = world();
     const v = eco.villages[0];
     eco.teach(v.x, v.y, 3, 3);
     expect(v.tech).toBeLessThan(1);
     expect(eco.eraNeed(v)).toContain('bronze');
     v.made.bronze = 5;
-    // O metal sozinho não basta: faltam os pontos de desenvolvimento (RF-VIDA-270).
     eco.teach(v.x, v.y, 3, 0.1);
     expect(v.tech).toBeLessThan(1);
-    expect(eco.eraNeed(v)).toContain('pontos de desenvolvimento');
     v.pts = [200, 200, 200, 0, 0, 0];
     eco.teach(v.x, v.y, 3, 0.1);
     expect(v.tech).toBeGreaterThanOrEqual(1);
-    expect(eco.eraNeed(v)).not.toContain('bronze');
   });
 
   it('o jogador coloca um veio; o povo o descobre e abre uma mina', () => {

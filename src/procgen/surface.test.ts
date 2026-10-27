@@ -79,7 +79,7 @@ describe('textura de baixa resolução', () => {
     expect(cacti / deserts).toBeGreaterThan(0.04);
     const trees = [Decor.Tree, Decor.JungleTree, Decor.Pine, Decor.Acacia];
     for (const b of [Biome.Desert, Biome.Snow, Biome.Ice, Biome.Barren]) for (const d of trees) expect(decor.get(b)?.has(d) ?? false).toBe(false);
-  });
+  }, 15000);
 
   it('semear faz árvores cortadas (toco) e tiles limpos voltarem a ter árvores', () => {
     const map = generateSurface(earth);

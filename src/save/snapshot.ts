@@ -115,6 +115,7 @@ function restoreEcosystem(snap: EcosystemSnapshot, map: SurfaceMap): Ecosystem {
     if (!isRng(gen)) throw new SaveFormatError(`gerador ${key} desconhecido`);
     gen.state = state;
   }
+  eco.fixAfterLoad();
   return eco;
 }
 

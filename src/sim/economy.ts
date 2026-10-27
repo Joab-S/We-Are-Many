@@ -201,30 +201,48 @@ export const GOOD_GROUP: Record<Good, 'material' | 'ore' | 'goods' | 'gold' | 'l
 };
 
 /**
- * Condição para sair de cada era, além do conhecimento acumulado: não basta
- * o tempo passar, o povo precisa ter achado e trabalhado os minérios.
+ * Condições de referência por etapa material (mantido para consulta e testes;
+ * na evolução orgânica, cobre sozinho também conta como trabalho em bronze/cobre).
  */
 export const ERA_NEEDS: { text: string; met: (m: Made) => boolean }[] = [
-  { text: 'fazer 5 peças de bronze (cobre + estanho e uma ferraria)', met: (m) => m.bronze >= 5 },
-  { text: 'fazer 8 peças de ferro', met: (m) => m.iron >= 8 },
-  { text: 'extrair 120 de pedra e fazer 30 peças de ferro', met: (m) => m.stone >= 120 && m.iron >= 30 },
-  { text: 'extrair 60 de carvão e fazer 10 peças de aço', met: (m) => m.coal >= 60 && m.steel >= 10 },
+  { text: 'trabalhar cobre ou bronze numa ferraria', met: (m) => m.bronze >= 2 },
+  { text: 'forjar peças de ferro', met: (m) => m.iron >= 4 },
+  { text: 'extrair pedra e dominar forja de ferro', met: (m) => m.stone >= 40 && m.iron >= 12 },
+  { text: 'extrair carvão e forjar aço', met: (m) => m.coal >= 20 && m.steel >= 4 },
 ];
 
-/** Resultado de um ferreiro trabalhar um ano: o metal que gasta e a peça que faz. */
-export function forge(stock: Stock, era: number): { tier: number; kind: 'bronze' | 'iron' | 'steel' } | null {
-  if (era >= 3 && stock.iron >= 2 && stock.coal >= 1) {
+/**
+ * Resultado de um ferreiro trabalhar um ano: o metal que gasta e a peça que faz.
+ * Respeita a sequência física: aço pede ferro + carvão; ferro pede domínio da
+ * siderurgia (`era >= 1` ou técnica de fundição de ferro); cobre/bronze pode ser
+ * forjado com cobre + estanho (liga de bronze, gasta 2 cobre + 1 estanho) ou só
+ * com cobre (cobre batido, gasta 2 cobre) ou estanho, sem travar a civilização
+ * quando falta um dos dois minérios na região.
+ */
+export function forge(stock: Stock, era: number, techs?: ReadonlySet<string>): { tier: number; kind: 'bronze' | 'iron' | 'steel' } | null {
+  const canSteel = techs ? techs.has('aco') : era >= 3;
+  const canIron = techs ? techs.has('siderurgia') : era >= 1;
+  const canBronze = techs ? techs.has('fundicao') || era >= 1 : true;
+  if (canSteel && stock.iron >= 2 && stock.coal >= 1) {
     stock.iron -= 2;
     stock.coal -= 1;
     return { tier: 3, kind: 'steel' };
   }
-  if (era >= 1 && stock.iron >= 2) {
+  if (canIron && stock.iron >= 2) {
     stock.iron -= 2;
     return { tier: 2, kind: 'iron' };
   }
-  if (stock.copper >= 2 && stock.tin >= 1) {
+  if (canBronze && stock.copper >= 2 && stock.tin >= 1) {
     stock.copper -= 2;
     stock.tin -= 1;
+    return { tier: 1, kind: 'bronze' };
+  }
+  if (techs && canBronze && stock.copper >= 2) {
+    stock.copper -= 2;
+    return { tier: 1, kind: 'bronze' };
+  }
+  if (techs && canBronze && stock.tin >= 2) {
+    stock.tin -= 2;
     return { tier: 1, kind: 'bronze' };
   }
   return null;

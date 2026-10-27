@@ -44,7 +44,7 @@ import {
   type Crew,
   type Luxury,
 } from './trade';
-import { emptyVital, HISTORY_YEARS, type DeathCause, type Exit, type Sample, type Vital } from './people';
+import { emptyVital, familyName, HISTORY_YEARS, personName, type DeathCause, type Exit, type Sample, type Vital } from './people';
 import {
   foodCap,
   fullNeeds,
@@ -341,35 +341,35 @@ function canBuild(kind: (typeof BUILDINGS)[number], c: BuildContext): boolean {
   const { era, tier, metal, culture, capital } = c;
   switch (kind) {
     case 'granary':
-      return era >= 1;
+      return era >= 1 || c.techs.has('ceramica') || tier >= 1;
     case 'smithy':
-      return metal;
+      return metal && (c.techs.has('fundicao') || era >= 1);
     case 'market':
       return tier >= 1 || culture.value === 'comércio';
     case 'temple':
-      return culture.value === 'fé' ? era >= 1 : era >= 2 && tier >= 1;
+      return culture.value === 'fé' ? era >= 1 || tier >= 1 : era >= 2 && tier >= 1;
     case 'windmill':
-      return c.techs.has('moinho') && tier >= 1 && (era >= 2 || (era >= 1 && c.vocation === 'agricola'));
+      return c.techs.has('moinho') && (tier >= 1 || c.vocation === 'agricola');
     // Economia local (RF-VIDA-211 e 216).
     case 'warehouse':
       return tier >= 2 || (tier >= 1 && c.vocation === 'mercantil');
     case 'pottery':
-      return era >= 1 && c.clay && c.techs.has('ceramica');
+      return c.clay && c.techs.has('ceramica');
     case 'loom':
-      return c.techs.has('tecelagem') && era >= 1 && (c.herd === 'sheep' || c.vocation === 'ovelhas');
+      return c.techs.has('tecelagem') && (c.herd === 'sheep' || c.herd === 'goat' || c.vocation === 'ovelhas');
     case 'corral':
       return c.herd === 'cattle' || c.herd === 'goat';
     case 'stable':
-      return c.techs.has('montaria') && era >= 1 && (c.herd === 'horse' || c.herd === 'camel');
+      return c.techs.has('montaria') && (c.herd === 'horse' || c.herd === 'camel');
     case 'sawmill':
-      return era >= 2 && (c.vocation === 'madeireira' || (tier >= 2 && c.forest > 0.55));
+      return (era >= 1 || c.techs.has('fundicao')) && (c.vocation === 'madeireira' || (tier >= 2 && c.forest > 0.55));
     case 'barracks':
-      return era >= 2 && tier >= 2;
+      return (era >= 2 || c.techs.has('siderurgia')) && tier >= 2;
     case 'factory':
-      return era >= 4 && tier >= 2 && c.techs.has('vapor');
+      return tier >= 2 && c.techs.has('vapor');
     // Saneamento da metrópole (RF-VIDA-284).
     case 'aqueduct':
-      return era >= 2 && tier >= 3;
+      return (era >= 2 || c.techs.has('irrigacao')) && tier >= 3;
     // Capitais ricas erguem monumentos: estátua do líder e a grande obra do povo.
     case 'statue':
       return capital && era >= 2 && tier >= 2;
@@ -387,8 +387,16 @@ export interface Building {
   variant: number;
   /** Andares a mais (casas reformadas e adensadas, RF-VIDA-203). */
   level?: number;
-  /** Ano até o qual a obra continua, com andaime. */
+  /** Ano até o qual a obra continua, com andaime (saves antigos; hoje a obra é por trabalho, `labor`). */
   workUntil?: number;
+  /**
+   * Obra presencial (seção 19.21): trabalho que falta, em segundos de construtor, e o total. Só os
+   * construtores no lugar o reduzem. `site` marca a obra de um prédio novo, ainda sem uso; `crew`, quantos trabalham nela agora.
+   */
+  labor?: number;
+  laborMax?: number;
+  site?: boolean;
+  crew?: number;
   /** Era do estilo da casa: a da construção ou da última reforma (transição gradual, RF-VIDA-251). */
   era?: number;
   /** Casa vazia num assentamento em crise (RF-VIDA-254). */
@@ -509,6 +517,10 @@ export interface Village {
   fellAt?: number;
   chop?: number;
   forestry?: boolean;
+  /** Mudas a plantar nos tocos antigos: cada árvore cortada soma `PLANT_PER_FELL` (seção 19.21). */
+  plantDue?: number;
+  /** Construtores do assentamento (adultos em idade de trabalhar): sem nenhum, coletores e o líder ajudam nas obras. */
+  crew?: number;
   /** Pedreira: tiles com pedra ao alcance, do melhor para o pior, e a pedra que ainda dão. */
   stoneList?: number[];
   stoneNext?: number;
@@ -523,6 +535,8 @@ export interface Village {
   levels?: P.Points;
   pts?: P.Points;
   techs?: string[];
+  /** Técnica descoberta por um morador específico (`uid`), que ele está ensinando à aldeia. */
+  pendingTech?: { id: string; uid: number; name: string; progress: number };
   /** Maior população já alcançada, para reconhecer o colapso (RF-VIDA-275). */
   peak?: number;
   /** Última vez que as técnicas foram sorteadas. */
@@ -600,6 +614,9 @@ export function elderAge(sp: Species, era: number): number {
 
 const CELL = 8;
 const THINK_INTERVAL = 0.4;
+
+/** Tipos de ação presencial (seção 19.21); 0 é nenhuma. */
+const JOB = { fell: 1, plant: 2, build: 3 } as const;
 /** Teto mínimo de qualquer espécie: abaixo disso, um azar qualquer acaba com ela. */
 const MIN_CAP = 30;
 /** Até onde um adulto procura parceiro (tiles); bem mais longe quando a espécie está rara. */
@@ -649,6 +666,21 @@ export class Ecosystem {
   stuck = new Float32Array(0);
   aimX = new Float32Array(0);
   aimY = new Float32Array(0);
+  /**
+   * Ação presencial em andamento (seção 19.21): o tipo (JOB, 0 nenhuma), o tile alvo e o trabalho
+   * já feito em segundos. O alvo só vale com `jobKind` > 0 (o tile 0 é um alvo possível).
+   */
+  jobKind = new Uint8Array(0);
+  job = new Int32Array(0);
+  jobWork = new Float32Array(0);
+  /** Segundos que o indivíduo anda sem chegar ao alvo da ordem. */
+  jobWait = new Float32Array(0);
+  /** Tiles que ninguém alcançou, e o ano até o qual saem do quadro de serviços. */
+  private readonly jobBlocked = new Map<number, number>();
+  /** Obra que cada construtor atende (cache; se faltar, é refeito pelo tile da ordem). */
+  private readonly siteCache = new Map<number, Building>();
+  /** Tile alvo -> quem reservou; a reserva só vale enquanto o indivíduo vive e ainda mira esse tile. */
+  private readonly jobClaim = new Map<number, number>();
   /** Jangadas atravessando a água agora. */
   readonly rafts: Raft[] = [];
   private nextUid = 0;
@@ -1044,7 +1076,7 @@ export class Ecosystem {
   }
 
   private grow(capacity: number): void {
-    const copy = <T extends Float32Array | Uint8Array | Int8Array | Int16Array | Uint32Array>(a: T, make: (n: number) => T): T => {
+    const copy = <T extends Float32Array | Uint8Array | Int8Array | Int16Array | Int32Array | Uint32Array>(a: T, make: (n: number) => T): T => {
       const b = make(capacity);
       b.set(a);
       return b;
@@ -1071,6 +1103,10 @@ export class Ecosystem {
     this.stuck = copy(this.stuck, (n) => new Float32Array(n));
     this.aimX = copy(this.aimX, (n) => new Float32Array(n));
     this.aimY = copy(this.aimY, (n) => new Float32Array(n));
+    this.jobKind = copy(this.jobKind, (n) => new Uint8Array(n));
+    this.job = copy(this.job, (n) => new Int32Array(n));
+    this.jobWork = copy(this.jobWork, (n) => new Float32Array(n));
+    this.jobWait = copy(this.jobWait, (n) => new Float32Array(n));
     // A grade pode estar em uso no meio de um passo: copiar, nunca zerar (zeros criariam um laço infinito).
     const next = new Int32Array(capacity).fill(-1);
     next.set(this.gridNext);
@@ -1082,6 +1118,33 @@ export class Ecosystem {
     // Cada era (agricultura, cidades, indústria) sustenta mais gente.
     const era = village >= 0 ? Math.floor(this.villages[village].tech) : 0;
     if (this.population[s] >= this.caps[s] * (1 + 0.3 * era)) return -1;
+    const w = this.map.width;
+    x = ((x % w) + w) % w;
+    y = Math.max(0.01, Math.min(this.map.height - 0.01, y));
+    const t0 = this.tileAt(x, Math.floor(y));
+    if (t0 < 0 || !this.canStand(s, t0)) {
+      if (village >= 0 && this.canStand(s, this.tileAt(this.villages[village].x, Math.floor(this.villages[village].y)))) {
+        x = this.villages[village].x;
+        y = this.villages[village].y;
+      } else {
+        let fixed = false;
+        const bx = Math.floor(x);
+        const by = Math.floor(y);
+        for (let r = 1; r <= 3 && !fixed; r++) {
+          for (let oy = -r; oy <= r && !fixed; oy++) {
+            for (let ox = -r; ox <= r && !fixed; ox++) {
+              const nt = this.tileAt(bx + ox, by + oy);
+              if (nt >= 0 && this.canStand(s, nt)) {
+                x = (((bx + ox + 0.5) % w) + w) % w;
+                y = by + oy + 0.5;
+                fixed = true;
+              }
+            }
+          }
+        }
+        if (!fixed) return -1;
+      }
+    }
     let i = this.free.pop();
     if (i === undefined) {
       if (this.count >= this.capacity) this.grow(this.capacity * 2);
@@ -1108,6 +1171,9 @@ export class Ecosystem {
     this.stuck[i] = 0;
     this.aimX[i] = 0;
     this.aimY[i] = 0;
+    this.jobKind[i] = 0;
+    this.jobWork[i] = 0;
+    this.jobWait[i] = 0;
     this.population[s]++;
     this.everLived[s] = true;
     if (village >= 0) {
@@ -1156,6 +1222,11 @@ export class Ecosystem {
     if (v >= 0) {
       const village = this.villages[v];
       village.population--;
+      if (village.pendingTech && village.pendingTech.uid === this.uid[i] && cause !== 'partiu') {
+        const lost = P.TECH_BY_ID[village.pendingTech.id];
+        if (!quiet && lost) this.note(`${village.pendingTech.name} morreu antes de ensinar ${lost.name} a ${village.name}`, 'economia', village);
+        village.pendingTech = undefined;
+      }
       // Só a morte de reis e de líderes de reinos entra nos acontecimentos.
       if (!quiet && village.leader === i && village.kingdom === village.id && (village.tier >= 2 || this.kingdomSize(village) > 1)) {
         const title = this.role[i] === ROLE.king ? 'O rei' : 'O líder';
@@ -1240,6 +1311,7 @@ export class Ecosystem {
           this.vy[i] = -this.vy[i] + (this.rnd() - 0.5) * 0.5;
         }
       }
+      if (this.jobKind[i]) this.workJob(i, dt);
       this.age[i] += dt / this.yearSpan;
       this.think[i] -= dt;
       if (this.think[i] <= 0) {
@@ -1626,7 +1698,7 @@ export class Ecosystem {
     if (!v.herd || v.herd.head <= 0) {
       // Curral vazio não fica de pé para sempre: as cercas vão sendo desmontadas.
       if (v.pens?.length && happens(this.civRnd, B.PEN_RATE, 1)) this.removePen(v);
-      if (v.tech >= 0.9 && this.knew(v, 'domesticacao') && happens(this.civRnd, B.DOMESTICATE_RATE, 1)) this.domesticate(v);
+      if (this.knew(v, 'domesticacao') && happens(this.civRnd, B.DOMESTICATE_RATE, 1)) this.domesticate(v);
       return;
     }
     const h = v.herd;
@@ -2143,7 +2215,7 @@ export class Ecosystem {
         // Sozinho no mato, vive do que acha.
         if (v) {
           // Um bando pequeno ainda vive do mato; com mais gente em volta, cada um acha menos.
-          if (veg > 0.25) e += Math.max(B.FORAGE, B.FORAGE_WILD / (1 + v.population / B.FORAGE_CROWD)) * dt;
+          if (veg > 0.25 || (e < 0.5 && v.food < 1 && veg > 0.12)) e += Math.max(B.FORAGE, B.FORAGE_WILD / (1 + v.population / B.FORAGE_CROWD)) * dt;
           if (this.nearWater(tile)) e += B.SHORE_FORAGE * dt;
           // Inverno frio sem lenha.
           if (v.chill) e -= B.FREEZE * v.chill * dt;
@@ -2162,15 +2234,23 @@ export class Ecosystem {
         const elder = this.age[i] >= elderAge(sp, era);
         const working = this.role[i] !== CHILD && !elder;
         let bias: { x: number; y: number } | undefined = lone;
+        // Com uma ordem presencial, anda reto até o alvo (sem o vaivém do passeio) e fica parado trabalhando.
+        let direct = false;
         if (v) {
           let dx = v.x - this.x[i];
           if (dx > map.width / 2) dx -= map.width;
           else if (dx < -map.width / 2) dx += map.width;
           let dy = v.y - this.y[i];
           const role = this.role[i];
+          if (this.jobKind[i] && !this.jobFits(i, v, role, working)) this.dropJob(i);
           // Crianças, idosos, soldados, guardas e líderes ficam perto do centro; pescadores, perto do porto.
           let range = this.radius(v) * (role >= ROLE.soldier || !working ? 0.4 : 0.8);
-          if (role === ROLE.fisher && v.port >= 0) {
+          if (working && B.PRESENCE_BUILD && this.canBuildHere(v, role) && this.pickBuildJob(i, v)) {
+            // Construtores vão à obra e ficam batendo nela até terminar (seção 19.21).
+            [dx, dy] = this.jobDelta(i);
+            range = B.BUILD_REACH * 0.6;
+            direct = true;
+          } else if (role === ROLE.fisher && v.port >= 0) {
             dx = wrapDx((v.port % map.width) + 0.5 - this.x[i], map.width);
             dy = Math.floor(v.port / map.width) + 0.5 - this.y[i];
             range = 4;
@@ -2180,6 +2260,13 @@ export class Ecosystem {
             dx = wrapDx(d.x + 0.5 - this.x[i], map.width);
             dy = d.y + 0.5 - this.y[i];
             range = 2;
+          } else if (role === ROLE.woodcutter && working && B.PRESENCE_WOOD) {
+            // Lenhadores pegam uma ordem (derrubar ou plantar) e só então vão à mata (seção 19.21).
+            if (this.pickJob(i, v) >= 0) {
+              [dx, dy] = this.jobDelta(i);
+              range = B.JOB_REACH * 0.5;
+              direct = true;
+            }
           } else if (role === ROLE.woodcutter && working && (v.fellAt ?? -1) >= 0) {
             // Lenhadores vão até a mata onde a próxima árvore vai cair (seção 19.19).
             const t = v.fellAt!;
@@ -2223,7 +2310,9 @@ export class Ecosystem {
         if (!v && e < 0.5) bias = this.betterSite(i) ?? bias;
         // Fora do clima, mesmo com assentamento, primeiro se protege.
         if (comfort && (!v || e < 0.4)) bias = comfort;
-        this.wander(i, sp.speed * (this.role[i] === CHILD ? 0.8 : elder ? 0.55 : 1), bias);
+        if (direct && bias) this.walkTo(i, sp.speed, bias.x, bias.y);
+        else if (direct) this.stand(i);
+        else this.wander(i, sp.speed * (this.role[i] === CHILD ? 0.8 : elder ? 0.55 : 1), bias);
         // Muito tempo travado na beira da água com o destino do outro lado: corta árvores e faz uma jangada.
         if (this.stuck[i] >= B.RAFT_STUCK && this.role[i] !== CHILD && this.tryRaft(i)) return;
         break;
@@ -2389,7 +2478,7 @@ export class Ecosystem {
     const ty = Math.floor(this.y[i]);
     const tile = this.tileAt(tx, ty);
     if (tile >= 0 && this.goodSite(s, tile)) {
-      if (this.civRnd() < 0.05 && this.canFound(tx, ty)) found(tx, ty);
+      if (this.civRnd() < 0.25 && this.canFound(tx, ty)) found(tx, ty);
       return undefined;
     }
     // Sem lugar bom à vista (no meio do deserto, por exemplo): anda para onde é mais verde.
@@ -2518,21 +2607,23 @@ export class Ecosystem {
   }
 
   /** Quantas pessoas as casas do assentamento abrigam. */
-  housing(v: Village): number {
+  housing(v: Village, planned = false): number {
     const era = Math.floor(v.tech);
     // A gente do campo conta pelas roças que o lugar comporta (uma a cada duas casas, ou quatro na Pedra),
     // mesmo quando só se planta o que os agricultores dão conta.
     const homes = v.houses.filter((h) => h.kind === 'house').length;
-    const farms = v.tech >= 0.12 ? Math.max(v.fields, Math.floor(homes / (era >= 1 ? 2 : 4))) : v.fields;
+    const farms = v.fields > 0 || v.tech >= 0.12 ? Math.max(v.fields, Math.floor(homes / (era >= 1 ? 2 : 4))) : v.fields;
     let n = 4 + farms * 2;
-    for (const h of v.houses) n += h.kind === 'house' ? (h.empty ? 0 : 4 + era + (h.level ?? 0) * B.LEVEL_HOUSING) : h.kind === 'port' ? 0 : 2;
+    for (const h of v.houses) if (planned || !h.site) n += h.kind === 'house' ? (h.empty ? 0 : 4 + era + (h.level ?? 0) * B.LEVEL_HOUSING) : h.kind === 'port' ? 0 : 2;
     return n;
   }
 
-  /** Andares a mais que uma casa pode ter na era (sobrado no Bronze, mais um na Era Medieval). */
+  /** Andares a mais que uma casa pode ter (sobrado em vilas e cidades com siderurgia/Ferro; mais um na cidade com aço/Medieval). */
   private maxLevel(v: Village): number {
     const era = Math.floor(v.tech);
-    return era >= 3 ? 2 : era >= 1 ? 1 : 0;
+    if (v.tier >= 2 && (era >= 3 || this.knew(v, 'aco'))) return 2;
+    if (v.tier >= 1 && (era >= 2 || this.knew(v, 'siderurgia'))) return 1;
+    return 0;
   }
 
   /** Estrutura de referência do assentamento no nível e era atuais (RF-VIDA-200). */
@@ -2730,21 +2821,33 @@ export class Ecosystem {
   /** Assentamento cujo contorno real contém o ponto (x, y), se houver. */
   villageAt(x: number, y: number): Village | null {
     const mw = this.map.width;
+    let best: Village | null = null;
+    let bestScore = Infinity;
     for (const v of this.villages) {
       if (v.abandoned) continue;
       const dx = wrapDx(x - v.x, mw);
       const dy = y - v.y;
       const d = Math.hypot(dx, dy);
       if (d > this.radius(v) + 7) continue;
+      for (const h of v.houses) {
+        const s = h.kind === 'port' ? 1 : 2;
+        if (Math.abs(wrapDx(x - (h.x + s * 0.5), mw)) <= s * 0.5 && Math.abs(y - (h.y + s * 0.5)) <= s * 0.5) return v;
+      }
+      for (const p of v.pens ?? []) {
+        if (Math.abs(wrapDx(x - (p.x + 1), mw)) <= 1 && Math.abs(y - (p.y + 1)) <= 1) return v;
+      }
       const r = this.villageContour(v);
       const a = (((Math.atan2(dy, dx) / (Math.PI * 2)) % 1) + 1) % 1;
       const idx = a * r.length;
       const k0 = Math.floor(idx) & 63;
       const k1 = (k0 + 1) & 63;
       const t = idx - Math.floor(idx);
-      if (d <= r[k0] * (1 - t) + r[k1] * t) return v;
+      if (d <= r[k0] * (1 - t) + r[k1] * t && d < bestScore) {
+        best = v;
+        bestScore = d;
+      }
     }
-    return null;
+    return best;
   }
 
   /** Um assentamento novo não pode nascer dentro (nem encostado) da área de outro. */
@@ -3012,7 +3115,7 @@ export class Ecosystem {
     let best: Building | null = null;
     let bd = Infinity;
     for (const h of v.houses) {
-      if (h.kind !== 'house' || (h.era ?? era) >= era || (h.workUntil ?? 0) > this.year) continue;
+      if (h.kind !== 'house' || (h.era ?? era) >= era || this.underWork(h)) continue;
       const d = Math.hypot(wrapDx(h.x + 1 - v.x, this.map.width), h.y + 1 - v.y);
       if (d < bd) {
         bd = d;
@@ -3030,7 +3133,7 @@ export class Ecosystem {
     const h = this.outdated(v);
     if (!h || !this.pay(v, 'reform')) return false;
     h.era = Math.floor(v.tech);
-    h.workUntil = this.year + B.WORK_YEARS;
+    this.startWork(h, B.WORK_YEARS, false);
     this.note(`${v.name} está trocando as casas pelo estilo da ${ERAS[h.era]}`, 'povo', v, { key: `restyle-${v.id}-${h.era}` });
     return true;
   }
@@ -3178,7 +3281,10 @@ export class Ecosystem {
       this.built[t] = 1;
       this.onTileChanged(t);
     }
-    v.houses.push({ x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.civRnd() * 4), workUntil: this.year + B.WORK_YEARS / 2, era: Math.floor(v.tech) });
+    const built: Building = { x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.civRnd() * 4), era: Math.floor(v.tech) };
+    // A casa dos fundadores sai pronta; as demais viram obra e só os construtores no lugar a terminam (seção 19.21).
+    if (!free) this.startWork(built, B.WORK_YEARS / 2, true);
+    v.houses.push(built);
     if (kind === 'wonder') this.note(`${v.name} ergueu a ${WONDER_NAMES[v.culture.value]}, orgulho do povo ${v.culture.name}`, 'povo', v, { major: true });
     else if (kind === 'statue') this.note(`${v.name} ergueu uma estátua do seu líder`, 'povo', v);
     else if (kind !== 'house') this.note(`${v.name} construiu ${kind === 'smithy' || kind === 'factory' ? 'uma' : 'um'} ${BUILDING_NAMES[kind].toLowerCase()}`, 'economia', v);
@@ -3191,7 +3297,7 @@ export class Ecosystem {
     let best: Building | null = null;
     let bd = Infinity;
     for (const h of v.houses) {
-      if (h.kind !== 'house' || (h.level ?? 0) >= max || (h.workUntil ?? 0) > this.year) continue;
+      if (h.kind !== 'house' || (h.level ?? 0) >= max || this.underWork(h)) continue;
       const d = Math.hypot(wrapDx(h.x + 1 - v.x, this.map.width), h.y + 1 - v.y);
       if (d < bd) {
         bd = d;
@@ -3206,7 +3312,7 @@ export class Ecosystem {
     const h = this.reformable(v);
     if (!h || !this.pay(v, 'reform')) return false;
     h.level = (h.level ?? 0) + 1;
-    h.workUntil = this.year + B.WORK_YEARS;
+    this.startWork(h, B.WORK_YEARS, false);
     this.note(`${v.name} está reformando casas`, 'povo', v, { key: `reform-${v.id}` });
     return true;
   }
@@ -3231,8 +3337,8 @@ export class Ecosystem {
     const ctx = this.buildContext(v);
     // O prédio característico da vocação vem primeiro (RF-VIDA-221).
     const own = v.vocation ? VOCATION_BUILDING[v.vocation] : '';
-    if (own && own !== 'port' && canBuild(own as (typeof BUILDINGS)[number], ctx) && !this.has(v, own as BuildingKind)) return own as BuildingKind;
-    for (const b of BUILDINGS) if (canBuild(b, ctx) && !this.has(v, b)) return b;
+    if (own && own !== 'port' && canBuild(own as (typeof BUILDINGS)[number], ctx) && !this.has(v, own as BuildingKind, true)) return own as BuildingKind;
+    for (const b of BUILDINGS) if (canBuild(b, ctx) && !this.has(v, b, true)) return b;
     return null;
   }
 
@@ -3744,11 +3850,13 @@ export class Ecosystem {
     }
     v.tier = target;
     v.growth = 0;
+    if (target >= 2) v.streetLen = Math.max(v.streetLen ?? 0, B.STREET_START + B.STREET_BLOCK * 3);
     this.layStreets(v);
     this.note(`${v.name} virou ${TIER_NAMES[target].toLowerCase()}`, 'povo', v, { major: target >= 2 });
   }
 
   private updateVillages(dt: number): void {
+    this.recountCrews();
     // Adultos de cada assentamento, para escolher líderes.
     const adults: number[][] = this.villages.map(() => []);
     // Trabalhadores por profissão (adultos que ainda não são idosos).
@@ -3782,17 +3890,8 @@ export class Ecosystem {
       }
       const before = Math.floor(v.tech);
       const eraPace = this.yearSpan > YEAR_SECONDS ? 1.5 : 1;
-      if (before < ERA_YEARS.length) {
-        // Cresce com a população e com o tamanho do reino (troca de ideias).
-        const people = Math.min(1.3, Math.max(0.4, Math.sqrt(v.population / 30)));
-        const kingdom = Math.min(1.25, 1 + 0.05 * (this.kingdomSize(this.capitalOf(v)) - 1));
-        const wise = v.culture.value === 'conhecimento' ? 1.2 : 1;
-        const dev = v.levels ? P.devSpeed(v.levels) * (this.knew(v, 'escrita') ? 1.1 : 1) : 1;
-        this.advance(v, ((dt / YEAR_SECONDS) * eraPace * people * kingdom * wise * dev) / ERA_YEARS[before]);
-      }
-      this.develop(v, dt * eraPace);
+      this.develop(v, dt * eraPace, adults[v.id] ?? []);
       if (Math.floor(v.tech) > before) {
-        v.pts = P.emptyPoints();
         this.note(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`, 'era', v, { major: true });
         // Cada era nova refaz o calçamento (RF-VIDA-253; antes só a Era Medieval, quando todas as ruas viravam pedra).
         if (Math.floor(v.tech) >= 2) this.layStreets(v);
@@ -3807,21 +3906,23 @@ export class Ecosystem {
       const items = this.plan(v);
       v.completeness = completeness(items);
       v.missing = missingText(items);
-      const needRoom = v.population > this.housing(v) - 3;
+      const needRoom = v.population > this.housing(v, true) - 3;
+      // Obras ao mesmo tempo: quanto mais construtores, mais canteiros abertos (seção 19.21).
+      const builders = workers[v.id]?.[ROLE.builder] ?? 0;
+      const workRoom = v.houses.reduce((n, h) => n + ((h.labor ?? 0) > 0 ? 1 : 0), 0) < 1 + Math.max(1, builders);
       const lot = needRoom || v.completeness < 1 ? this.freeLot(v) : null;
       const pace = v.needs ? 0.6 + 0.4 * welfare(v.needs) : 1;
-      if ((needRoom || v.population > homes * 3) && happens(this.civRnd, B.HOUSE_RATE * pace, yr)) {
+      if (workRoom && (needRoom || v.population > homes * 3) && happens(this.civRnd, B.HOUSE_RATE * pace, yr)) {
         // A planta pede uma construção especial: ela vem antes da casa nova, quando há material.
         const special = homes >= 4 && (v.completeness < 1 || this.civRnd() < B.SPECIAL_BUILDING_SHARE) ? this.nextBuilding(v) : null;
         if (!(special && this.buildHouse(v, special)) && lot) this.buildHouse(v, 'house');
       }
       // Reformas: casa que ganha um andar (sobrado), mais depressa quando falta lote e sobra gente.
-      const builders = workers[v.id]?.[ROLE.builder] ?? 0;
       const squeezed = needRoom && !lot;
       const rich = v.needs && welfare(v.needs) >= 0.88 ? B.RICH_REFORM : 1;
-      if (happens(this.civRnd, B.REFORM_RATE * Math.max(1, builders) * (squeezed ? 3 : 1) * rich, yr)) this.reform(v);
+      if (workRoom && happens(this.civRnd, B.REFORM_RATE * Math.max(1, builders) * (squeezed ? 3 : 1) * rich, yr)) this.reform(v);
       // Era nova: as casas antigas vão sendo trocadas pelo estilo novo, uma a uma.
-      if (this.outdated(v) && happens(this.civRnd, B.RESTYLE_RATE * Math.max(1, builders), yr)) this.restyle(v);
+      if (workRoom && this.outdated(v) && happens(this.civRnd, B.RESTYLE_RATE * Math.max(1, builders), yr)) this.restyle(v);
       // Ruas sob demanda (RF-VIDA-207): sem lote, abre mais um trecho da planta; com a planta toda aberta e
       // sem casa para reformar, a planta cresce rumo ao nível seguinte.
       const planLeft = (v.streetLen ?? 0) < (v.streetPlan ?? 0);
@@ -3842,27 +3943,27 @@ export class Ecosystem {
         this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * this.harvest(v) * (this.knew(v, 'irrigacao') ? 1.1 : 1) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
       }
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
-      // Roças no fim da Idade da Pedra (uma para cada quatro casas); da Idade do Bronze em diante, uma para cada duas.
+      // Roças desde a Idade da Pedra (uma para cada quatro casas; da Idade do Bronze em diante, uma para cada duas).
       // Só planta o que os agricultores dão conta (mais uma); roça sem ninguém para trabalhar volta a ser campo.
       // No máximo maxFieldsOf(nível) roças no mapa (pedido do Joab: até 5 na metrópole).
       const hands = Math.ceil((workers[v.id]?.[ROLE.farmer] ?? 0) * (v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5)) + 1;
       const room = Math.min(maxFieldsOf(v.tier), Math.ceil(hands / B.FIELD_HANDS) + 1);
-      if (v.fields < Math.min(room, homes / (Math.floor(v.tech) >= 1 ? 2 : 4)) && v.tech >= 0.12 && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
+      if (v.fields < Math.min(room, homes / (Math.floor(v.tech) >= 1 ? 2 : 4)) && (v.population >= 6 || v.tech >= 0.12) && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
       else if (v.fields > room && happens(this.civRnd, B.FIELD_FALLOW_RATE, dt / YEAR_SECONDS)) this.dropField(v);
       // De vez em quando aparece um andarilho do mesmo povo, mais fácil quando o lugar tem pouca gente.
       const rush = (v.goldRush ?? 0) > this.year ? B.GOLD_RUSH_WANDERERS : 0;
       const wander = B.WANDERER_RATE[v.population <= 3 ? 0 : v.population < 10 ? 1 : v.population < 30 ? 2 : 3] + rush;
       if (happens(this.civRnd, wander, dt / YEAR_SECONDS)) this.wanderer(v);
-      // Porto na costa a partir do fim da Idade da Pedra (canoas); barcos de pesca saem dele.
-      if (v.port < 0 && v.tech >= 0.5 && happens(this.civRnd, B.PORT_RATE, dt / YEAR_SECONDS)) this.buildPort(v);
+      // Porto na costa quando o assentamento ganha corpo (canoas); barcos de pesca saem dele.
+      if (v.port < 0 && (v.population >= 6 || v.tech >= 0.2) && happens(this.civRnd, B.PORT_RATE, dt / YEAR_SECONDS)) this.buildPort(v);
       if (v.port >= 0 && fishers[v.id] > 0 && happens(this.civRnd, B.FISH_TRIP_RATE, dt / YEAR_SECONDS)) {
         let out = 0;
         for (const b of this.boats) if (b.village === v.id && b.purpose === 'fish' && b.sunk < 0) out++;
         if (out < Math.min(3, 1 + Math.floor(fishers[v.id] / 3))) this.launch(v, 'fish');
       }
-      // Exploradores por mar a partir do Bronze; povos comerciantes e sábios exploram mais.
+      // Exploradores por mar quando já dominam o mar (cerâmica/bronze ou vila); povos comerciantes e sábios exploram mais.
       const curious = v.culture.value === 'comércio' || v.culture.value === 'conhecimento' ? 2 : 1;
-      if (v.port >= 0 && v.tech >= 1 && happens(this.civRnd, B.EXPLORE_RATE * curious, dt / YEAR_SECONDS)) this.explore(v);
+      if (v.port >= 0 && (v.tech >= 1 || this.knew(v, 'ceramica') || v.tier >= 1) && happens(this.civRnd, B.EXPLORE_RATE * curious, dt / YEAR_SECONDS)) this.explore(v);
       // Caravanas, tributo pedido pela capital e rebanho rumo ao pasto alto (19.6).
       this.sendCaravan(v, yr);
       // Colonos (RF-VIDA-204): mais em eras avançadas, bem menos com a planta incompleta, e mais quando falta espaço de verdade.
@@ -3908,8 +4009,9 @@ export class Ecosystem {
     return total;
   }
 
-  private has(v: Village, kind: BuildingKind): boolean {
-    return v.houses.some((h) => h.kind === kind);
+  /** O assentamento tem o prédio pronto (com `planned`, conta também a obra em andamento). */
+  private has(v: Village, kind: BuildingKind, planned = false): boolean {
+    return v.houses.some((h) => h.kind === kind && (planned || !h.site));
   }
 
   private roleContext(v: Village): RoleContext {
@@ -3925,6 +4027,7 @@ export class Ecosystem {
       windmill: this.has(v, 'windmill'),
       market: this.has(v, 'market'),
       temple: this.has(v, 'temple'),
+      fields: v.fields > 0,
       vocation: v.vocation ? VOCATION_ROLE[v.vocation] : undefined,
     };
   }
@@ -4028,13 +4131,32 @@ export class Ecosystem {
   }
 
   /**
-   * Avança o conhecimento. Mudar de era exige condições (minérios achados e
-   * trabalhados, ERA_NEEDS), não só tempo: sem elas o progresso para em 99%.
+   * Avança o conhecimento (usado em difusão comercial e testes). Mudar de etapa
+   * continua respeitando a sequência física dos materiais e dos pontos.
    */
   private advance(v: Village, amount: number): void {
     const era = Math.floor(v.tech);
     let next = Math.min(ERAS.length - 1, v.tech + amount);
-    if (Math.floor(next) > era && (!ERA_NEEDS[era].met(this.villages[v.kingdom].made) || !P.pointsMet(v.pts ?? P.emptyPoints(), era))) next = Math.min(next, era + 0.999);
+    const kmade = this.villages[v.kingdom].made;
+    const m = {
+      bronze: Math.max(v.made.bronze, kmade.bronze),
+      iron: Math.max(v.made.iron, kmade.iron),
+      steel: Math.max(v.made.steel, kmade.steel),
+      stone: Math.max(v.made.stone, kmade.stone),
+      coal: Math.max(v.made.coal, kmade.coal),
+    };
+    const techGate =
+      (era === 0 && this.knew(v, 'fundicao')) ||
+      (era === 1 && this.knew(v, 'siderurgia')) ||
+      (era === 2 && this.knew(v, 'aco')) ||
+      (era === 3 && this.knew(v, 'vapor'));
+    if (
+      Math.floor(next) > era &&
+      era < ERA_NEEDS.length &&
+      (!techGate && (!ERA_NEEDS[era].met(m) || !P.pointsMet(v.pts ?? P.emptyPoints(), era)))
+    ) {
+      next = Math.min(next, era + 0.999);
+    }
     v.tech = next;
   }
 
@@ -4049,6 +4171,7 @@ export class Ecosystem {
 
   /** Aprende uma técnica: guarda e registra na crônica, com destaque para a primeira do mundo (RF-VIDA-274). */
   private learn(v: Village, t: P.Tech, how: string): void {
+    if (this.knew(v, t.id)) return;
     (v.techs ??= []).push(t.id);
     const first = !this.techsSeen.has(t.id);
     this.techsSeen.add(t.id);
@@ -4066,6 +4189,20 @@ export class Ecosystem {
   }
 
   private useContext(v: Village): P.UseContext {
+    const st = v.stock;
+    const kmade = this.villages[v.kingdom].made;
+    const reach = this.radius(v) + 25;
+    let softOre = st.copper + st.tin + st.gold > 0;
+    let ironOre = st.iron > 0;
+    let coal = st.coal > 0;
+    for (const d of this.deposits) {
+      if (d.amount <= 0 || (!d.known.has(v.kingdom) && d.mine !== v.id)) continue;
+      if (d.mine !== v.id && this.distance(v, d.x + 0.5, d.y + 0.5) > reach) continue;
+      if (d.ore === 'copper' || d.ore === 'tin' || d.ore === 'gold') softOre = true;
+      else if (d.ore === 'iron') ironOre = true;
+      else if (d.ore === 'coal') coal = true;
+    }
+    const herbivores = (!!v.herd && v.herd.head > 0) || this.species.some((sp, k) => sp.kind === 'herbivore' && this.population[k] > 0);
     return {
       tech: v.tech,
       tier: v.tier,
@@ -4076,7 +4213,14 @@ export class Ecosystem {
       market: this.has(v, 'market'),
       temple: this.has(v, 'temple'),
       mill: this.has(v, 'windmill'),
-      coal: v.mines.some((id) => this.deposits[id].ore === 'coal'),
+      coal,
+      herbivores,
+      tools: st.tools >= 1,
+      softOre,
+      ironOre,
+      forgedBronze: v.made.bronze + kmade.bronze >= 1,
+      forgedIron: v.made.iron + kmade.iron >= 1,
+      stoneWorked: v.made.stone + kmade.stone >= 8 || st.stone >= 4,
     };
   }
 
@@ -4107,16 +4251,57 @@ export class Ecosystem {
   }
 
   /**
-   * Desenvolvimento do assentamento (seção 19.10): nível e pontos de cada pilar, técnicas que
-   * vêm do uso e dos vizinhos (RF-VIDA-271) e esquecimento raro num colapso (RF-VIDA-275).
+   * Desenvolvimento orgânico do assentamento (seção 19.10): nível e pontos de
+   * cada pilar, progresso tecnológico pelo que o povo domina e constrói,
+   * experimentação individual dos trabalhadores no ofício (com ensino gradual à
+   * aldeia e risco de perda se o descobridor morrer antes), difusão pelos
+   * vizinhos (RF-VIDA-271) e esquecimento raro num colapso (RF-VIDA-275).
    */
-  private develop(v: Village, dt: number): void {
+  private develop(v: Village, dt: number, adults: number[] = []): void {
     const yr = dt / YEAR_SECONDS;
     v.peak = Math.max(v.peak ?? 0, v.population);
     const levels = P.pillarLevels(this.pillarContext(v));
     v.levels = levels;
     const pts = (v.pts ??= P.emptyPoints());
     P.pointsFor(levels, yr, v.vocation).forEach((p, i) => (pts[i] += p));
+
+    // Ensino em andamento: o descobridor passa a técnica aos poucos para a aldeia.
+    if (v.pendingTech) {
+      const aliveHere = adults.some((i) => this.uid[i] === v.pendingTech!.uid);
+      if (!aliveHere && adults.length > 0) {
+        v.pendingTech = undefined;
+      } else {
+        const wise = v.culture.value === 'conhecimento' ? 1.25 : 1;
+        const written = this.knew(v, 'escrita') ? 1.2 : 1;
+        v.pendingTech.progress += yr * P.TECH_TEACH_VILLAGE_RATE * wise * written;
+        if (v.pendingTech.progress >= 1) {
+          const t = P.TECH_BY_ID[v.pendingTech.id];
+          const teacher = v.pendingTech.name;
+          v.pendingTech = undefined;
+          if (t) this.learn(v, t, `aprendeu com ${teacher}`);
+        }
+      }
+    }
+
+    // Atualiza o nível tecnológico orgânico pelo que a aldeia já domina e produz.
+    const kmade = this.villages[v.kingdom].made;
+    const organic = P.organicTech({
+      techs: this.knows(v),
+      tier: v.tier,
+      fields: v.fields,
+      herd: !!v.herd && v.herd.head > 0,
+      port: v.port >= 0,
+      smithy: this.has(v, 'smithy'),
+      market: this.has(v, 'market'),
+      madeBronze: Math.max(v.made.bronze, kmade.bronze),
+      madeIron: Math.max(v.made.iron, kmade.iron),
+      madeSteel: Math.max(v.made.steel, kmade.steel),
+      madeStone: Math.max(v.made.stone, kmade.stone),
+      madeCoal: Math.max(v.made.coal, kmade.coal),
+      tools: v.stock.tools,
+    });
+    if (organic > v.tech) v.tech = organic;
+
     // Técnicas: no máximo quatro vezes por ano, com a chance do tempo passado.
     const since = this.year - (v.learnAt ?? 0);
     if (since < 0.25) return;
@@ -4127,10 +4312,41 @@ export class Ecosystem {
       const use = this.useContext(v);
       const partners = this.partnersOf(v);
       const press = known.has('imprensa') || partners.some((o) => o.techs?.includes('imprensa')) ? 1.5 : 1;
+      const wise = v.culture.value === 'conhecimento' ? 1.25 : 1;
+      const dev = P.devSpeed(levels) * wise * (known.has('escrita') ? 1.15 : 1);
+      const fedEnough = (v.needs?.food ?? 1) >= 0.4;
       for (const t of learnable) {
         const taught = partners.some((o) => o.techs?.includes(t.id));
-        const rate = (t.use(use) ? P.TECH_USE_RATE : 0) + (taught ? P.TECH_NEIGHBOR_RATE * press : 0);
-        if (rate > 0 && happens(this.lore, rate, since)) this.learn(v, t, taught && !t.use(use) ? 'aprendeu com os vizinhos' : 'passou a conhecer');
+        if (taught && (t.use(use) || known.size >= t.needs.length) && happens(this.lore, P.TECH_NEIGHBOR_RATE * press * 0.45, since)) {
+          if (v.pendingTech?.id === t.id) v.pendingTech = undefined;
+          this.learn(v, t, 'aprendeu com os vizinhos');
+          continue;
+        }
+        // Experimentação individual: trabalhadores do ofício com recursos disponíveis descobrem e ensinam.
+        if (!v.pendingTech && fedEnough && t.use(use) && adults.length > 0) {
+          const workers = adults.filter((i) => t.roles.includes(ROLES[this.role[i]]));
+          const pool = workers.length > 0 ? workers : adults.length <= 6 ? adults : [];
+          if (pool.length > 0) {
+            let curiosity = 0;
+            for (const i of pool) curiosity += P.curiosityOf(this.uid[i]);
+            const effCuriosity = Math.min(4.5, curiosity);
+            if (happens(this.lore, P.TECH_DISCOVER_RATE * effCuriosity * dev, since)) {
+              // Escolhe o descobridor ponderado pela curiosidade individual.
+              let pick = pool[0];
+              let r = this.lore() * curiosity;
+              for (const i of pool) {
+                r -= P.curiosityOf(this.uid[i]);
+                if (r <= 0) {
+                  pick = i;
+                  break;
+                }
+              }
+              const fullName = `${personName(this.uid[pick], v.culture.id)} ${familyName(this.family[pick], v.culture.id)}`;
+              v.pendingTech = { id: t.id, uid: this.uid[pick], name: fullName, progress: 0 };
+              this.note(`${fullName} descobriu ${t.name} em ${v.name} e começou a ensinar o povo`, 'economia', v, { key: `disc-${v.id}-${t.id}` });
+            }
+          }
+        }
       }
     }
     // Colapso: gente demais perdida ou estabilidade no chão.
@@ -4173,15 +4389,37 @@ export class Ecosystem {
     this.forEachNear(v.x, v.y, this.radius(v) + 20, (j) => {
       if (this.species[this.kind[j]].kind === 'herbivore') herbivores = true;
     });
-    return P.latentResources({ wet: !!v.wet, ores: [...ores], era: Math.floor(v.tech), techs: this.knows(v), herbivores: herbivores && v.tech < 1.5 });
+    return P.latentResources({ wet: !!v.wet, ores: [...ores], era: Math.floor(v.tech), techs: this.knows(v), herbivores: herbivores && v.tech < 1.5, tools: v.stock.tools >= 1 });
   }
 
-  /** O que falta para o assentamento mudar de era, ou null. */
+  /** Próximo passo lógico do assentamento (ou o que falta quando forçado por teste), ou null. */
   eraNeed(v: Village): string | null {
     const era = Math.floor(v.tech);
     if (era >= ERA_NEEDS.length) return null;
-    const metal = ERA_NEEDS[era].met(this.villages[v.kingdom].made) ? null : ERA_NEEDS[era].text;
+    const use = this.useContext(v);
+    const step = P.nextStepText({
+      techs: this.knows(v),
+      era,
+      tools: v.stock.tools,
+      wet: !!v.wet,
+      smithy: this.has(v, 'smithy'),
+      softOre: !!use.softOre,
+      ironOre: !!use.ironOre,
+      coal: use.coal,
+      pendingTech: v.pendingTech?.id,
+      discovererName: v.pendingTech?.name,
+    });
+    const kmade = this.villages[v.kingdom].made;
+    const m = {
+      bronze: Math.max(v.made.bronze, kmade.bronze),
+      iron: Math.max(v.made.iron, kmade.iron),
+      steel: Math.max(v.made.steel, kmade.steel),
+      stone: Math.max(v.made.stone, kmade.stone),
+      coal: Math.max(v.made.coal, kmade.coal),
+    };
+    const metal = ERA_NEEDS[era].met(m) ? null : ERA_NEEDS[era].text;
     const points = P.pointsText(v.pts ?? P.emptyPoints(), era);
+    if (step) return metal && !step.includes('bronze') && era === 0 ? `${step} (${metal})` : step;
     return metal && points ? `${metal}; ${points}` : metal ?? points;
   }
 
@@ -4219,9 +4457,13 @@ export class Ecosystem {
     const season = seasonOf(this.yearClock / YEAR_SECONDS);
     // Lenha (seção 19.19): os lenhadores derrubam árvores de verdade, da mais perto para a mais longe;
     // quanto mais longe a mata, menos madeira chega por ano. A serraria aproveita mais de cada tronco.
-    const cutters = w[ROLE.woodcutter];
-    if (cutters) this.cutWood(v, cutters * B.CUT_RATE * yr * tools * bonus('madeireira'), this.has(v, 'sawmill') ? 1.3 : 1);
-    // Coletores trazem frutos, raízes e mel do mato, que se gasta e rebrota (seção 19.19).
+    v.crew = w[ROLE.builder];
+    const cutters = w[ROLE.woodcutter] + (v.tier === 0 && v.population <= 4 && st.wood < 6 ? w[ROLE.leader] * 0.5 : 0);
+    if (cutters && !B.PRESENCE_WOOD) this.cutWood(v, cutters * B.CUT_RATE * yr * tools * bonus('madeireira'), this.has(v, 'sawmill') ? 1.3 : 1);
+    // Coletores trazem frutos, raízes e mel do mato, que se gasta e rebrota (seção 19.19). Numa aldeia pequenina, o líder também ajuda a colher.
+    if (v.tier === 0 && v.population <= 6 && w[ROLE.leader] && v.food < 6 && v.forest > 0.2) {
+      this.book(v, '_gather', this.put(v, 'food', w[ROLE.leader] * B.GATHER_RATE * 0.6 * yr * this.harvest(v)), 0);
+    }
     if (w[ROLE.gatherer]) this.gather(v, w[ROLE.gatherer] * B.GATHER_RATE * yr * this.harvest(v) * B.SEASON_HARVEST[season] ** 0.5);
     // Minas: o minério sai da jazida (limitada) para o estoque do assentamento que a explora.
     const mines = v.mines.map((id) => this.deposits[id]);
@@ -4230,7 +4472,10 @@ export class Ecosystem {
       for (const d of mines) {
         const take = this.gain(v, d.ore, Math.min(d.amount, each));
         d.amount -= take;
-        if (d.ore === 'coal') made.coal += take;
+        if (d.ore === 'coal') {
+          v.made.coal += take;
+          if (v.kingdom !== v.id) made.coal += take;
+        }
         if (d.amount <= 0) {
           d.mine = -1;
           v.mines.splice(v.mines.indexOf(d.id), 1);
@@ -4241,7 +4486,11 @@ export class Ecosystem {
     // Pedra (seção 19.19): mineradores sem mina e construtores tiram pedra da rocha por perto, ou
     // juntam pedras soltas do chão; cada tile tem um tanto e acaba.
     const quarry = (mines.length ? 0 : w[ROLE.miner]) + w[ROLE.builder] * 0.5;
-    if (quarry) made.stone += this.quarry(v, quarry * B.QUARRY_RATE * yr * tools);
+    if (quarry) {
+      const q = this.quarry(v, quarry * B.QUARRY_RATE * yr * tools);
+      v.made.stone += q;
+      if (v.kingdom !== v.id) made.stone += q;
+    }
     // Barro e tijolo (RF-VIDA-211): o oleiro tira barro perto da água e queima tijolo e telha na olaria.
     if (w[ROLE.potter] && v.wet && this.has(v, 'pottery')) {
       this.gain(v, 'clay', w[ROLE.potter] * 2 * yr * tools);
@@ -4275,37 +4524,39 @@ export class Ecosystem {
     if (w[ROLE.merchant] && this.has(v, 'market')) this.gain(v, 'gold', w[ROLE.merchant] * 0.25 * yr * bonus('mercantil'));
     const era = Math.floor(v.tech);
     const soldiers = w[ROLE.soldier] + w[ROLE.guard];
-    // Idade da Pedra: construtores e coletores lascam pedra e madeira (sem ferraria).
-    if (st.stone >= 1 && st.wood >= 1 && this.civRnd() < (w[ROLE.builder] + w[ROLE.gatherer]) * 0.12 * yr) {
+    // Ferramentas e armas iniciais: construtores, coletores e mineradores lascam pedra e madeira (sem ferraria).
+    if (st.stone >= 1 && st.wood >= 1 && this.civRnd() < (w[ROLE.builder] + w[ROLE.gatherer] + w[ROLE.miner]) * 0.18 * yr) {
       this.spend(v, 'stone', 1);
       this.spend(v, 'wood', 1);
       this.craft(v, st, this.needed(st, adults, soldiers, v), 'stone', era);
     }
-    // Ferraria: cada ferreiro faz uma peça a cada ano e pouco, se houver metal; a fábrica dobra o ritmo.
+    // Ferraria: cada ferreiro faz uma peça a cada ano e pouco, se houver metal e técnica; a fábrica dobra o ritmo.
     if (w[ROLE.blacksmith] && this.has(v, 'smithy')) {
       const factory = this.has(v, 'factory') ? 2 : 1;
+      const known = this.knows(v);
       v.forgeWork += w[ROLE.blacksmith] * 0.6 * yr * factory * bonus('mineira');
       while (v.forgeWork >= 1) {
         // Ouro vira joia de vez em quando (anéis, amuletos e a coroa do rei).
-        if (era >= 1 && st.gold >= 2 && this.civRnd() < 0.2) {
+        if ((era >= 1 || known.has('fundicao')) && st.gold >= 2 && this.civRnd() < 0.2) {
           this.spend(v, 'gold', 2);
           v.forgeWork -= 1;
           this.craft(v, st, 'joia', 'gold', era);
           continue;
         }
         const before = st.copper + st.tin + st.iron + st.coal;
-        const piece = forge(st, era);
+        const piece = forge(st, era, known);
         if (!piece) {
           v.forgeWork = 0;
           break;
         }
         this.book(v, 'metal', 0, before - (st.copper + st.tin + st.iron + st.coal));
         v.forgeWork -= 1;
-        made[piece.kind]++;
+        v.made[piece.kind]++;
+        if (v.kingdom !== v.id) made[piece.kind]++;
         this.craft(v, st, this.needed(st, adults, soldiers, v), TIER_MATERIAL[piece.tier], era);
       }
     }
-    // Abre uma mina numa jazida conhecida, de preferência do minério que falta para a próxima era.
+    // Abre uma mina numa jazida conhecida, respeitando a sequência de materiais que o povo já sabe explorar.
     if (w[ROLE.miner] && v.mines.length < 1 + v.tier && happens(this.civRnd, B.MINE_RATE, dt / YEAR_SECONDS)) this.openMine(v);
   }
 
@@ -4342,6 +4593,307 @@ export class Ecosystem {
   /** Tile com uma árvore de pé que o povo pode cortar. */
   standingTree(t: number): boolean {
     return isLand(this.map, t) && !this.road[t] && !this.built[t] && isTree(decorAt(this.map, t));
+  }
+
+  /** Depois de carregar um save de antes das ações presenciais: os vetores novos nascem zerados, do tamanho dos demais. */
+  fixAfterLoad(): void {
+    const n = this.x.length;
+    if (this.jobKind.length < n) this.jobKind = new Uint8Array(n);
+    if (this.job.length < n) this.job = new Int32Array(n);
+    if (this.jobWork.length < n) this.jobWork = new Float32Array(n);
+    if (this.jobWait.length < n) this.jobWait = new Float32Array(n);
+  }
+
+  // ---- Ações presenciais (seção 19.21) ----
+
+  /** Alguém vivo reservou o tile (que não seja `i`) e ainda mira nele. */
+  private claimed(t: number, i: number): boolean {
+    const j = this.jobClaim.get(t);
+    return j !== undefined && j !== i && this.alive[j] === 1 && this.jobKind[j] > 0 && this.job[j] === t;
+  }
+
+  private claim(i: number, t: number, kind: number): void {
+    this.job[i] = t;
+    this.jobKind[i] = kind;
+    this.jobWork[i] = 0;
+    this.jobWait[i] = 0;
+    this.jobClaim.set(t, i);
+  }
+
+  /** Larga a ordem e libera a reserva. */
+  private dropJob(i: number): void {
+    if (this.jobKind[i] && this.jobClaim.get(this.job[i]) === i) this.jobClaim.delete(this.job[i]);
+    this.jobKind[i] = 0;
+    this.jobWork[i] = 0;
+    this.jobWait[i] = 0;
+  }
+
+  /** A ordem ainda faz sentido: o alvo continua lá (ninguém cortou, plantou ou construiu por cima). */
+  private jobValid(i: number): boolean {
+    const t = this.job[i];
+    if (this.jobKind[i] === JOB.fell) return this.standingTree(t);
+    if (this.jobKind[i] === JOB.plant) return this.map.felled![t] === 1 && isLand(this.map, t) && !this.road[t] && !this.built[t];
+    return false;
+  }
+
+  /** Árvore de pé livre mais perto do assentamento (a lista é refeita no máximo uma vez por ano). */
+  private freeTree(v: Village, i: number): number {
+    for (let pass = 0; pass < 2; pass++) {
+      const list = v.treeList;
+      if (list) {
+        let k = v.treeNext ?? 0;
+        while (k < list.length && !this.standingTree(list[k])) k++;
+        v.treeNext = k;
+        // Entre as primeiras árvores livres da lista, a que está mais perto de quem vai cortar (menos andar entre um corte e outro).
+        let best = -1;
+        let bd = Infinity;
+        for (let seen = 0; k < list.length && seen < B.JOB_CHOICES; k++) {
+          const t = list[k];
+          if (!this.standingTree(t) || this.claimed(t, i) || (this.jobBlocked.get(t) ?? 0) > this.year) continue;
+          seen++;
+          const w = this.map.width;
+          const d = Math.hypot(wrapDx((t % w) + 0.5 - this.x[i], w), Math.floor(t / w) + 0.5 - this.y[i]);
+          if (d < bd) {
+            bd = d;
+            best = t;
+          }
+        }
+        if (best >= 0) return best;
+      }
+      if (list && v.treeScan === Math.floor(this.year)) return -1;
+      this.scanTrees(v);
+    }
+    return -1;
+  }
+
+  /** Toco ao alcance que ninguém está plantando. */
+  private freeStump(v: Village, i: number): number {
+    const reach = this.reachOf(v, B.WOOD_REACH);
+    const w = this.map.width;
+    let n = 0;
+    for (const t of this.stumps) {
+      if (++n > 6000) break;
+      if (this.map.felled![t] !== 1 || this.road[t] || this.built[t] || this.claimed(t, i)) continue;
+      if ((this.jobBlocked.get(t) ?? 0) > this.year) continue;
+      if (this.distance(v, (t % w) + 0.5, Math.floor(t / w) + 0.5) > reach) continue;
+      return t;
+    }
+    return -1;
+  }
+
+  /**
+   * Ordem do lenhador (seção 19.21): mantém a que tem ou pega outra do quadro do assentamento.
+   * Planta uma muda quando as árvores cortadas deixaram mudas a plantar (ou não há o que cortar);
+   * derruba quando há lugar no armazém. Devolve o tile da ordem, ou -1 sem ordem.
+   */
+  private pickJob(i: number, v: Village): number {
+    if (this.jobKind[i] && !this.jobValid(i)) this.dropJob(i);
+    if (!this.jobKind[i]) {
+      let t = -1;
+      let kind: number = JOB.fell;
+      if (v.forestry && (v.plantDue ?? 0) >= 1) {
+        t = this.freeStump(v, i);
+        kind = JOB.plant;
+      }
+      if (t < 0 && v.stock.wood + this.woodPerTree(v) <= this.capOf(v, 'wood')) {
+        t = this.freeTree(v, i);
+        kind = JOB.fell;
+      }
+      if (t < 0 && v.forestry && kind !== JOB.plant) {
+        t = this.freeStump(v, i);
+        kind = JOB.plant;
+      }
+      if (t >= 0) this.claim(i, t, kind);
+    }
+    return this.jobKind[i] ? this.job[i] : -1;
+  }
+
+  /** Madeira de uma árvore derrubada (a serraria aproveita mais de cada tronco). */
+  private woodPerTree(v: Village): number {
+    return B.WOOD_PER_TREE * (this.has(v, 'sawmill') ? 1.3 : 1);
+  }
+
+  /** Velocidade do gesto: ferramenta e vocação aceleram; mata longe do assentamento atrasa (carregar). */
+  private jobSpeed(v: Village, t: number, kind: number): number {
+    let k = (v.stock.tools > 0 ? B.TOOL_SPEED : 1) * (v.vocation === 'madeireira' ? 1 + B.VOCATION_BONUS : 1);
+    if (kind === JOB.fell) k *= this.haulFactor(v, t);
+    return k;
+  }
+
+  /** Vetor do indivíduo até o ponto de trabalho da ordem: o centro do tile, ou da casa (2x2) numa obra. */
+  private jobDelta(i: number): [number, number] {
+    const w = this.map.width;
+    const t = this.job[i];
+    const off = this.jobKind[i] === JOB.build ? 1 : 0.5;
+    return [wrapDx((t % w) + off - this.x[i], w), Math.floor(t / w) + off - this.y[i]];
+  }
+
+  /** A ordem em andamento ainda combina com a profissão e a idade de quem a faz. */
+  private jobFits(i: number, v: Village, role: number, working: boolean): boolean {
+    if (!working) return false;
+    return this.jobKind[i] === JOB.build ? this.canBuildHere(v, role) : role === ROLE.woodcutter;
+  }
+
+  /** Quem constrói: os construtores e, quando o assentamento não tem nenhum, coletores e o líder (todo mundo ajuda a levantar o primeiro abrigo). */
+  private canBuildHere(v: Village, role: number): boolean {
+    return role === ROLE.builder || ((v.crew ?? 1) === 0 && (role === ROLE.gatherer || role === ROLE.leader));
+  }
+
+  /** Obra ainda em andamento (também a dos saves de antes, que contavam em anos). */
+  underWork(h: Building): boolean {
+    return (h.labor ?? 0) > 0 || (h.workUntil ?? 0) > this.year;
+  }
+
+  /** Abre uma obra: `years` de trabalho de um construtor (um ano de jogo = `YEAR_SECONDS` segundos de trabalho). */
+  private startWork(h: Building, years: number, site: boolean): void {
+    if (!B.PRESENCE_BUILD) {
+      h.workUntil = this.year + years;
+      return;
+    }
+    h.labor = h.laborMax = years * YEAR_SECONDS * B.BUILD_LABOR;
+    h.site = site || undefined;
+    h.workUntil = undefined;
+  }
+
+  /** A obra que o indivíduo atende, pelo tile da casa. */
+  private siteFor(i: number, v: Village): Building | undefined {
+    const w = this.map.width;
+    const t = this.job[i];
+    let b = this.siteCache.get(i);
+    if (!b || b.x + b.y * w !== t) {
+      b = v.houses.find((h) => h.x + h.y * w === t);
+      if (b) this.siteCache.set(i, b);
+      else this.siteCache.delete(i);
+    }
+    return b;
+  }
+
+  /** Mantém a obra que tem ou pega a mais perto com vaga (`JOB_SLOTS_BUILD`). Devolve se há obra para ir. */
+  private pickBuildJob(i: number, v: Village): boolean {
+    if (this.jobKind[i] === JOB.build) {
+      const b = this.siteFor(i, v);
+      if (b && (b.labor ?? 0) > 0 && v.houses.includes(b)) return true;
+      this.dropJob(i);
+    } else if (this.jobKind[i]) this.dropJob(i);
+    const w = this.map.width;
+    let best: Building | null = null;
+    let bd = Infinity;
+    for (const h of v.houses) {
+      if ((h.labor ?? 0) <= 0 || (h.crew ?? 0) >= B.JOB_SLOTS_BUILD) continue;
+      const d = Math.hypot(wrapDx(h.x + 1 - this.x[i], w), h.y + 1 - this.y[i]);
+      if (d < bd) {
+        bd = d;
+        best = h;
+      }
+    }
+    if (!best) return false;
+    best.crew = (best.crew ?? 0) + 1;
+    this.job[i] = best.x + best.y * w;
+    this.jobKind[i] = JOB.build;
+    this.jobWork[i] = 0;
+    this.jobWait[i] = 0;
+    this.siteCache.set(i, best);
+    return true;
+  }
+
+  /** Bate na obra: com o indivíduo ao pé da casa, o trabalho que falta cai a cada segundo; zerado, a casa está pronta. */
+  private workBuild(i: number, v: Village, dt: number): void {
+    const b = this.siteFor(i, v);
+    if (!b || (b.labor ?? 0) <= 0 || !this.canBuildHere(v, this.role[i])) {
+      this.dropJob(i);
+      return;
+    }
+    const [dx, dy] = this.jobDelta(i);
+    if (dx * dx + dy * dy > B.BUILD_REACH * B.BUILD_REACH) {
+      if ((this.jobWait[i] += dt) > B.JOB_TIMEOUT) this.dropJob(i);
+      return;
+    }
+    this.jobWait[i] = 0;
+    this.vx[i] = 0;
+    this.vy[i] = 0;
+    b.labor = Math.max(0, b.labor! - dt * (v.stock.tools > 0 ? B.TOOL_SPEED : 1));
+    if (b.labor > 0) return;
+    b.site = undefined;
+    this.dropJob(i);
+  }
+
+  /** Quantos trabalham em cada obra agora (revisto a cada segundo, para quem morreu ou mudou de ofício sair da conta). */
+  private recountCrews(): void {
+    for (const v of this.villages) for (const h of v.houses) h.crew = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || this.jobKind[i] !== JOB.build || this.village[i] < 0) continue;
+      const b = this.siteFor(i, this.villages[this.village[i]]);
+      if (b) b.crew = (b.crew ?? 0) + 1;
+    }
+  }
+
+  /** Anda reto até o ponto (dx, dy) relativo ao indivíduo, sem o vaivém do passeio. */
+  private walkTo(i: number, speed: number, dx: number, dy: number): void {
+    const len = Math.hypot(dx, dy) || 1;
+    this.aimX[i] = dx;
+    this.aimY[i] = dy;
+    this.vx[i] = (dx / len) * speed;
+    this.vy[i] = (dy / len) * speed;
+  }
+
+  private stand(i: number): void {
+    this.aimX[i] = 0;
+    this.aimY[i] = 0;
+    this.vx[i] = 0;
+    this.vy[i] = 0;
+  }
+
+  /**
+   * Trabalho de um indivíduo com ordem, a cada passo: só conta com ele no tile (a até `JOB_REACH`);
+   * ao completar o gesto o mundo muda e o produto vai ao estoque (nunca passa do teto do armazém).
+   */
+  private workJob(i: number, dt: number): void {
+    const vi = this.village[i];
+    const v = vi >= 0 ? this.villages[vi] : null;
+    if (!v || v.abandoned) {
+      this.dropJob(i);
+      return;
+    }
+    if (this.jobKind[i] === JOB.build) {
+      this.workBuild(i, v, dt);
+      return;
+    }
+    if (this.role[i] !== ROLE.woodcutter || !this.jobValid(i)) {
+      this.dropJob(i);
+      return;
+    }
+    const t = this.job[i];
+    const [dx, dy] = this.jobDelta(i);
+    if (dx * dx + dy * dy > B.JOB_REACH * B.JOB_REACH) {
+      // Não chegou: depois de muito andar à toa o tile sai do quadro por uns anos (água no caminho, por exemplo).
+      if ((this.jobWait[i] += dt) > B.JOB_TIMEOUT) {
+        this.jobBlocked.set(t, this.year + B.JOB_BLOCK_YEARS);
+        this.dropJob(i);
+      }
+      return;
+    }
+    this.jobWait[i] = 0;
+    this.vx[i] = 0;
+    this.vy[i] = 0;
+    const kind = this.jobKind[i];
+    this.jobWork[i] += dt * this.jobSpeed(v, t, kind);
+    if (kind === JOB.fell) {
+      if (this.jobWork[i] < B.FELL_SECONDS * (v.forestry ? 1 + B.REPLANT_WORK : 1)) return;
+      const per = this.woodPerTree(v);
+      // Sem lugar no armazém a árvore fica de pé: o gesto espera pronto.
+      if (v.stock.wood + per > this.capOf(v, 'wood')) return;
+      this.fellTree(t, !!v.forestry);
+      this.put(v, 'wood', per);
+      this.book(v, '_trees', 1, 0);
+      if (v.forestry) v.plantDue = (v.plantDue ?? 0) + B.PLANT_PER_FELL;
+    } else {
+      if (this.jobWork[i] < B.PLANT_SECONDS) return;
+      this.map.felled![t] = 3;
+      this.treesPlanted++;
+      v.plantDue = Math.max(0, (v.plantDue ?? 0) - 1);
+      this.onTileChanged(t);
+    }
+    this.dropJob(i);
   }
 
   /** Árvores de pé ao alcance, da mais perto para a mais longe (refeita quando acaba, no máximo uma vez por ano). */
@@ -4601,7 +5153,7 @@ export class Ecosystem {
     for (let i = 0; i < this.count; i++) {
       if (!this.alive[i] || this.role[i] !== ROLE.woodcutter || this.village[i] < 0) continue;
       const v = this.villages[this.village[i]];
-      if (v.forestry) planters.set(v.id, (planters.get(v.id) ?? 0) + B.PLANT_RATE);
+      if (v.forestry && !B.PRESENCE_WOOD) planters.set(v.id, (planters.get(v.id) ?? 0) + B.PLANT_RATE);
     }
     for (const t of this.stumps) {
       if (!felled[t] || !isLand(map, t) || this.road[t] || this.built[t]) {
@@ -4687,19 +5239,25 @@ export class Ecosystem {
     }
   }
 
-  /** Minérios que o povo precisa agora para a próxima era. */
+  /** Minérios que o povo busca agora, conforme as técnicas que já domina. */
   private wanted(v: Village): Ore[] {
-    return [['copper', 'tin'], ['iron', 'tin'], ['iron'], ['coal', 'iron'], ['coal', 'iron']][Math.floor(v.tech)] as Ore[];
+    if (this.knew(v, 'siderurgia') || v.tech >= 2) return ['coal', 'iron'];
+    if (this.knew(v, 'fundicao') || v.tech >= 1) return ['iron', 'copper', 'tin'];
+    return ['copper', 'tin'];
   }
 
   private openMine(v: Village): boolean {
     const w = this.map.width;
     const want = this.wanted(v);
+    const canIron = this.knew(v, 'fundicao') || v.tech >= 1;
+    const canCoal = this.knew(v, 'siderurgia') || v.tech >= 2;
     let best: Deposit | null = null;
     let score = Infinity;
     const reach = this.radius(v) + 25;
     for (const d of this.deposits) {
       if (d.amount <= 0 || d.mine >= 0 || !d.known.has(v.kingdom)) continue;
+      if (d.ore === 'iron' && !canIron) continue;
+      if (d.ore === 'coal' && !canCoal) continue;
       const dist = this.distance(v, d.x + 0.5, d.y + 0.5);
       if (dist > reach) continue;
       const sc = dist - (want.includes(d.ore) ? 40 : 0);
@@ -5297,7 +5855,7 @@ export class Ecosystem {
     const riders = new Map<number, number>();
     for (const [id, n] of local) {
       const v = this.villages[id];
-      if (Math.floor(v.tech) < 1 || v.stock.horses < 1) continue;
+      if ((!this.knew(v, 'montaria') && !this.knew(v, 'cavalaria') && Math.floor(v.tech) < 1) || v.stock.horses < 1) continue;
       const mounted = Math.min(n, Math.floor(v.stock.horses));
       this.cavalry.set(id, mounted / n);
       riders.set(v.kingdom, (riders.get(v.kingdom) ?? 0) + mounted);
@@ -8038,7 +8596,7 @@ export class Ecosystem {
       case 'fisher':
         return inside ? 'voltando com peixe' : 'pescando na costa';
       case 'builder':
-        return v.houses.some((h) => (h.workUntil ?? 0) > this.year) ? 'construindo uma casa' : 'consertando casas';
+        return v.houses.some((h) => this.underWork(h)) ? 'construindo uma casa' : 'consertando casas';
       case 'woodcutter':
         return inside ? 'trazendo lenha' : 'cortando lenha';
       case 'miner':

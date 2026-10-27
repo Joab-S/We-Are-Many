@@ -58,6 +58,8 @@ export const ROLE_NAMES: Record<Role, string> = {
 export interface RoleContext {
   port?: boolean;
   smithy?: boolean;
+  /** Tem roças plantadas ou vocação agrícola (puxa agricultores desde a Idade da Pedra). */
+  fields?: boolean;
   /** Valor da cultura: povos guerreiros têm mais soldados. */
   warlike?: boolean;
   /** Rebanho, haras, tear, olaria, moinho, mercado e templo liberam as profissões da economia. */
@@ -74,20 +76,23 @@ export interface RoleContext {
 
 /**
  * Peso de cada profissão comum por era e nível do assentamento. Mineradores
- * (que exploram e abrem minas) existem desde a Pedra; ferreiros só com
- * ferraria; pescadores só com porto.
+ * (que exploram e abrem minas) e agricultores (quando há roças) existem desde
+ * a Pedra; ferreiros só com ferraria; pescadores só com porto.
  */
 export function roleWeights(era: number, tier: number, ctx: RoleContext = {}): [Role, number][] {
   const w: [Role, number][] = [
-    ['gatherer', era === 0 ? 4 : 1],
-    ['hunter', era === 0 ? 3 : 1.5],
+    ['gatherer', era === 0 ? 3.5 : 1],
+    ['hunter', era === 0 ? 2.5 : 1.5],
     ['woodcutter', 2],
     ['builder', 1.5],
-    ['miner', era === 0 ? 1 : 1.5],
+    ['miner', era === 0 ? 1.2 : 1.5],
   ];
   const soldiers = (tier >= 1 ? 2.5 : 1.5) * (ctx.warlike ? 1.6 : 1);
   if (era >= 1) w.push(['farmer', 4], ['soldier', soldiers]);
-  else w.push(['soldier', 0.6 * (ctx.warlike ? 1.6 : 1)]);
+  else {
+    if (ctx.fields || ctx.vocation === 'farmer') w.push(['farmer', 2.5]);
+    w.push(['soldier', 0.6 * (ctx.warlike ? 1.6 : 1)]);
+  }
   if (ctx.smithy) w.push(['blacksmith', 1]);
   if (era >= 1 && tier >= 1) w.push(['guard', 1]);
   if (ctx.port) w.push(['fisher', 2.5]);

@@ -7,11 +7,13 @@ import {
   PILLARS,
   TECHS,
   VOCATION_PILLAR,
+  curiosityOf,
   devSpeed,
   emptyPoints,
   forgettable,
   latentResources,
   learnable,
+  organicTech,
   pillarLevels,
   pointsFor,
   pointsMet,
@@ -65,33 +67,74 @@ describe('pilares e pontos (RF-VIDA-270)', () => {
   });
 });
 
-describe('técnicas (RF-VIDA-271, 272 e 275)', () => {
-  it('só se aprende na era certa e com o pré-requisito', () => {
-    expect(learnable(new Set(), 0.5).map((t) => t.id)).toEqual(['ceramica', 'tecelagem'])
-    expect(learnable(new Set(), 0.1)).toEqual([]);
-    expect(learnable(new Set(), 1).map((t) => t.id)).toContain('domesticacao');
-    expect(learnable(new Set(['domesticacao']), 1).map((t) => t.id)).toContain('arado');
-    expect(learnable(new Set(), 1).map((t) => t.id)).not.toContain('arado');
-    expect(learnable(new Set(['escrita']), 2).map((t) => t.id)).toContain('moeda');
+describe('técnicas e sequência lógica (RF-VIDA-271, 272 e 275)', () => {
+  it('respeita a cadeia lógica de pré-requisitos (cerâmica → fundição → siderurgia → aço → vapor)', () => {
+    const initial = learnable(new Set()).map((t) => t.id);
+    expect(initial).toEqual(['ceramica', 'domesticacao', 'tecelagem', 'roda']);
+    // Sem cerâmica não se aprende fundição; sem fundição não se aprende siderurgia; sem siderurgia não se aprende aço.
+    expect(initial).not.toContain('fundicao');
+    expect(initial).not.toContain('siderurgia');
+    expect(learnable(new Set(['ceramica'])).map((t) => t.id)).toContain('fundicao');
+    expect(learnable(new Set(['ceramica'])).map((t) => t.id)).not.toContain('siderurgia');
+    expect(learnable(new Set(['ceramica', 'fundicao'])).map((t) => t.id)).toContain('siderurgia');
+    expect(learnable(new Set(['ceramica', 'fundicao', 'siderurgia'])).map((t) => t.id)).toContain('aco');
+    expect(learnable(new Set(['ceramica', 'fundicao', 'siderurgia', 'aco', 'roda', 'moinho'])).map((t) => t.id)).toContain('vapor');
+    expect(learnable(new Set(['domesticacao'])).map((t) => t.id)).toContain('arado');
+    expect(learnable(new Set()).map((t) => t.id)).not.toContain('arado');
+    expect(learnable(new Set(['ceramica', 'escrita', 'fundicao'])).map((t) => t.id)).toContain('moeda');
   });
 
   it('o que outra técnica exige não se esquece antes dela', () => {
     expect(forgettable(new Set(['domesticacao', 'arado'])).map((t) => t.id)).toEqual(['arado']);
+    expect(forgettable(new Set(['ceramica', 'fundicao', 'siderurgia'])).map((t) => t.id)).toEqual(['siderurgia']);
     expect(forgettable(new Set())).toEqual([]);
   });
 
-  it('recursos latentes dependem da técnica e da era (RF-VIDA-272)', () => {
-    const base = { wet: true, ores: ['iron', 'coal'], era: 0, techs: new Set<string>(), herbivores: true };
+  it('recursos latentes dependem da técnica dominada na sequência lógica (RF-VIDA-272)', () => {
+    const base = { wet: true, ores: ['copper', 'iron', 'coal'], era: 0, techs: new Set<string>(), herbivores: true };
     const open = latentResources(base);
     expect(open.some((r) => r.includes('barro'))).toBe(true);
+    expect(open.some((r) => r.includes('cobre'))).toBe(true);
     expect(open.some((r) => r.includes('ferro'))).toBe(true);
     expect(open.some((r) => r.includes('carvão'))).toBe(true);
     expect(open.some((r) => r.includes('animais'))).toBe(true);
-    expect(latentResources({ ...base, era: 3, techs: new Set(['ceramica', 'domesticacao']) })).toEqual([]);
+    expect(
+      latentResources({
+        ...base,
+        era: 3,
+        techs: new Set(['ceramica', 'domesticacao', 'fundicao', 'siderurgia', 'aco']),
+      }),
+    ).toEqual([]);
+  });
+
+  it('curiosidade individual varia por pessoa e evolução orgânica acompanha o que o povo domina', () => {
+    const curiosities = Array.from({ length: 50 }, (_, i) => curiosityOf(i + 1));
+    expect(Math.max(...curiosities)).toBeGreaterThan(1.4);
+    expect(Math.min(...curiosities)).toBeLessThan(0.6);
+    const base = {
+      techs: new Set<string>(),
+      tier: 0,
+      fields: 0,
+      herd: false,
+      port: false,
+      smithy: false,
+      market: false,
+      madeBronze: 0,
+      madeIron: 0,
+      madeSteel: 0,
+      madeStone: 0,
+      madeCoal: 0,
+      tools: 0,
+    };
+    expect(organicTech(base)).toBe(0);
+    expect(organicTech({ ...base, techs: new Set(['ceramica', 'fundicao']), madeBronze: 2 })).toBeGreaterThanOrEqual(1);
+    expect(organicTech({ ...base, techs: new Set(['ceramica', 'fundicao', 'siderurgia']), madeBronze: 2, madeIron: 2 })).toBeGreaterThanOrEqual(2);
+    expect(organicTech({ ...base, techs: new Set(['ceramica', 'fundicao', 'siderurgia', 'aco']), madeIron: 4, madeSteel: 1 })).toBeGreaterThanOrEqual(3);
+    expect(organicTech({ ...base, techs: new Set(['ceramica', 'fundicao', 'siderurgia', 'aco', 'roda', 'moinho', 'vapor']), madeSteel: 2, madeCoal: 10 })).toBeGreaterThanOrEqual(4);
   });
 });
 
-describe('desenvolvimento no mundo', () => {
+describe('desenvolvimento e descoberta individual no mundo', () => {
   function world() {
     const map = generateSurface(earth);
     const eco = new Ecosystem(map, 42);
@@ -116,5 +159,23 @@ describe('desenvolvimento no mundo', () => {
     eco.teachVillage(village, 0);
     expect(eco.knows(village).size).toBe(1);
     expect(eco.chronicle.some((e) => e.text.includes('aprendeu com você'))).toBe(true);
+  });
+
+  it('se o descobridor morrer antes de ensinar a aldeia, a descoberta se perde', () => {
+    const eco = world();
+    const v = eco.villages[0];
+    let who = -1;
+    for (let i = 0; i < eco.count; i++) {
+      if (eco.alive[i] && eco.village[i] === v.id && eco.role[i] !== 255) {
+        who = i;
+        break;
+      }
+    }
+    expect(who).toBeGreaterThanOrEqual(0);
+    v.pendingTech = { id: 'ceramica', uid: eco.uid[who], name: 'Sábio Local', progress: 0.4 };
+    eco.kill(who, false, 'predador');
+    expect(v.pendingTech).toBeUndefined();
+    expect(eco.knows(v).has('ceramica')).toBe(false);
+    expect(eco.chronicle.some((e) => e.text.includes('morreu antes de ensinar Cerâmica'))).toBe(true);
   });
 });
