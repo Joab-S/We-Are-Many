@@ -1,4 +1,4 @@
-import { temperatureAt } from '../procgen/surface';
+import { Boundary, BOUNDARY_NAMES, temperatureAt, type SurfaceMap } from '../procgen/surface';
 import { makeCulture, type Ore } from './economy';
 import { isLand, isWater, type Ecosystem, type Village } from './ecosystem';
 import { CHILD } from './roles';
@@ -52,7 +52,8 @@ export function runRandomEvent(eco: Ecosystem, quiet = false): WorldEvent | null
   const sapients = eco.species.some((sp) => sp.kind === 'sapient');
   const weights: [WorldEvent, number][] = [
     ['comet', 2],
-    ['quake', 2],
+    // Planeta com muita borda de placa ativa treme mais.
+    ['quake', 2 * planetSeismicity(eco.map)],
     ['volcano', 1.2],
     ['island', 0.6],
     ['fire', 1.5],
@@ -117,6 +118,14 @@ function randomTile(eco: Ecosystem, ok: (i: number) => boolean, tries = 200): nu
     if (ok(i)) return i;
   }
   return -1;
+}
+
+/** Tile de um ponto (x dá a volta, y fica dentro do mapa). */
+function tileOf(eco: Ecosystem, x: number, y: number): number {
+  const { width, height } = eco.map;
+  const tx = ((Math.floor(x) % width) + width) % width;
+  const ty = Math.min(height - 1, Math.max(0, Math.floor(y)));
+  return ty * width + tx;
 }
 
 const xy = (eco: Ecosystem, i: number) => ({ x: (i % eco.map.width) + 0.5, y: Math.floor(i / eco.map.width) + 0.5 });
@@ -196,24 +205,102 @@ function comet(eco: Ecosystem, px?: number, py?: number): boolean {
   return true;
 }
 
+// Tectônica -------------------------------------------------------------------
+
+/** Tensão sísmica de um tile (0..1) pelas placas; saves antigos, sem placas, valem 0,3 em todo lugar. */
+export function seismicAt(map: SurfaceMap, i: number): number {
+  return map.stress ? map.stress[i] / 255 : 0.3;
+}
+
+const seismicity = new WeakMap<SurfaceMap, number>();
+
+/**
+ * Quão sísmico é o planeta (0,3 a 3, 1 é a Terra típica): fração da terra
+ * em zona ativa de placa. Multiplica a chance de terremoto entre os eventos.
+ */
+export function planetSeismicity(map: SurfaceMap): number {
+  let v = seismicity.get(map);
+  if (v !== undefined) return v;
+  if (!map.stress) v = 1;
+  else {
+    let land = 0;
+    let active = 0;
+    for (let i = 0; i < map.stress.length; i++) {
+      if (map.elevation[i] < 0) continue;
+      land++;
+      if (map.stress[i] > 64) active++;
+    }
+    v = Math.max(0.3, Math.min(3, 0.3 + (land ? active / land : 0) * 5));
+  }
+  seismicity.set(map, v);
+  return v;
+}
+
+/**
+ * Magnitude (escala Richter) de um terremoto pela tensão do lugar e pelo tipo
+ * de limite: subducção dá os maiores, colisão continental vem logo atrás,
+ * falhas transformantes são médias e o interior das placas só dá tremores.
+ */
+export function quakeMagnitude(stress: number, boundary: Boundary, r: number): number {
+  const bonus = boundary === Boundary.Subduction ? 0.6 : boundary === Boundary.Convergent ? 0.4 : boundary === Boundary.Transform ? 0.2 : 0;
+  return Math.max(3.5, Math.min(9.3, 4 + 3.4 * stress + bonus + (r - 0.5) * 1.2));
+}
+
+/** Epicentro sorteado na terra, com peso pela tensão: os terremotos se juntam nas bordas das placas. */
+function quakeEpicenter(eco: Ecosystem): number {
+  const n = eco.map.width * eco.map.height;
+  for (let t = 0; t < 600; t++) {
+    const i = Math.floor(eco.random() * n);
+    if (!isLand(eco.map, i)) continue;
+    if (eco.random() < 0.03 + 0.97 * seismicAt(eco.map, i)) return i;
+  }
+  return randomTile(eco, (t) => isLand(eco.map, t));
+}
+
+/**
+ * Direção da falha: paralela à borda de placa mais próxima (procura a outra
+ * placa em 16 direções); sem placa por perto, uma direção qualquer.
+ */
+function faultAngle(eco: Ecosystem, x: number, y: number): number {
+  const map = eco.map;
+  if (map.plate) {
+    const here = map.plate[tileOf(eco, x, Math.floor(y))];
+    for (let r = 2; r <= 40; r += 2) {
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        const ty = Math.floor(y + Math.sin(a) * r);
+        if (ty < 0 || ty >= map.height) continue;
+        if (map.plate[tileOf(eco, x + Math.cos(a) * r, ty)] !== here) return a + Math.PI / 2;
+      }
+    }
+  }
+  return eco.random() * Math.PI;
+}
+
 /**
  * Terremoto: uma falha corta o terreno; um lado sobe e o outro afunda
  * (morros novos, costa que avança ou recua). Casas perto da falha caem e
- * a rocha exposta pode revelar uma caverna com minério.
+ * a rocha exposta pode revelar uma caverna com minério. O epicentro, a
+ * magnitude e a direção da falha vêm das placas tectônicas.
  */
 function quake(eco: Ecosystem, px?: number, py?: number): boolean {
   let x = px;
   let y = py;
   if (x === undefined || y === undefined) {
-    const i = randomTile(eco, (t) => isLand(eco.map, t));
+    const i = quakeEpicenter(eco);
     if (i < 0) return false;
     ({ x, y } = xy(eco, i));
   }
-  const ang = eco.random() * Math.PI;
-  const len = 18 + eco.random() * 30;
+  const at = tileOf(eco, x, Math.floor(y));
+  const boundary = (eco.map.boundary?.[at] ?? Boundary.None) as Boundary;
+  const mag = quakeMagnitude(seismicAt(eco.map, at), boundary, eco.random());
+  // Força relativa: magnitude 4 quase não mexe no chão; 8 ou mais racha uma região inteira.
+  const k = Math.max(0.15, Math.min(1.3, (mag - 4) / 4));
+  const ang = faultAngle(eco, x, y);
+  const len = 12 + k * (30 + eco.random() * 20);
   const nx = -Math.sin(ang);
   const ny = Math.cos(ang);
-  const lift = 0.08 + eco.random() * 0.1;
+  const lift = (0.05 + eco.random() * 0.05) * (0.4 + k);
   let fallen = 0;
   for (let s = -len / 2; s <= len / 2; s += 2) {
     const cx = x + Math.cos(ang) * s;
@@ -222,20 +309,21 @@ function quake(eco: Ecosystem, px?: number, py?: number): boolean {
       const tx = (i % eco.map.width) + 0.5;
       const ty = Math.floor(i / eco.map.width) + 0.5;
       const side = wrap(eco, tx - cx) * nx + (ty - cy) * ny;
-      const k = (1 - d / 4) * 0.5;
-      eco.map.elevation[i] = Math.max(-1, Math.min(1, eco.map.elevation[i] + (side > 0 ? lift : -lift * 0.6) * k));
+      const f = (1 - d / 4) * 0.5;
+      eco.map.elevation[i] = Math.max(-1, Math.min(1, eco.map.elevation[i] + (side > 0 ? lift : -lift * 0.6) * f));
     });
     if (Math.abs(s) % 8 < 2) eco.effect('quake', cx, cy, 6, 2);
-    fallen += eco.destroyAround(cx, cy, 5, 0.45);
+    fallen += eco.destroyAround(cx, cy, 3 + 2.5 * k, 0.2 + 0.3 * k);
   }
-  const dead = eco.killAround(x, y, 6, 0.3);
-  eco.shake = Math.max(eco.shake, 3);
+  const dead = eco.killAround(x, y, 3 + 4 * k, 0.15 + 0.2 * k);
+  eco.shake = Math.max(eco.shake, 1.2 + 2 * k);
   const found = eco.random() < 0.6 && eco.addDeposit(x + nx * 3, y + ny * 3, (['iron', 'coal', 'copper', 'tin', 'gold'] as Ore[])[Math.floor(eco.random() * 5)], 90 + Math.round(eco.random() * 120), true);
+  const where = boundary === Boundary.None ? '' : ` (${BOUNDARY_NAMES[boundary]})`;
   eco.note(
-    `Um terremoto sacudiu a terra${near(eco, x, y)}${fallen ? `: ${fallen} construções caíram` : ''}${dead ? `, ${dead} mortos` : ''}${found ? '; a rocha rachada revelou uma caverna' : ''}`,
+    `Um terremoto de magnitude ${mag.toFixed(1).replace('.', ',')} sacudiu a terra${near(eco, x, y)}${where}${fallen ? `: ${fallen} construções caíram` : ''}${dead ? `, ${dead} mortos` : ''}${found ? '; a rocha rachada revelou uma caverna' : ''}`,
     'natureza',
     { x, y },
-    { major: true },
+    { major: mag >= 5.5 || fallen > 0 || dead > 0 },
   );
   return true;
 }
@@ -249,9 +337,14 @@ function volcano(eco: Ecosystem, px: number | undefined, py: number | undefined,
   let x = px;
   let y = py;
   if (x === undefined || y === undefined) {
+    // Vulcões nascem nas zonas de subducção e nas dorsais; no meio das placas, raramente.
+    const volcanic = (t: number) => {
+      const b = eco.map.boundary?.[t];
+      return b === undefined || b === Boundary.Subduction || b === Boundary.Divergent || eco.random() < 0.15;
+    };
     const i = sea
-      ? randomTile(eco, (t) => isWater(eco.map, t) && eco.map.elevation[t] > -0.5 && farFromVillages(eco, t, 10))
-      : randomTile(eco, (t) => isLand(eco.map, t) && eco.map.elevation[t] > 0.25 && farFromVillages(eco, t, 8));
+      ? randomTile(eco, (t) => isWater(eco.map, t) && eco.map.elevation[t] > -0.5 && farFromVillages(eco, t, 10) && volcanic(t), 400)
+      : randomTile(eco, (t) => isLand(eco.map, t) && eco.map.elevation[t] > 0.25 && farFromVillages(eco, t, 8) && volcanic(t), 400);
     if (i < 0) return false;
     ({ x, y } = xy(eco, i));
   }

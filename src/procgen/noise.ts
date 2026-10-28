@@ -182,3 +182,58 @@ export class ValueNoise3 {
     return sum / norm;
   }
 }
+
+/**
+ * Campo suave amostrado numa grade grossa e interpolado (bilinear) por tile:
+ * para ruído de baixa frequência (desvios de borda, frentes climáticas) é
+ * quase igual ao ruído direto e custa uma fração. A grade dá a volta na
+ * horizontal, como o mapa.
+ */
+export class CoarseField {
+  private readonly data: Float32Array;
+  private readonly cols: number;
+  private readonly rows: number;
+
+  constructor(
+    width: number,
+    height: number,
+    private readonly stride: number,
+    private readonly channels: number,
+    fn: (x: number, y: number, out: Float32Array) => void,
+  ) {
+    stride = Math.max(1, Math.floor(stride));
+    while (width % stride) stride--;
+    this.stride = stride;
+    this.cols = width / stride;
+    this.rows = Math.ceil((height - 1) / stride) + 1;
+    this.data = new Float32Array(this.cols * this.rows * channels);
+    const out = new Float32Array(channels);
+    for (let gy = 0; gy < this.rows; gy++) {
+      for (let gx = 0; gx < this.cols; gx++) {
+        fn(gx * stride, gy * stride, out);
+        this.data.set(out, (gy * this.cols + gx) * channels);
+      }
+    }
+  }
+
+  /** Valor do canal `k` no tile (x, y), interpolado. */
+  get(k: number, x: number, y: number): number {
+    const { stride, cols, rows, channels, data } = this;
+    const fx = x / stride;
+    const fy = y / stride;
+    const x0 = Math.floor(fx);
+    const y0 = Math.min(rows - 1, Math.floor(fy));
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const c0 = x0 % cols;
+    const c1 = (c0 + 1) % cols;
+    const r1 = Math.min(rows - 1, y0 + 1);
+    const a = data[(y0 * cols + c0) * channels + k];
+    const b = data[(y0 * cols + c1) * channels + k];
+    const c = data[(r1 * cols + c0) * channels + k];
+    const d = data[(r1 * cols + c1) * channels + k];
+    const top = a + (b - a) * tx;
+    const bot = c + (d - c) * tx;
+    return top + (bot - top) * ty;
+  }
+}

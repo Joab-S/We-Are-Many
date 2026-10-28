@@ -1,4 +1,4 @@
-import { Biome, type SurfaceMap } from '../procgen/surface';
+import { Biome, isRockyBiome, type SurfaceMap } from '../procgen/surface';
 
 /**
  * Economia dos povos inteligentes (REQUISITOS-VIDA.md, seções 11 e 11.1):
@@ -55,7 +55,7 @@ export interface Deposit {
 /** Bom lugar para uma jazida: rocha, montanha ou colina. */
 function rocky(map: SurfaceMap, i: number): number {
   const b = map.biome[i] as Biome;
-  if (b === Biome.Mountain || b === Biome.Rock) return 1;
+  if (isRockyBiome(b)) return 1;
   if (map.elevation[i] > 0.3 && b !== Biome.Snow && b !== Biome.Ice && b !== Biome.Lava) return 0.5;
   return 0;
 }
