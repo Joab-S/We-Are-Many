@@ -10,7 +10,7 @@
  * experimentando e depois a ensinam à aldeia.
  */
 
-import type { Role } from './roles';
+import { ROLES, type Role } from './roles';
 import type { Vocation } from './needs';
 
 export const PILLARS = ['sustento', 'tecnica', 'construcao', 'comercio', 'cultura', 'organizacao'] as const;
@@ -336,6 +336,25 @@ export function curiosityOf(uid: number): number {
 }
 
 /**
+ * Jeito de uma pessoa para uma profissão (0 a 1), determinístico por `uid` e
+ * profissão, sem gastar sorteios: na falta de braços, quem tem mais jeito para
+ * o ofício que falta muda primeiro.
+ */
+export function aptitudeOf(uid: number, role: number): number {
+  return (Math.imul((uid + 1) * 31 + role * 7919, 2246822519) >>> 0) % 1000 / 1000;
+}
+
+/** Ofícios comuns (sem armas nem comando), onde o jeito de cada um aparece na ficha. */
+const CRAFTS = ROLES.slice(0, ROLES.indexOf('soldier'));
+
+/** O ofício em que a pessoa tem mais jeito (índice em `ROLES`). */
+export function bestCraft(uid: number): number {
+  let best = 0;
+  for (let r = 1; r < CRAFTS.length; r++) if (aptitudeOf(uid, r) > aptitudeOf(uid, best)) best = r;
+  return best;
+}
+
+/**
  * Taxa base anual de um trabalhador descobrir uma técnica experimentando no
  * ofício, e taxa com que o descobridor transmite a técnica para a aldeia.
  * Cadenciado para que a evolução leve gerações e dependa de quem trabalha.
@@ -346,6 +365,41 @@ export const TECH_USE_RATE = 0.18;
 export const TECH_NEIGHBOR_RATE = 0.35;
 /** Chance de uma técnica passar quando uma caravana chega (×3 na feira). */
 export const TECH_TRADE_CHANCE = 0.12;
+/**
+ * Morte (ou partida) de quem ensinava uma técnica: se o ensino já passou de
+ * `TECH_RESCUE_MIN`, o aprendiz mais curioso do ofício guarda parte do que
+ * aprendeu e segue ensinando a partir de `TECH_RESCUE_KEEP`; perder o sábio
+ * abala a aldeia em `TECH_LOSS_STABILITY`.
+ */
+export const TECH_RESCUE_MIN = 0.6;
+export const TECH_RESCUE_KEEP = 0.3;
+export const TECH_LOSS_STABILITY = 0.05;
+/**
+ * Amostra trazida por caravana (ferramenta ou metal de quem já domina a
+ * técnica): por `TECH_SAMPLE_YEARS` anos os trabalhadores do ofício
+ * experimentam essa técnica `TECH_SAMPLE_BOOST` vezes mais rápido. Ainda é
+ * preciso descobrir e ensinar; a amostra só inspira.
+ */
+export const TECH_SAMPLE_BOOST = 2.5;
+export const TECH_SAMPLE_YEARS = 10;
+/** Técnica que cada mercadoria mostra a quem a examina; ferramentas, armas e armaduras mostram o melhor metal de quem as fez. */
+export const SAMPLE_TECH: Partial<Record<string, string>> = { brick: 'ceramica', cloth: 'tecelagem', copper: 'fundicao', tin: 'fundicao', iron: 'siderurgia' };
+export const FORGED_SAMPLES = ['tools', 'weapons', 'armor'];
+const METAL_TECHS = ['aco', 'siderurgia', 'fundicao'];
+
+/** Técnicas que uma carga ensina pelo exemplo, dado o que quem a fez domina. */
+export function sampleTechs(goods: string[], makerKnows: ReadonlySet<string>): string[] {
+  const out = new Set<string>();
+  for (const g of goods) {
+    const direct = SAMPLE_TECH[g];
+    if (direct && makerKnows.has(direct)) out.add(direct);
+    if (FORGED_SAMPLES.includes(g)) {
+      const best = METAL_TECHS.find((t) => makerKnows.has(t));
+      if (best) out.add(best);
+    }
+  }
+  return [...out];
+}
 /** Chance anual de esquecer uma técnica num colapso (RF-VIDA-275). */
 export const DECAY_RATE = 0.01;
 

@@ -537,6 +537,8 @@ export interface Village {
   techs?: string[];
   /** Técnica descoberta por um morador específico (`uid`), que ele está ensinando à aldeia. */
   pendingTech?: { id: string; uid: number; name: string; progress: number };
+  /** Amostras trazidas por caravanas: técnica -> ano até quando ainda inspiram os trabalhadores. */
+  samples?: Record<string, number>;
   /** Maior população já alcançada, para reconhecer o colapso (RF-VIDA-275). */
   peak?: number;
   /** Última vez que as técnicas foram sorteadas. */
@@ -1222,11 +1224,7 @@ export class Ecosystem {
     if (v >= 0) {
       const village = this.villages[v];
       village.population--;
-      if (village.pendingTech && village.pendingTech.uid === this.uid[i] && cause !== 'partiu') {
-        const lost = P.TECH_BY_ID[village.pendingTech.id];
-        if (!quiet && lost) this.note(`${village.pendingTech.name} morreu antes de ensinar ${lost.name} a ${village.name}`, 'economia', village);
-        village.pendingTech = undefined;
-      }
+      if (village.pendingTech && village.pendingTech.uid === this.uid[i] && cause !== 'partiu') this.losePendingTech(village, 'morreu', quiet);
       // Só a morte de reis e de líderes de reinos entra nos acontecimentos.
       if (!quiet && village.leader === i && village.kingdom === village.id && (village.tier >= 2 || this.kingdomSize(village) > 1)) {
         const title = this.role[i] === ROLE.king ? 'O rei' : 'O líder';
@@ -1571,7 +1569,10 @@ export class Ecosystem {
     const space = Math.max(1, Math.floor(adults.length * (crisis ? B.LABOR_CRISIS_MAX : B.LABOR_ROLE_MAX))) - already;
     if (space <= 0) return;
     let movers = Math.min(space, binomial(this.civRnd, adults.length, (crisis ? B.LABOR_CRISIS_SHIFT : B.LABOR_SHIFT) * (calm ? 0.15 : 1 - n[need])));
-    for (const i of adults) {
+    if (movers <= 0) return;
+    // Quem tem mais jeito para o ofício que falta muda primeiro (RF-VIDA-420).
+    const apt = (i: number) => P.aptitudeOf(this.uid[i], target);
+    for (const i of [...adults].sort((a, b) => apt(b) - apt(a))) {
       if (movers <= 0) break;
       // Idosos não mudam de trabalho: já não trabalham.
       if (this.age[i] >= elderAge(this.species[this.kind[i]], Math.floor(v.tech))) continue;
@@ -4190,6 +4191,7 @@ export class Ecosystem {
   private learn(v: Village, t: P.Tech, how: string): void {
     if (this.knew(v, t.id)) return;
     (v.techs ??= []).push(t.id);
+    if (v.samples) delete v.samples[t.id];
     const first = !this.techsSeen.has(t.id);
     this.techsSeen.add(t.id);
     this.note(`${v.name} ${how} ${t.name}: ${t.gives}`, 'economia', v, first ? { major: true } : { key: `tech-${t.id}` });
@@ -4285,9 +4287,9 @@ export class Ecosystem {
     // Ensino em andamento: o descobridor passa a técnica aos poucos para a aldeia.
     if (v.pendingTech) {
       const aliveHere = adults.some((i) => this.uid[i] === v.pendingTech!.uid);
-      if (!aliveHere && adults.length > 0) {
-        v.pendingTech = undefined;
-      } else {
+      // Sem o professor na aldeia, um aprendiz pode assumir; ele continua a partir do próximo passo.
+      if (!aliveHere && adults.length > 0) this.losePendingTech(v, 'partiu');
+      else {
         const wise = v.culture.value === 'conhecimento' ? 1.25 : 1;
         const written = this.knew(v, 'escrita') ? 1.2 : 1;
         v.pendingTech.progress += yr * P.TECH_TEACH_VILLAGE_RATE * wise * written;
@@ -4347,7 +4349,8 @@ export class Ecosystem {
             let curiosity = 0;
             for (const i of pool) curiosity += P.curiosityOf(this.uid[i]);
             const effCuriosity = Math.min(4.5, curiosity);
-            if (happens(this.lore, P.TECH_DISCOVER_RATE * effCuriosity * dev, since)) {
+            const sample = (v.samples?.[t.id] ?? -Infinity) > this.year ? P.TECH_SAMPLE_BOOST : 1;
+            if (happens(this.lore, P.TECH_DISCOVER_RATE * effCuriosity * dev * sample, since)) {
               // Escolhe o descobridor ponderado pela curiosidade individual.
               let pick = pool[0];
               let r = this.lore() * curiosity;
@@ -4376,6 +4379,39 @@ export class Ecosystem {
         this.note(`${v.name} esqueceu ${t.name} depois do colapso`, 'economia', v, { major: true });
       }
     }
+  }
+
+  /**
+   * Quem ensinava a técnica morreu ou partiu: com o ensino adiantado, o
+   * aprendiz mais curioso do ofício guarda parte e continua (sem sorteio);
+   * senão a descoberta se perde. Perder o sábio abala a aldeia.
+   */
+  private losePendingTech(v: Village, how: 'morreu' | 'partiu', quiet = false): void {
+    const p = v.pendingTech;
+    if (!p) return;
+    v.pendingTech = undefined;
+    const t = P.TECH_BY_ID[p.id];
+    if (!t) return;
+    v.stability = Math.max(0, (v.stability ?? 1) - P.TECH_LOSS_STABILITY);
+    let heir = -1;
+    if (p.progress >= P.TECH_RESCUE_MIN) {
+      let best = -1;
+      for (let j = 0; j < this.count; j++) {
+        if (!this.alive[j] || this.village[j] !== v.id || this.uid[j] === p.uid || this.role[j] === CHILD) continue;
+        // Quem trabalha no ofício aprendeu mais de perto; os outros só se não houver ninguém dele.
+        const c = P.curiosityOf(this.uid[j]) + (t.roles.includes(ROLES[this.role[j]]) ? 10 : 0);
+        if (c > best) {
+          best = c;
+          heir = j;
+        }
+      }
+    }
+    const verb = how === 'morreu' ? 'morreu' : 'partiu';
+    if (heir >= 0) {
+      const name = `${personName(this.uid[heir], v.culture.id)} ${familyName(this.family[heir], v.culture.id)}`;
+      v.pendingTech = { id: t.id, uid: this.uid[heir], name, progress: P.TECH_RESCUE_KEEP };
+      if (!quiet) this.note(`${p.name} ${verb} antes de ensinar ${t.name} a ${v.name}, mas ${name}, aprendiz, guardou parte do que aprendeu`, 'economia', v);
+    } else if (!quiet) this.note(`${p.name} ${verb} antes de ensinar ${t.name} a ${v.name}`, 'economia', v);
   }
 
   /** Passa uma técnica entre dois assentamentos que se encontram (caravana, feira). */
@@ -7544,6 +7580,7 @@ export class Ecosystem {
     const eff = CURRENCY_EFFICIENCY[currencyOf(era, minted || !!this.villages[o.kingdom].mint)];
     let value = 0;
     const sold = t.cargo[0]?.good;
+    if (kind === 'trade') this.inspire(o, t.cargo.map((c) => c.good), v);
     for (const c of t.cargo) {
       const put = Math.max(0, Math.min(c.amount, this.capOf(o, c.good) - this.amountOf(o, c.good)));
       value += put * this.priceAt(o, c.good);
@@ -7770,6 +7807,22 @@ export class Ecosystem {
     if (!post) {
       this.tolls.set(t, owner.id);
       this.note(`${owner.name} passou a cobrar pedágio no passo da montanha`, 'economia', { x, y }, { key: `toll-${owner.id}` });
+    }
+  }
+
+  /**
+   * Amostras na carga (RF-VIDA-421): ferramenta, metal, tijolo ou pano de quem
+   * já domina a técnica inspiram os trabalhadores de quem ainda não a conhece.
+   */
+  private inspire(o: Village, goods: (Good | 'food')[], maker: Village): void {
+    const known = this.knows(o);
+    for (const id of P.sampleTechs(goods, this.knows(maker))) {
+      if (known.has(id)) continue;
+      const t = P.TECH_BY_ID[id];
+      if (!t || !t.needs.every((n) => known.has(n))) continue;
+      const fresh = (o.samples?.[id] ?? -Infinity) <= this.year;
+      (o.samples ??= {})[id] = this.year + P.TECH_SAMPLE_YEARS;
+      if (fresh) this.note(`Uma amostra de ${maker.name} deixou os artesãos de ${o.name} curiosos sobre ${t.name}`, 'economia', o, { key: `sample-${o.id}-${id}` });
     }
   }
 

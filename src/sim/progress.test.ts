@@ -6,7 +6,12 @@ import {
   ERA_POINTS,
   PILLARS,
   TECHS,
+  TECH_LOSS_STABILITY,
+  TECH_RESCUE_KEEP,
+  TECH_SAMPLE_YEARS,
   VOCATION_PILLAR,
+  aptitudeOf,
+  bestCraft,
   curiosityOf,
   devSpeed,
   emptyPoints,
@@ -18,9 +23,11 @@ import {
   pointsFor,
   pointsMet,
   pointsText,
+  sampleTechs,
   type PillarContext,
 } from './progress';
 import { VOCATIONS } from './needs';
+import { ROLES } from './roles';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
 
@@ -177,5 +184,72 @@ describe('desenvolvimento e descoberta individual no mundo', () => {
     expect(v.pendingTech).toBeUndefined();
     expect(eco.knows(v).has('ceramica')).toBe(false);
     expect(eco.chronicle.some((e) => e.text.includes('morreu antes de ensinar Cerâmica'))).toBe(true);
+  });
+
+  /** Adultos de uma aldeia, na ordem do array. */
+  const adultsOf = (eco: Ecosystem, id: number) => {
+    const out: number[] = [];
+    for (let i = 0; i < eco.count; i++) if (eco.alive[i] && eco.village[i] === id && eco.role[i] !== 255) out.push(i);
+    return out;
+  };
+
+  it('com o ensino adiantado, o aprendiz mais curioso guarda parte e a aldeia sente a perda (RF-VIDA-419)', () => {
+    const eco = world();
+    const v = eco.villages[0];
+    const [who, ...rest] = adultsOf(eco, v.id);
+    expect(rest.length).toBeGreaterThan(0);
+    v.stability = 0.8;
+    v.pendingTech = { id: 'ceramica', uid: eco.uid[who], name: 'Sábio Local', progress: 0.8 };
+    eco.kill(who, false, 'predador');
+    expect(v.pendingTech).toBeDefined();
+    expect(v.pendingTech!.uid).not.toBe(eco.uid[who]);
+    expect(rest.map((i) => eco.uid[i])).toContain(v.pendingTech!.uid);
+    expect(v.pendingTech!.progress).toBeCloseTo(TECH_RESCUE_KEEP, 5);
+    expect(v.stability).toBeCloseTo(0.8 - TECH_LOSS_STABILITY, 5);
+    expect(eco.chronicle.some((e) => e.text.includes('aprendiz, guardou parte'))).toBe(true);
+  });
+
+  it('o professor que some da aldeia também passa a técnica a um aprendiz', () => {
+    const eco = world();
+    const v = eco.villages[0];
+    const adults = adultsOf(eco, v.id);
+    v.pendingTech = { id: 'ceramica', uid: 999999, name: 'Viajante', progress: 0.9 };
+    (eco as unknown as { develop(v: unknown, dt: number, adults: number[]): void }).develop(v, 0.01, adults);
+    expect(v.pendingTech).toBeDefined();
+    expect(adults.map((i) => eco.uid[i])).toContain(v.pendingTech!.uid);
+    expect(eco.chronicle.some((e) => e.text.includes('Viajante partiu antes de ensinar'))).toBe(true);
+  });
+
+  it('caravana com amostra deixa os artesãos curiosos só do que já podem aprender (RF-VIDA-421)', () => {
+    expect(sampleTechs(['tools'], new Set(['ceramica', 'fundicao', 'siderurgia']))).toEqual(['siderurgia']);
+    expect(sampleTechs(['brick', 'wood'], new Set(['ceramica']))).toEqual(['ceramica']);
+    expect(sampleTechs(['iron'], new Set(['ceramica']))).toEqual([]);
+    const eco = world();
+    const v = eco.villages[0];
+    const maker = { ...v, techs: ['ceramica', 'fundicao', 'siderurgia'] };
+    const inspire = (eco as unknown as { inspire(o: unknown, goods: string[], maker: unknown): void }).inspire.bind(eco);
+    v.techs = [];
+    inspire(v, ['tools', 'brick'], maker);
+    // Sem cerâmica, o ferro ainda não diz nada; o tijolo sim.
+    expect(Object.keys(v.samples ?? {})).toEqual(['ceramica']);
+    expect(v.samples!.ceramica).toBeCloseTo(eco.year + TECH_SAMPLE_YEARS, 5);
+  });
+});
+
+describe('jeito para o ofício (RF-VIDA-420)', () => {
+  it('é determinístico, fica entre 0 e 1 e varia de pessoa para pessoa e de ofício para ofício', () => {
+    expect(aptitudeOf(17, 3)).toBe(aptitudeOf(17, 3));
+    const all = Array.from({ length: 400 }, (_, k) => aptitudeOf(k, k % 9));
+    for (const a of all) expect(a >= 0 && a < 1).toBe(true);
+    const high = all.filter((a) => a >= 0.9).length;
+    expect(high).toBeGreaterThan(15);
+    expect(high).toBeLessThan(80);
+    expect(new Set(Array.from({ length: 9 }, (_, r) => aptitudeOf(5, r))).size).toBeGreaterThan(5);
+  });
+
+  it('o ofício de mais jeito é um ofício comum e muda de pessoa para pessoa', () => {
+    const best = Array.from({ length: 200 }, (_, uid) => bestCraft(uid));
+    for (const r of best) expect(r).toBeLessThan(ROLES.indexOf('soldier'));
+    expect(new Set(best).size).toBeGreaterThan(8);
   });
 });
