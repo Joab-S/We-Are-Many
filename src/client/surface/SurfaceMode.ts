@@ -33,7 +33,7 @@ import { CURRENCY_NAMES } from '../../sim/trade';
 import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, sumLedger, type CompareKey, type PeriodSpan, type SettlementTab } from './settlementWindow';
 
 /** Raio de escolha de criaturas em pixels de tela, igual em qualquer zoom (RF-VIDA-330). */
-const PICK_RADIUS_PX = 10;
+const PICK_RADIUS_PX = 26;
 /** Atualizações por segundo da janela do assentamento (RF-VIDA-341). */
 const VWIN_HZ = 4;
 
