@@ -188,11 +188,13 @@ function pillarsHtml(eco: Ecosystem, v: Village): string {
   const known = eco.knows(v);
   const techs = TECHS.filter((t) => known.has(t.id)).map((t) => t.name);
   const latent = eco.latent(v);
+  const samples = Object.entries(v.samples ?? {}).filter(([id, until]) => until > eco.year && !known.has(id)).map(([id]) => TECHS.find((t) => t.id === id)?.name ?? id);
   const pending = v.pendingTech ? TECHS.find((t) => t.id === v.pendingTech!.id)?.name ?? v.pendingTech.id : null;
   return `
     <div class="wb-sub">Desenvolvimento · ${Math.floor(v.pts?.reduce((a, b) => a + b, 0) ?? 0)} pontos acumulados</div>
     ${rows}
     ${v.pendingTech && pending ? `<div class="wb-kv"><span>Aprendendo</span>${bar(v.pendingTech.progress, `${v.pendingTech.name} ensina ${pending} (${pct(v.pendingTech.progress)})`, 'good')}</div>` : ''}
+    ${samples.length ? `<div class="wb-kv"><span>Amostras</span><b>${samples.join(', ')}</b><span class="wb-dim">trazidas por caravanas</span></div>` : ''}
     <div class="wb-kv"><span>Técnicas</span><b>${techs.length ? techs.join(', ') : 'nenhuma ainda'}</b><span class="wb-dim">${techs.length} de ${TECHS.length}</span></div>
     ${latent.length ? `<div class="wb-kv"><span>Sem uso ainda</span><b>${latent.join('; ')}</b></div>` : ''}`;
 }
