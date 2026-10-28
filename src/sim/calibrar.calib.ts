@@ -5,7 +5,7 @@
  */
 import { it } from 'vitest';
 import { CALIBRATION_SEEDS, CALIBRATION_YEARS } from './balance';
-import { LABELS, runWorld, summary, TARGETS, type Indicators } from './calibrate';
+import { reportRows, runWorld, TARGETS, type Indicators } from './calibrate';
 
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
 
@@ -16,14 +16,7 @@ it('calibração', async () => {
   const runs: Indicators[] = [];
   for (let k = 0; k < seeds; k++) runs.push(runWorld(1000 + k * 37, years, radius).indicators);
   const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2)).replace('.', ',');
-  const rows = (Object.keys(runs[0]) as (keyof Indicators)[])
-    .filter((k) => k !== 'seed' && k !== 'years')
-    .map((key) => {
-      const s = summary(runs.map((r) => r[key]));
-      const target = TARGETS.find((t) => t.key === key);
-      const ok = target ? (s.p10 >= target.min && s.p90 <= target.max ? 'dentro' : '**fora**') : '';
-      return `| ${target?.label ?? LABELS[key] ?? key} | ${fmt(s.mean)} | ${fmt(s.median)} | ${fmt(s.p10)} a ${fmt(s.p90)} | ${target ? `${fmt(target.min)} a ${fmt(target.max)}` : ''} | ${ok} |`;
-    });
+  const rows = reportRows(runs, TARGETS);
   const text = `# Calibração da vida
 
 > Gerado por \`npm run calibrar\` (RF-VIDA-308). ${seeds} sementes, ${years} anos, Terra com raio ${fmt(radius)} (1 é a Terra do jogo, 1024×512), 6 aldeias semeadas.

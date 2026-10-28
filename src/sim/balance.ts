@@ -19,6 +19,20 @@ export const FIELD_FALLOW_RATE = 0.5;
 export const FIELD_HANDS = 3;
 /** Porções de comida por ano que cada roça trabalhada produz em ano normal. */
 export const FIELD_YIELD = 3;
+/**
+ * Evolução dos povos, etapa 1: cada roça desenhada representa mais terra conforme o lugar cresce
+ * (FIELD_HANDS × (1 + FIELD_HANDS_TIER × nível) agricultores por roça), já que o mapa continua com no máximo 5.
+ * Antes o teto era fixo e um assentamento não passava de 40 a 60 moradores.
+ */
+export const FIELD_HANDS_TIER = 1;
+/** Rendimento de cada agricultor por era (Pedra … Industrial): ferramentas, rotação, adubo e máquinas. Antes era o mesmo em todas. */
+export const ERA_YIELD = [1, 1.2, 1.45, 1.75, 2.4];
+/**
+ * Natalidade dos inteligentes pela comida (etapa 1): abaixo de BIRTH_FOOD_MIN de atendimento quase não nascem filhos,
+ * a partir de BIRTH_FOOD_FULL nascem todos. Antes a fome só tirava até metade dos nascimentos e o povo crescia até morrer de fome.
+ */
+export const BIRTH_FOOD_MIN = 0.55;
+export const BIRTH_FOOD_FULL = 0.9;
 /** Chegada de andarilhos por ano, pelo tamanho do assentamento (até 3, até 9, até 29, 30 ou mais). */
 export const WANDERER_RATE = [0.35, 0.15, 0.05, 0.01];
 /** Porto construído por ano, quando o assentamento pode (antes: 8% por segundo). */

@@ -1967,6 +1967,11 @@ export class Ecosystem {
   }
 
   /** Quanto a colheita rende neste ano no assentamento (1 = ano normal). */
+  /** Agricultores que cada roça do mapa comporta: a roça desenhada representa mais terra conforme o lugar cresce. */
+  fieldHands(v: Village): number {
+    return B.FIELD_HANDS * (1 + B.FIELD_HANDS_TIER * v.tier);
+  }
+
   harvest(v: Village): number {
     return Math.max(0.15, 1 + B.HARVEST_SENSITIVITY * this.climateAt(v.x, v.y));
   }
@@ -2336,7 +2341,9 @@ export class Ecosystem {
     const fertile = this.age[i] >= sp.maturity && (sp.kind !== 'sapient' || this.age[i] < elderAge(sp, era));
     // Necessidades mal atendidas freiam a natalidade dos inteligentes (RF-VIDA-210).
     const needs = v >= 0 ? this.villages[v].needs : undefined;
-    const content = needs ? 0.5 + 0.5 * welfare(needs) : 1;
+    // Com pouca comida quase não nascem filhos (etapa 1 da evolução dos povos): o povo para de crescer antes de passar fome.
+    const fed = needs ? Math.min(1, Math.max(0.05, (needs.food - B.BIRTH_FOOD_MIN) / (B.BIRTH_FOOD_FULL - B.BIRTH_FOOD_MIN))) : 1;
+    const content = needs ? (0.5 + 0.5 * welfare(needs)) * fed : 1;
     if (fertile && this.energy[i] > 0.65 && happens(this.rnd, b.birthRate * this.fertility(s, era) * content, dt)) {
       // Precisa de um parceiro adulto por perto (do mesmo assentamento, para os inteligentes).
       // Bichos acham o parceiro num raio maior (o cheiro e o chamado vão longe).
@@ -2351,7 +2358,8 @@ export class Ecosystem {
       if (!mates || (sp.kind === 'sapient' && v < 0)) return;
       // Casas de eras mais avançadas e com andares a mais abrigam mais gente (sobrados, prédios).
       const housed = v < 0 || this.villages[v].population < this.housing(this.villages[v]);
-      if (crowd < b.crowd && housed) {
+      // Inteligentes não têm teto de aglomeração: quem limita são as casas (uma cidade densa também tem filhos).
+      if ((sp.kind === 'sapient' || crowd < b.crowd) && housed) {
         const child = this.spawn(s, this.x[i] + (this.rnd() - 0.5), this.y[i] + (this.rnd() - 0.5), v);
         if (child >= 0) {
           this.energy[i] -= 0.3;
@@ -2365,12 +2373,14 @@ export class Ecosystem {
   /**
    * Controle da natalidade: perto do teto quase não nascem filhotes (o
    * pasto e o espaço ficam disputados); uma espécie rara tem mais filhotes,
-   * para conseguir se recuperar. Inteligentes têm o teto da era.
+   * para conseguir se recuperar. Inteligentes só têm o empurrão de espécie rara: o teto deles é a comida e a casa de cada assentamento.
    */
   fertility(s: number, era = 0): number {
     const cap = this.caps[s] * (this.species[s].kind === 'sapient' ? 1 + 0.3 * era : 1);
     const fill = this.population[s] / Math.max(1, cap);
     if (fill < 0.2) return 2.2;
+    // Inteligentes não têm teto global da espécie (etapa 1): quem limita é a comida e a casa de cada assentamento.
+    if (this.species[s].kind === 'sapient') return 1.1;
     return Math.max(0.08, 1.15 * (1 - fill * fill));
   }
 
@@ -2942,6 +2952,13 @@ export class Ecosystem {
   /** Capital do reino do assentamento. */
   capitalOf(v: Village): Village {
     return this.villages[v.kingdom];
+  }
+
+  /** Moradores de todos os assentamentos ativos do reino cuja capital é `v`. */
+  kingdomPopulation(v: Village): number {
+    let n = 0;
+    for (const o of this.villages) if (!o.abandoned && o.kingdom === v.id) n += o.population;
+    return n;
   }
 
   /** Quantos assentamentos ativos pertencem ao reino cuja capital é `v`. */
@@ -3935,20 +3952,20 @@ export class Ecosystem {
       if (v.fields > 0 && workers[v.id]) {
         const w = workers[v.id];
         const plough = v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' && this.knew(v, 'arado') ? 1 : 0.5;
-        // Cada roça no mapa é um lote grande, que até FIELD_HANDS agricultores trabalham (o mapa tem no máximo 5 roças).
-        const worked = Math.min(v.fields * B.FIELD_HANDS, Math.ceil(w[ROLE.farmer] * plough) + 1);
+        // Cada roça no mapa é um lote grande, maior quanto maior o lugar (o mapa tem no máximo 5 roças).
+        const worked = Math.min(v.fields * this.fieldHands(v), Math.ceil(w[ROLE.farmer] * plough) + 1);
         const mill = v.houses.some((h) => h.kind === 'windmill') ? 1 + (this.knew(v, 'moinhoagua') ? 0.45 : 0.3) * Math.min(1, w[ROLE.miller]) : 1;
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
         const season = B.SEASON_HARVEST[seasonOf(this.yearClock / YEAR_SECONDS)];
-        this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * this.harvest(v) * (this.knew(v, 'irrigacao') ? 1.1 : 1) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
+        this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * B.ERA_YIELD[Math.min(B.ERA_YIELD.length - 1, Math.floor(v.tech))] * this.harvest(v) * (this.knew(v, 'irrigacao') ? 1.1 : 1) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
       }
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
       // Roças desde a Idade da Pedra (uma para cada quatro casas; da Idade do Bronze em diante, uma para cada duas).
       // Só planta o que os agricultores dão conta (mais uma); roça sem ninguém para trabalhar volta a ser campo.
       // No máximo maxFieldsOf(nível) roças no mapa (pedido do Joab: até 5 na metrópole).
       const hands = Math.ceil((workers[v.id]?.[ROLE.farmer] ?? 0) * (v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5)) + 1;
-      const room = Math.min(maxFieldsOf(v.tier), Math.ceil(hands / B.FIELD_HANDS) + 1);
+      const room = Math.min(maxFieldsOf(v.tier), Math.ceil(hands / this.fieldHands(v)) + 1);
       if (v.fields < Math.min(room, homes / (Math.floor(v.tech) >= 1 ? 2 : 4)) && (v.population >= 6 || v.tech >= 0.12) && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
       else if (v.fields > room && happens(this.civRnd, B.FIELD_FALLOW_RATE, dt / YEAR_SECONDS)) this.dropField(v);
       // De vez em quando aparece um andarilho do mesmo povo, mais fácil quando o lugar tem pouca gente.
