@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { seedFor } from '../../core/rng';
 import {
   BIOME_NAMES,
+  Boundary,
+  BOUNDARY_NAMES,
   classify,
   paintSurface,
   paintTile,
@@ -26,6 +28,7 @@ import { SoftRenderer, type GameRenderer } from '../renderer';
 import type { GameState } from '../state';
 import { BODY_NAMES, makeDecorCanvas, ROLE_NAMES, ROLES, SPRITES } from './art';
 import { generateSurfaceAsync } from './generateAsync';
+import { BOUNDARY_COLORS, GEO_VIEWS, paintGeoTile, paintGeoView, type GeoView } from '../../procgen/debugViews';
 import { SoftArt } from './softArt';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 import { animalStage, DEATH_TEXT, familyName, personName } from '../../sim/people';
@@ -345,6 +348,8 @@ export class SurfaceMode {
   private showTerritory = true;
   /** Camada das áreas coloridas: reinos, vocação ou economia (RF-VIDA-287). */
   private layer: 'kingdoms' | 'vocation' | 'economy' = 'kingdoms';
+  /** Visão de depuração do gerador (placas, altitude, T, H, biomas) no lugar do mapa normal. */
+  private geoView: GeoView = 'none';
   private lastMini = 0;
   private miniBase: HTMLCanvasElement | null = null;
   private textureChanged = true;
@@ -652,16 +657,30 @@ export class SurfaceMode {
 
   private repaint(i: number): void {
     this.map.biome[i] = classify(this.map, i);
-    paintTile(this.map, this.pixels, i);
+    if (this.geoView !== 'none') paintGeoTile(this.map, this.geoView, this.pixels, i);
+    else paintTile(this.map, this.pixels, i);
     if (this.eco.road[i] || this.eco.built[i]) this.paintSettlement(i);
     this.softArt?.invalidate(i);
     this.mapVersion++;
     this.textureChanged = true;
   }
 
+  /** Troca a visão do mapa (normal ou uma etapa do gerador) e repinta tudo. */
+  private setGeoView(view: GeoView): void {
+    this.geoView = view;
+    if (view === 'none') {
+      paintSurface(this.map, this.pixels);
+      for (let i = 0; i < this.eco.road.length; i++) if (this.eco.road[i] || this.eco.built[i]) this.paintSettlement(i);
+    } else paintGeoView(this.map, view, this.pixels);
+    // A arte detalhada guarda blocos pintados; recomeça do zero com os pixels novos.
+    this.softArt = null;
+    this.mapVersion++;
+    this.textureChanged = true;
+  }
+
   /** Ruas, praça e terreno das casas por cima do terreno, sem enfeites. */
   private paintSettlement(i: number): void {
-    if (!isLand(this.map, i)) return;
+    if (this.geoView !== 'none' || !isLand(this.map, i)) return;
     const o = i * 4;
     const px = this.pixels;
     const road = this.eco.road[i];
@@ -1237,6 +1256,7 @@ export class SurfaceMode {
       this.showTerritory = true;
       this.lastView = '';
     }
+    else if (opt.startsWith('geo:')) this.setGeoView(opt.slice(4) as GeoView);
     else if (opt === 'now') this.surprise();
     this.lastWinHtml = '';
     this.lastPanelHtml = '';
@@ -1498,8 +1518,47 @@ export class SurfaceMode {
       <div class="wb-section">Camada do mapa</div>
       <div class="wb-filters">${[['kingdoms', 'Reinos'], ['vocation', 'Vocação'], ['economy', 'Economia']].map(([k, l]) => `<button data-opt="layer:${k}" class="${on(this.layer === k)}">${l}</button>`).join('')}</div>
       <div class="wb-note">${this.layer === 'vocation' ? Object.entries(VOCATION_NAMES).map(([k, n]) => `<span style="color:rgb(${VOCATION_COLORS[k as keyof typeof VOCATION_COLORS].join(',')})">■</span> ${VOCATION_ICONS[k as keyof typeof VOCATION_ICONS]} ${n}`).join(' · ') : this.layer === 'economy' ? 'Verde: necessidades atendidas e estoque cheio · amarelo: apertado · vermelho: em crise.' : 'Cada reino com a sua cor; capitais com linha cheia.'}</div>
+      <div class="wb-section">Geologia e clima (depuração do gerador)</div>
+      <div class="wb-filters">${GEO_VIEWS.map(([k, l]) => `<button data-opt="geo:${k}" class="${on(this.geoView === k)}">${l}</button>`).join('')}</div>
+      <div class="wb-note">${this.geoNote()}</div>
       <div class="wb-section">Atalhos</div>
       <div class="wb-note">Espaço pausa · 1 a 5 mudam a velocidade · C crônica · R reinos · E espécies · I itens · Esc fecha a janela ou volta à órbita.</div>`;
+  }
+
+  /** Placa, limite e tensão sísmica de um tile, para a ficha do lugar. */
+  private plateInfo(i: number): string {
+    const map = this.map;
+    if (!map.plates || !map.plate) return '';
+    const k = map.plate[i];
+    const p = map.plates[k];
+    const b = (map.boundary?.[i] ?? Boundary.None) as Boundary;
+    const stress = Math.round(((map.stress?.[i] ?? 0) / 255) * 100);
+    return `<span>Placa ${k + 1} (${p.continental ? 'continental' : 'oceânica'}) · ${BOUNDARY_NAMES[b]}${stress ? ` · tensão ${stress}%` : ''}</span>`;
+  }
+
+  /** Legenda da visão de depuração aberta. */
+  private geoNote(): string {
+    const swatch = (c: readonly number[]) => `<span style="color:rgb(${c.join(',')})">■</span>`;
+    switch (this.geoView) {
+      case 'plates': {
+        const plates = this.map.plates ?? [];
+        const cont = plates.filter((p) => p.continental).length;
+        const kinds = [Boundary.Convergent, Boundary.Subduction, Boundary.Divergent, Boundary.Transform].map((b) => `${swatch(BOUNDARY_COLORS[b])} ${BOUNDARY_NAMES[b]}`).join(' · ');
+        return plates.length
+          ? `${plates.length} placas (${cont} continentais, claras; ${plates.length - cont} oceânicas, escuras). Setas: direção e velocidade. Vermelho por cima: tensão sísmica. Bordas: ${kinds}.`
+          : 'Este mundo foi salvo antes das placas tectônicas: não há placas para mostrar.';
+      }
+      case 'elevation':
+        return 'Altitude: azul escuro nas fossas, azul claro na plataforma, verde nas planícies, marrom nas serras e branco nos picos.';
+      case 'temperature':
+        return 'Temperatura normalizada (T) da matriz de Whittaker: azul a -20 °C, branco perto de 10 °C, vermelho a 40 °C. Latitude, altitude e frentes climáticas.';
+      case 'humidity':
+        return 'Umidade (H) na terra: marrom seco, verde médio, azul encharcado. Costas úmidas, interior seco e sombra de chuva atrás das cordilheiras.';
+      case 'biomes':
+        return 'Bioma final de cada tile em cor chapada, sem relevo, enfeites nem construções.';
+      default:
+        return 'Mostra cada etapa do gerador: placas → altitude → temperatura e umidade → bioma.';
+    }
   }
 
   private lastW = 0;
@@ -2753,7 +2812,7 @@ export class SurfaceMode {
           <span>Altitude ${(this.map.elevation[i] * 100).toFixed(0)}</span>
           <span>Temperatura ${(t - 273.15).toFixed(0)} °C</span>
           <span>Umidade ${(this.map.moisture[i] * 100).toFixed(0)}%</span>
-          <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>`;
+          <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>${this.plateInfo(i)}`;
       }
     }
     el.hidden = false;

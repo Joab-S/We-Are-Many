@@ -2,7 +2,7 @@ import { mulberry32 } from '../core/rng';
 import * as B from './balance';
 import { binomial, happens, ouStep, streams } from './stochastic';
 import * as P from './progress';
-import { Biome, classify, Decor, decorAt, isTree, temperatureAt, vegetationCap, type SurfaceMap } from '../procgen/surface';
+import { Biome, classify, Decor, decorAt, isForestBiome, isRockyBiome, isTree, temperatureAt, vegetationCap, type SurfaceMap } from '../procgen/surface';
 import {
   WONDER_NAMES,
   buildCost,
@@ -1960,7 +1960,7 @@ export class Ecosystem {
       if (this.map.elevation[t] > 0.3 || b === Biome.Rock || b === Biome.Mountain) hills++;
       if (temperatureAt(this.map, t) < B.COLD_K) cold++;
       if (m < 0.35) dry++;
-      if (b === Biome.Forest || b === Biome.Jungle || veg > 0.6) forest++;
+      if (isForestBiome(b) || veg > 0.6) forest++;
     }
     n = Math.max(1, n);
     let deposits = 0;
@@ -3433,8 +3433,8 @@ export class Ecosystem {
         if (t < 0 || !isLand(this.map, t)) continue;
         n++;
         const b = this.map.biome[t] as Biome;
-        if (b === Biome.Rock || b === Biome.Mountain || this.map.elevation[t] > 0.45) rock++;
-        if (b === Biome.Forest || b === Biome.Jungle) forest++;
+        if (isRockyBiome(b) || this.map.elevation[t] > 0.45) rock++;
+        if (isForestBiome(b)) forest++;
         if (b === Biome.Desert) desert++;
         if (b === Biome.Snow || b === Biome.Tundra || temperatureAt(this.map, t) < 268) cold++;
       }
@@ -4825,7 +4825,7 @@ export class Ecosystem {
       if (t < 0) continue;
       veg += this.map.vegetation[t];
       const b = this.map.biome[t] as Biome;
-      if (b === Biome.Rock || b === Biome.Mountain || this.map.elevation[t] > 0.35) rock = true;
+      if (isRockyBiome(b) || this.map.elevation[t] > 0.35) rock = true;
     }
     v.forest = veg / 40;
     v.rock = rock;
@@ -5416,14 +5416,14 @@ export class Ecosystem {
     if (!isLand(map, t)) return 0;
     const b = map.biome[t] as Biome;
     if (b === Biome.Snow || b === Biome.Ice || b === Biome.Lava) return 0;
-    const total = b === Biome.Rock || b === Biome.Mountain ? B.STONE_ROCK : map.elevation[t] > 0.35 ? B.STONE_HILL : B.STONE_FIELD;
+    const total = isRockyBiome(b) ? B.STONE_ROCK : map.elevation[t] > 0.35 ? B.STONE_HILL : B.STONE_FIELD;
     return Math.max(0, total - this.stoneTaken[t]);
   }
 
   /** Quanto rende o trabalho num tile: rocha inteira, colina um pouco menos, pedra solta bem menos. */
   private stoneRate(t: number): number {
     const b = this.map.biome[t] as Biome;
-    return b === Biome.Rock || b === Biome.Mountain ? 1 : this.map.elevation[t] > 0.35 ? 0.7 : B.FIELD_STONE_RATE;
+    return isRockyBiome(b) ? 1 : this.map.elevation[t] > 0.35 ? 0.7 : B.FIELD_STONE_RATE;
   }
 
   /** Tiles com pedra ao alcance, do que mais rende (rocha perto) para o que menos rende. */
@@ -8313,9 +8313,9 @@ export class Ecosystem {
         if (t < 0 || !isLand(this.map, t)) continue;
         n++;
         const b = this.map.biome[t] as Biome;
-        if (b === Biome.Jungle) jungle++;
+        if (b === Biome.Jungle || b === Biome.Mangrove) jungle++;
         if (b === Biome.Savanna) savanna++;
-        if (b === Biome.Forest || b === Biome.Jungle) forest++;
+        if (isForestBiome(b)) forest++;
         if (b === Biome.Desert || b === Biome.Beach || b === Biome.Barren) dry++;
         if (this.map.vegetation[t] > 0.45) fertile++;
         temp += temperatureAt(this.map, t);
