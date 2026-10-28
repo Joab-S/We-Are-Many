@@ -17,7 +17,8 @@ import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
 import { CATEGORIES, ITEMS, MATERIALS } from '../../sim/items';
 import { CHILD } from '../../sim/roles';
-import { bestCraft, curiosityOf, TECH_BY_ID } from '../../sim/progress';
+import { bestCraft, TECH_BY_ID } from '../../sim/progress';
+import { notable } from '../../ai/traits';
 import { TIER_NAMES } from '../../sim/settlement';
 import { earthCatalog, EARTH_ID, habitatOf, nativeSpecies, type Species } from '../../sim/species';
 import { Input } from '../input';
@@ -2618,9 +2619,22 @@ export class SurfaceMode {
     // Quem descobriu uma técnica e ainda a ensina, a curiosidade e o ofício em que tem mais jeito (RF-VIDA-419 e 420).
     const teaching = v?.pendingTech?.uid === eco.uid[i] ? v.pendingTech : null;
     const teachName = teaching ? (TECH_BY_ID[teaching.id]?.name ?? teaching.id) : '';
-    const traits = v && role !== CHILD
-      ? [curiosityOf(eco.uid[i]) >= 1.4 ? '💡 mente curiosa' : '', `⭐ jeito para ${ROLE_NAMES[ROLES[bestCraft(eco.uid[i])]].toLowerCase()}`].filter(Boolean).join(' · ')
+    // Personalidade (IA local, src/ai/traits.ts): os traços marcantes, e o ofício em que tem mais jeito.
+    const marks = notable(eco.traits, i).map((t) => `${t.icon} ${t.label}`);
+    const traits = v ? [...marks, role !== CHILD ? `⭐ jeito para ${ROLE_NAMES[ROLES[bestCraft(eco.uid[i])]].toLowerCase()}` : ''].filter(Boolean).join(' · ') : '';
+    // Laços (IA local, relações): cônjuge, amigos e rivais, clicáveis para seguir de uma pessoa a outra.
+    const ties = v ? eco.tiesOf(i) : null;
+    const some = (list: number[]) => `${list.slice(0, 3).map(person).join(', ')}${list.length > 3 ? ` e mais ${list.length - 3}` : ''}`;
+    const tieLine = ties
+      ? [
+          ties.partner >= 0 ? `💞 casado(a) com ${person(ties.partner)}` : '',
+          ties.friends.length ? `🤝 amigos: ${some(ties.friends)}` : '',
+          ties.rivals.length ? `😠 rivais: ${some(ties.rivals)}` : '',
+        ].filter(Boolean).join(' · ')
       : '';
+    // O que a pessoa decidiu e por quê, do mais novo para o mais antigo (src/ai/trace.ts).
+    const diary = (eco.diary.get(eco.uid[i]) ?? []).slice(-4).reverse();
+    const thoughts = diary.map((t) => `<span class="wb-dim">Ano ${t.year}: ${t.text}</span>`).join('');
     return `
       <b>${name}</b>
       <span>${sp.name} · ${job}</span>
@@ -2632,6 +2646,8 @@ export class SurfaceMode {
       ${carry ? `<span>Leva ${carry}</span>` : ''}
       ${teaching ? `<span class="wb-line">📜 Ensinando ${teachName} ${bar(teaching.progress, `${Math.round(teaching.progress * 100)}%`, 'good')}</span>` : ''}
       ${traits ? `<span>${traits}</span>` : ''}
+      ${tieLine ? `<span>${tieLine}</span>` : ''}
+      ${thoughts}
       ${story ? `<span class="wb-dim">${story[0].toUpperCase()}${story.slice(1)}.</span>` : ''}
       ${follow}`;
   }

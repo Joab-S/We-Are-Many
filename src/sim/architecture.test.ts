@@ -52,7 +52,9 @@ describe('arquitetura que acompanha a era (19.8)', () => {
       expect(avenue).toBeGreaterThan(0);
     }
     // Era nova: casas antigas continuam de pé e vão sendo trocadas aos poucos.
-    const v = live.sort((a, b) => b.houses.length - a.houses.length)[0];
+    // Lugar com canteiro livre: obra parada por falta de lenha não diz nada sobre a troca de estilo.
+    const idle = live.filter((o) => o.houses.every((h) => !((h.labor ?? 0) > 0)));
+    const v = (idle.length ? idle : live).sort((a, b) => b.houses.length - a.houses.length)[0];
     v.tech = Math.floor(v.tech) + 1.01;
     v.stock.wood = v.stock.stone = v.stock.brick = 200;
     const old = () => v.houses.filter((h) => h.kind === 'house' && (h.era ?? 99) < Math.floor(v.tech)).length;

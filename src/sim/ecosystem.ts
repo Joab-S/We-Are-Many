@@ -24,7 +24,14 @@ import {
 } from './economy';
 import { yearlyEvents } from './events';
 import { pickItem, pickPrimitive, TIER_MATERIAL, type Category, type Material } from './items';
-import { CHILD, pickRole, ROLE, ROLES, type RoleContext } from './roles';
+import { CHILD, pickRole, ROLE, ROLE_NAMES, ROLES, roleWeights, type Role, type RoleContext } from './roles';
+import { inheritTraits, randomTraits, TRAIT, TRAIT_COUNT } from '../ai/traits';
+import { chooseProfession, needDemand, professionReason, switchWill, type ProfessionContext } from '../ai/decisions/work';
+import { remember, type Thought, type ThoughtKind } from '../ai/trace';
+import { BOND, forget, partnerOf, type Bond } from '../ai/relations';
+import { socialYear, type Resident } from '../ai/decisions/social';
+import { LEADER, SOCIAL } from '../ai/tuning';
+import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../ai/decisions/leader';
 import { completeness, missingText, planItems, type PlanItem } from './plan';
 import { AVENUE, GRAVEL, isStreet, mainStreets, pickMaterial, type BuildMaterial } from './architecture';
 import {
@@ -417,6 +424,8 @@ export interface Village {
   fields: number;
   /** Índice da criatura que lidera o assentamento, ou -1. */
   leader: number;
+  /** `uid` do líder atual, para achar o herdeiro quando ele morre (IA local). */
+  leaderUid?: number;
   /** Nível: 0 aldeia, 1 vila, 2 cidade (TIER_NAMES). */
   tier: number;
   /** Id do assentamento capital do reino a que pertence (o próprio, se independente). */
@@ -467,6 +476,8 @@ export interface Village {
   badYears?: number;
   /** Atendimento das necessidades, de 0 a 1 (RF-VIDA-210), e estabilidade (RF-VIDA-280). */
   needs?: Needs;
+  /** Parte dos moradores que comeu bem no ano que passou (sem contar o celeiro): a fome de verdade, para filhos e mudanças. */
+  fedShare?: number;
   stability?: number;
   /** Rebanho domesticado e os cercados de pasto (canto 2x2 de cada um, RF-VIDA-215). */
   herd?: Herd;
@@ -553,6 +564,8 @@ export interface Identity {
   bornAt: number;
   bornYear: number;
   movedAt: number;
+  /** Traços de personalidade (IA local); saves antigos não têm. */
+  traits?: Int8Array;
 }
 
 /** Uma morte recente, para o aviso de quem estava sendo seguido (RF-VIDA-333). */
@@ -677,6 +690,19 @@ export class Ecosystem {
   jobWork = new Float32Array(0);
   /** Segundos que o indivíduo anda sem chegar ao alvo da ordem. */
   jobWait = new Float32Array(0);
+  /**
+   * IA local das pessoas (src/ai): TRAIT_COUNT traços de −10 a 10 por indivíduo (inteligentes; bichos ficam em 0)
+   * e o diário curto das decisões de cada um, pelo `uid`.
+   */
+  traits = new Int8Array(0);
+  readonly diary = new Map<number, Thought[]>();
+  /** Laços de cada pessoa com outras (amizade, casamento, rivalidade), pelo `uid` (src/ai/relations.ts). */
+  readonly bonds = new Map<number, Bond[]>();
+  /** Ofícios de cada assentamento no último ano (índice em ROLES), para a IA saber o que já está cheio. */
+  private roleCount = new Map<number, number[]>();
+  /** Cache de `uid` -> índice, refeito uma vez por ano (vai no save junto com o ano, então volta coerente). */
+  private readonly uidIndex = new Map<number, number>();
+  private uidYear = -1;
   /** Tiles que ninguém alcançou, e o ano até o qual saem do quadro de serviços. */
   private readonly jobBlocked = new Map<number, number>();
   /** Obra que cada construtor atende (cache; se faltar, é refeito pelo tile da ordem). */
@@ -787,6 +813,12 @@ export class Ecosystem {
     greedWars: 0,
     exodus: 0,
     migrants: 0,
+    familyMoves: 0,
+    supplied: 0,
+    // IA local: casamentos e brigas no mundo.
+    marriages: 0,
+    fights: 0,
+    exodusFuel: 0,
     // Etapa F: guerras por motivo, o máximo ao mesmo tempo, e o que elas deixaram.
     lootWars: 0,
     landWars: 0,
@@ -834,6 +866,8 @@ export class Ecosystem {
   private readonly worldRnd: () => number;
   /** Sorteios do clima do ano. */
   private readonly climateRnd: () => number;
+  /** Sorteios da IA das pessoas: traços, herança e escolhas (fluxo próprio, para não mexer nos outros). */
+  private readonly mindRnd: () => number;
   private gridHead = new Int32Array(0);
   private gridNext = new Int32Array(0);
   private cols: number;
@@ -854,6 +888,7 @@ export class Ecosystem {
     this.polRnd = rng.politica;
     this.worldRnd = rng.mundo;
     this.climateRnd = rng.clima;
+    this.mindRnd = rng.mente;
     this.road = new Uint8Array(map.width * map.height);
     this.traffic = new Uint16Array(map.width * map.height);
     this.trafficEra = new Uint8Array(map.width * map.height);
@@ -1109,6 +1144,9 @@ export class Ecosystem {
     this.job = copy(this.job, (n) => new Int32Array(n));
     this.jobWork = copy(this.jobWork, (n) => new Float32Array(n));
     this.jobWait = copy(this.jobWait, (n) => new Float32Array(n));
+    const traits = new Int8Array(capacity * TRAIT_COUNT);
+    traits.set(this.traits);
+    this.traits = traits;
     // A grade pode estar em uso no meio de um passo: copiar, nunca zerar (zeros criariam um laço infinito).
     const next = new Int32Array(capacity).fill(-1);
     next.set(this.gridNext);
@@ -1186,6 +1224,8 @@ export class Ecosystem {
       else vital.arrived++;
       this.role[i] = age < this.species[s].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.rnd(), this.roleContext(v));
     }
+    if (this.species[s].kind === 'sapient') randomTraits(this.traits, i, this.mindRnd, village >= 0 ? this.villages[village].culture.value : undefined);
+    else this.traits.fill(0, i * TRAIT_COUNT, (i + 1) * TRAIT_COUNT);
     return i;
   }
 
@@ -1203,6 +1243,8 @@ export class Ecosystem {
     this.alive[i] = 0;
     const s = this.kind[i];
     if (cause !== 'partiu') {
+      this.diary.delete(this.uid[i]);
+      this.mourn(i);
       this.deaths.unshift({ uid: this.uid[i], cause, age: this.age[i], x: this.x[i], y: this.y[i] });
       if (this.deaths.length > 64) this.deaths.pop();
     }
@@ -1357,51 +1399,159 @@ export class Ecosystem {
   }
 
   /**
-   * Migração interna (RF-VIDA-281): de um assentamento apertado, com fome ou sem lenha, gente
-   * muda para um vizinho do mesmo povo e espécie com lugar e comida sobrando, a até 60 tiles e
-   * alcançável a pé. Na falta (seção 19.19) saem até SCARCITY_MOVERS por ano; sem vizinho, depois
-   * de alguns anos de falta, parte do povo sai para fundar outro lugar (êxodo).
+   * Nota de um assentamento como lugar para morar (evolução dos povos, etapa 2): comida, casa sobrando,
+   * o tamanho (mais ofícios, mercado e proteção: as luzes da cidade), a guerra e a estabilidade.
+   * Quem decide compara a nota do próprio lugar com a dos outros que conhece (`migrate`).
+   */
+  placeScore(o: Village): number {
+    const n = o.needs;
+    // Comida: quem come bem lá, e um pouco o celeiro.
+    const food = 0.75 * (o.fedShare ?? 1) + 0.25 * Math.min(1, o.food / Math.max(1, o.population * B.CONSUME_FOOD));
+    const fuel = n?.fuel ?? 1;
+    const free = this.housing(o) - o.population;
+    const room = Math.max(-1, Math.min(1, free / (3 + o.population * 0.15)));
+    const size = B.MOVE_CITY_PULL * Math.log2(1 + o.population / 20) + B.MOVE_TIER_PULL * o.tier;
+    const war = this.warOf(o.kingdom) ? B.MOVE_WAR : 0;
+    return B.MOVE_FOOD * food + B.MOVE_FUEL * Math.min(1, fuel / 0.8) + B.MOVE_ROOM * room + size + B.MOVE_STABLE * (o.stability ?? 1) - war;
+  }
+
+  /**
+   * Migração por nota (evolução dos povos, etapa 2; antes RF-VIDA-281): uma vez por ano, cada família de
+   * cada assentamento pensa em se mudar com chance MOVE_THINK (bem mais na falta) e compara a nota de onde
+   * mora (com o apego ao lugar) com a dos lugares do seu povo que conhece, descontada a distância e a
+   * diferença de povo e de reino. Escolhe entre as melhores com sorteio ponderado, então duas famílias no
+   * mesmo aperto podem decidir diferente. Na falta, sem lugar melhor por perto, parte do povo sai para
+   * fundar outro lugar (êxodo), como antes; agora isso só acontece quando nenhum lugar conhecido é melhor.
    */
   private migrate(): void {
-    for (const v of this.villages) {
-      if (v.abandoned || v.population < 6) continue;
-      const tight = v.population > this.housing(v) - 1;
+    const live = this.villages.filter((o) => !o.abandoned && o.population > 0);
+    const score = new Map<Village, number>();
+    for (const o of live) score.set(o, this.placeScore(o));
+    // Famílias de cada assentamento: cada adulto com os filhos ainda crianças que moram no mesmo lugar.
+    const families = new Map<number, Map<number, number[]>>();
+    const here = new Map<number, number>();
+    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] >= 0) here.set(this.uid[i], i);
+    for (let i = 0; i < this.count; i++) {
+      const vid = this.village[i];
+      if (vid < 0 || !this.alive[i] || this.species[this.kind[i]].kind !== 'sapient') continue;
+      // Casal mora junto e se muda junto (IA local, relações): a família é a do menor `uid` do casal.
+      const head = (k: number) => {
+        const mate = partnerOf(this.bonds, this.uid[k]);
+        const m = mate ? here.get(mate) : undefined;
+        return m !== undefined && this.village[m] === this.village[k] ? Math.min(this.uid[k], mate) : this.uid[k];
+      };
+      const p = this.role[i] === CHILD ? here.get(this.parent[i]) : undefined;
+      const key = p !== undefined && this.village[p] === vid && this.role[p] !== CHILD ? head(p) : head(i);
+      let fams = families.get(vid);
+      if (!fams) families.set(vid, (fams = new Map()));
+      const list = fams.get(key);
+      if (list) list.push(i);
+      else fams.set(key, [i]);
+    }
+    for (const v of live) {
+      const fams = families.get(v.id);
+      if (!fams || v.population < 2) continue;
       const lack = this.scarcity(v);
-      if (!(tight || lack > 0) || !happens(this.civRnd, B.MIGRATION_RATE * (1 + 2 * lack), 1)) continue;
-      let best: Village | null = null;
-      let bd = 60;
-      for (const o of this.villages) {
-        if (o === v || o.abandoned || o.species !== v.species || o.culture !== v.culture) continue;
-        if (this.housing(o) - o.population < 3 || this.scarcity(o) > 0) continue;
+      const stay = (score.get(v) ?? 0) + B.MOVE_STAY;
+      const reach = B.MOVE_RANGE + B.MOVE_RANGE_ERA * Math.floor(v.tech);
+      // Lugares conhecidos: do mesmo povo e espécie, a pé, com nota de quem já mora lá menos a viagem e a diferença.
+      const options: { o: Village; value: number }[] = [];
+      for (const o of live) {
+        if (o === v || o.species !== v.species) continue;
         const d = this.distance(o, v.x, v.y);
-        if (d < bd && this.landPath(v.x, v.y, o.x, o.y)) {
-          bd = d;
-          best = o;
+        if (d > reach) continue;
+        const foreign = o.culture !== v.culture ? B.MOVE_FOREIGN : o.kingdom !== v.kingdom ? B.MOVE_OTHER_KINGDOM : 0;
+        options.push({ o, value: (score.get(o) ?? 0) - d / B.MOVE_DIST - foreign });
+      }
+      options.sort((p, q) => q.value - p.value);
+      // Anos de falta (êxodo): sem o apego, vale qualquer lugar conhecido melhor que este e que não esteja em falta;
+      // sem nenhum, parte do povo vai fundar outro lugar (fronteira).
+      const exodus = lack > 0 && (v.want ?? 0) >= 3 && v.population >= 10;
+      const here = score.get(v) ?? 0;
+      const better = options.filter((c) => (exodus ? c.value > here && this.scarcity(c.o) === 0 : c.value > stay)).slice(0, 4);
+      const reachable = better.filter((c) => this.landPath(v.x, v.y, c.o.x, c.o.y));
+      const think = exodus ? B.EXODUS_SHARE : Math.min(0.9, B.MOVE_THINK * (1 + B.MOVE_LACK * lack));
+      const leader = v.leader;
+      let movedAny = 0;
+      let to: Village | null = null;
+      if (reachable.length) {
+        for (const members of fams.values()) {
+          if (members.includes(leader) || !happens(this.civRnd, think, 1)) continue;
+          // Sorteio ponderado entre ficar e as opções: quanto maior a vantagem, mais provável (no êxodo, ficar não conta).
+          const base = exodus ? here : stay;
+          let total = exodus ? 0 : 1;
+          const weights = reachable.map((c) => {
+            const w = Math.exp((c.value - base) / B.MOVE_TEMPER) - 1;
+            total += w;
+            return w;
+          });
+          let r = this.civRnd() * total - (exodus ? 0 : 1);
+          if (r < 0) continue;
+          let pick = reachable[0];
+          for (let k = 0; k < reachable.length; k++) {
+            r -= weights[k];
+            if (r <= 0) {
+              pick = reachable[k];
+              break;
+            }
+          }
+          const dest = pick.o;
+          if (dest.abandoned) continue;
+          for (const i of members) this.relocate(i, v, dest);
+          movedAny += members.length;
+          this.tally.familyMoves++;
+          to = dest;
+          if (v.population <= 0) break;
         }
       }
-      const why = lack > 0 ? ((v.needs?.food ?? 1) <= (v.needs?.fuel ?? 1) ? 'comida' : 'lenha') : 'lugar';
-      if (!best) {
-        // Êxodo: anos de falta sem vizinho para onde ir; parte do povo sai para fundar outro lugar.
-        if (lack > 0 && (v.want ?? 0) >= 3 && v.population >= 10 && v.tier >= 0 && this.colonizeByLand(v)) {
-          this.note(`Sem ${why}, parte do povo de ${v.name} partiu para longe`, 'povo', v, { key: `exodus-${v.id}` });
-          v.want = 0;
-          this.tally.exodus++;
-        }
+      if (movedAny && to) {
+        const why = lack > 0 ? this.lackName(v) : to.tier > v.tier ? 'trabalho na cidade' : 'uma vida melhor';
+        this.note(`Famílias de ${v.name} se mudaram para ${to.name} em busca de ${why}`, 'povo', to, { key: `migra-${v.id}-${to.id}` });
+        if (exodus) v.want = 0;
         continue;
       }
-      const movers = lack > 0 ? Math.max(1, Math.round(B.SCARCITY_MOVERS * lack)) : 1;
-      let moved = 0;
-      for (let i = 0; i < this.count && moved < movers; i++) {
-        if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD) continue;
-        v.population--;
-        this.village[i] = -1;
-        (v.vitalNow ??= emptyVital()).left++;
-        this.join(i, best);
-        moved++;
-        this.tally.migrants++;
+      // Êxodo sem lugar conhecido ao alcance: parte do povo sai para fundar outro lugar.
+      if (exodus && !reachable.length && this.colonizeByLand(v)) {
+        const why = this.lackName(v);
+        this.note(`Sem ${why}, parte do povo de ${v.name} partiu para longe`, 'povo', v, { key: `exodus-${v.id}` });
+        v.want = 0;
+        this.tally.exodus++;
+        if (why === 'lenha') this.tally.exodusFuel++;
       }
-      if (moved) this.note(`Gente de ${v.name} se mudou para ${best.name} em busca de ${why}`, 'povo', best, { key: `migra-${v.id}-${best.id}` });
     }
+  }
+
+  /** O que mais falta no assentamento em falta: comida (gente com fome) ou lenha. */
+  private lackName(v: Village): 'comida' | 'lenha' {
+    const food = B.HUNGER_LEVEL - (v.fedShare ?? v.needs?.food ?? 1);
+    const fuel = (B.SCARCITY_LEVEL - (v.needs?.fuel ?? 1)) * (B.HUNGER_LEVEL / B.SCARCITY_LEVEL);
+    return food >= fuel ? 'comida' : 'lenha';
+  }
+
+  /** Muda a criatura `i` de `from` para `to`: chega pela borda do destino e vai andando até a praça. */
+  private relocate(i: number, from: Village, to: Village): void {
+    from.population--;
+    (from.vitalNow ??= emptyVital()).left++;
+    this.village[i] = -1;
+    const w = this.map.width;
+    for (let t = 0; t < 8; t++) {
+      const a = this.civRnd() * Math.PI * 2;
+      const d = this.radius(to) + 1 + this.civRnd() * 2;
+      const x = to.x + Math.cos(a) * d;
+      const y = to.y + Math.sin(a) * d;
+      const tile = this.tileAt(x, Math.floor(y));
+      if (tile < 0 || !this.habitable(to.species, tile)) continue;
+      this.x[i] = ((x % w) + w) % w;
+      this.y[i] = y;
+      break;
+    }
+    if (this.role[i] === CHILD) {
+      this.village[i] = to.id;
+      this.movedAt[i] = this.year;
+      to.population++;
+      (to.vitalNow ??= emptyVital()).arrived++;
+    } else this.join(i, to);
+    this.tally.migrants++;
   }
 
   /**
@@ -1435,14 +1585,23 @@ export class Ecosystem {
    */
   private economyYear(): void {
     const people: number[][] = this.villages.map(() => []);
+    // Todos os moradores (crianças também), para a vida social do ano.
+    const residents: number[][] = this.villages.map(() => []);
     for (let i = 0; i < this.count; i++) {
       const v = this.village[i];
-      if (v >= 0 && this.alive[i] && this.role[i] !== CHILD) people[v].push(i);
+      if (v < 0 || !this.alive[i]) continue;
+      residents[v].push(i);
+      if (this.role[i] !== CHILD) people[v].push(i);
     }
+    this.roleCount.clear();
     for (const v of this.villages) {
       if (v.abandoned) continue;
+      const count = new Array<number>(ROLES.length).fill(0);
+      for (const i of people[v.id] ?? []) if (this.role[i] < ROLES.length) count[this.role[i]]++;
+      this.roleCount.set(v.id, count);
       this.updateNeeds(v, people[v.id]?.length ?? 0);
       this.updateStability(v);
+      this.socialize(v, residents[v.id]);
       this.shiftLabor(v, people[v.id] ?? []);
       this.updateVocation(v);
       this.updateHerd(v);
@@ -1501,7 +1660,8 @@ export class Ecosystem {
     const era = Math.floor(v.tech);
     if (v.wet === undefined) v.wet = this.nearWater(this.tileAt(v.x, Math.floor(v.y))) || this.coastal(v);
     const n = v.needs ?? fullNeeds();
-    n.food = 0.6 * ratio('_fed') + 0.4 * Math.min(1, v.food / (pop * B.CONSUME_FOOD));
+    v.fedShare = ratio('_fed');
+    n.food = 0.6 * v.fedShare + 0.4 * Math.min(1, v.food / (pop * B.CONSUME_FOOD));
     n.water = v.wet ? 1 : this.has(v, 'aqueduct') ? 1 : v.tier >= 3 ? 0.5 : era >= 1 ? 0.85 : 0.75;
     // Lenha para o fogo e madeira para consertar as casas (seção 19.19).
     const fuel = l['_fuel'] ?? [0, 0];
@@ -1570,9 +1730,17 @@ export class Ecosystem {
     if (space <= 0) return;
     let movers = Math.min(space, binomial(this.civRnd, adults.length, (crisis ? B.LABOR_CRISIS_SHIFT : B.LABOR_SHIFT) * (calm ? 0.15 : 1 - n[need])));
     if (movers <= 0) return;
-    // Quem tem mais jeito para o ofício que falta muda primeiro (RF-VIDA-420).
-    const apt = (i: number) => P.aptitudeOf(this.uid[i], target);
-    for (const i of [...adults].sort((a, b) => apt(b) - apt(a))) {
+    // Quem muda primeiro é decisão de cada um (IA local): o jeito para o ofício que falta, os traços que combinam
+    // com ele mais que com o atual, e a abertura para mudar (curiosos mudam, pacientes ficam). Antes: só o jeito (RF-VIDA-420).
+    const will = new Map<number, number>();
+    const now = Math.floor(this.year);
+    for (const i of adults) {
+      // Quem acabou de trocar de ofício reluta em trocar de novo (sem isso, alguns pulavam de ofício a cada 3 anos).
+      let last: number | undefined;
+      for (const t of this.diary.get(this.uid[i]) ?? []) if (t.kind === 'ofício') last = t.year;
+      will.set(i, switchWill(this.traits, i, ROLES[this.role[i]] as Role, role, P.aptitudeOf(this.uid[i], target), last === undefined ? Infinity : now - last));
+    }
+    for (const i of [...adults].sort((a, b) => will.get(b)! - will.get(a)!)) {
       if (movers <= 0) break;
       // Idosos não mudam de trabalho: já não trabalham.
       if (this.age[i] >= elderAge(this.species[this.kind[i]], Math.floor(v.tech))) continue;
@@ -1585,34 +1753,152 @@ export class Ecosystem {
       if ((from === 'soldier' || from === 'guard') && n[need] >= B.SEVERE_NEED) continue;
       if (!calm && sector && n[sector] < n[need] + 0.15) continue;
       if (calm && sector === need) continue;
+      if (from !== role) this.logThought(i, 'ofício', `Trocou ${ROLE_NAMES[from].toLowerCase()} por ${ROLE_NAMES[role].toLowerCase()}: ${calm ? 'é o forte do lugar' : `o lugar precisava de ${NEED_NAMES[need]}`}`);
       this.role[i] = target;
       movers--;
     }
   }
 
-  /** Profissão de quem vira adulto: o que mais falta no assentamento, ou o sorteio pela era (seção 19.19). */
-  private firstRole(v: Village, era: number): number {
+  /**
+   * Profissão de quem vira adulto, escolhida pela IA da pessoa (src/ai/decisions/work.ts): a falta no lugar,
+   * o que já está cheio, os traços, o jeito, o ofício dos pais e a vocação do lugar. Soldados e guardas
+   * continuam sendo chamados pelo líder, na mesma proporção do sorteio antigo.
+   */
+  private firstRole(v: Village, era: number, i: number): number {
+    const ctx = this.roleContext(v);
+    const weights = roleWeights(era, v.tier, ctx);
+    let total = 0;
+    let arms = 0;
+    for (const [r, w] of weights) {
+      total += w;
+      if (r === 'soldier' || r === 'guard') arms += w;
+    }
+    const draw = this.rnd();
+    if (draw * total < arms) {
+      let x = draw * total;
+      for (const [r, w] of weights) {
+        if (r !== 'soldier' && r !== 'guard') continue;
+        x -= w;
+        if (x <= 0) return ROLE[r];
+      }
+      return ROLE.soldier;
+    }
+    const pick = this.thinkProfession(v, i, weights);
+    return pick ?? pickRole(era, v.tier, this.rnd(), ctx);
+  }
+
+  /** Contexto e escolha do ofício pela IA; anota no diário. Devolve null se não houver ofício civil. */
+  private thinkProfession(v: Village, i: number, weights: [Role, number][], current?: Role): number | null {
+    const civil = weights.filter(([r]) => r !== 'soldier' && r !== 'guard');
+    if (!civil.length) return null;
+    let top = 0;
+    for (const [, w] of civil) top = Math.max(top, w);
+    const common = new Map(civil.map(([r, w]) => [r, w / top]));
     const n = v.needs;
-    const drawn = pickRole(era, v.tier, this.rnd(), this.roleContext(v));
-    // Quem foi chamado para as armas vai, com ou sem falta: o exército é escolha do líder.
-    if (drawn === ROLE.soldier || drawn === ROLE.guard) return drawn;
-    if (n) {
-      const need = worstNeed(n, v.vocation ? VOCATION_NEED[v.vocation] : undefined);
-      if (n[need] < B.CHILD_NEED && this.rnd() < 1 - n[need]) {
-        const role = roleFor(need, {
-          era,
-          fields: v.fields > 0,
-          port: v.port >= 0,
-          herd: !!v.herd && v.herd.head > 0,
-          loom: this.has(v, 'loom'),
-          pottery: this.has(v, 'pottery') && !!v.wet,
-          smithy: this.has(v, 'smithy'),
-          vocation: v.vocation,
-        });
-        if (!(role === 'fisher' && v.port < 0) && !(role === 'shepherd' && !(v.herd && v.herd.head > 0))) return ROLE[role];
+    const count = this.roleCount.get(v.id);
+    let adults = 0;
+    if (count) for (const c of count) adults += c;
+    const parentIdx = this.indexOfUid(this.parent[i]);
+    const parentRole = parentIdx >= 0 && this.role[parentIdx] !== CHILD ? ROLES[this.role[parentIdx]] : undefined;
+    const c: ProfessionContext = {
+      traits: this.traits,
+      i,
+      roles: civil.map(([r]) => r),
+      demand: (r) => {
+        const need = ROLE_NEED[r];
+        return need && n ? needDemand(n[need]) : 0;
+      },
+      share: (r) => (count && adults ? count[ROLE[r]] / adults : 0),
+      aptitude: (r) => P.aptitudeOf(this.uid[i], ROLE[r]),
+      common: (r) => common.get(r) ?? 0,
+      current,
+      parent: parentRole,
+      vocation: v.vocation ? VOCATION_ROLE[v.vocation] : undefined,
+    };
+    const choice = chooseProfession(c, this.mindRnd);
+    if (!choice) return null;
+    const role = choice.pick.action;
+    if (role !== current) {
+      const need = ROLE_NEED[role];
+      const verb = current ? `Trocou ${ROLE_NAMES[current].toLowerCase()} por` : 'Virou';
+      this.logThought(i, 'ofício', `${verb} ${ROLE_NAMES[role].toLowerCase()}: ${professionReason(c, role, need ? NEED_NAMES[need] : undefined)}`);
+    }
+    return ROLE[role];
+  }
+
+  /** Índice de quem tem esse `uid` (-1 se morreu ou não existe); o mapa é refeito uma vez por ano. */
+  private indexOfUid(uid: number): number {
+    if (!uid) return -1;
+    if (this.uidYear !== Math.floor(this.year)) {
+      this.uidYear = Math.floor(this.year);
+      this.uidIndex.clear();
+      for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidIndex.set(this.uid[k], k);
+    }
+    const k = this.uidIndex.get(uid);
+    return k !== undefined && this.alive[k] && this.uid[k] === uid ? k : -1;
+  }
+
+  /**
+   * Um ano de vida social no lugar (IA local, src/ai/decisions/social.ts): encontros, amizades, rivalidades,
+   * casamentos e brigas, anotados no diário de cada um. Crianças fazem amigos mas não casam.
+   */
+  private socialize(v: Village, here: number[]): void {
+    const people: Resident[] = [];
+    const index = new Map<number, number>();
+    const sp = this.species[v.species];
+    const elder = elderAge(sp, Math.floor(v.tech));
+    for (const i of here) {
+      people.push({ i, uid: this.uid[i], adult: this.role[i] !== CHILD && this.age[i] < elder });
+      index.set(this.uid[i], i);
+    }
+    const name = (uid: number) => personName(uid, v.culture.id);
+    for (const e of socialYear(this.traits, this.bonds, people, this.mindRnd)) {
+      const a = index.get(e.a);
+      const b = index.get(e.b);
+      if (a === undefined || b === undefined) continue;
+      if (e.text === 'brigaram') {
+        this.energy[a] = Math.max(0.05, this.energy[a] - SOCIAL.fightCost);
+        this.energy[b] = Math.max(0.05, this.energy[b] - SOCIAL.fightCost);
+        this.tally.fights++;
+      } else if (e.text === 'casaram') this.tally.marriages++;
+      const text: Record<typeof e.text, [string, string]> = {
+        amigos: ['Ficou amigo(a) de', 'Ficou amigo(a) de'],
+        rivais: ['Virou rival de', 'Virou rival de'],
+        casaram: ['Casou com', 'Casou com'],
+        brigaram: ['Brigou com', 'Brigou com'],
+      };
+      this.logThought(a, e.kind, `${text[e.text][0]} ${name(e.b)}`);
+      this.logThought(b, e.kind, `${text[e.text][1]} ${name(e.a)}`);
+    }
+  }
+
+  /** Quem morreu sai dos laços dos outros; o cônjuge fica livre para casar de novo e anota a perda. */
+  private mourn(i: number): void {
+    const me = this.uid[i];
+    const list = this.bonds.get(me);
+    if (!list) return;
+    for (const b of list) {
+      forget(this.bonds, b.uid, me);
+      if (b.kind === BOND.partner || (b.kind === BOND.friend && b.value >= SOCIAL.love)) {
+        const j = this.indexOfUid(b.uid);
+        const v = this.villages[this.village[i]];
+        if (j >= 0) this.logThought(j, b.kind === BOND.partner ? 'família' : 'amizade', `${b.kind === BOND.partner ? 'Perdeu o cônjuge' : 'Perdeu o melhor amigo'} ${personName(me, v?.culture.id ?? 0)}`);
       }
     }
-    return drawn;
+    this.bonds.delete(me);
+  }
+
+  /**
+   * Curiosidade para aprender e descobrir (de 0,3 a 1,8), pelo traço curiosidade da pessoa: a média fica
+   * perto da antiga `curiosityOf` (0,87), então o ritmo das descobertas do povo não muda, só quem descobre.
+   */
+  curiosity(i: number): number {
+    return Math.max(0.3, 0.87 + 0.09 * this.traits[i * TRAIT_COUNT + TRAIT.curiosity]);
+  }
+
+  /** Anota uma decisão no diário da pessoa (IA local, src/ai/trace.ts). */
+  logThought(i: number, kind: ThoughtKind, text: string): void {
+    remember(this.diary, this.uid[i], { year: Math.floor(this.year), kind, text });
   }
 
   /** Vocação que muda devagar quando a base acaba (RF-VIDA-222). */
@@ -1876,7 +2162,10 @@ export class Ecosystem {
   scarcity(v: Village): number {
     const n = v.needs;
     if (!n) return 0;
-    return Math.max(0, B.SCARCITY_LEVEL - Math.min(n.food, n.fuel)) / B.SCARCITY_LEVEL;
+    // Comida: conta quem passou fome de verdade (celeiro vazio com todo mundo comendo não é falta).
+    const food = Math.max(0, B.HUNGER_LEVEL - (v.fedShare ?? n.food)) / B.HUNGER_LEVEL;
+    const fuel = Math.max(0, B.SCARCITY_LEVEL - n.fuel) / B.SCARCITY_LEVEL;
+    return Math.max(food, fuel);
   }
 
   /** O que passou do teto se perde (sobra que não cabe no armazém). */
@@ -1910,6 +2199,21 @@ export class Ecosystem {
         for (const b of list) {
           if (a === b || this.distance(a, b.x, b.y) > B.HAUL_RANGE) continue;
           let moved = false;
+          // O campo abastece a cidade (evolução dos povos, etapa 2): aldeia ou vila do reino onde todos comem bem manda a
+          // comida que passa de meio ano de consumo para o lugar maior que não tem nem um ano guardado.
+          if (b.tier > a.tier && (a.fedShare ?? 0) >= B.SUPPLY_FED) {
+            const spare = a.food - a.population * B.CONSUME_FOOD * 0.5;
+            const room = b.population * B.CONSUME_FOOD - b.food;
+            const load = Math.min(B.HAUL_LOAD * 2, spare, room, this.capOf(b, 'food') - b.food);
+            if (load >= 1 && this.landPath(a.x, a.y, b.x, b.y)) {
+              a.food -= load;
+              b.food += load;
+              this.book(a, 'saiu', 0, load);
+              this.book(b, 'chegou', load, 0);
+              this.tally.supplied += load;
+              moved = true;
+            }
+          }
           for (const g of [...GOODS, 'food'] as (Good | 'food')[]) {
             const capA = this.capOf(a, g);
             const capB = this.capOf(b, g);
@@ -2236,7 +2540,7 @@ export class Ecosystem {
           e += 0.35;
         }
         // Crianças ganham uma profissão ao virar adultas.
-        if (v && this.role[i] === CHILD && this.age[i] >= sp.maturity) this.role[i] = this.firstRole(v, era);
+        if (v && this.role[i] === CHILD && this.age[i] >= sp.maturity) this.role[i] = this.firstRole(v, era, i);
         const elder = this.age[i] >= elderAge(sp, era);
         const working = this.role[i] !== CHILD && !elder;
         let bias: { x: number; y: number } | undefined = lone;
@@ -2341,19 +2645,28 @@ export class Ecosystem {
     const fertile = this.age[i] >= sp.maturity && (sp.kind !== 'sapient' || this.age[i] < elderAge(sp, era));
     // Necessidades mal atendidas freiam a natalidade dos inteligentes (RF-VIDA-210).
     const needs = v >= 0 ? this.villages[v].needs : undefined;
-    // Com pouca comida quase não nascem filhos (etapa 1 da evolução dos povos): o povo para de crescer antes de passar fome.
-    const fed = needs ? Math.min(1, Math.max(0.05, (needs.food - B.BIRTH_FOOD_MIN) / (B.BIRTH_FOOD_FULL - B.BIRTH_FOOD_MIN))) : 1;
-    const content = needs ? (0.5 + 0.5 * welfare(needs)) * fed : 1;
+    // Com gente passando fome quase não nascem filhos (evolução dos povos): o povo para de crescer antes de morrer de fome.
+    // Conta quem comeu bem, não o celeiro: celeiro vazio com todo mundo comendo não segura os nascimentos.
+    const share = v >= 0 ? this.villages[v].fedShare : undefined;
+    const fed = share !== undefined ? Math.min(1, Math.max(0.05, (share - B.BIRTH_FED_MIN) / (B.BIRTH_FED_FULL - B.BIRTH_FED_MIN))) : 1;
+    // Filhos vêm dos casais (IA local, relações): casado tem SOCIAL.coupleBirth, solteiro só SOCIAL.singleBirth.
+    const partner = sp.kind === 'sapient' ? partnerOf(this.bonds, this.uid[i]) : 0;
+    const couple = sp.kind !== 'sapient' ? 1 : partner ? SOCIAL.coupleBirth : SOCIAL.singleBirth;
+    const content = (needs ? (0.5 + 0.5 * welfare(needs)) * fed : 1) * couple;
     if (fertile && this.energy[i] > 0.65 && happens(this.rnd, b.birthRate * this.fertility(s, era) * content, dt)) {
       // Precisa de um parceiro adulto por perto (do mesmo assentamento, para os inteligentes).
       // Bichos acham o parceiro num raio maior (o cheiro e o chamado vão longe).
       let crowd = 0;
       let mates = 0;
+      let mate = -1;
       const reach = sp.kind === 'sapient' ? CELL : CELL * 1.5;
       this.forEachNear(this.x[i], this.y[i], reach, (j, dx, dy) => {
         if (this.kind[j] !== s) return;
         if (dx * dx + dy * dy <= CELL * CELL) crowd++;
-        if (j !== i && this.age[j] >= sp.maturity && (sp.kind !== 'sapient' || this.village[j] === v)) mates++;
+        if (j !== i && this.age[j] >= sp.maturity && (sp.kind !== 'sapient' || this.village[j] === v)) {
+          mates++;
+          mate = j;
+        }
       });
       if (!mates || (sp.kind === 'sapient' && v < 0)) return;
       // Casas de eras mais avançadas e com andares a mais abrigam mais gente (sobrados, prédios).
@@ -2365,6 +2678,10 @@ export class Ecosystem {
           this.energy[i] -= 0.3;
           this.parent[child] = this.uid[i];
           this.family[child] = this.family[i];
+          // Os filhos lembram os pais sem ser cópia (IA local: herança dos traços); o outro pai é o cônjuge, se houver.
+          const spouse = partner ? this.indexOfUid(partner) : -1;
+          if (spouse >= 0 && this.village[spouse] === v) mate = spouse;
+          if (sp.kind === 'sapient') inheritTraits(this.traits, child, i, mate, this.mindRnd, v >= 0 ? this.villages[v].culture.value : undefined);
         }
       }
     }
@@ -3422,13 +3739,33 @@ export class Ecosystem {
       v.leader = -1;
       return;
     }
-    // De preferência alguém que ainda não é idoso.
+    // O povo escolhe (IA local, src/ai/decisions/leader.ts): carisma, ambição, idade e amigos; num reino, o herdeiro.
     const sp = this.species[v.species];
-    const young = adults.filter((i) => this.age[i] < elderAge(sp, Math.floor(v.tech)));
-    const pool = young.length ? young : adults;
-    const pick = pool[Math.floor(this.civRnd() * pool.length)];
+    const elder = elderAge(sp, Math.floor(v.tech));
+    const old = v.leaderUid ?? 0;
+    const oldMate = old ? partnerOf(this.bonds, old) : 0;
+    const crown = v.kingdom === v.id && v.tier >= 2;
+    const cands: Candidate[] = adults.map((i) => {
+      let friends = 0;
+      for (const b of this.bonds.get(this.uid[i]) ?? []) if (b.kind === BOND.friend) friends++;
+      return { i, prime: this.age[i] < elder, friends, heir: !!old && (this.parent[i] === old || this.uid[i] === oldMate) };
+    });
+    const choice = chooseLeader({ traits: this.traits, crown }, cands, this.mindRnd);
+    const pick = choice ? choice.pick.action : adults[0];
     v.leader = pick;
+    v.leaderUid = this.uid[pick];
     this.role[pick] = king ? ROLE.king : ROLE.leader;
+    const cand = cands.find((c) => c.i === pick)!;
+    this.logThought(pick, 'poder', `${king ? 'Virou rei' : 'Virou líder'} de ${v.name}: ${leaderReason(this.traits, cand, crown)}`);
+  }
+
+  /** Agressividade do reino somada ao temperamento do rei (IA local): um rei belicoso puxa a guerra, um gentil a segura. */
+  private warMood(k: number): number {
+    const l = this.villages[k]?.leader ?? -1;
+    const ruler = l >= 0 && this.alive[l] ? LEADER.temper * rulerTemper(this.traits, l) : 0;
+    // O empurrão do jogador manda: no extremo (−1 ou 1) o temperamento do rei não pesa mais.
+    const push = this.temperOf(k);
+    return Math.max(-1, Math.min(1, push + ruler * (1 - Math.abs(push))));
   }
 
   /** Estrada de terra entre dois assentamentos (a mesma em qualquer ordem, RF-VIDA-194). */
@@ -4347,7 +4684,7 @@ export class Ecosystem {
           const pool = workers.length > 0 ? workers : adults.length <= 6 ? adults : [];
           if (pool.length > 0) {
             let curiosity = 0;
-            for (const i of pool) curiosity += P.curiosityOf(this.uid[i]);
+            for (const i of pool) curiosity += this.curiosity(i);
             const effCuriosity = Math.min(4.5, curiosity);
             const sample = (v.samples?.[t.id] ?? -Infinity) > this.year ? P.TECH_SAMPLE_BOOST : 1;
             if (happens(this.lore, P.TECH_DISCOVER_RATE * effCuriosity * dev * sample, since)) {
@@ -4355,7 +4692,7 @@ export class Ecosystem {
               let pick = pool[0];
               let r = this.lore() * curiosity;
               for (const i of pool) {
-                r -= P.curiosityOf(this.uid[i]);
+                r -= this.curiosity(i);
                 if (r <= 0) {
                   pick = i;
                   break;
@@ -4399,7 +4736,7 @@ export class Ecosystem {
       for (let j = 0; j < this.count; j++) {
         if (!this.alive[j] || this.village[j] !== v.id || this.uid[j] === p.uid || this.role[j] === CHILD) continue;
         // Quem trabalha no ofício aprendeu mais de perto; os outros só se não houver ninguém dele.
-        const c = P.curiosityOf(this.uid[j]) + (t.roles.includes(ROLES[this.role[j]]) ? 10 : 0);
+        const c = this.curiosity(j) + (t.roles.includes(ROLES[this.role[j]]) ? 10 : 0);
         if (c > best) {
           best = c;
           heir = j;
@@ -4655,6 +4992,17 @@ export class Ecosystem {
     if (this.job.length < n) this.job = new Int32Array(n);
     if (this.jobWork.length < n) this.jobWork = new Float32Array(n);
     if (this.jobWait.length < n) this.jobWait = new Float32Array(n);
+    this.tally.marriages = this.tally.marriages || 0;
+    this.tally.fights = this.tally.fights || 0;
+    // Saves de antes da IA local: traços sorteados para quem já vivia.
+    if (this.traits.length < n * TRAIT_COUNT) {
+      const old = this.traits;
+      this.traits = new Int8Array(n * TRAIT_COUNT);
+      this.traits.set(old);
+      for (let i = old.length / TRAIT_COUNT; i < this.count; i++) {
+        if (this.alive[i] && this.species[this.kind[i]].kind === 'sapient') randomTraits(this.traits, i, this.mindRnd, this.villages[this.village[i]]?.culture.value);
+      }
+    }
   }
 
   // ---- Ações presenciais (seção 19.21) ----
@@ -6072,13 +6420,13 @@ export class Ecosystem {
 
   /** Prontidão exigida de quem tem a agressividade dada: o agressivo se contenta com menos. */
   private readyLevel(k: number): number {
-    return B.READY_LEVEL - B.TEMPER_READY * this.temperOf(k);
+    return B.READY_LEVEL - B.TEMPER_READY * this.warMood(k);
   }
 
   /** Vantagem de força que o reino quer ter sobre o alvo antes de declarar, pelo motivo e pela agressividade. */
   private wantedAdvantage(motive: WarMotive, k: number): number {
     const base = motive === 'loot' ? B.ADVANTAGE_RAID : motive === 'extermination' ? B.ADVANTAGE_EXTERMINATION : B.ADVANTAGE;
-    return base - B.TEMPER_ADVANTAGE * this.temperOf(k);
+    return base - B.TEMPER_ADVANTAGE * this.warMood(k);
   }
 
   /**
@@ -6092,7 +6440,7 @@ export class Ecosystem {
     warlike: boolean,
   ): { motive: WarMotive; target: Village; good?: LootGood } | null {
     const { att, def, target, fAtt, fDef } = side;
-    const m = Math.max(0, 1 + this.temperOf(att.kingdom));
+    const m = Math.max(0, 1 + this.warMood(att.kingdom));
     const rnd = this.polRnd;
     const w = warlike ? 2 : 1;
     if (border && rel <= B.EXTERMINATION_RELATION && fAtt >= 2 * Math.max(1, fDef) && happens(rnd, B.EXTERMINATION_RATE * m, 1)) return { motive: 'extermination', target };
@@ -8568,7 +8916,8 @@ export class Ecosystem {
 
   /** Quem a pessoa é, para levar num barco. */
   private identity(i: number): Identity {
-    return { uid: this.uid[i], parent: this.parent[i], family: this.family[i], bornAt: this.bornAt[i], bornYear: this.bornYear[i], movedAt: this.movedAt[i] };
+    const traits = this.traits.slice(i * TRAIT_COUNT, (i + 1) * TRAIT_COUNT);
+    return { uid: this.uid[i], parent: this.parent[i], family: this.family[i], bornAt: this.bornAt[i], bornYear: this.bornYear[i], movedAt: this.movedAt[i], traits };
   }
 
   /**
@@ -8583,6 +8932,7 @@ export class Ecosystem {
     this.bornAt[c] = who.bornAt;
     this.bornYear[c] = who.bornYear;
     this.movedAt[c] = who.movedAt;
+    if (who.traits) this.traits.set(who.traits, c * TRAIT_COUNT);
     const v = this.villages[this.village[c]];
     if (back && v?.vitalNow) {
       v.vitalNow.arrived = Math.max(0, v.vitalNow.arrived - 1);
@@ -8617,6 +8967,20 @@ export class Ecosystem {
   }
 
   /** Pai ou mãe vivo e filhos vivos (ficha da criatura, RF-VIDA-335). */
+  /** Laços de quem está vivo (IA local, relações): cônjuge, amigos do mais próximo ao menos, e rivais. */
+  tiesOf(i: number): { partner: number; friends: number[]; rivals: number[] } {
+    const out = { partner: -1, friends: [] as number[], rivals: [] as number[] };
+    const list = [...(this.bonds.get(this.uid[i]) ?? [])].sort((a, b) => b.value - a.value);
+    for (const b of list) {
+      const j = this.indexOfUid(b.uid);
+      if (j < 0) continue;
+      if (b.kind === BOND.partner) out.partner = j;
+      else if (b.kind === BOND.friend) out.friends.push(j);
+      else if (b.kind === BOND.rival) out.rivals.push(j);
+    }
+    return out;
+  }
+
   familyOf(i: number): { parent: number; children: number[] } {
     let parent = -1;
     const children: number[] = [];

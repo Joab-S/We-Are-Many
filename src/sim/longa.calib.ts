@@ -1,7 +1,7 @@
 /**
  * `npm run calibrar:longa` (evolução dos povos, etapa 0): roda poucas sementes por 1000 anos na
  * Terra do jogo, sem tela, e escreve docs/CALIBRACAO-LONGA.md com a evolução de longo prazo
- * (tamanho dos assentamentos, cidades, reinos e fome), comparando com as metas. Variáveis: SEMENTES, ANOS, RAIO.
+ * (tamanho dos assentamentos, cidades, reinos e fome), comparando com as metas. Variáveis: SEMENTES, PRIMEIRA (índice da primeira semente), ANOS, RAIO e SAIDA.
  */
 import { it } from 'vitest';
 import { LONG_TARGETS, reportRows, runWorld, type Indicators } from './calibrate';
@@ -13,9 +13,10 @@ it('calibração longa', async () => {
   const years = Number(env.ANOS ?? 1000);
   const radius = Number(env.RAIO ?? 1);
   const runs: Indicators[] = [];
-  for (let k = 0; k < seeds; k++) runs.push(runWorld(1000 + k * 37, years, radius).indicators);
+  const first = Number(env.PRIMEIRA ?? 0);
+  for (let k = first; k < first + seeds; k++) runs.push(runWorld(1000 + k * 37, years, radius).indicators);
   const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2)).replace('.', ',');
-  const keys: (keyof Indicators)[] = ['people', 'peopleTrend', 'settlements', 'founded', 'exodus', 'medianPop', 'biggest', 'cities', 'metropoles', 'cityShare', 'kingdoms', 'bigKingdoms', 'hunger', 'foodNeed', 'era', 'migrants', 'warsDeclared', 'retreats'];
+  const keys: (keyof Indicators)[] = ['people', 'peopleTrend', 'settlements', 'founded', 'exodus', 'medianPop', 'biggest', 'cities', 'metropoles', 'cityShare', 'kingdoms', 'bigKingdoms', 'hunger', 'foodNeed', 'era', 'migrants', 'familyMoves', 'supplied', 'warsDeclared', 'retreats'];
   const text = `# Calibração longa: evolução dos povos
 
 > Gerado por \`npm run calibrar:longa\`. ${seeds} sementes, ${years} anos, Terra com raio ${fmt(radius)} (1 é a Terra do jogo, 1024×512), 6 aldeias semeadas.
