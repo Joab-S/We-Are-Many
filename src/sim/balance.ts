@@ -28,11 +28,13 @@ export const FIELD_HANDS_TIER = 1;
 /** Rendimento de cada agricultor por era (Pedra … Industrial): ferramentas, rotação, adubo e máquinas. Antes era o mesmo em todas. */
 export const ERA_YIELD = [1, 1.2, 1.45, 1.75, 2.4];
 /**
- * Natalidade dos inteligentes pela comida (etapa 1): abaixo de BIRTH_FOOD_MIN de atendimento quase não nascem filhos,
- * a partir de BIRTH_FOOD_FULL nascem todos. Antes a fome só tirava até metade dos nascimentos e o povo crescia até morrer de fome.
+ * Natalidade dos inteligentes pela fome (etapas 1 e 2): com menos de BIRTH_FED_MIN dos moradores comendo bem quase não
+ * nascem filhos; a partir de BIRTH_FED_FULL nascem todos. Antes a fome só tirava até metade dos nascimentos e o povo
+ * crescia até morrer de fome. Conta quem comeu, não o celeiro (o atendimento de comida mistura os dois e fica perto de 0,6
+ * mesmo com todos comendo).
  */
-export const BIRTH_FOOD_MIN = 0.55;
-export const BIRTH_FOOD_FULL = 0.9;
+export const BIRTH_FED_MIN = 0.9;
+export const BIRTH_FED_FULL = 1;
 /** Chegada de andarilhos por ano, pelo tamanho do assentamento (até 3, até 9, até 29, 30 ou mais). */
 export const WANDERER_RATE = [0.35, 0.15, 0.05, 0.01];
 /** Porto construído por ano, quando o assentamento pode (antes: 8% por segundo). */
@@ -130,8 +132,32 @@ export const AVENUE_MIN = 4;
 export const LEVEL_HOUSING = 2;
 /** Crescimento das ruas por ano quando os lotes acabam (1 = ruas do nível seguinte, metade da área). */
 export const STREET_GROW_RATE = 0.25;
-/** Mudanças de moradores por ano de um assentamento apertado para um vizinho do mesmo povo (RF-VIDA-281). */
-export const MIGRATION_RATE = 0.4;
+/**
+ * Migração por nota (evolução dos povos, etapa 2): chance por ano de cada família pensar em se mudar,
+ * multiplicada por 1 + MOVE_LACK × falta. Ela compara a nota de onde mora (mais o apego MOVE_STAY)
+ * com a dos lugares do seu povo a até MOVE_RANGE + MOVE_RANGE_ERA × era tiles, descontando 1 ponto a
+ * cada MOVE_DIST tiles e MOVE_FOREIGN (outro povo) ou MOVE_OTHER_KINGDOM (outro reino do mesmo povo).
+ * MOVE_TEMPER espalha o sorteio: menor, todos escolhem o melhor; maior, decisões mais variadas.
+ */
+export const MOVE_THINK = 0.06;
+export const MOVE_LACK = 4;
+export const MOVE_STAY = 0.35;
+export const MOVE_RANGE = 50;
+export const MOVE_RANGE_ERA = 15;
+export const MOVE_DIST = 120;
+export const MOVE_FOREIGN = 0.6;
+export const MOVE_OTHER_KINGDOM = 0.15;
+export const MOVE_TEMPER = 0.25;
+/** No êxodo (anos de falta), parte das famílias que sai para o melhor lugar conhecido ao alcance; sem nenhum, funda outro lugar. */
+export const EXODUS_SHARE = 0.35;
+/** Pesos da nota de um lugar: comida, lenha, casa sobrando, tamanho (log da população), nível, estabilidade e guerra. */
+export const MOVE_FOOD = 1.5;
+export const MOVE_FUEL = 0.5;
+export const MOVE_ROOM = 0.4;
+export const MOVE_CITY_PULL = 0.25;
+export const MOVE_TIER_PULL = 0.1;
+export const MOVE_STABLE = 0.3;
+export const MOVE_WAR = 0.4;
 /** Epidemias por ano numa cidade grande sem saneamento, por 100 moradores (RF-VIDA-284). */
 export const EPIDEMIC_RATE = 0.02;
 /** Parte dos moradores que uma epidemia atinge. */
@@ -179,6 +205,8 @@ export const HAUL_LOW = 0.2;
 /** Carga de uma carroça por recurso e alcance, em tiles. */
 export const HAUL_LOAD = 12;
 export const HAUL_RANGE = 60;
+/** Parte dos moradores comendo bem a partir da qual um lugar menor manda comida para o maior do mesmo reino (etapa 2). */
+export const SUPPLY_FED = 0.95;
 
 // Trabalho, vocação e estabilidade (seção 19.5 e RF-VIDA-280) ----------------------
 
@@ -467,9 +495,12 @@ export const FREEZE = 0.03;
 
 /** Mortes de fome num ano a partir das quais a crônica fala de fome. */
 export const FAMINE_DEATHS = 2;
-/** Atendimento abaixo do qual o assentamento vê gente partir em busca de comida, lenha ou casa (migração), e quantos por ano no máximo. */
+/**
+ * Falta (mais famílias pensam em se mudar; anos seguidos levam ao êxodo): lenha abaixo de SCARCITY_LEVEL de atendimento,
+ * ou menos de HUNGER_LEVEL dos moradores comendo bem (antes, o celeiro vazio contava como falta mesmo com todos comendo).
+ */
 export const SCARCITY_LEVEL = 0.55;
-export const SCARCITY_MOVERS = 3;
+export const HUNGER_LEVEL = 0.85;
 /**
  * Cobiça: reino com um assentamento abaixo de GREED_LEVEL de comida ou madeira, ao lado de um
  * vizinho que tem de sobra, perde relação com ele por ano (vezes a falta), e o reino mais forte

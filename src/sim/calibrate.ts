@@ -79,6 +79,10 @@ export interface Indicators {
   greedWars: number;
   exodus: number;
   migrants: number;
+  /** Famílias que se mudaram por ano (migração por nota, etapa 2). */
+  familyMoves: number;
+  /** Comida que o campo mandou para cidades e vilas maiores do reino, por ano. */
+  supplied: number;
   /** Árvores cortadas por ano, parte delas replantada, assentamentos que manejam a mata e a mata que sobrou em volta. */
   treesCut: number;
   replanted: number;
@@ -236,6 +240,8 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       greedWars: eco.tally.greedWars,
       exodus: eco.tally.exodus,
       migrants: eco.tally.migrants / Math.max(1, years),
+      familyMoves: eco.tally.familyMoves / Math.max(1, years),
+      supplied: eco.tally.supplied / Math.max(1, years),
       treesCut: eco.treesCut / Math.max(1, years),
       replanted: eco.treesCut ? eco.treesPlanted / eco.treesCut : 0,
       forestry: live.filter((v) => v.forestry).length,
@@ -335,7 +341,9 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   collapsed: 'Casas desabadas sem conserto por ano',
   greedWars: 'Guerras por cobiça (comida ou lenha)',
   exodus: 'Êxodos por falta',
-  migrants: 'Migrantes por falta ou aperto por ano',
+  migrants: 'Migrantes por ano',
+  familyMoves: 'Famílias que se mudaram por ano',
+  supplied: 'Comida do campo para lugares maiores do reino, por ano',
   treesCut: 'Árvores cortadas por ano',
   replanted: 'Parte das árvores replantada',
   forestry: 'Assentamentos que manejam a mata',
