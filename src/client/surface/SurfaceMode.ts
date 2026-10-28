@@ -2283,7 +2283,7 @@ export class SurfaceMode {
       const marks = stateIcons(this.eco, v);
       const text =
         (v.kingdom === v.id && this.eco.kingdomSize(v) > 1
-          ? `♛ ${icon}Reino de ${v.name} · ${v.population}`
+          ? `♛ ${icon}Reino de ${v.name} · ${this.eco.kingdomPopulation(v)}`
           : `${icon}${TIER_NAMES[v.tier]} ${v.name} · ${v.population}`) + (marks ? ` ${marks}` : '');
       el.classList.toggle('open', this.vwin?.id === v.id);
       if (el.textContent !== text) el.textContent = text;
