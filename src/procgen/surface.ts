@@ -1,5 +1,5 @@
 import { seedFor } from '../core/rng';
-import { ValueNoise3 } from './noise';
+import { PerlinNoise3 } from './noise';
 
 /**
  * Superfície 2D de um planeta, no estilo WorldBox: um pixel do mapa por
@@ -120,8 +120,8 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   const elevation = new Float32Array(n);
   const moisture = new Float32Array(n);
   const vegetation = new Float32Array(n);
-  const terrain = new ValueNoise3(seedFor(`${params.id}:terrain`));
-  const wet = new ValueNoise3(seedFor(`${params.id}:moisture`));
+  const terrain = new PerlinNoise3(seedFor(`${params.id}:terrain`));
+  const wet = new PerlinNoise3(seedFor(`${params.id}:moisture`));
 
   // Amostrar o ruído num cilindro garante que a borda esquerda encaixa na direita.
   // As coordenadas são as do mapa completo, para qualquer resolução mostrar o mesmo planeta.
@@ -141,8 +141,28 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
       const cx = cosA[x];
       const cz = sinA[x];
       const i = y * width + x;
-      raw[i] = terrain.fbm(cx + 10, cy, cz, 5) + 0.35 * terrain.fbm(cx * 4, cy * 4, cz * 4 + 50, 2);
-      moisture[i] = 0.5 + 0.8 * wet.fbm(cx * 1.5 + 3, cy * 1.5, cz * 1.5, 3);
+
+      // 1. Distorção suave de domínio (Domain Warping): quebra formatos circulares de ilhas e costas
+      const wx = cx + 10 + terrain.sample(cx * 0.75 + 11, cy * 0.75, cz * 0.75 + 17) * 0.35;
+      const wy = cy;
+      const wz = cz + terrain.sample(cx * 0.75 + 37, cy * 0.75 + 7, cz * 0.75 + 43) * 0.35;
+
+      // 2. Continentes e bacias (formas amplas com Perlin 3D)
+      const cont = terrain.fbm(wx, wy, wz, 4, 2, 0.5);
+
+      // 3. Cordilheiras montanhosas afiadas (Ridged multifractal) concentradas no interior das terras altas
+      const ridge = terrain.ridged(wx * 2.2 + 5, wy * 2.2, wz * 2.2 + 9, 3, 2, 0.5);
+      const mountainMask = Math.max(0, cont + 0.15);
+      const mountains = ridge * mountainMask * 0.75;
+
+      // 4. Detalhe de relevo suave para colinas
+      const detail = 0.15 * terrain.sample(wx * 4.5 + 2, wy * 4.5, wz * 4.5 + 8);
+
+      raw[i] = cont + mountains + detail;
+
+      // Umidade orgânica com variações coerentes
+      const mNoise = wet.fbm(wx * 1.3 + 3, wy * 1.3, wz * 1.3 + 7, 3);
+      moisture[i] = 0.5 + 0.65 * mNoise;
     }
   }
 
@@ -153,7 +173,15 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   const hi = sorted[n - 1];
   for (let i = 0; i < n; i++) {
     const v = raw[i];
-    elevation[i] = v < seaLevel ? -(seaLevel - v) / (seaLevel - lo || 1) : (v - seaLevel) / (hi - seaLevel || 1);
+    if (v < seaLevel) {
+      // Submarino: plataforma continental na margem, caindo gradualmente para bacias profundas
+      const depth = (seaLevel - v) / (seaLevel - lo || 1);
+      elevation[i] = -Math.pow(depth, 0.9);
+    } else {
+      // Emerso: planícies suaves perto da costa e elevação rápida para picos montanhosos
+      const alt = (v - seaLevel) / (hi - seaLevel || 1);
+      elevation[i] = Math.pow(alt, 1.25);
+    }
     moisture[i] = Math.min(1, Math.max(0, moisture[i]));
     vegetation[i] = params.life * Math.min(1, Math.max(0, moisture[i] * 1.4 - 0.2));
   }
