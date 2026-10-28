@@ -801,7 +801,7 @@ Todos ficam em `src/sim/balance.ts` (RF-VIDA-208). Os valores são o ponto de pa
 | `CONSUME_FOOD` / `CONSUME_FUEL` / `CONSUME_CLOTH` | Consumo anual por morador | 1 / 0,4 (×2 no frio) / 0,2 |
 | `SPOIL_GRAIN` / `SPOIL_MEAT` / `SPOIL_WOOD` | Perda anual no estoque | 6% / 45% (20% com sal) / 2% |
 | `DIMINISHING` | Expoente do retorno decrescente perto do teto | 2 (produção × (1 − preenchimento²)) |
-| `PICK_RADIUS_PX` | Raio de escolha de criatura, em pixels de tela | 10 |
+| `PICK_RADIUS_PX` | Raio mínimo do círculo de escolha de criatura, em pixels de tela (cresce com o zoom, 0,9 px por tile) | 6 |
 | `VWIN_HZ` | Atualizações por segundo da aba visível da janela do assentamento | 4 |
 | `RESTYLE_RATE` | Casas trocadas pelo estilo da era nova por ano, por construtor (RF-VIDA-251) | 0,6 |
 | `RICH_REFORM` | Reformas a mais num assentamento próspero (RF-VIDA-254) | 1,5× |
@@ -955,7 +955,7 @@ Pedido do Joab em 20/10/2026: melhorar a seleção de criaturas e a forma de ver
 
 | ID | Requisito | Situação |
 |---|---|---|
-| RF-VIDA-330 | **Alvo claro antes do clique:** a criatura que seria escolhida ganha um contorno claro ao passar o mouse. O raio de escolha é medido em pixels de tela (`PICK_RADIUS_PX`, 26, antes 10: os sprites são minúsculos e só o peito acertava), igual em qualquer zoom, e ganha a criatura mais perto do cursor. | Implementado (Etapa I): contorno branco em quem o clique escolheria; raio de `PICK_RADIUS_PX` em pixels de tela; ganha a mais perto |
+| RF-VIDA-330 | **Alvo claro antes do clique:** a criatura que seria escolhida ganha um contorno claro ao passar o mouse. A área de escolha é o próprio círculo desenhado ao redor do corpo da criatura (centrado meio tile acima do ponto dela, onde fica o sprite; raio `PICK_RADIUS_PX` ou 0,9 do zoom, o que for maior), e ganha a criatura mais perto do cursor. | Implementado (Etapa I): contorno branco em quem o clique escolheria; raio de `PICK_RADIUS_PX` em pixels de tela; ganha a mais perto |
 | RF-VIDA-331 | **Criaturas amontoadas:** clicar de novo no mesmo ponto passa para a próxima criatura sob o cursor. Com mais de 3 criaturas ali, aparece uma lista pequena ("5 aqui: Humano, caçador · Humano, criança · Lobo...") para escolher. | Implementado (Etapa I): clicar de novo no mesmo ponto passa para a próxima; com mais de 3, lista "N aqui" com nome e profissão para escolher |
 | RF-VIDA-332 | **Marcador da seleção:** um anel pulsante na cor do reino (ou branco para animais) fica sobre a criatura selecionada, visível em qualquer zoom, com uma seta na borda da tela quando ela sai da vista. | Implementado (Etapa I): anel pulsante na cor do reino (branco para animais), em qualquer zoom; seta na borda quando sai da vista |
 | RF-VIDA-333 | **Seguir com a câmera:** botão "Seguir" na ficha e tecla F; a câmera acompanha a criatura até o jogador arrastar o mapa ou a criatura morrer. A morte gera um aviso ("Enka morreu de velhice aos 61 anos"). | Implementado (Etapa I): botão Seguir na ficha e tecla F; arrastar o mapa solta; a morte gera o aviso com a causa e a idade |

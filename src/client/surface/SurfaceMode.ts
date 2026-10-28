@@ -32,8 +32,12 @@ import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, GRAVEL, houseStyle } from '../../s
 import { CURRENCY_NAMES } from '../../sim/trade';
 import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, sumLedger, type CompareKey, type PeriodSpan, type SettlementTab } from './settlementWindow';
 
-/** Raio de escolha de criaturas em pixels de tela, igual em qualquer zoom (RF-VIDA-330). */
-const PICK_RADIUS_PX = 26;
+/** Raio mínimo, em pixels de tela, do círculo de escolha de criaturas (RF-VIDA-330). */
+const PICK_RADIUS_PX = 6;
+/** Fator do raio por tile de zoom: o mesmo círculo desenhado ao redor da criatura. */
+const PICK_RADIUS_PER_ZOOM = 0.9;
+/** O desenho da criatura fica meio tile acima do ponto dela; o círculo é centrado no corpo. */
+const PICK_LIFT = 0.5;
 /** Atualizações por segundo da janela do assentamento (RF-VIDA-341). */
 const VWIN_HZ = 4;
 
@@ -991,7 +995,7 @@ export class SurfaceMode {
 
   /** Raio de escolha em tiles para o zoom atual. */
   private pickRadius(): number {
-    return PICK_RADIUS_PX / this.zoom;
+    return Math.max(PICK_RADIUS_PX, this.zoom * PICK_RADIUS_PER_ZOOM) / this.zoom;
   }
 
   /**
@@ -1008,7 +1012,7 @@ export class SurfaceMode {
       this.openSettlement(anchor.id);
       return;
     }
-    const list = this.eco.pickAll(this.hover.x, row, this.pickRadius());
+    const list = this.eco.pickAll(this.hover.x, row + PICK_LIFT, this.pickRadius());
     this.showCrowd(null);
     if (list.length) {
       const m = this.mouse;
@@ -1585,7 +1589,7 @@ export class SurfaceMode {
     if (this.follow && pin && 'creature' in pin && this.eco.alive[pin.creature] && this.eco.uid[pin.creature] === pin.uid) this.center.set(this.eco.x[pin.creature], this.map.height - this.eco.y[pin.creature]);
     this.updateHover();
     // Quem seria escolhido num clique ganha contorno (RF-VIDA-330).
-    this.hoverPick = !this.tool && !this.box && this.hover.x > -1e5 ? this.eco.pick(this.hover.x, this.toRow(this.hover.y), this.pickRadius()) : -1;
+    this.hoverPick = !this.tool && !this.box && this.hover.x > -1e5 ? this.eco.pick(this.hover.x, this.toRow(this.hover.y) + PICK_LIFT, this.pickRadius()) : -1;
     this.useTool(dt);
     this.stepFx(dt);
 
@@ -1788,7 +1792,7 @@ export class SurfaceMode {
       ctx.strokeStyle = `rgba(${colorOf(i)},${alpha.toFixed(2)})`;
       ctx.stroke();
     };
-    const base = Math.max(6, z * 0.9);
+    const base = Math.max(PICK_RADIUS_PX, z * PICK_RADIUS_PER_ZOOM);
     for (const i of this.highlighted()) ring(i, base * 0.8, 1.5, 0.85);
     const pin = this.pinned;
     if (pin && 'group' in pin) {
