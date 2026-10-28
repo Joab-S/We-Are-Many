@@ -85,7 +85,7 @@ O consumo só fica em equilíbrio quando a vegetação deixa de ser um número s
 
 A regra de design é: **nenhum animal morre de fome se havia comida da sua dieta ao seu alcance**. Isso vira uma métrica de teste ("fome evitável" ≈ 0), medida como fiz no diagnóstico.
 
-- **Árvore de prioridades** (no estilo da ThinkTree do RimWorld), avaliada a cada decisão, do topo para baixo:
+- **Árvore de prioridades** (no estilo da ThinkTree do RimWorld), avaliada a cada decisão, do topo para baixo. É o primeiro passo: depois, os itens 1 e 2 viram portões fixos e o resto passa para a IAUS da seção "IA dos animais":
   1. Perigo real: um predador caçando *este* bicho, ou com fome e a poucos tiles. Foge para o refúgio mais perto. Predador saciado não assusta.
   2. Fome crítica (energia < 0,3): comida acima de tudo, inclusive de conforto térmico leve e parceiro.
   3. Estresse térmico forte: vai para o abrigo ou para a faixa da espécie.
@@ -272,6 +272,74 @@ Cada meta vira um indicador em `calibrate.ts`, rodado em várias sementes sem o 
 | Diferença de populações entre ano de 6 s e de 12 s | não medido (relógios diferentes) | até 10% |
 | Deslocamento líquido de um cervo por ano | 5 tiles | 30–60 tiles |
 
+## Clima vivo: vento, chuva, neve e solo
+
+O clima passa de mapa fixo para um sistema que muda ao longo do ano e empurra o ecossistema. Hoje a umidade (`moisture`) e as frentes são calculadas uma vez só, na geração (`climate.ts`, com sombra de chuva), e por cima delas roda apenas uma anomalia anual por região (`climate`, 8×4 regiões, seca ou fartura). A proposta mantém a umidade de geração como **clima médio** do lugar e acrescenta o **tempo do dia a dia**, simulado na grade de células ecológicas e atualizado algumas vezes por estação.
+
+### O motor do tempo
+
+1. **Ventos por faixa de latitude.** Três faixas por hemisfério, como na Terra: alísios perto do equador, ventos de oeste nas latitudes médias, ventos polares. A direção é fixa por faixa, com um desvio sazonal. Em planetas alienígenas o número de faixas sai da rotação e do tamanho do planeta.
+2. **Umidade no ar.** Cada célula guarda um vapor que o vento carrega. O mar e os lagos evaporam mais com calor; a terra coberta de mata devolve um pouco (transpiração), então desmatar seca o vento abaixo.
+3. **Chuva quando o ar sobe ou esfria.** O vapor vira chuva ao subir uma encosta (chuva orográfica, que mantém a sombra de chuva já existente), ao passar de uma célula quente para uma fria, ou ao saturar. As células de chuva andam com o vento e atravessam uma região em parte de uma estação.
+4. **Neve abaixo de 0 °C (273 K).** A precipitação vira neve e acumula numa camada `snow` por célula. No degelo da primavera, essa neve vira água no solo e enche rios e poças.
+5. **Água no solo.** Uma camada `soilWater` recebe chuva e degelo e perde água para a evaporação e para as plantas. É ela, e não a umidade fixa, que passa a definir quanto a erva cresce na estação. A anomalia anual atual vira consequência disso: um ano seco é um ano em que choveu pouco.
+
+### O que o tempo faz com a vida
+
+| Fenômeno | Efeito no ecossistema | O que o jogador vê |
+| --- | --- | --- |
+| Chuva | enche `soilWater`; a erva rebrota rápido; forma poças | nuvens e sombra passando, chuva caindo, chão mais verde dias depois |
+| Estiagem | a erva para, as poças secam, os bichos andam até rios e lagos | paleta amarelada, rebanhos em fila até a água |
+| Neve | cobre a erva; renas e bisões cavam (gastam mais), os outros descem ou migram; o urso hiberna | manto branco que avança e recua com as estações, rastros |
+| Degelo | pulso de água no solo, enchente na baixada, explosão de erva e de insetos | rios mais largos, flores da primavera |
+| Raio em mata seca | **queimada**: tira `wood` e `herb`, abre clareira, a cinza aduba o solo e a sucessão recomeça | fogo e fumaça (o jogo já tem efeitos de fogo), depois mancha preta que esverdeia |
+| Vento | leva sementes e pólen a favor do vento; espalha o fogo | folhas e poeira no sentido do vento |
+| Neblina e frio de altitude | reduzem a visão dos predadores (bom refúgio para a presa) | névoa nos vales de manhã |
+
+- **Beber vira uma necessidade.** Com poças, rios e neve derretida, os bichos passam a precisar de água, não só de comida. Isso cria pontos de encontro naturais (o crocodilo espera ali, o predador embosca) e dá um motivo visível para as migrações da estação seca.
+- **Escala de tempo.** Com o ano de 12 s, cada estação tem 3 s. O tempo muda poucas vezes por estação e uma frente de chuva atravessa uma região em cerca de 1 s. Isso é rápido de ver e continua barato: são 2.048 células, não 500 mil tiles.
+
+### Mais elementos para a flora
+
+- **Fertilidade do solo:** sobe com carcaças, esterco, cinza e folhas caídas; cai com lavoura repetida e erosão. Multiplica a rebrota.
+- **Luz e sombra:** a copa fechada (`wood` alto) sombreia o chão, então a mata madura tem pouca erva e muita ramagem. Clareiras invertem isso. É o que faz a sucessão andar.
+- **Fenologia (o ciclo do ano):** a planta brota na primavera, floresce, dá fruto no verão e perde as folhas no outono (cor de outono nas decíduas). O fruto só existe na estação dele, e isso move urso, macaco e povos.
+- **Dispersão de sementes:** pelo vento (capim, pinheiro) e por animais (fruto comido e semente levada pelo macaco ou pela ave). A mata avança por onde os bichos passam.
+- **Polinização:** sem o campo de insetos, a produção de fruto cai. Liga a praga e o polinizador ao alimento.
+- **Sal e gelo do solo:** a costa salgada aceita só mangue e junco; o solo congelado da tundra limita a raiz a musgo e líquen.
+- **Defesas:** espinho e toxina reduzem quanto um herbívoro come da planta. Isso protege espécies lentas e cria especialistas.
+
+## IA dos animais: prioridades fixas mais IAUS
+
+A recomendação é um **híbrido**. Duas regras fixas protegem a sobrevivência, e uma IAUS (Infinite Axis Utility System, de Dave Mark) decide todo o resto. Só IAUS dá comportamento rico, mas uma curva mal calibrada pode fazer o bicho preferir acasalar a fugir. Só prioridade fixa é segura, mas deixa todas as espécies com o mesmo jeito.
+
+### Como funciona
+
+1. **Portões fixos**, avaliados primeiro: (a) um predador caçando este bicho faz ele fugir; (b) fome crítica (energia abaixo de 0,3) com comida conhecida por perto faz ele ir comer. Essas duas regras garantem a meta "fome evitável ≈ 0".
+2. **IAUS para o resto.** Cada ação possível recebe uma nota de 0 a 1, que é o **produto** das notas dos seus fatores. Cada fator passa por uma curva de resposta (linear, quadrática, logística). O produto faz um fator zerado vetar a ação: não dá para beber se não há água ao alcance.
+3. **Inércia.** A ação em andamento ganha um bônus pequeno (por exemplo +10%), para o bicho não trocar de ideia a cada 0,4 s. Isso combina com o "andar com destino" da seção 1.
+4. **Escolha.** Vence a ação com maior nota. Um sorteio pequeno entre as duas melhores, pelo fluxo `vida`, mantém o comportamento vivo e determinístico pela semente.
+
+| Ação | Fatores (cada um passa por uma curva) |
+| --- | --- |
+| Comer | fome, comida na mancha alvo, distância até ela, risco da célula (paisagem do medo) |
+| Beber | sede, água ao alcance, distância, predador perto da água |
+| Abrigar-se | distância da temperatura ideal, neve no chão, abrigo ao alcance |
+| Acasalar | energia, estação de reprodução, parceiro ao alcance, lotação da célula (N/K) |
+| Dispersar ou migrar | lotação da célula, qualidade da célula vizinha, idade (jovem), estação |
+| Ficar com o bando | distância do bando, risco, espécie social |
+| Descansar | energia alta, nenhuma necessidade urgente |
+| Caçar (predadores) | fome, presa preferida ao alcance, massa da presa contra a própria, tamanho da matilha |
+
+### Por que vale para este jogo
+
+- **Personalidade por espécie sem código novo.** O cervo tem uma curva de risco íngreme (foge cedo) e o bisão uma curva suave (enfrenta em grupo). A rena tem uma curva de migração forte no outono. Tudo isso é dado no catálogo, não um `case` novo no `decide`.
+- **Alienígenas de graça.** O gerador da seção 4 deriva as curvas dos traços: carapaça reduz o peso do risco, sangue frio aumenta o peso da temperatura.
+- **Legível na ficha.** A ficha do animal pode mostrar as três ações com maior nota e o fator que pesou ("indo beber: sede alta, rio a 6 tiles"). Isso responde ao "o que está fazendo agora" do RF-VIDA-335 e ajuda a depurar.
+- **Custo.** São cerca de 6 ações × 4 fatores, ou ~24 avaliações de curva por decisão. Os fatores leem valores já prontos na célula (comida, água, risco, lotação), então não há busca cara. Com o nível de detalhe fora da tela (decisão a cada 1,5 s), cabe com folga nos ~3.700 animais do orçamento.
+
+**Cuidado de calibração:** IAUS tem muitos botões. A proposta é usar poucos formatos de curva compartilhados (5 ou 6, com 2 parâmetros cada) e validar cada espécie com o indicador de fome evitável e o de deslocamento por ano, que já estão nas metas.
+
 ## Roteiro de implementação
 
 A ordem vai do mais barato e mais visível para o mais estrutural. Cada etapa é um PR para `development`, com o indicador da tabela anterior como portão para passar à seguinte. Nada disso foi implementado ainda: este documento é só o plano.
@@ -282,6 +350,8 @@ A ordem vai do mais barato e mais visível para o mais estrutural. Cada etapa é
 4. **Células ecológicas e capacidade local.** Adequação por nicho, K por célula, densidade por massa, natalidade Beverton–Holt, dispersão natal, bandos com fissão, territórios; saem `habitatCap`, `MIN_CAP` e o `crowd` global. Portão: orçamento de entidades e maior bando dentro do limite.
 5. **Ciclos de cima e de fora.** Carcaças e necrófagos, parasitas, insetos como campo, paisagem do medo, fogo e sucessão. Portão: zero extinções em 200 anos em 10 sementes.
 6. **Molde comum, Terra nova e gerador alienígena.** Catálogo da seção 3 no molde, gerador da seção 4 com pré-simulação. Portão: 100 planetas gerados, todos estáveis por 200 anos.
+
+As duas seções novas entram assim: a **IA híbrida** nasce na etapa 2, junto com a agenda anual (os portões fixos já vêm da etapa 1). O **clima vivo** entra depois da etapa 3, porque a água no solo precisa das camadas de vegetação. Sede, neve e queimada entram junto com ele.
 
 Saves antigos: os arrays novos (camadas, bando, carga parasitária, memória de mancha) entram com valores padrão em `fixAfterLoad`, como já é feito com outros campos.
 
