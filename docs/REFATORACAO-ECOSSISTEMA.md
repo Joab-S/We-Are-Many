@@ -342,11 +342,11 @@ A recomendação é um **híbrido**. Duas regras fixas protegem a sobrevivência
 
 ## Plano 2: completar a teia sem pesar no navegador
 
-A primeira etapa (PRs #38 e #39) trocou a arquitetura da fauna. Este plano fecha o que faltou e muda a ordem de prioridade: **primeiro o custo, depois a profundidade**. Tudo tem que rodar em tempo real numa máquina modesta, no x10.
+A primeira etapa (PRs #38 e #39) trocou a arquitetura da fauna. Este plano fecha o que faltou e muda a ordem de prioridade: **primeiro o custo, depois a profundidade**. Tudo tem que rodar em tempo real numa máquina modesta, na velocidade máxima do jogo (x5; o x10 saiu).
 
 ### Orçamento de processamento
 
-Medição na Terra (1024×512, ~3.000 seres vivos, ano de 12 s): **6,2 ms por passo de 0,1 s**. No x10 são 100 passos por segundo real, ou 620 ms por segundo numa máquina rápida: não cabe numa máquina fraca. Meta: **≤ 2,5 ms por passo** (x10 em ~25% de um núcleo modesto).
+Medição na Terra (1024×512, ~3.000 seres vivos, ano de 12 s): **6,2 ms por passo de 0,1 s**. No x5 são 50 passos por segundo real, ou 310 ms por segundo numa máquina rápida, e o dobro ou o triplo numa fraca: não cabe. Meta: **≤ 2,5 ms por passo** (x5 em ~12% de um núcleo rápido, ~35% de um modesto).
 
 Regras de custo que valem para todo sistema novo:
 

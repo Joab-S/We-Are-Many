@@ -281,7 +281,7 @@ function bodyOf(sp: Species): string {
   return sp.body && BODY_NAMES.includes(sp.body) ? sp.body : sp.origin === EARTH_ID ? 'human' : 'alien';
 }
 
-const SPEEDS = [0, 1, 2, 5, 10];
+const SPEEDS = [0, 1, 2, 5];
 /** Segundos reais para passar 1 ano na velocidade 1x. */
 const REAL_YEAR_SECONDS = 12;
 /** Pelagem do cavalo da cavalaria. */
@@ -1656,6 +1656,9 @@ export class SurfaceMode {
 
     // Simulação em passos de no máximo 0,1 s, multiplicados pela velocidade escolhida.
     const simDt = dt * SPEEDS[this.speed];
+    // Bichos longe do que está na tela decidem menos (mesma biologia, menos custo).
+    const half = Math.max(window.innerWidth, window.innerHeight) / (2 * Math.max(0.5, this.zoom)) + 24;
+    this.eco.focus = { x: this.center.x, y: this.map.height - this.center.y, r: half };
     if (simDt > 0) {
       this.simClock += simDt;
       while (this.simClock > 0.1) {
