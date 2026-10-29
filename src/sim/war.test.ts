@@ -247,7 +247,14 @@ describe('saque (RF-VIDA-240 e 243)', () => {
 
 describe('conquista e extermínio (RF-VIDA-243)', () => {
   it('conquista: refugiados fogem, casas queimam e o vencido guarda rancor', () => {
-    const { eco, a, b } = world();
+    // Um mundo em que o vencido tem para onde fugir (outro assentamento do seu povo, por terra).
+    let w = world();
+    for (let seed = 43; seed < 60; seed++) {
+      const { eco: e, a: x, b: y } = w;
+      if (e.villages.some((o) => o !== x && o !== y && !o.abandoned && o.species === y.species && Math.hypot(o.x - y.x, o.y - y.y) < 80 && inside(e).landPath(y.x, y.y, o.x, o.y))) break;
+      w = world(seed);
+    }
+    const { eco, a, b } = w;
     // Casas a mais para ter o que queimar.
     for (let k = 0; k < 4; k++) b.houses.push({ ...b.houses[0], x: b.houses[0].x + 40 + k * 3 });
     const homes = b.houses.filter((h) => h.kind === 'house').length;
