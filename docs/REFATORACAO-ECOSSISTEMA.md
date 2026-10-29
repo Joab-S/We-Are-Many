@@ -340,37 +340,71 @@ A recomendação é um **híbrido**. Duas regras fixas protegem a sobrevivência
 
 **Cuidado de calibração:** IAUS tem muitos botões. A proposta é usar poucos formatos de curva compartilhados (5 ou 6, com 2 parâmetros cada) e validar cada espécie com o indicador de fome evitável e o de deslocamento por ano, que já estão nas metas.
 
-## Estado da implementação
+## Plano 2: completar a teia sem pesar no navegador
 
-Implementado nesta branch (src/sim/fauna.ts, src/sim/ecosystem.ts, src/sim/species.ts):
+A primeira etapa (PRs #38 e #39) trocou a arquitetura da fauna. Este plano fecha o que faltou e muda a ordem de prioridade: **primeiro o custo, depois a profundidade**. Tudo tem que rodar em tempo real numa máquina modesta, no x10.
 
-- **Relógio por ano.** Bicho de terra decide 30 vezes por ano (3× durante caça e fuga); velocidade é área de vida por ano. Com ano de 6 s ou de 12 s a fauna fica parecida (teste de invariância).
-- **Células ecológicas de 16×16** com pasto, insetos, costa, nicho e capacidade de suporte por espécie, dentro de um orçamento de bichos de terra pela área do planeta. Vão no save.
-- **Pastejo com rebrota.** Herbívoro come a camada de pasto do tile, que volta sozinha; só o elefante derruba árvore. A mata fechada não cai em 40 anos.
-- **IA híbrida.** Portões fixos (fugir, fome crítica) e IAUS para comer, caçar, comer carcaça, abrigo, parceiro, dispersão, bando e descanso. A ficha mostra o motivo.
-- **Caça física.** Escolha de presa tipo III de Holling, presa fora de alcance é ignorada, refúgio, presa abaixo da capacidade fica mais difícil, matilha divide a presa, carcaças que necrófagos comem e que adubam o chão, paisagem do medo, parasitas por lotação.
-- **Fauna da Terra com 26 espécies** (novas: rena, cabra-montesa, leão, urubu, zebra) e **gerador alienígena por papéis**, com porte pela gravidade e faixa térmica pelo clima.
+### Orçamento de processamento
 
-Limites conhecidos:
+Medição na Terra (1024×512, ~3.000 seres vivos, ano de 12 s): **6,2 ms por passo de 0,1 s**. No x10 são 100 passos por segundo real, ou 620 ms por segundo numa máquina rápida: não cabe numa máquina fraca. Meta: **≤ 2,5 ms por passo** (x10 em ~25% de um núcleo modesto).
 
-- **Predadores de topo ainda oscilam.** Em 40 anos num planeta do tamanho da Terra, onça, hiena e raposa persistem, mas lobo e leão somem em boa parte das sementes, e o urubu às vezes. A meta de zero extinções em 200 anos ainda não foi atingida; território de matilha é o próximo passo.
-- **Clima vivo** (vento, chuva, neve) ficou para uma etapa própria.
-- A simulação ficou perto de 2× mais cara por segundo de jogo que antes.
+Regras de custo que valem para todo sistema novo:
 
-## Roteiro de implementação
+1. **Nada por tile a cada passo.** Campos do mundo (chuva, água no solo, neve, fruto) vivem nas células ecológicas de 16×16 (2.048 células na Terra, 256× menos que tiles). O tile só lê o valor da sua célula.
+2. **Tudo que é lento roda em fatias.** Cada sistema refaz uma fatia das células por passo, e o mundo inteiro uma vez a cada fração de ano, sempre pelo relógio do ano (o custo por ano não muda com a velocidade do jogo).
+3. **Detalhe menor fora da tela.** O jogo diz à simulação onde a câmera está. Bicho longe da tela decide 3× menos vezes, com a mesma taxa por ano (cada decisão vale por três), então a biologia é a mesma e o custo cai para perto de um terço. Movimento continua contínuo para todos.
+4. **Consultas de vizinhança com cache.** Ameaça de predador e alvo de caça são lidos de listas por célula montadas uma vez por recontagem, não varrendo a grade a cada decisão.
+5. **Visual barato.** Chuva e neve são partículas só na área visível, quantidade limitada; neve no chão é um véu por célula, não por tile.
 
-A ordem vai do mais barato e mais visível para o mais estrutural. Cada etapa é um PR para `development`, com o indicador da tabela anterior como portão para passar à seguinte. Nada disso foi implementado ainda: este documento é só o plano.
+### Fauna: estabilidade dos predadores
 
-1. **Correções rápidas, sem mudar a arquitetura.** Saciedade (comer só com fome), fome crítica acima de conforto e parceiro, fugir só de predador que caça, causa de morte térmica separada, troca de presa no lugar das presas invisíveis, papéis corretos de baleia, pinguim, sapo e caranguejo. Portão: fome evitável abaixo de 20%.
-2. **Relógio biológico e agenda anual.** Taxas por ano, velocidade por área de vida, andar com destino, nível de detalhe fora da tela. Portão: teste de invariância 6 s × 12 s e cervo andando 30+ tiles por ano.
-3. **Camadas de vegetação.** `herb`, `browse` e `wood` no `SurfaceMap`, rebrota logística, reserva de raiz, saída pelo valor marginal, camada de mapa de pressão de pastejo. Portão: mata estável em ±5% longe dos povos.
-4. **Células ecológicas e capacidade local.** Adequação por nicho, K por célula, densidade por massa, natalidade Beverton–Holt, dispersão natal, bandos com fissão, territórios; saem `habitatCap`, `MIN_CAP` e o `crowd` global. Portão: orçamento de entidades e maior bando dentro do limite.
-5. **Ciclos de cima e de fora.** Carcaças e necrófagos, parasitas, insetos como campo, paisagem do medo, fogo e sucessão. Portão: zero extinções em 200 anos em 10 sementes.
-6. **Molde comum, Terra nova e gerador alienígena.** Catálogo da seção 3 no molde, gerador da seção 4 com pré-simulação. Portão: 100 planetas gerados, todos estáveis por 200 anos.
+O diagnóstico das calibragens: os predadores de topo morrem por **excesso seguido de fome** (crescem acima do que as presas dão, as presas caem, eles somem). A correção é limitar quantos se reproduzem, não quantos existem:
 
-As duas seções novas entram assim: a **IA híbrida** nasce na etapa 2, junto com a agenda anual (os portões fixos já vêm da etapa 1). O **clima vivo** entra depois da etapa 3, porque a água no solo precisa das camadas de vegetação. Sede, neve e queimada entram junto com ele.
+- **Território.** Cada grupo de predador (matilha, casal, solitário) com filhote precisa de território: nenhum outro grupo da mesma espécie com centro a menos de `range` tiles. Sem território, o grupo não procria e os jovens dispersam. Isso cria o espaçamento real dos lobos e leões e corta o excesso pela raiz.
+- **Recolonização física.** Dispersores procuram células vazias com capacidade, não só as menos lotadas, e vão andando até lá.
+- **Alerta na crônica** quando uma espécie cai abaixo de 10 no planeta ("O lobo está ameaçado neste planeta"), para o jogador poder agir.
+- **Portão:** lobo, leão e urubu vivos em 40 anos na maioria das sementes medidas.
+- **Meta de deslocamento revista.** Com o passo calmo na tela, o cervo anda 10 a 20 tiles por ano em linha reta. É o certo para a leitura do jogo; a meta de 30+ sai.
 
-Saves antigos: os arrays novos (camadas, bando, carga parasitária, memória de mancha) entram com valores padrão em `fixAfterLoad`, como já é feito com outros campos.
+### Flora: camadas, nomes e estações
+
+- **Duas camadas de comida.** O pasto (erva) segue como hoje. Entra a **ramagem e fruto**, que vive na mata (vegetação de árvore e arbusto) e é o que ramoneadores (cervo) e frugívoros (macaco, urso) comem. Cada camada tem seu consumo e sua rebrota. O lenho continua sendo a vegetação do tile, que só o elefante e o lenhador derrubam.
+- **Frutos por estação.** O fruto aparece no verão e no outono nas matas temperadas e o ano todo nas tropicais. Fora da estação, o frugívoro desce para a erva ou para os insetos.
+- **Plantas com nome.** Cada tile mostra na ficha a planta dominante pelo bioma e pela densidade (capim, flores do campo, arbusto de baga, carvalho, pinheiro, árvore frutífera, acácia, cacto, líquen, junco, mangue) e se está com fruto. Sem custo: é uma função do bioma, calculada só quando o jogador olha.
+- **Fogo natural e sucessão.** Em verão seco, mata densa e seca pode pegar fogo por raio. O fogo anda alguns tiles com o vento, deixa a terra queimada, e a sucessão volta pelo capim, depois arbusto, depois mata (o crescimento que já existe, mais rápido no capim que na árvore). Carcaças dos bichos pegos alimentam necrófagos. É raro: a chance vem da seca da região.
+
+### Povos dentro da teia
+
+- **Caça pela lotação local.** O caçador só abate onde a espécie está acima de metade da capacidade da região, em vez do teto global de 25%. Caçar demais esvazia o entorno da aldeia, e a caça precisa ir mais longe.
+- **Rebanhos comem o mesmo pasto.** O rebanho de cada assentamento come a erva em volta dos currais, na mesma camada dos selvagens. Sobrepastoreio aparece no mapa e afasta os herbívoros selvagens.
+- **Seca e chuva nas colheitas.** A colheita passa a ler a água no solo da região (do clima vivo), além da variação regional que já existe.
+
+### Clima vivo
+
+Tudo numa grade de células de 16×16, atualizada em fatias ao longo do ano:
+
+- **Vento** por faixa de latitude (alísios de leste perto do equador, ventos de oeste nas médias latitudes, de leste nos polos), com uma oscilação lenta por região.
+- **Umidade e chuva.** O mar evapora para o ar (mais no calor). O vento leva a umidade célula a célula. Chove quando o ar úmido sobe uma serra (chuva de encosta, com sombra de chuva do outro lado) ou passa por terra quente na estação chuvosa. A seca regional que já existe reduz a umidade.
+- **Neve.** Abaixo de 0 °C a chuva vira neve, que acumula no chão e derrete na primavera. Neve cobre o pasto (os bichos cavam ou descem a serra) e bloqueia caravanas (substitui a regra fixa de inverno).
+- **Água no solo** sobe com a chuva e cai com a evaporação. Ela multiplica a rebrota da erva e do fruto e a colheita. Solo seco no verão é o que acende o fogo.
+- **Sede.** Bicho de terra precisa de água por perto: célula sem água parada nem chuva recente custa energia, e ele procura a célula com água mais próxima (rios, lagos, costa e poças de chuva). Os bichos se juntam nos bebedouros na seca, o que vira palco natural de caça.
+- **Visual.** Chuva e neve caindo como partículas na área visível, céu mais escuro onde chove, véu branco de neve no chão por célula, e um painel no tile com temperatura, chuva e água no solo.
+
+### Alienígenas: teia segura
+
+- **Regras de segurança** aplicadas depois de sortear as espécies: todo predador tem pelo menos duas presas possíveis (ajusta o tamanho máximo de presa), presas entre 10% e 150% do predador, e todo herbívoro tem algum predador ou parasita.
+- **Checagem de viabilidade** em vez de pré-simulação: a capacidade de suporte é calculada para a fauna sorteada (o mesmo cálculo do jogo, sem simular). Espécie sem capacidade para uma população viável tem a faixa de temperatura e os biomas puxados para o clima do planeta até caber. Custa milissegundos, não segundos.
+
+### Ordem
+
+1. Desempenho (orçamento, detalhe fora da tela, caches).
+2. Fauna estável (território, recolonização, alerta).
+3. Flora (camadas, frutos, nomes, fogo).
+4. Povos (caça local, rebanhos no pasto).
+5. Clima vivo (vento, chuva, neve, solo, sede, visual).
+6. Alienígenas (regras e viabilidade).
+
+Cada etapa tem medição antes e depois (custo por passo, extinções em 40 anos, fome evitável, mata estável).
 
 ## Referências
 
