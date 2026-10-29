@@ -340,6 +340,23 @@ A recomendação é um **híbrido**. Duas regras fixas protegem a sobrevivência
 
 **Cuidado de calibração:** IAUS tem muitos botões. A proposta é usar poucos formatos de curva compartilhados (5 ou 6, com 2 parâmetros cada) e validar cada espécie com o indicador de fome evitável e o de deslocamento por ano, que já estão nas metas.
 
+## Estado da implementação
+
+Implementado nesta branch (src/sim/fauna.ts, src/sim/ecosystem.ts, src/sim/species.ts):
+
+- **Relógio por ano.** Bicho de terra decide 30 vezes por ano (3× durante caça e fuga); velocidade é área de vida por ano. Com ano de 6 s ou de 12 s a fauna fica parecida (teste de invariância).
+- **Células ecológicas de 16×16** com pasto, insetos, costa, nicho e capacidade de suporte por espécie, dentro de um orçamento de bichos de terra pela área do planeta. Vão no save.
+- **Pastejo com rebrota.** Herbívoro come a camada de pasto do tile, que volta sozinha; só o elefante derruba árvore. A mata fechada não cai em 40 anos.
+- **IA híbrida.** Portões fixos (fugir, fome crítica) e IAUS para comer, caçar, comer carcaça, abrigo, parceiro, dispersão, bando e descanso. A ficha mostra o motivo.
+- **Caça física.** Escolha de presa tipo III de Holling, presa fora de alcance é ignorada, refúgio, presa abaixo da capacidade fica mais difícil, matilha divide a presa, carcaças que necrófagos comem e que adubam o chão, paisagem do medo, parasitas por lotação.
+- **Fauna da Terra com 26 espécies** (novas: rena, cabra-montesa, leão, urubu, zebra) e **gerador alienígena por papéis**, com porte pela gravidade e faixa térmica pelo clima.
+
+Limites conhecidos:
+
+- **Predadores de topo ainda oscilam.** Em 40 anos num planeta do tamanho da Terra, onça, hiena e raposa persistem, mas lobo e leão somem em boa parte das sementes, e o urubu às vezes. A meta de zero extinções em 200 anos ainda não foi atingida; território de matilha é o próximo passo.
+- **Clima vivo** (vento, chuva, neve) ficou para uma etapa própria.
+- A simulação ficou perto de 2× mais cara por segundo de jogo que antes.
+
 ## Roteiro de implementação
 
 A ordem vai do mais barato e mais visível para o mais estrutural. Cada etapa é um PR para `development`, com o indicador da tabela anterior como portão para passar à seguinte. Nada disso foi implementado ainda: este documento é só o plano.

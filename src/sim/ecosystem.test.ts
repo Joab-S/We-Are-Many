@@ -22,7 +22,10 @@ const run = (eco: Ecosystem, seconds: number) => {
 
 describe('espécies', () => {
   it('a Terra tem a sua fauna nativa; Marte não tem vida', () => {
-    expect(nativeSpecies(earth).map((s) => s.name)).toEqual(['Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão', 'Coelho', 'Bisão', 'Camelo', 'Urso', 'Raposa', 'Tartaruga', 'Caranguejo', 'Pinguim', 'Baleia']);
+    expect(nativeSpecies(earth).map((s) => s.name)).toEqual([
+      'Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão', 'Coelho', 'Bisão', 'Javali', 'Camelo', 'Elefante', 'Macaco', 'Urso', 'Raposa', 'Onça', 'Hiena',
+      'Crocodilo', 'Tartaruga', 'Sapo', 'Caranguejo', 'Pinguim', 'Baleia', 'Rena', 'Cabra-montesa', 'Leão', 'Urubu', 'Zebra',
+    ]);
     expect(nativeSpecies(mars)).toEqual([]);
   });
   it('vida nativa fora da Terra vem em três níveis raros', () => {
@@ -40,6 +43,19 @@ describe('espécies', () => {
     const p = { ...earth, id: `kepler-${k}` };
     expect(nativeSpecies(p)).toEqual(nativeSpecies(p));
     expect(nativeSpecies(p)[0].name).not.toBe('Peixe');
+  });
+  it('a fauna alienígena sai por papéis, com porte pela gravidade e faixa térmica pelo clima', () => {
+    let k = 0;
+    while (nativeLifeTier(`gliese-${k}`, 0.85) !== 'animals') k++;
+    const base = { ...earth, id: `gliese-${k}`, life: 0.85 };
+    const light = nativeSpecies({ ...base, radiusEarth: 0.5 });
+    const heavy = nativeSpecies({ ...base, radiusEarth: 2 });
+    const guilds = new Set(light.filter((sp) => sp.eco).map((sp) => sp.eco!.guild));
+    for (const g of ['pastador', 'ramoneador', 'onívoro', 'predador', 'necrófago']) expect(guilds.has(g as never)).toBe(true);
+    // Mesmo sorteio, gravidade diferente: os bichos do planeta leve são maiores.
+    expect(light[1].eco!.mass!).toBeGreaterThan(heavy[1].eco!.mass! * 3);
+    const cold = nativeSpecies({ ...base, temperatureK: 240 });
+    expect(cold[1].tempMin).toBeLessThan(light[1].tempMin - 30);
   });
 });
 
@@ -104,6 +120,35 @@ describe('ecossistema', () => {
   });
 });
 
+describe('fauna por ano', () => {
+  const landAnimals = (eco: Ecosystem) => eco.species.reduce((n, sp, s) => n + (sp.kind === 'herbivore' || sp.kind === 'predator' ? eco.population[s] : 0), 0);
+  const years = (span: number, n: number) => {
+    const { map, eco } = world();
+    eco.yearSpan = span;
+    let dense = 0;
+    for (let i = 0; i < map.vegetation.length; i++) if (map.vegetation[i] > 0.6) dense++;
+    for (let t = 0; t < n * span; t += 0.1) eco.step(0.1);
+    let after = 0;
+    for (let i = 0; i < map.vegetation.length; i++) if (map.vegetation[i] > 0.6) after++;
+    return { eco, dense, after };
+  };
+
+  it('a mesma fauna com ano curto ou longo: o relógio dos bichos é por ano, não por segundo', () => {
+    const short = years(6, 8);
+    const long = years(12, 8);
+    const a = landAnimals(short.eco);
+    const b = landAnimals(long.eco);
+    expect(a).toBeGreaterThan(0);
+    expect(Math.abs(a - b) / Math.max(a, b)).toBeLessThan(0.25);
+  }, 60000);
+
+  it('os herbívoros comem o pasto e a mata fechada não some', () => {
+    const { eco, dense, after } = years(12, 10);
+    expect(after).toBeGreaterThan(dense * 0.95);
+    expect(eco.population[eco.species.findIndex((sp) => sp.name === 'Cervo')]).toBeGreaterThan(0);
+  }, 60000);
+});
+
 describe('assentamentos', () => {
   it('aldeias e vilas nunca contêm outro assentamento, e as casas ficam fora das ruas', () => {
     const { map, eco } = world({ ...earth, radiusEarth: 1 });
@@ -160,7 +205,7 @@ describe('tempo, idade e mar', () => {
     run(eco, 50 * YEAR_SECONDS);
     expect(v.tech).toBeLessThan(2.5);
     expect(v.tech).toBeGreaterThan(0);
-  });
+  }, 60000); // 50 anos de mapa: passa dos 5 s padrão
 
   it('crianças nascem sem profissão e ganham uma ao crescer; os mais velhos morrem', () => {
     const { eco } = world();

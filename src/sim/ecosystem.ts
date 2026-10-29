@@ -78,6 +78,44 @@ import {
 } from './needs';
 import { lotsFor, maxFieldsOf, maxPensOf, plotSeed, pruneBlocks, radiusFor, streetOrder, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, habitatOf, type Species, type SpeciesKind } from './species';
+import {
+  BITE,
+  BREED_LENGTH,
+  BREED_START,
+  CARCASS_YEARS,
+  CARRION_RATIO,
+  COAST_YIELD,
+  DECISIONS_PER_YEAR,
+  ECO_CELL,
+  ecologyOf,
+  EDIBLE,
+  FEAR_DECAY_YEAR,
+  FOOD_MIN,
+  FORAGE_USE,
+  GRAZE_COST,
+  GRAZE_MAX,
+  HUNGRY,
+  HUNT_SUCCESS,
+  hunts,
+  INSECT_YIELD,
+  isLandAnimal,
+  LAND_BUDGET,
+  MAX_PACE,
+  metabolic,
+  METABOLISM_YEAR,
+  ration,
+  appetite,
+  PARASITE_RATE,
+  PARASITE_RECOVERY,
+  PREDATOR_RATIO,
+  REFUGE,
+  REGROW_YEAR,
+  SATED,
+  STARVING,
+  TANK_KG,
+  THERMAL_YEAR,
+  type Ecology,
+} from './fauna';
 
 /**
  * Ecossistema da superfície (RF-SUP-08, RF-SUP-09): criaturas individuais
@@ -634,6 +672,10 @@ const THINK_INTERVAL = 0.4;
 const JOB = { fell: 1, plant: 2, build: 3 } as const;
 /** Teto mínimo de qualquer espécie: abaixo disso, um azar qualquer acaba com ela. */
 const MIN_CAP = 30;
+/** Teto mínimo de um bicho de terra (rede de segurança; quem regula é a capacidade de cada célula). */
+const MIN_WILD = 12;
+/** Abaixo disso a espécie vira relicta: gasta menos e se reproduz mais (piso contra a extinção). */
+const RELICT = 10;
 /** Até onde um adulto procura parceiro (tiles); bem mais longe quando a espécie está rara. */
 const MATE_RANGE = 24;
 
@@ -644,6 +686,103 @@ export function isWater(map: SurfaceMap, i: number): boolean {
 export function isLand(map: SurfaceMap, i: number): boolean {
   return map.elevation[i] >= 0 && map.biome[i] !== Biome.Lava;
 }
+
+/** O que um bicho de terra está fazendo (IA híbrida: portões fixos + IAUS, docs/REFATORACAO-ECOSSISTEMA.md). */
+export const ACT = { rest: 0, eat: 1, hunt: 2, scavenge: 3, flee: 4, shelter: 5, mate: 6, disperse: 7, herd: 8, hibernate: 9 } as const;
+
+/** Corpo de um bicho morto: alimenta quem matou, depois os necrófagos, depois aduba o chão. */
+export interface Carcass {
+  x: number;
+  y: number;
+  /** Carne que sobrou (kg). */
+  kg: number;
+  /** Ano da morte. */
+  at: number;
+  /** Espécie do morto. */
+  sp: number;
+}
+
+/** Distância do bote (tiles) e decisões de perseguição antes de desistir. */
+const STRIKE = 2.5;
+const CHASE_TRIES = 10;
+const GOAL_TRIES = 10;
+
+/** Carcaças ao mesmo tempo no mapa, no máximo (as mais velhas somem primeiro). */
+const MAX_CARCASSES = 900;
+
+/**
+ * Células ecológicas (ECO_CELL×ECO_CELL tiles): comida, nicho de cada espécie,
+ * contagem e capacidade de suporte. São contas derivadas do mapa e dos bichos,
+ * refeitas aos poucos e nunca salvas (ficam num WeakMap fora do save).
+ */
+class EcoCells {
+  readonly cols: number;
+  readonly rows: number;
+  readonly n: number;
+  stride = 0;
+  /** Tiles de terra, pasto disponível agora (média 0 a 1), insetos (média) e costa rasa (fração). */
+  readonly land: Float32Array;
+  readonly forage: Float32Array;
+  readonly bugs: Float32Array;
+  readonly shore: Float32Array;
+  /** Produção por ano, em tanques de energia: pasto, insetos e comida da costa. */
+  readonly fprod: Float32Array;
+  readonly iprod: Float32Array;
+  readonly wprod: Float32Array;
+  /** Ração de todas as presas da célula (para a capacidade dos predadores). */
+  readonly prey: Float32Array;
+  suit = new Float32Array(0);
+  K = new Float32Array(0);
+  N = new Uint16Array(0);
+  /** Lotação da área de vida (N/K em volta), calculada sob demanda e esquecida a cada recontagem (-1 = por calcular). */
+  dens = new Float32Array(0);
+  /** Soma de K por espécie no planeta. */
+  total: number[] = [];
+  /** Centro de cada bando (família): x de referência, soma dos desvios em x, soma de y e quantos. */
+  readonly herds = new Map<number, [number, number, number, number]>();
+  cursor = 0;
+  ready = false;
+
+  constructor(width: number, height: number) {
+    this.cols = Math.ceil(width / ECO_CELL);
+    this.rows = Math.ceil(height / ECO_CELL);
+    this.n = this.cols * this.rows;
+    this.land = new Float32Array(this.n);
+    this.forage = new Float32Array(this.n);
+    this.bugs = new Float32Array(this.n);
+    this.shore = new Float32Array(this.n);
+    this.fprod = new Float32Array(this.n);
+    this.iprod = new Float32Array(this.n);
+    this.wprod = new Float32Array(this.n);
+    this.prey = new Float32Array(this.n);
+  }
+
+  resize(species: number): void {
+    this.stride = species;
+    this.suit = new Float32Array(this.n * species);
+    this.K = new Float32Array(this.n * species);
+    this.N = new Uint16Array(this.n * species);
+    this.dens = new Float32Array(this.n * species).fill(-1);
+    this.total = new Array(species).fill(0);
+    this.ready = false;
+  }
+
+  /** Célula de uma posição (com a volta horizontal do mapa). */
+  of(x: number, y: number, width: number): number {
+    const cx = Math.floor((((x % width) + width) % width) / ECO_CELL);
+    const cy = Math.min(this.rows - 1, Math.max(0, Math.floor(y / ECO_CELL)));
+    return cy * this.cols + cx;
+  }
+}
+
+
+/** Biomas que escondem bichos pequenos do predador (refúgio). */
+const REFUGES = new Set<number>([Biome.Forest, Biome.Jungle, Biome.Taiga, Biome.Swamp, Biome.Mangrove, Biome.Rock, Biome.Mountain, Biome.Cliff]);
+
+/** Rascunhos da escolha de presa e do bando (sem alocar a cada decisão). */
+const PREY_CAND = new Float32Array(48 * 3);
+let PREY_SEEN = new Uint16Array(64);
+const KIN = { n: 0, dx: 0, dy: 0, d: 0 };
 
 export class Ecosystem {
   readonly species: Species[] = [];
@@ -695,6 +834,26 @@ export class Ecosystem {
    * e o diário curto das decisões de cada um, pelo `uid`.
    */
   traits = new Int8Array(0);
+  /** Fauna de terra: ação atual (ACT), tile de destino (-1 nenhum), presa perseguida (-1 nenhuma) e carga de parasitas (0 a 1). */
+  act = new Uint8Array(0);
+  goal = new Int32Array(0);
+  chase = new Int32Array(0);
+  /** Decisões gastas no alvo atual (presa ou destino): desiste da presa depois de CHASE_TRIES e do destino depois de GOAL_TRIES. */
+  effort = new Uint8Array(0);
+  parasite = new Float32Array(0);
+  /** Pasto comido de cada tile (fração da vegetação) e o ano em que foi comido: rebrota sozinho, sem mexer na floresta. */
+  graze: Float32Array;
+  grazeAt: Float32Array;
+  /** Paisagem do medo: caçadas recentes em cada célula ecológica (decai em uma estação). */
+  fear: Float32Array;
+  /** Carcaças no mapa. */
+  readonly carcasses: Carcass[] = [];
+  /** Abundância (0 a 1) da espécie da última presa escolhida, para o bote (rascunho da caçada). */
+  private preyAbundance = 1;
+  /** Células ecológicas (comida, nicho, capacidade e contagem); vão no save para a simulação seguir idêntica. */
+  private cells: EcoCells | null = null;
+  /** Tempo (anos) desde a última recontagem das células ecológicas. */
+  private wildClock = 0;
   readonly diary = new Map<number, Thought[]>();
   /** Laços de cada pessoa com outras (amizade, casamento, rivalidade), pelo `uid` (src/ai/relations.ts). */
   readonly bonds = new Map<number, Bond[]>();
@@ -834,6 +993,9 @@ export class Ecosystem {
     refugees: 0,
     mercenaries: 0,
     retreats: 0,
+    // Fauna de terra: mortes de fome e, delas, as que tinham comida a até 8 tiles (fome evitável).
+    wildStarved: 0,
+    wildStarvedNearFood: 0,
   };
   readonly population: number[] = [];
   /** Teto de cada espécie neste planeta, proporcional ao habitat. */
@@ -897,6 +1059,9 @@ export class Ecosystem {
     this.treeGrow = new Float32Array(map.width * map.height);
     this.treeVeg = new Float32Array(map.width * map.height);
     this.stoneTaken = new Float32Array(map.width * map.height);
+    this.graze = new Float32Array(map.width * map.height);
+    this.grazeAt = new Float32Array(map.width * map.height);
+    this.fear = new Float32Array(Math.ceil(map.width / ECO_CELL) * Math.ceil(map.height / ECO_CELL));
     map.felled = new Uint8Array(map.width * map.height);
     this.cols = Math.ceil(map.width / CELL);
     this.rows = Math.ceil(map.height / CELL);
@@ -1065,7 +1230,9 @@ export class Ecosystem {
     }
     water *= 4;
     green *= 4;
+    this.populateWild();
     this.species.forEach((sp, s) => {
+      if (this.wild(s)) return;
       const target = { fish: water / 220, herbivore: green / 260, predator: green / 2200, shark: water / 9000, sapient: 0 }[sp.kind];
       const amount = sp.kind === 'sapient' ? 0 : Math.min(this.caps[s] * 0.6, Math.max(Math.round(target), Math.min(12, this.caps[s] * 0.4)));
       // Em bandos, cardumes e matilhas: sozinhos espalhados, os bichos nunca se achavam para ter filhotes.
@@ -1144,6 +1311,11 @@ export class Ecosystem {
     this.job = copy(this.job, (n) => new Int32Array(n));
     this.jobWork = copy(this.jobWork, (n) => new Float32Array(n));
     this.jobWait = copy(this.jobWait, (n) => new Float32Array(n));
+    this.act = copy(this.act, (n) => new Uint8Array(n));
+    this.goal = copy(this.goal, (n) => new Int32Array(n));
+    this.chase = copy(this.chase, (n) => new Int32Array(n));
+    this.effort = copy(this.effort, (n) => new Uint8Array(n));
+    this.parasite = copy(this.parasite, (n) => new Float32Array(n));
     const traits = new Int8Array(capacity * TRAIT_COUNT);
     traits.set(this.traits);
     this.traits = traits;
@@ -1196,7 +1368,7 @@ export class Ecosystem {
     this.vy[i] = 0;
     this.age[i] = age;
     this.energy[i] = 0.6 + this.rnd() * 0.3;
-    this.think[i] = this.rnd() * THINK_INTERVAL;
+    this.think[i] = this.rnd() * (this.wild(s) ? this.yearSpan / DECISIONS_PER_YEAR : THINK_INTERVAL);
     this.kind[i] = s;
     this.alive[i] = 1;
     this.village[i] = village;
@@ -1214,6 +1386,11 @@ export class Ecosystem {
     this.jobKind[i] = 0;
     this.jobWork[i] = 0;
     this.jobWait[i] = 0;
+    this.act[i] = 0;
+    this.goal[i] = -1;
+    this.chase[i] = -1;
+    this.effort[i] = 0;
+    this.parasite[i] = 0;
     this.population[s]++;
     this.everLived[s] = true;
     if (village >= 0) {
@@ -1327,15 +1504,23 @@ export class Ecosystem {
   /** Avança a simulação `dt` segundos de jogo (já multiplicados pela velocidade escolhida). */
   step(dt: number): void {
     if (dt <= 0) return;
-    this.year += dt / this.yearSpan;
+    const yr = dt / this.yearSpan;
+    this.year += yr;
     this.buildGrid();
     const map = this.map;
     const w = map.width;
+    // Dois relógios: bichos de terra decidem DECISIONS_PER_YEAR vezes por ano; os aquáticos vivem no
+    // tempo em que foram calibrados (ano de YEAR_SECONDS), então a biologia não muda com a duração do ano.
+    const animalThink = this.yearSpan / DECISIONS_PER_YEAR;
+    const legacy = YEAR_SECONDS / this.yearSpan;
     for (let i = 0; i < this.count; i++) {
       if (!this.alive[i]) continue;
+      const sk = this.species[this.kind[i]].kind;
+      const aquatic = sk === 'fish' || sk === 'shark';
+      const mdt = aquatic ? dt * legacy : dt;
       // Movimento contínuo; nunca entra num tile fora do habitat nem sobe um penhasco (seção 19.18).
-      const nx = this.x[i] + this.vx[i] * dt;
-      const ny = this.y[i] + this.vy[i] * dt;
+      const nx = this.x[i] + this.vx[i] * mdt;
+      const ny = this.y[i] + this.vy[i] * mdt;
       const tile = Math.min(map.height - 1, Math.max(0, Math.floor(ny))) * w + (((Math.floor(nx) % w) + w) % w);
       const here = this.tileOf(i);
       if (this.detour[i] > 0) this.detour[i] -= dt;
@@ -1346,7 +1531,7 @@ export class Ecosystem {
       } else {
         // Travado na beira da água com o destino do outro lado: conta o tempo (jangada, em `decide`).
         if (ny >= 0 && ny < map.height && isWater(map, tile) && this.species[this.kind[i]].kind === 'sapient') this.stuck[i] += dt;
-        if (!this.steer(i, here, dt)) {
+        if (!this.steer(i, here, mdt)) {
           this.vx[i] = -this.vx[i] + (this.rnd() - 0.5) * 0.5;
           this.vy[i] = -this.vy[i] + (this.rnd() - 0.5) * 0.5;
         }
@@ -1355,14 +1540,22 @@ export class Ecosystem {
       this.age[i] += dt / this.yearSpan;
       this.think[i] -= dt;
       if (this.think[i] <= 0) {
-        this.think[i] += THINK_INTERVAL;
-        this.decide(i, THINK_INTERVAL);
+        if (sk === 'herbivore' || sk === 'predator') {
+          // Perseguição e fuga correm no relógio de ação: decisões três vezes mais frequentes enquanto duram.
+          const quick = this.act[i] === ACT.hunt || this.act[i] === ACT.flee ? 3 : 1;
+          this.think[i] += animalThink / quick;
+          this.decideAnimal(i, 1 / (DECISIONS_PER_YEAR * quick));
+        } else {
+          this.think[i] += aquatic ? THINK_INTERVAL / legacy : THINK_INTERVAL;
+          this.decide(i, THINK_INTERVAL);
+        }
       }
     }
+    this.updateWildlife(yr);
     this.updateBoats(dt);
     this.updateRafts(dt);
     this.updateCaravans(dt);
-    this.growVegetation(dt);
+    this.growVegetation(dt * legacy);
     for (let k = this.effects.length - 1; k >= 0; k--) {
       const fx = this.effects[k];
       fx.age += dt;
@@ -2001,7 +2194,7 @@ export class Ecosystem {
     // Predadores rondam o pasto.
     let predators = 0;
     this.forEachNear(v.x, v.y, this.radius(v) + 8, (j) => {
-      if (this.species[this.kind[j]].kind === 'predator') predators++;
+      if (this.species[this.kind[j]].kind === 'predator' && hunts(ecologyOf(this.species[this.kind[j]]))) predators++;
     });
     if (predators) {
       const lost = Math.min(h.head, binomial(this.civRnd, predators, 1 - Math.exp(-B.HERD_PREDATION)));
@@ -2390,90 +2583,13 @@ export class Ecosystem {
         this.wander(i, sp.speed, comfort ?? mate);
         break;
       }
-      case 'herbivore': {
-        // Anfíbios (tartaruga, sapo, caranguejo, pinguim) também comem na água.
-        // Na água comem algas e bichinhos; como no mar dos peixes, rende menos quando estão amontoados.
-        if (this.habitat[s] === 2 && isWater(map, tile)) {
-          let crowd = 0;
-          this.forEachNear(this.x[i], this.y[i], 3, (j) => {
-            if (this.kind[j] === s) crowd++;
-          });
-          e += (0.12 * dt) / (1 + crowd / 4);
-        }
-        const veg = map.vegetation[tile];
-        if (veg > 0.12) {
-          const bite = Math.min(veg - 0.1, 0.025);
-          map.vegetation[tile] = veg - bite;
-          e += bite * 9;
-          this.onTileChanged(tile);
-        }
-        // Com fome, procura pasto: olha mais longe quanto mais fome tem. Foge de predadores.
-        let best = { x: 0, y: 0 };
-        let bestVeg = veg;
-        const hungry = e < 0.75;
-        const looks = hungry ? 10 : 3;
-        for (let k = 0; k < looks; k++) {
-          const a = this.rnd() * Math.PI * 2;
-          const r = hungry ? 3 + this.rnd() * (e < 0.4 ? 14 : 7) : 4;
-          const t = this.tileAt(this.x[i] + Math.cos(a) * r, Math.floor(this.y[i] + Math.sin(a) * r));
-          if (t < 0 || !this.canStand(s, t)) continue;
-          const tt = temperatureAt(map, t);
-          if (tt < sp.tempMin || tt > sp.tempMax) continue;
-          // Pasto um pouco melhor não compensa uma caminhada longa.
-          const value = map.vegetation[t] - r * 0.01;
-          if (value > bestVeg) {
-            bestVeg = value;
-            best = { x: Math.cos(a), y: Math.sin(a) };
-          }
-        }
-        let flee: { x: number; y: number } | undefined;
-        this.forEachNear(this.x[i], this.y[i], 5, (j, dx, dy) => {
-          if (this.species[this.kind[j]].kind === 'predator') flee = { x: -dx, y: -dy };
-        });
-        const food = best.x || best.y ? best : undefined;
-        this.wander(i, sp.speed, flee ?? comfort ?? (hungry ? food : (mate ?? food)));
-        break;
-      }
-      case 'predator': {
-        let prey = -1;
-        let pd = Infinity;
-        let pdx = 0;
-        let pdy = 0;
-        // Predadores anfíbios (crocodilo) também pegam peixes.
-        const fishToo = this.habitat[s] === 2;
-        // Com muita fome, procura presa bem mais longe.
-        const reach = e < 0.35 ? 36 : 20;
-        this.forEachNear(this.x[i], this.y[i], reach, (j, dx, dy) => {
-          const k = this.species[this.kind[j]].kind;
-          const d = dx * dx + dy * dy;
-          // Qualquer predador pesca o peixe que passa na beira d'água (urso no rio); os anfíbios, em qualquer lugar.
-          if (k !== 'herbivore' && !(k === 'fish' && (fishToo || d < 4))) return;
-          // Presas raras se escondem melhor: a espécie não some de uma vez.
-          if (this.population[this.kind[j]] < this.caps[this.kind[j]] * 0.15) return;
-          if (d < pd) {
-            pd = d;
-            prey = j;
-            pdx = dx;
-            pdy = dy;
-          }
-        });
-        // Bichos pequenos (roedores, insetos, carniça) cobrem parte da fome no mato; onívoros comem também frutos e raízes.
-        if (map.vegetation[tile] > 0.2) e += (sp.omnivore ? 0.032 : 0.016) * dt;
-        if (prey >= 0 && pd < 1.44 && e < 0.8) {
-          this.kill(prey, false, 'predador');
-          e += 0.6;
-          this.wander(i, sp.speed * 0.3);
-        } else if (prey >= 0 && e < 0.65 && !outside) {
-          const len = Math.sqrt(pd) || 1;
-          this.vx[i] = (pdx / len) * sp.speed;
-          this.vy[i] = (pdy / len) * sp.speed;
-        } else {
-          // Sem presa à vista e com fome, anda mais rápido para onde é mais verde (onde a caça pasta); satisfeito, procura parceiro.
-          this.wander(i, sp.speed * (e < 0.5 ? 0.9 : 0.6), comfort ?? (e < 0.5 ? this.greener(i, 12) : mate));
-        }
-        break;
-      }
       case 'shark': {
+        // Filtrador (a baleia) vive do plâncton: nada devagar pelo mar aberto, sem caçar nem atacar barcos.
+        if (ecologyOf(sp).guild === 'filtrador') {
+          if (isWater(map, tile)) e += 0.03 * dt;
+          this.wander(i, sp.speed * 0.5, comfort ?? mate);
+          break;
+        }
         // Caça peixes e ataca barcos que passam perto; lulas e carniça cobrem parte da fome.
         if (isWater(map, tile)) e += 0.014 * dt;
         let prey = -1;
@@ -2687,6 +2803,1149 @@ export class Ecosystem {
     }
   }
 
+  // ---- Fauna de terra: células ecológicas, pasto, carcaças e IA (docs/REFATORACAO-ECOSSISTEMA.md) ----
+
+  /** Bicho de terra que usa a IA nova (os aquáticos e os inteligentes têm a sua). */
+  private wild(s: number): boolean {
+    return isLandAnimal(this.species[s]);
+  }
+
+  /** Células ecológicas, prontas para uso (refeitas por inteiro quando chega uma espécie nova). */
+  private ecoCells(): EcoCells {
+    let c = this.cells;
+    if (!c || c.n !== Math.ceil(this.map.width / ECO_CELL) * Math.ceil(this.map.height / ECO_CELL)) c = this.cells = new EcoCells(this.map.width, this.map.height);
+    if (c.stride !== this.species.length) c.resize(this.species.length);
+    if (!c.ready) {
+      c.ready = true;
+      for (let k = 0; k < c.n; k++) this.refreshCell(c, k);
+      this.countWild(c);
+      this.updateCapacity(c);
+    }
+    return c;
+  }
+
+  /** Fração do ano (0 começo da primavera … 1). */
+  private yearPhase(): number {
+    return this.year - Math.floor(this.year);
+  }
+
+  /**
+   * Pasto que dá para comer no tile agora (0 a 1): a vegetação menos o que foi
+   * pastado e ainda não rebrotou. A raiz (1 - GRAZE_MAX) não conta: um tile
+   * rapado vale 0 e o bicho vai procurar outro.
+   */
+  forageAt(t: number): number {
+    const base = this.map.vegetation[t];
+    if (base <= 0 || !isLand(this.map, t)) return 0;
+    const g = this.graze[t];
+    if (g <= 0) return base;
+    return (base * Math.max(0, GRAZE_MAX - g * Math.exp(-REGROW_YEAR * (this.year - this.grazeAt[t])))) / GRAZE_MAX;
+  }
+
+  /** Come até `need` unidades de pasto em volta do tile (a mancha cresce com o tamanho do bicho); devolve o que comeu. */
+  private grazePatch(t: number, need: number): number {
+    const m = this.map;
+    const w = m.width;
+    const x0 = t % w;
+    const y0 = (t - x0) / w;
+    const r = Math.max(1, Math.min(8, Math.ceil(Math.sqrt(need / (0.25 * Math.PI)))));
+    const share = need / (Math.PI * r * r) + 0.02;
+    let taken = 0;
+    for (let oy = -r; oy <= r && taken < need; oy++) {
+      const y = y0 + oy;
+      if (y < 0 || y >= m.height) continue;
+      for (let ox = -r; ox <= r && taken < need; ox++) {
+        if (ox * ox + oy * oy > r * r) continue;
+        const tt = y * w + ((x0 + ox + w) % w);
+        const base = m.vegetation[tt];
+        if (base <= 0.02 || !isLand(m, tt)) continue;
+        const left = this.graze[tt] > 0 ? this.graze[tt] * Math.exp(-REGROW_YEAR * (this.year - this.grazeAt[tt])) : 0;
+        // Raiz: o pastejo nunca passa de GRAZE_MAX do tile.
+        const room = base * (GRAZE_MAX - left);
+        if (room <= 0) continue;
+        const take = Math.min(room, share, need - taken);
+        this.graze[tt] = left + take / base;
+        this.grazeAt[tt] = this.year;
+        taken += take;
+      }
+    }
+    return taken;
+  }
+
+  /** Insetos no tile (campo, não indivíduos): mais onde é verde, úmido e quente. */
+  private insectsAt(t: number): number {
+    const m = this.map;
+    // Sobre a água rasa também há insetos (mosquitos, larvas): o sapo come na beira.
+    if (!isLand(m, t)) return isWater(m, t) && m.elevation[t] > -0.2 ? 0.25 : 0;
+    return m.vegetation[t] * (0.3 + 0.7 * m.moisture[t]) * (temperatureAt(m, t) > 278 ? 1 : 0.3);
+  }
+
+  /** Comida do mar raso e da beira d'água (peixinhos, krill, algas, restos) no tile. */
+  private shoreAt(t: number): number {
+    const m = this.map;
+    if (isWater(m, t)) return m.elevation[t] > -0.2 ? 1 : 0.4;
+    return this.nearWater(t) ? 0.7 : 0;
+  }
+
+  /** Quanto o tile alimenta a espécie, fora carne e carcaça (0 a 1). */
+  private foodAt(e: Ecology, t: number): number {
+    let f = 0;
+    if (e.forage > 0) f = Math.max(f, e.forage * this.forageAt(t));
+    if (e.insects > 0) f = Math.max(f, e.insects * this.insectsAt(t));
+    const water = Math.max(e.fish, e.plankton);
+    if (water > 0) f = Math.max(f, water * this.shoreAt(t));
+    return f;
+  }
+
+  /** Comida média da célula para a espécie (o "mapa de comida" que o bicho consulta). */
+  private cellFood(c: EcoCells, e: Ecology, k: number): number {
+    return Math.max(e.forage * c.forage[k], e.insects * c.bugs[k], Math.max(e.fish, e.plankton) * c.shore[k]);
+  }
+
+  /** Quão bom o tile é para a espécie (nicho): bioma, temperatura, umidade e altitude. */
+  private niche(s: number, e: Ecology, t: number, temp: number): number {
+    if (!this.canStand(s, t)) return 0;
+    const sp = this.species[s];
+    if (temp < sp.tempMin || temp > sp.tempMax) return 0;
+    const m = this.map;
+    const margin = Math.min(temp - sp.tempMin, sp.tempMax - temp);
+    const ft = Math.min(1, 0.35 + margin / 8);
+    const fb = e.biomes[m.biome[t] as Biome] ?? e.open;
+    const mo = m.moisture[t];
+    const fm = mo >= e.moist[0] && mo <= e.moist[1] ? 1 : 0.35;
+    const el = Math.max(0, m.elevation[t]);
+    const fa = el >= e.alt[0] && el <= e.alt[1] ? 1 : 0.25;
+    return fb * ft * fm * fa;
+  }
+
+  /** Refaz a comida e o nicho de uma célula. */
+  private refreshCell(c: EcoCells, k: number): void {
+    const m = this.map;
+    const w = m.width;
+    const x0 = (k % c.cols) * ECO_CELL;
+    const y0 = Math.floor(k / c.cols) * ECO_CELL;
+    let land = 0;
+    let veg = 0;
+    let avail = 0;
+    let bugs = 0;
+    let shore = 0;
+    for (let y = y0; y < Math.min(m.height, y0 + ECO_CELL); y++) {
+      for (let x = x0; x < Math.min(w, x0 + ECO_CELL); x++) {
+        const t = y * w + x;
+        if (isWater(m, t)) {
+          if (m.elevation[t] > -0.2) shore++;
+          continue;
+        }
+        if (!isLand(m, t)) continue;
+        land++;
+        veg += m.vegetation[t];
+        avail += this.forageAt(t);
+        bugs += this.insectsAt(t);
+      }
+    }
+    c.land[k] = land;
+    c.forage[k] = land ? avail / land : 0;
+    c.bugs[k] = land ? bugs / land : 0;
+    // Costa: só conta onde há terra e mar raso juntos.
+    const coast = land && shore ? Math.min(shore, land) : 0;
+    c.shore[k] = coast / (ECO_CELL * ECO_CELL) * 4;
+    // Rebrota sustentável: a parte pastada volta na taxa REGROW_YEAR; a capacidade usa só FORAGE_USE dela.
+    c.fprod[k] = (veg * REGROW_YEAR * GRAZE_MAX * 0.5 * FORAGE_USE) / GRAZE_COST;
+    c.iprod[k] = bugs * INSECT_YIELD;
+    c.wprod[k] = coast * COAST_YIELD;
+    // Nicho de cada espécie de terra, numa amostra de 16 tiles da célula.
+    const S = c.stride;
+    for (let s = 0; s < S; s++) c.suit[k * S + s] = 0;
+    for (let sy = 2; sy < ECO_CELL; sy += 4) {
+      const y = y0 + sy;
+      if (y >= m.height) continue;
+      for (let sx = 2; sx < ECO_CELL; sx += 4) {
+        const t = y * w + ((x0 + sx) % w);
+        const temp = temperatureAt(m, t);
+        for (let s = 0; s < S; s++) if (this.wild(s)) c.suit[k * S + s] += this.niche(s, ecologyOf(this.species[s]), t, temp) / 16;
+      }
+    }
+  }
+
+  /** Conta os bichos de terra de cada espécie em cada célula. */
+  private countWild(c: EcoCells): void {
+    c.N.fill(0);
+    c.dens.fill(-1);
+    c.herds.clear();
+    const S = c.stride;
+    const w = this.map.width;
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || !this.wild(this.kind[i])) continue;
+      const k = c.of(this.x[i], this.y[i], w) * S + this.kind[i];
+      if (c.N[k] < 65535) c.N[k]++;
+      // Centro do bando, com a volta do mapa (desvios a partir do primeiro membro visto).
+      const h = c.herds.get(this.family[i]);
+      if (h) {
+        h[1] += wrapDx(this.x[i] - h[0], w);
+        h[2] += this.y[i];
+        h[3]++;
+      } else c.herds.set(this.family[i], [this.x[i], 0, this.y[i], 1]);
+    }
+  }
+
+  /** Para onde fica o centro do bando do bicho (dx, dy), ou null se ele está sozinho no bando. */
+  private herdCenter(i: number, c: EcoCells): { x: number; y: number } | null {
+    const h = c.herds.get(this.family[i]);
+    if (!h || h[3] < 2) return null;
+    const w = this.map.width;
+    return { x: wrapDx(h[0] + h[1] / h[3] - this.x[i], w), y: h[2] / h[3] - this.y[i] };
+  }
+
+  /**
+   * Capacidade de suporte de cada espécie em cada célula: a produção de cada comida
+   * (pasto, insetos, costa, presas, carcaças) dividida entre quem come aquilo, na
+   * proporção do nicho, e dividida pela ração anual (massa^0,75). O total do planeta
+   * fica dentro do orçamento de bichos de terra.
+   */
+  private updateCapacity(c: EcoCells): void {
+    const S = c.stride;
+    const eco = this.species.map((sp, s) => (this.wild(s) ? ecologyOf(sp) : null));
+    // Caçador come pouco, mas mata mais do que come (sobra carcaça, caçadas perdidas): na conta da capacidade ele pesa quase como um herbívoro.
+    const need = eco.map((e) => (e ? METABOLISM_YEAR * (hunts(e) ? 0.7 : 1) * ration(e) : 0));
+    const clout = eco.map((e) => (e ? Math.sqrt(ration(e)) : 0));
+    const preys = eco.map((e, s) => (e && !hunts(e) ? s : -1)).filter((s) => s >= 0);
+    const hunters = eco.map((e, s) => (e && hunts(e) ? s : -1)).filter((s) => s >= 0);
+    // Quem cada caçador consegue pegar (pelo tamanho; em bando, presas maiores).
+    const eats = hunters.map((q) => {
+      const e = eco[q]!;
+      const limit = e.maxPrey * (e.pack ? 2 : 1);
+      return preys.map((p) => eco[p]!.mass <= limit && eco[p]!.mass >= e.mass * 0.015);
+    });
+    // Ração das presas em cada célula (para o mapa de caça).
+    for (let k = 0; k < c.n; k++) {
+      let p = 0;
+      for (const s of preys) p += c.N[k * S + s] * need[s];
+      c.prey[k] = p;
+    }
+    const wants = (e: Ecology) => [e.forage, e.insects, Math.max(e.fish, e.plankton), e.carrion];
+    const total = new Array(S).fill(0);
+    const K = new Float32Array(S);
+    const preyHere = new Float32Array(S);
+    let all = 0;
+    for (let k = 0; k < c.n; k++) {
+      // Presas da vizinhança (o predador anda mais que uma célula), por espécie.
+      const cx = k % c.cols;
+      const cy = (k - cx) / c.cols;
+      preyHere.fill(0);
+      for (let oy = -1; oy <= 1; oy++) {
+        const y = cy + oy;
+        if (y < 0 || y >= c.rows) continue;
+        for (let ox = -1; ox <= 1; ox++) {
+          const q = y * c.cols + ((cx + ox + c.cols) % c.cols);
+          for (const s of preys) preyHere[s] += c.N[q * S + s] / 9;
+        }
+      }
+      let carrion = 0;
+      for (const s of preys) carrion += preyHere[s] * need[s] * CARRION_RATIO;
+      const res = [c.fprod[k], c.iprod[k], c.wprod[k], carrion];
+      // Parte de cada um: nicho × peso na dieta × porte (bicho grande disputa melhor o pasto).
+      const D = [0, 0, 0, 0];
+      for (let s = 0; s < S; s++) {
+        if (!eco[s]) continue;
+        const u = c.suit[k * S + s] * clout[s];
+        const wv = wants(eco[s]!);
+        for (let r = 0; r < 4; r++) D[r] += u * wv[r];
+      }
+      K.fill(0);
+      for (let s = 0; s < S; s++) {
+        if (!eco[s]) continue;
+        const u = c.suit[k * S + s];
+        if (u <= 0.02) continue;
+        const wv = wants(eco[s]!);
+        // A parte de cada comida rende na proporção do peso dela na dieta (como na hora de comer).
+        for (let r = 0; r < 4; r++) if (D[r] > 0) K[s] += (res[r] * u * clout[s] * wv[r] * Math.min(1, wv[r])) / D[r];
+      }
+      // Carne: cada espécie de presa alimenta os caçadores que conseguem pegá-la, divididos pelo nicho e porte.
+      for (let pi = 0; pi < preys.length; pi++) {
+        const p = preys[pi];
+        if (preyHere[p] <= 0) continue;
+        let d = 0;
+        for (let h = 0; h < hunters.length; h++) if (eats[h][pi]) d += c.suit[k * S + hunters[h]] * clout[hunters[h]] * eco[hunters[h]]!.meat;
+        if (d <= 0) continue;
+        const meat = preyHere[p] * need[p] * PREDATOR_RATIO;
+        for (let h = 0; h < hunters.length; h++) {
+          const q = hunters[h];
+          if (eats[h][pi]) K[q] += (meat * c.suit[k * S + q] * clout[q] * eco[q]!.meat * Math.min(1, eco[q]!.meat)) / d;
+        }
+      }
+      for (let s = 0; s < S; s++) {
+        if (!eco[s]) continue;
+        // Nicho ruim rende menos mesmo sem concorrente.
+        const v = (Math.sqrt(c.suit[k * S + s]) * K[s]) / need[s];
+        c.K[k * S + s] = v;
+        total[s] += v;
+        all += v;
+      }
+    }
+    // Orçamento de entidades: o planeta inteiro não passa de LAND_BUDGET bichos de terra (na proporção da raiz da área).
+    // Raiz da área: planetas pequenos ficam um pouco mais cheios, para caber uma teia inteira.
+    const budget = LAND_BUDGET * Math.sqrt((this.map.width * this.map.height) / (1024 * 512));
+    const scale = all > budget ? budget / all : 1;
+    if (scale < 1) for (let j = 0; j < c.K.length; j++) c.K[j] *= scale;
+    c.dens.fill(-1);
+    for (let s = 0; s < S; s++) {
+      c.total[s] = total[s] * scale;
+      // O teto global vira só uma rede de segurança, bem acima da soma das capacidades locais.
+      if (eco[s]) this.caps[s] = Math.max(MIN_WILD, Math.ceil(c.total[s] * 1.6));
+    }
+  }
+
+  /**
+   * Relógio da fauna de terra: refaz uma fatia das células a cada passo (todas em
+   * um ano: pasto e clima mudam devagar), recontas e capacidades a cada oitavo de ano, e o
+   * apodrecer das carcaças e o esquecer do medo.
+   */
+  private updateWildlife(yr: number): void {
+    if (!this.species.some((_, s) => this.wild(s))) return;
+    const c = this.ecoCells();
+    let slice = Math.ceil(c.n * yr);
+    while (slice-- > 0) {
+      this.refreshCell(c, c.cursor);
+      c.cursor = (c.cursor + 1) % c.n;
+    }
+    this.wildClock += yr;
+    if (this.wildClock < 1 / 8) return;
+    const span = this.wildClock;
+    this.wildClock = 0;
+    this.countWild(c);
+    this.updateCapacity(c);
+    const fade = Math.exp(-FEAR_DECAY_YEAR * span);
+    for (let k = 0; k < this.fear.length; k++) this.fear[k] *= fade;
+    // Carcaças apodrecem; o que sobra aduba o chão (o pasto em volta rebrota na hora).
+    for (let k = this.carcasses.length - 1; k >= 0; k--) {
+      const cc = this.carcasses[k];
+      cc.kg *= Math.exp(-span / CARCASS_YEARS);
+      if (this.year - cc.at < CARCASS_YEARS && cc.kg > 0.3) continue;
+      const t = this.tileAt(cc.x, Math.floor(cc.y));
+      if (t >= 0 && isLand(this.map, t)) {
+        this.graze[t] = 0;
+        const cap = vegetationCap(this.map, t);
+        if (this.map.vegetation[t] < cap) this.map.vegetation[t] = Math.min(cap, this.map.vegetation[t] + 0.04);
+      }
+      this.carcasses.splice(k, 1);
+    }
+  }
+
+  /** O bicho morto vira carcaça no lugar. */
+  private leaveCarcass(i: number, kg = ecologyOf(this.species[this.kind[i]]).mass * EDIBLE): void {
+    if (kg < 0.3) return;
+    if (this.carcasses.length >= MAX_CARCASSES) this.carcasses.shift();
+    this.carcasses.push({ x: this.x[i], y: this.y[i], kg, at: this.year, sp: this.kind[i] });
+  }
+
+  /** Carcaça mais perto a até `radius` tiles, ou -1. */
+  private carcassNear(x: number, y: number, radius: number): number {
+    const w = this.map.width;
+    let best = -1;
+    let bd = radius * radius;
+    for (let k = 0; k < this.carcasses.length; k++) {
+      const cc = this.carcasses[k];
+      const dx = wrapDx(cc.x - x, w);
+      const dy = cc.y - y;
+      const d = dx * dx + dy * dy;
+      if (d < bd) {
+        bd = d;
+        best = k;
+      }
+    }
+    return best;
+  }
+
+  /** Come da carcaça até saciar; devolve a energia ganha. */
+  private eatCarcass(i: number, k: number, e: Ecology): number {
+    const cc = this.carcasses[k];
+    const tank = TANK_KG * metabolic(e);
+    const want = Math.max(0, SATED - this.energy[i]) * tank;
+    const take = Math.min(want, cc.kg);
+    cc.kg -= take;
+    return take / tank;
+  }
+
+  /** Velocidade de viagem (tiles por segundo de simulação): a área de vida por ano dividida pela duração do ano. */
+  private pace(e: Ecology): number {
+    return Math.min(MAX_PACE, e.roam / this.yearSpan);
+  }
+
+  /** Anda reto até (dx, dy) de distância; chega sem passar do ponto na próxima decisão. */
+  private headTo(i: number, dx: number, dy: number, speed: number): void {
+    const d = Math.hypot(dx, dy);
+    if (d < 0.25) {
+      this.vx[i] = 0;
+      this.vy[i] = 0;
+      return;
+    }
+    // Um pouco de ruído na direção (o "wander" de Reynolds), sem virar passeio aleatório.
+    const a = Math.atan2(dy, dx) + (this.rnd() - 0.5) * 0.3;
+    const go = Math.min(speed, d / (this.yearSpan / DECISIONS_PER_YEAR));
+    this.vx[i] = Math.cos(a) * go;
+    this.vy[i] = Math.sin(a) * go;
+    this.aimX[i] = dx;
+    this.aimY[i] = dy;
+  }
+
+  private headToTile(i: number, t: number, speed: number): void {
+    const w = this.map.width;
+    this.headTo(i, wrapDx((t % w) + 0.5 - this.x[i], w), Math.floor(t / w) + 0.5 - this.y[i], speed);
+  }
+
+  private stop(i: number): void {
+    this.vx[i] = 0;
+    this.vy[i] = 0;
+  }
+
+  /**
+   * Melhor mancha de comida ao alcance: consulta o mapa de comida das células em
+   * volta (mais longe quanto mais fome), escolhe pela comida menos o custo da
+   * distância e do medo, e sorteia alguns tiles dentro dela. Devolve o tile ou -1.
+   */
+  private findFood(i: number, e: Ecology, c: EcoCells, reach: number): number {
+    const m = this.map;
+    const w = m.width;
+    const s = this.kind[i];
+    const S = c.stride;
+    const here = c.of(this.x[i], this.y[i], w);
+    const cx = here % c.cols;
+    const cy = (here - cx) / c.cols;
+    let best = -1;
+    let bestScore = 0;
+    for (let oy = -reach; oy <= reach; oy++) {
+      const y = cy + oy;
+      if (y < 0 || y >= c.rows) continue;
+      for (let ox = -reach; ox <= reach; ox++) {
+        const k = y * c.cols + ((cx + ox + c.cols) % c.cols);
+        if (c.suit[k * S + s] <= 0.02) continue;
+        const food = this.cellFood(c, e, k);
+        if (food < FOOD_MIN) continue;
+        const score = food * (1 - Math.min(0.8, this.fear[k] * 0.3 * e.fear)) - Math.hypot(ox, oy) * 0.06;
+        if (score > bestScore) {
+          bestScore = score;
+          best = k;
+        }
+      }
+    }
+    if (best < 0) return -1;
+    const x0 = (best % c.cols) * ECO_CELL;
+    const y0 = Math.floor(best / c.cols) * ECO_CELL;
+    const sp = this.species[s];
+    let tile = -1;
+    let bestFood = FOOD_MIN;
+    for (let k = 0; k < 10; k++) {
+      const t = this.tileAt(x0 + Math.floor(this.rnd() * ECO_CELL), Math.min(m.height - 1, y0 + Math.floor(this.rnd() * ECO_CELL)));
+      if (t < 0 || !this.canStand(s, t)) continue;
+      const temp = temperatureAt(m, t);
+      if (temp < sp.tempMin || temp > sp.tempMax) continue;
+      const f = this.foodAt(e, t);
+      if (f > bestFood) {
+        bestFood = f;
+        tile = t;
+      }
+    }
+    return tile;
+  }
+
+  /** Tile com comida mais perto, olhando em anéis até `radius` tiles (onde o bicho pode ficar e no seu clima). */
+  private nearFood(i: number, e: Ecology, radius: number, min = FOOD_MIN): number {
+    const s = this.kind[i];
+    const sp = this.species[s];
+    for (let r = 1; r <= radius; r++) {
+      let best = -1;
+      let bestFood = min;
+      const n = Math.max(8, Math.round(r * 5));
+      const a0 = this.rnd() * Math.PI * 2;
+      for (let k = 0; k < n; k++) {
+        const a = a0 + (k / n) * Math.PI * 2;
+        const t = this.tileAt(this.x[i] + Math.cos(a) * r, Math.floor(this.y[i] + Math.sin(a) * r));
+        if (t < 0 || !this.canStand(s, t)) continue;
+        const f = this.foodAt(e, t);
+        if (f <= bestFood) continue;
+        const temp = temperatureAt(this.map, t);
+        if (temp < sp.tempMin || temp > sp.tempMax || !this.reachable(i, Math.cos(a), Math.sin(a), r)) continue;
+        bestFood = f;
+        best = t;
+      }
+      if (best >= 0) return best;
+      if (r >= 3) r++;
+    }
+    return -1;
+  }
+
+  /** Dá para andar em linha reta `dist` tiles na direção (dx, dy) sem penhasco nem água no caminho? */
+  private reachable(i: number, dx: number, dy: number, dist: number): boolean {
+    const s = this.kind[i];
+    let from = this.tileOf(i);
+    for (let d = 1; d <= Math.ceil(dist); d++) {
+      const t = this.tileAt(this.x[i] + dx * Math.min(d, dist), Math.floor(this.y[i] + dy * Math.min(d, dist)));
+      if (t < 0 || !this.canStep(s, from, t)) return false;
+      from = t;
+    }
+    return true;
+  }
+
+  /** Há comida da dieta (fora carne) a até `radius` tiles? Para medir a fome evitável. */
+  private foodWithin(e: Ecology, x: number, y: number, radius: number): boolean {
+    for (let oy = -radius; oy <= radius; oy += 2) {
+      for (let ox = -radius; ox <= radius; ox += 2) {
+        const t = this.tileAt(x + ox, Math.floor(y + oy));
+        if (t >= 0 && this.foodAt(e, t) >= 0.3) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Predador que está caçando este bicho (ou com fome e colado nele), a até a distância de alerta. */
+  private threatTo(i: number, e: Ecology): number {
+    // A presa só percebe o caçador de perto (ele chega de tocaia).
+    const radius = 2 + 4 * e.fear;
+    const s = this.kind[i];
+    let best = -1;
+    let bd = Infinity;
+    this.forEachNear(this.x[i], this.y[i], radius, (j, dx, dy) => {
+      const k = this.kind[j];
+      if (k === s || !this.wild(k)) return;
+      const pe = ecologyOf(this.species[k]);
+      if (!hunts(pe) || hunts(e) || e.mass > pe.maxPrey * (pe.pack ? 3 : 1)) return;
+      const d = dx * dx + dy * dy;
+      // Predador saciado não assusta; o que está caçando, sim (e o faminto colado também).
+      const hunting = this.act[j] === ACT.hunt && (this.chase[j] === i || d < 9);
+      if (!hunting && !(this.energy[j] < HUNGRY && d < 4)) return;
+      if (d < bd) {
+        bd = d;
+        best = j;
+      }
+    });
+    return best;
+  }
+
+  /**
+   * Escolhe a presa (resposta funcional tipo III de Holling): dieta e tamanho
+   * possíveis, a espécie mais abundante por perto pesa mais (a rara é atacada
+   * menos, mas continua visível), e filhote, velho ou doente pesa mais.
+   */
+  private pickPrey(i: number, e: Ecology, helpers: number): number {
+    const s = this.kind[i];
+    const limit = e.maxPrey * (e.pack ? Math.min(3, 1 + helpers * 0.5) : 1);
+    const min = e.mass * 0.015;
+    const sight = Math.min(36, 8 + e.range);
+    const escaped = this.goal[i];
+    if (PREY_SEEN.length < this.species.length) PREY_SEEN = new Uint16Array(this.species.length * 2);
+    const seen = PREY_SEEN;
+    seen.fill(0);
+    const cand = PREY_CAND;
+    let n = 0;
+    this.forEachNear(this.x[i], this.y[i], sight, (j, dx, dy) => {
+      const k = this.kind[j];
+      if (k === s || j === escaped || n >= cand.length / 3) return;
+      const kk = this.species[k].kind;
+      if (kk === 'fish') {
+        // Peixe só na beira d'água (ou para os anfíbios, como o crocodilo).
+        if (e.fish <= 0 || (dx * dx + dy * dy > 9 && !this.species[s].amphibious)) return;
+      } else if (!this.wild(k)) return;
+      const pe = ecologyOf(this.species[k]);
+      // Filhote de bicho grande é presa possível (leões pegam elefantes jovens).
+      const mass = this.age[j] < this.species[k].maturity ? pe.mass * 0.3 : pe.mass;
+      if (hunts(pe) || mass > limit || mass < min) return;
+      seen[k]++;
+      cand[n * 3] = j;
+      cand[n * 3 + 1] = dx;
+      cand[n * 3 + 2] = dy;
+      n++;
+    });
+    const tank = TANK_KG * metabolic(e);
+    // A melhor presa que dá para alcançar por terra (do outro lado do rio não serve); até três tentativas.
+    for (let tries = 0; tries < 3; tries++) {
+      let best = -1;
+      let bestScore = 0;
+      for (let c = 0; c < n; c++) {
+        const j = cand[c * 3];
+        if (j < 0) continue;
+        const k = this.kind[j];
+        const pe = ecologyOf(this.species[k]);
+        const a = seen[k] * seen[k];
+        const abundance = a / (a + 4);
+        const meal = Math.min(1.5, (pe.mass * EDIBLE) / tank);
+        const score = (abundance * meal * this.vulnerable(j)) / (Math.hypot(cand[c * 3 + 1], cand[c * 3 + 2]) + 4);
+        if (score > bestScore) {
+          bestScore = score;
+          best = c;
+          this.preyAbundance = abundance;
+        }
+      }
+      if (best < 0) return -1;
+      const dx = cand[best * 3 + 1];
+      const dy = cand[best * 3 + 2];
+      const d = Math.hypot(dx, dy);
+      if (d < 1 || this.reachable(i, dx / d, dy / d, d)) return cand[best * 3];
+      cand[best * 3] = -1;
+    }
+    return -1;
+  }
+
+  /** Quão fácil é pegar o bicho: filhote, velho e com parasitas, mais; pequeno no refúgio, menos. */
+  private vulnerable(j: number): number {
+    const sp = this.species[this.kind[j]];
+    let v = 1;
+    if (this.age[j] < sp.maturity) v *= 1.6;
+    else if (this.age[j] > sp.maxAge * 0.8) v *= 1.4;
+    v *= 1 + this.parasite[j];
+    const pe = ecologyOf(sp);
+    if (pe.mass < 30 && REFUGES.has(this.map.biome[this.tileOf(j)])) v *= 1 - REFUGE;
+    return v;
+  }
+
+  /** Conspecíficos adultos a até `radius` tiles e a direção do mais perto. */
+  private kin(i: number, radius: number): { n: number; dx: number; dy: number; d: number } {
+    const s = this.kind[i];
+    const mature = this.species[s].maturity;
+    const out = KIN;
+    out.n = 0;
+    out.d = Infinity;
+    out.dx = 0;
+    out.dy = 0;
+    this.forEachNear(this.x[i], this.y[i], radius, (j, dx, dy) => {
+      if (j === i || this.kind[j] !== s) return;
+      if (this.age[j] >= mature) out.n++;
+      const d = Math.hypot(dx, dy);
+      if (d < out.d) {
+        out.d = d;
+        out.dx = dx;
+        out.dy = dy;
+      }
+    });
+    return out;
+  }
+
+  /**
+   * Decisão de um bicho de terra, uma vez a cada 1/DECISIONS_PER_YEAR de ano.
+   * Portões fixos primeiro (fugir de quem caça, comer com fome crítica); depois a
+   * IAUS: cada ação recebe uma nota (produto de curvas), a atual ganha inércia e
+   * vence a maior. Tudo por ano: a mesma coisa acontece com o ano de 6 s ou de 12 s.
+   */
+  private decideAnimal(i: number, yr: number): void {
+    const map = this.map;
+    const s = this.kind[i];
+    const sp = this.species[s];
+    const e = ecologyOf(sp);
+    const c = this.ecoCells();
+    const tile = this.tileOf(i);
+    const temp = temperatureAt(map, tile);
+    const phase = this.yearPhase();
+    const p = this.parasite[i];
+    const cell = c.of(this.x[i], this.y[i], map.width);
+
+    // Inverno: quem hiberna dorme e gasta pouco.
+    const sleeping = e.hibernate && phase > 0.75 && this.energy[i] > STARVING;
+    // População relicta (poucos no planeta inteiro) vive nos melhores cantos e gasta menos: o piso contra a extinção.
+    const relict = this.population[s] < RELICT ? 0.5 : 1;
+    let en = this.energy[i] - METABOLISM_YEAR * appetite(e) * yr * (sleeping ? 0.3 : 1) * (1 + 0.5 * p) * relict;
+    const cold = temp < sp.tempMin;
+    const hot = temp > sp.tempMax;
+    if (cold || hot) en -= THERMAL_YEAR * yr;
+    if (!this.canStand(s, tile)) en -= 6 * yr;
+
+    // Parasitas: pega mais onde a célula está lotada; cura comendo bem.
+    const dens = this.crowding(c, cell, s, e.herd);
+    if (happens(this.rnd, PARASITE_RATE * Math.min(2, dens), yr)) this.parasite[i] = Math.min(1, p + 0.25);
+    else if (p > 0) this.parasite[i] = Math.max(0, p - PARASITE_RECOVERY * yr * (en > 0.6 ? 1 : 0.3));
+
+    // Morte: velhice, frio, calor, doença ou fome (cada uma com a sua causa).
+    const old = this.age[i] > sp.maxAge * (0.85 + (0.3 * ((i * 2654435761) % 1000)) / 1000);
+    if (en <= 0 || old) {
+      const cause: DeathCause = en > 0 ? 'velhice' : cold ? 'frio' : hot ? 'calor' : p > 0.7 ? 'doença' : 'fome';
+      if (cause === 'fome' && !hunts(e) && e.carrion < 0.5) {
+        this.tally.wildStarved++;
+        if (this.foodWithin(e, this.x[i], this.y[i], 8)) this.tally.wildStarvedNearFood++;
+      }
+      this.leaveCarcass(i);
+      this.kill(i, false, cause);
+      return;
+    }
+    this.energy[i] = Math.min(1, en);
+    const speed = this.pace(e) * (1 - 0.3 * p);
+
+    // Portão 1: perigo real. Foge para longe do predador, mais rápido que o normal.
+    const threat = e.fear > 0 ? this.threatTo(i, e) : -1;
+    if (threat >= 0) {
+      const dx = wrapDx(this.x[i] - this.x[threat], map.width);
+      const dy = this.y[i] - this.y[threat];
+      this.act[i] = ACT.flee;
+      this.goal[i] = -1;
+      this.headTo(i, dx * 4, dy * 4, speed * 1.6);
+      return;
+    }
+    if (sleeping) {
+      this.act[i] = ACT.hibernate;
+      this.stop(i);
+      return;
+    }
+
+    // Notas da IAUS (0 a 1). Fome: 0 saciado, 1 morrendo.
+    const hunger = Math.max(0, Math.min(1, (SATED - en) / (SATED - STARVING)));
+    const plants = e.forage > 0 || e.insects > 0 || e.fish > 0 || e.plankton > 0;
+    const foodHere = plants ? this.foodAt(e, tile) : 0;
+    // Come com fome e continua até saciar (com folga de meia mordida, para não beliscar sem parar).
+    const want = en < HUNGRY ? 0.5 + 0.5 * hunger : en < SATED - BITE / 2 && this.act[i] === ACT.eat ? 0.45 : 0;
+    const fearHere = 1 - Math.min(0.8, this.fear[cell] * 0.3 * e.fear);
+    let best: number = ACT.rest;
+    let top = 0.2 + (this.act[i] === ACT.rest ? 0.1 : 0);
+    const consider = (act: number, score: number) => {
+      const v = score + (this.act[i] === act ? 0.1 : 0) + this.rnd() * 0.03;
+      if (v > top) {
+        top = v;
+        best = act;
+      }
+    };
+    if (plants) consider(ACT.eat, want * (foodHere >= FOOD_MIN ? 1 : 0.8) * fearHere * Math.max(e.forage, e.insects, e.fish, e.plankton));
+    // Predador só caça com fome (abaixo de HUNGRY - 0,1).
+    // Quem também come planta ou inseto (raposa, urso) prefere isso a uma caçada sem presa à vista.
+    if (hunts(e) && en < HUNGRY) consider(ACT.hunt, (0.55 + 0.45 * hunger) * e.meat * (this.chase[i] >= 0 || !plants ? 1 : 0.6));
+    let carcass = -1;
+    // Necrófagos enxergam carcaças longe; caçadores voltam à carne da caça que está perto.
+    // Como no pasto: começa com fome e segue até saciar, sem beliscar a carcaça de barriga cheia.
+    const meat = en < HUNGRY ? 0.5 + 0.5 * hunger : en < SATED - BITE / 2 && this.act[i] === ACT.scavenge ? 0.45 : 0;
+    if ((e.carrion > 0 || hunts(e)) && meat > 0) {
+      // O urubu, planando, enxerga longe.
+      carcass = this.carcassNear(this.x[i], this.y[i], e.carrion > 0 ? Math.min(e.carrion >= 0.8 && !hunts(e) ? 90 : 40, 8 + e.range * 1.5) : 6);
+      if (carcass >= 0) consider(ACT.scavenge, meat * Math.max(e.carrion, hunts(e) ? 0.8 : 0));
+      // Necrófago sem carcaça à vista sai rondando (o urubu plana procurando).
+      else if (e.carrion >= 0.8 && !plants && !hunts(e) && en < HUNGRY) consider(ACT.scavenge, 0.5 + 0.4 * hunger);
+    }
+    // Fome crítica: comida passa por cima de tudo que não é fuga (portão 2).
+    const starving = en < STARVING;
+    if (!starving) {
+      const gap = Math.max(0, sp.tempMin + 2 - temp, temp - (sp.tempMax - 2));
+      if (gap > 0) consider(ACT.shelter, Math.min(1, gap / 6) * 0.9 + (cold || hot ? 0.3 : 0));
+      const season = !e.seasonal || (phase >= BREED_START && phase < BREED_START + BREED_LENGTH);
+      const adult = this.age[i] >= sp.maturity;
+      if (season && adult && en > (hunts(e) ? 0.5 : 0.6) && dens < 1) consider(ACT.mate, 0.35);
+      // Dispersão: o jovem que amadurece numa célula lotada sai procurando lugar.
+      // (Só de vez em quando procura o destino; achado, segue nele até chegar.)
+      // Bando grande demais também se divide: os jovens adultos saem.
+      const going = this.act[i] === ACT.disperse && this.goal[i] >= 0;
+      const young = this.age[i] < sp.maturity * 1.4;
+      const big = young && (c.herds.get(this.family[i])?.[3] ?? 0) > e.herd * 1.5;
+      if (adult && (going || this.rnd() < 0.15) && (dens > 1.2 || big || (young && dens > 0.8))) consider(ACT.disperse, 0.3 + 0.3 * Math.min(1, Math.max(0.3, dens - 0.8)));
+      // Bando: quem ficou longe do centro do seu bando volta para perto; sozinho e adulto, procura parceiro.
+      const center = e.herd > 1 ? this.herdCenter(i, c) : null;
+      const away = center ? Math.hypot(center.x, center.y) : 0;
+      if (center && away > 4 + e.herd * 0.5) consider(ACT.herd, Math.min(0.6, 0.35 + away / 100));
+      else if (!center && adult && en > 0.5 && this.kin(i, 8).n === 0) consider(ACT.mate, 0.33);
+    } else if (best === ACT.rest) best = plants ? ACT.eat : hunts(e) ? ACT.hunt : ACT.scavenge;
+
+    this.act[i] = best;
+    switch (best) {
+      case ACT.eat: {
+        if (foodHere >= FOOD_MIN) {
+          this.stop(i);
+          this.goal[i] = -1;
+          // Mancha rendendo pouco (valor marginal de Charnov): já escolhe uma melhor por perto para a próxima.
+          if (this.eatHere(i, e, tile, en) < BITE * 0.35) this.goal[i] = this.nearFood(i, e, Math.min(10, 2 + e.roam / 30), foodHere * 1.5);
+          if (this.goal[i] >= 0) this.headToTile(i, this.goal[i], speed);
+          break;
+        }
+        let goal = this.goal[i];
+        // Destino que não chega nunca (penhasco, água no meio): larga e procura outro.
+        if (goal >= 0 && ++this.effort[i] > GOAL_TRIES) {
+          this.effort[i] = 0;
+          this.goal[i] = -1;
+          this.roam(i, speed);
+          break;
+        }
+        if (goal < 0 || this.foodAt(e, goal) < FOOD_MIN) {
+          this.effort[i] = 0;
+          // Primeiro a vizinhança (o que dá para ver); depois o mapa de comida das células, até onde
+          // o bicho anda em uns dois meses (mais longe com fome crítica).
+          goal = this.nearFood(i, e, Math.min(10, 2 + e.roam / 30));
+          const reach = Math.max(1, Math.min(4, Math.round((e.roam * (starving ? 0.25 : 0.15)) / ECO_CELL)));
+          if (goal < 0) goal = this.findFood(i, e, c, reach);
+        }
+        this.goal[i] = goal;
+        if (goal >= 0) this.headToTile(i, goal, speed);
+        else this.roam(i, speed);
+        break;
+      }
+      case ACT.hunt:
+        this.hunt(i, e, c, speed);
+        break;
+      case ACT.scavenge: {
+        if (carcass < 0) {
+          this.roam(i, speed);
+          break;
+        }
+        const cc = this.carcasses[carcass];
+        const dx = wrapDx(cc.x - this.x[i], map.width);
+        const dy = cc.y - this.y[i];
+        if (dx * dx + dy * dy < 1.5) {
+          this.stop(i);
+          this.energy[i] = Math.min(1, this.energy[i] + this.eatCarcass(i, carcass, e));
+        } else this.headTo(i, dx, dy, speed);
+        break;
+      }
+      case ACT.shelter: {
+        const dir = this.comfortBias(i, temp);
+        if (dir) this.headTo(i, dir.x * 8, dir.y * 8, speed);
+        else this.roam(i, speed);
+        break;
+      }
+      case ACT.mate: {
+        // Vai até o adulto mais perto; com um já ao lado, fica; sem ninguém à vista, explora.
+        const dir = this.seekMate(i);
+        if (dir) this.headTo(i, dir.x, dir.y, speed);
+        else if (this.kin(i, 3).n) this.stop(i);
+        else {
+          // Ninguém à vista: vai para a célula vizinha com mais bichos da espécie (o cheiro, o chamado).
+          const cell2 = this.crowdedCell(i, c);
+          if (cell2 >= 0) this.headTo(i, wrapDx((cell2 % c.cols) * ECO_CELL + 8 - this.x[i], map.width), Math.floor(cell2 / c.cols) * ECO_CELL + 8 - this.y[i], speed);
+          else this.roam(i, speed);
+        }
+        break;
+      }
+      case ACT.disperse: {
+        let goal = this.goal[i];
+        if (goal < 0) {
+          goal = this.goal[i] = this.emptierCell(i, c);
+          // Quem sai para um lugar novo começa um bando novo (fissão).
+          if (goal >= 0) this.family[i] = ++this.nextFamily;
+        }
+        if (goal >= 0 && c.of((goal % map.width) + 0.5, Math.floor(goal / map.width) + 0.5, map.width) === cell) goal = this.goal[i] = -1;
+        if (goal >= 0) this.headToTile(i, goal, speed);
+        else {
+          // Nenhum lugar menos lotado por perto: fica.
+          this.act[i] = ACT.rest;
+          this.loiter(i, speed);
+        }
+        break;
+      }
+      case ACT.herd: {
+        const center = this.herdCenter(i, c);
+        if (center) this.headTo(i, center.x, center.y, speed);
+        else this.loiter(i, speed);
+        break;
+      }
+      default:
+        this.goal[i] = -1;
+        this.loiter(i, speed);
+    }
+    this.breed(i, e, c, cell, dens, yr);
+  }
+
+  /** Come no lugar: pasto (some do tile e rebrota), insetos ou comida da costa. Devolve a energia ganha. */
+  private eatHere(i: number, e: Ecology, t: number, en: number): number {
+    const gain = Math.min(BITE, SATED - en);
+    if (gain <= 0) return 0;
+    const field = Math.max(e.insects * this.insectsAt(t), Math.max(e.fish, e.plankton) * this.shoreAt(t));
+    const grass = e.forage * this.forageAt(t);
+    let got: number;
+    // O peso da comida na dieta diz quanto ela rende (a raposa vive mal só de frutos e insetos).
+    if (field >= grass) got = gain * Math.min(1, field / 0.4);
+    else {
+      const cost = GRAZE_COST * ration(e);
+      got = (this.grazePatch(t, gain * cost) / cost) * e.forage;
+      // Engenheiro (elefante): às vezes derruba uma árvore e abre clareira.
+      if (e.engineer && this.map.vegetation[t] > B.TREE_BAND && this.rnd() < 0.08) {
+        this.map.vegetation[t] = Math.max(B.TREE_BAND - 0.1, this.map.vegetation[t] - 0.15);
+        this.map.biome[t] = classify(this.map, t);
+        this.onTileChanged(t);
+      }
+    }
+    this.energy[i] = Math.min(1, this.energy[i] + got);
+    return got;
+  }
+
+  /** Caça: segue a presa escolhida e dá o bote quando chega perto; sem presa à vista, vai para onde há mais caça. */
+  private hunt(i: number, e: Ecology, c: EcoCells, speed: number): void {
+    const map = this.map;
+    const w = map.width;
+    const helpers = e.pack ? Math.min(4, this.kin(i, 6).n) : 0;
+    let prey = this.chase[i];
+    if (prey >= 0 && (!this.alive[prey] || this.kind[prey] === this.kind[i])) prey = -1;
+    if (prey >= 0) {
+      const dx = wrapDx(this.x[prey] - this.x[i], w);
+      const dy = this.y[prey] - this.y[i];
+      // Longe demais ou perseguição comprida: desiste (e descansa um pouco antes de tentar outra).
+      if (dx * dx + dy * dy > 30 * 30 || ++this.effort[i] > CHASE_TRIES) {
+        this.chase[i] = -1;
+        this.effort[i] = 0;
+        // Guarda a presa que escapou para não voltar logo atrás dela.
+        this.goal[i] = prey;
+        this.stop(i);
+        return;
+      }
+    }
+    if (prey < 0) {
+      prey = this.pickPrey(i, e, helpers);
+      this.effort[i] = 0;
+    }
+    this.chase[i] = prey;
+    if (prey < 0) {
+      // Sem presa à vista: vai para a célula próxima onde a sua caça rende mais (a capacidade dele ali,
+      // que já conta só as presas do seu tamanho), sem ficar rodando num lugar vazio.
+      const here = c.of(this.x[i], this.y[i], w);
+      const S = c.stride;
+      const s = this.kind[i];
+      const cx = here % c.cols;
+      const cy = (here - cx) / c.cols;
+      let best = here;
+      let most = c.K[here * S + s] * 1.2;
+      for (let oy = -4; oy <= 4; oy++) {
+        const y = cy + oy;
+        if (y < 0 || y >= c.rows) continue;
+        for (let ox = -4; ox <= 4; ox++) {
+          const k = y * c.cols + ((cx + ox + c.cols) % c.cols);
+          const v = c.K[k * S + s] / (1 + Math.hypot(ox, oy) * 0.15);
+          if (v > most) {
+            most = v;
+            best = k;
+          }
+        }
+      }
+      if (best !== here) this.headTo(i, wrapDx((best % c.cols) * ECO_CELL + 8 - this.x[i], w), Math.floor(best / c.cols) * ECO_CELL + 8 - this.y[i], speed);
+      else this.roam(i, speed);
+      return;
+    }
+    const dx = wrapDx(this.x[prey] - this.x[i], w);
+    const dy = this.y[prey] - this.y[i];
+    if (dx * dx + dy * dy > STRIKE * STRIKE) {
+      // Mira um pouco à frente da presa (para onde ela está correndo).
+      const lead = this.yearSpan / DECISIONS_PER_YEAR;
+      this.headTo(i, dx + this.vx[prey] * lead, dy + this.vy[prey] * lead, speed * 1.8);
+      return;
+    }
+    // O bote: chance base, mais fácil em presa frágil e em matilha.
+    this.stop(i);
+    // Tipo III de Holling: presa rara à vista (sozinha, longe do grupo) é mais difícil de pegar.
+    // E presa abaixo da capacidade da região ocupa só os melhores esconderijos: a caça falha mais.
+    const pk = this.kind[prey];
+    const spare = this.wild(pk) ? Math.min(1, this.crowding(c, c.of(this.x[prey], this.y[prey], w), pk, ecologyOf(this.species[pk]).herd) / 0.7) : 1;
+    const chance = Math.min(0.9, HUNT_SUCCESS * this.vulnerable(prey) * (1 + 0.25 * helpers) * (0.4 + 0.6 * this.preyAbundance) * spare);
+    if (this.rnd() < chance) {
+      const young = this.age[prey] < this.species[this.kind[prey]].maturity;
+      const kg = ecologyOf(this.species[this.kind[prey]]).mass * EDIBLE * (young ? 0.3 : 1);
+      const at = c.of(this.x[prey], this.y[prey], w);
+      this.fear[at] = Math.min(3, this.fear[at] + 1);
+      this.leaveCarcass(prey, kg);
+      this.kill(prey, false, 'predador');
+      this.chase[i] = -1;
+      this.effort[i] = 0;
+      const k = this.carcasses.length - 1;
+      if (k >= 0) {
+        this.energy[i] = Math.min(1, this.energy[i] + this.eatCarcass(i, k, e));
+        // A matilha come junto: quem do bando está perto e com fome divide a presa.
+        if (e.pack) {
+          const s = this.kind[i];
+          this.forEachNear(this.x[i], this.y[i], 8, (j) => {
+            if (j === i || this.kind[j] !== s || this.family[j] !== this.family[i] || this.energy[j] >= HUNGRY) return;
+            this.energy[j] = Math.min(1, this.energy[j] + this.eatCarcass(j, k, e));
+          });
+        }
+      }
+    } else {
+      // Errou: a presa dispara e o caçador cansa.
+      this.energy[i] -= 0.01;
+      const pe = ecologyOf(this.species[this.kind[prey]]);
+      if (this.wild(this.kind[prey])) {
+        this.act[prey] = ACT.flee;
+        this.headTo(prey, dx * 4, dy * 4, this.pace(pe) * 1.6);
+      }
+    }
+  }
+
+  /** Sem destino: segue mais ou menos na mesma direção (explora em vez de rodar no lugar). */
+  private roam(i: number, speed: number): void {
+    const v = Math.hypot(this.vx[i], this.vy[i]);
+    let a = this.rnd() * Math.PI * 2;
+    if (v > 0.05) a = Math.atan2(this.vy[i], this.vx[i]) + (this.rnd() - 0.5) * 0.8;
+    // Se o caminho em frente está fechado (penhasco, água), tenta outros rumos.
+    for (let k = 0; k < 8 && !this.reachable(i, Math.cos(a), Math.sin(a), 3); k++) a += Math.PI / 4 + (this.rnd() - 0.5) * 0.4;
+    this.vx[i] = Math.cos(a) * speed * 0.8;
+    this.vy[i] = Math.sin(a) * speed * 0.8;
+  }
+
+  /**
+   * Descansando: fica parado ou vai andando devagar, pastando pelo caminho, num
+   * rumo que muda pouco de uma decisão para outra (o bando atravessa a área de vida
+   * em vez de rodar no lugar).
+   */
+  private loiter(i: number, speed: number): void {
+    // Caçadores descansam no território (de tocaia); pastadores vão pastando adiante.
+    if (this.rnd() < (hunts(ecologyOf(this.species[this.kind[i]])) ? 0.75 : 0.3)) return this.stop(i);
+    // O bando inteiro vai para o mesmo lado, que muda a cada estação (sorteio pela família e pela estação).
+    const h = Math.imul(this.family[i] ^ Math.floor(this.year * 4), 2654435761) >>> 0;
+    const a = (h / 4294967296) * Math.PI * 2 + (this.rnd() - 0.5) * 0.6;
+    this.aimX[i] = Math.cos(a);
+    this.aimY[i] = Math.sin(a);
+    this.vx[i] = this.aimX[i] * speed * 0.5;
+    this.vy[i] = this.aimY[i] * speed * 0.5;
+  }
+
+  /** Célula a até 4 de distância com mais bichos da espécie (fora a do próprio bicho), ou -1. */
+  private crowdedCell(i: number, c: EcoCells): number {
+    const s = this.kind[i];
+    const S = c.stride;
+    const here = c.of(this.x[i], this.y[i], this.map.width);
+    const cx = here % c.cols;
+    const cy = (here - cx) / c.cols;
+    let best = -1;
+    let most = 0;
+    for (let oy = -4; oy <= 4; oy++) {
+      const y = cy + oy;
+      if (y < 0 || y >= c.rows) continue;
+      for (let ox = -4; ox <= 4; ox++) {
+        const k = y * c.cols + ((cx + ox + c.cols) % c.cols);
+        if (k !== here && c.N[k * S + s] > most) {
+          most = c.N[k * S + s];
+          best = k;
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Lotação da área de vida do bando (N/K): soma células em anéis em volta até a
+   * capacidade caber o bando com folga (até 9×9 células). Bichos raros e espalhados
+   * olham uma área grande; num lugar farto, a vizinhança basta.
+   */
+  private crowding(c: EcoCells, cell: number, s: number, herd: number): number {
+    const S = c.stride;
+    const memo = c.dens[cell * S + s];
+    if (memo >= 0) return memo;
+    const cx = cell % c.cols;
+    const cy = (cell - cx) / c.cols;
+    let n = c.N[cell * S + s];
+    let k = c.K[cell * S + s];
+    // A área cobre alguns bandos, não um só: senão todo bando pareceria lotado.
+    const want = Math.max(4, herd * 3);
+    for (let r = 1; r <= 6 && k < want; r++) {
+      for (let oy = -r; oy <= r; oy++) {
+        const y = cy + oy;
+        if (y < 0 || y >= c.rows) continue;
+        const edge = oy === -r || oy === r;
+        for (let ox = -r; ox <= r; ox += edge ? 1 : 2 * r) {
+          const q = (y * c.cols + ((cx + ox + c.cols) % c.cols)) * S + s;
+          n += c.N[q];
+          k += c.K[q];
+        }
+      }
+    }
+    // Espécie tão rara que nem 13×13 células dão para um bando: vale a lotação do planeta inteiro.
+    const d = k < want ? this.population[s] / Math.max(1, c.total[s]) : n / Math.max(0.5, k);
+    c.dens[cell * S + s] = d;
+    return d;
+  }
+
+  /** Tile no centro da célula vizinha (até 2 células) menos lotada e com nicho bom, para a dispersão. */
+  private emptierCell(i: number, c: EcoCells): number {
+    const s = this.kind[i];
+    const S = c.stride;
+    const here = c.of(this.x[i], this.y[i], this.map.width);
+    const cx = here % c.cols;
+    const cy = (here - cx) / c.cols;
+    const herd = ecologyOf(this.species[s]).herd;
+    let best = -1;
+    let low = this.crowding(c, here, s, herd) - 0.2;
+    for (let oy = -2; oy <= 2; oy++) {
+      const y = cy + oy;
+      if (y < 0 || y >= c.rows) continue;
+      for (let ox = -2; ox <= 2; ox++) {
+        const k = y * c.cols + ((cx + ox + c.cols) % c.cols);
+        if (k === here || c.suit[k * S + s] < 0.15) continue;
+        const fill = this.crowding(c, k, s, herd) + this.rnd() * 0.1;
+        if (fill < low) {
+          low = fill;
+          best = k;
+        }
+      }
+    }
+    if (best < 0) return -1;
+    for (let k = 0; k < 8; k++) {
+      const t = this.tileAt((best % c.cols) * ECO_CELL + Math.floor(this.rnd() * ECO_CELL), Math.min(this.map.height - 1, Math.floor(best / c.cols) * ECO_CELL + Math.floor(this.rnd() * ECO_CELL)));
+      if (t >= 0 && this.habitable(s, t)) return t;
+    }
+    return -1;
+  }
+
+  /**
+   * Reprodução: na estação, com energia e um parceiro adulto por perto. Os
+   * nascimentos caem com a lotação da vizinhança (Beverton–Holt local) e com os
+   * parasitas; uma espécie rara no planeta tem um empurrão.
+   */
+  private breed(i: number, e: Ecology, c: EcoCells, cell: number, dens: number, yr: number): void {
+    const s = this.kind[i];
+    const sp = this.species[s];
+    if (this.age[i] < sp.maturity || this.energy[i] < (hunts(e) ? 0.55 : 0.7) || dens >= 1) return;
+    const phase = this.yearPhase();
+    if (e.seasonal && (phase < BREED_START || phase >= BREED_START + BREED_LENGTH)) return;
+    // Espécie rara no planeta (abaixo da metade do que a terra sustenta) se recupera mais rápido.
+    const rare = this.population[s] < RELICT ? 3 : this.population[s] < c.total[s] * 0.5 ? 2 : 1;
+    // Cada cria tem dois pais: metade da ninhada por adulto, espalhada pela estação.
+    const rate = ((e.litter / 2) * (1 - dens * dens) * (1 - 0.6 * this.parasite[i]) * rare) / (e.seasonal ? BREED_LENGTH : 1);
+    if (!happens(this.rnd, rate, yr)) return;
+    // Parceiro adulto por perto (solitários, como a onça, se encontram de mais longe).
+    const k = this.kin(i, e.herd > 2 ? 8 : Math.max(8, e.range));
+    if (!k.n || k.n > e.herd * 1.5 + 1) return;
+    const child = this.spawn(s, this.x[i] + (this.rnd() - 0.5), this.y[i] + (this.rnd() - 0.5));
+    if (child < 0) return;
+    this.energy[i] -= 0.12;
+    this.parent[child] = this.uid[i];
+    this.family[child] = this.family[i];
+    c.N[cell * c.stride + s]++;
+  }
+
+  /**
+   * Coloca os bichos de terra pela capacidade de cada célula (herbívoros primeiro,
+   * depois quem os come), já em bandos do tamanho típico da espécie: a capacidade
+   * das células vai se acumulando e, quando dá um bando, ele nasce ali.
+   */
+  private populateWild(): void {
+    const c = this.ecoCells();
+    const S = c.stride;
+    const w = this.map.width;
+    for (const predators of [false, true]) {
+      for (let s = 0; s < S; s++) {
+        if (!this.wild(s)) continue;
+        const e = ecologyOf(this.species[s]);
+        // Na segunda leva entram os que vivem de carne: caçadores e necrófagos.
+        if ((hunts(e) || e.carrion >= 0.8) !== predators) continue;
+        const sp = this.species[s];
+        const group = Math.max(2, Math.round(e.herd * 0.6));
+        let acc = 0;
+        const start = Math.floor(this.rnd() * c.n);
+        for (let q = 0; q < c.n; q++) {
+          const k = (start + q) % c.n;
+          if (c.K[k * S + s] <= 0) continue;
+          acc += c.K[k * S + s] * 0.7;
+          if (acc < group * (0.5 + this.rnd())) continue;
+          let n = Math.min(group, Math.round(acc));
+          acc -= n;
+          let at = -1;
+          for (let tries = 0; tries < 12 && at < 0; tries++) {
+            const t = this.tileAt((k % c.cols) * ECO_CELL + Math.floor(this.rnd() * ECO_CELL), Math.min(this.map.height - 1, Math.floor(k / c.cols) * ECO_CELL + Math.floor(this.rnd() * ECO_CELL)));
+            if (t >= 0 && this.habitable(s, t)) at = t;
+          }
+          if (at < 0) continue;
+          const family = ++this.nextFamily;
+          for (let tries = 0; n > 0 && tries < 30; tries++) {
+            const t = this.tileAt((at % w) + Math.floor((this.rnd() - 0.5) * 6), Math.floor(at / w) + Math.floor((this.rnd() - 0.5) * 6));
+            if (t < 0 || !this.habitable(s, t)) continue;
+            // Bando com adultos dos dois lados da idade: nunca só filhotes.
+            const age = sp.maturity + this.rnd() * (sp.maxAge * 0.6 - sp.maturity);
+            const j = this.spawn(s, (t % w) + this.rnd(), Math.floor(t / w) + this.rnd(), -1, Math.max(0, age));
+            if (j < 0) continue;
+            this.family[j] = family;
+            n--;
+          }
+        }
+      }
+      this.countWild(c);
+      this.updateCapacity(c);
+    }
+  }
+
   /**
    * Controle da natalidade: perto do teto quase não nascem filhotes (o
    * pasto e o espaço ficam disputados); uma espécie rara tem mais filhotes,
@@ -2747,7 +4006,7 @@ export class Ecosystem {
     let best: { x: number; y: number } | undefined;
     for (let k = 0; k < 8; k++) {
       const a = (k / 8) * Math.PI * 2 + this.rnd() * 0.6;
-      const r = 4 + this.rnd() * 6;
+      const r = 4 + this.rnd() * (this.wild(s) ? Math.max(6, ecologyOf(sp).roam / 8) : 6);
       const t = this.tileAt(this.x[i] + Math.cos(a) * r, Math.floor(this.y[i] + Math.sin(a) * r));
       if (t < 0 || !this.canStand(s, t)) continue;
       const gap = Math.abs(temperatureAt(this.map, t) - mid);
@@ -4992,6 +6251,21 @@ export class Ecosystem {
     if (this.job.length < n) this.job = new Int32Array(n);
     if (this.jobWork.length < n) this.jobWork = new Float32Array(n);
     if (this.jobWait.length < n) this.jobWait = new Float32Array(n);
+    // Saves de antes da fauna nova: sem ação, destino nem parasitas; pasto e medo zerados.
+    if (this.act.length < n) this.act = new Uint8Array(n);
+    if (this.goal.length < n) this.goal = new Int32Array(n).fill(-1);
+    if (this.chase.length < n) this.chase = new Int32Array(n).fill(-1);
+    if (this.effort.length < n) this.effort = new Uint8Array(n);
+    if (this.parasite.length < n) this.parasite = new Float32Array(n);
+    const tiles = this.map.width * this.map.height;
+    if (!this.graze || this.graze.length !== tiles) this.graze = new Float32Array(tiles);
+    if (!this.grazeAt || this.grazeAt.length !== tiles) this.grazeAt = new Float32Array(tiles);
+    const cells = Math.ceil(this.map.width / ECO_CELL) * Math.ceil(this.map.height / ECO_CELL);
+    if (!this.fear || this.fear.length !== cells) this.fear = new Float32Array(cells);
+    // O save guarda os campos das células, não a classe.
+    if (this.cells) Object.setPrototypeOf(this.cells, EcoCells.prototype);
+    this.tally.wildStarved = this.tally.wildStarved || 0;
+    this.tally.wildStarvedNearFood = this.tally.wildStarvedNearFood || 0;
     this.tally.marriages = this.tally.marriages || 0;
     this.tally.fights = this.tally.fights || 0;
     // Saves de antes da IA local: traços sorteados para quem já vivia.
@@ -8075,7 +9349,7 @@ export class Ecosystem {
       // Predadores atacam animais de carga e rebanhos.
       let predators = 0;
       this.forEachNear(c.x, c.y, 3, (j) => {
-        if (this.species[this.kind[j]].kind === 'predator') predators++;
+        if (this.species[this.kind[j]].kind === 'predator' && hunts(ecologyOf(this.species[this.kind[j]]))) predators++;
       });
       if (predators && happens(this.civRnd, B.CARAVAN_PREDATOR * predators, dt / YEAR_SECONDS)) {
         if (c.kind === 'flock') {
@@ -8992,22 +10266,64 @@ export class Ecosystem {
     return { parent, children };
   }
 
+  /** O que um bicho de terra está fazendo e por quê (a ação que venceu na IAUS). */
+  wildActivity(i: number): string {
+    const sp = this.species[this.kind[i]];
+    const e = ecologyOf(sp);
+    const moving = Math.hypot(this.vx[i], this.vy[i]) > 0.05;
+    const hungry = this.energy[i] < STARVING ? ', com muita fome' : this.energy[i] < HUNGRY ? ', com fome' : '';
+    const w = this.map.width;
+    switch (this.act[i]) {
+      case ACT.eat: {
+        const food = e.forage >= Math.max(e.insects, e.fish, e.plankton) ? 'pastando' : e.insects >= Math.max(e.fish, e.plankton) ? 'caçando insetos' : 'comendo na beira da água';
+        if (!moving) return food + hungry;
+        const g = this.goal[i];
+        if (g < 0) return `procurando comida${hungry}`;
+        const d = Math.round(Math.hypot(wrapDx((g % w) + 0.5 - this.x[i], w), Math.floor(g / w) + 0.5 - this.y[i]));
+        return `indo comer a ${d} tiles${hungry}`;
+      }
+      case ACT.hunt: {
+        const j = this.chase[i];
+        if (j >= 0 && this.alive[j]) return `caçando ${this.species[this.kind[j]].name.toLowerCase()}${hungry}`;
+        return `procurando caça${hungry}`;
+      }
+      case ACT.scavenge:
+        return moving ? 'indo até uma carcaça' : 'comendo uma carcaça';
+      case ACT.flee:
+        return 'fugindo de um predador';
+      case ACT.shelter:
+        return temperatureAt(this.map, this.tileOf(i)) < (sp.tempMin + sp.tempMax) / 2 ? 'procurando um lugar mais quente' : 'procurando um lugar mais fresco';
+      case ACT.mate:
+        return 'procurando parceiro';
+      case ACT.disperse:
+        return 'mudando de território (aqui está lotado)';
+      case ACT.herd:
+        return e.pack ? 'andando com a matilha' : 'seguindo o bando';
+      case ACT.hibernate:
+        return 'hibernando';
+      default:
+        return moving ? 'andando' : 'descansando';
+    }
+  }
+
   /** O que a criatura está fazendo agora, em poucas palavras (RF-VIDA-335). */
   activityOf(i: number): string {
     const sp = this.species[this.kind[i]];
     const moving = Math.hypot(this.vx[i], this.vy[i]) > 0.05;
     const vi = this.village[i];
+    if (this.wild(this.kind[i])) return this.wildActivity(i);
     if (sp.kind !== 'sapient') {
-      if (this.energy[i] < 0.3) return sp.kind === 'predator' || sp.kind === 'shark' ? 'caçando, com fome' : 'procurando comida';
+      const filter = ecologyOf(sp).guild === 'filtrador';
+      if (filter) return moving ? 'filtrando plâncton' : 'descansando';
+      if (this.energy[i] < 0.3) return sp.kind === 'shark' ? 'caçando, com fome' : 'procurando comida';
       let threat = false;
-      if (sp.kind === 'herbivore' || sp.kind === 'fish') {
+      if (sp.kind === 'fish') {
         this.forEachNear(this.x[i], this.y[i], 4, (j) => {
-          const k = this.species[this.kind[j]].kind;
-          if (k === 'predator' || k === 'shark') threat = true;
+          if (this.species[this.kind[j]].kind === 'shark' && ecologyOf(this.species[this.kind[j]]).guild !== 'filtrador') threat = true;
         });
       }
-      if (threat && moving) return sp.kind === 'fish' ? 'fugindo de um tubarão' : 'fugindo de um predador';
-      return moving ? (sp.kind === 'fish' ? 'nadando' : 'andando') : sp.kind === 'herbivore' ? 'pastando' : 'descansando';
+      if (threat && moving) return 'fugindo de um tubarão';
+      return moving ? 'nadando' : 'descansando';
     }
     if (vi < 0) return moving ? 'andando sem rumo' : 'descansando no mato';
     const v = this.villages[vi];

@@ -1,5 +1,6 @@
 import { mulberry32, seedFor } from '../core/rng';
 import type { PlanetParams } from '../procgen/surface';
+import type { Ecology } from './fauna';
 
 /**
  * Espécies de um planeta (RF-SUP-08). O jogador gerencia e transporta
@@ -43,6 +44,8 @@ export interface Species {
   parent?: string;
   /** Predador que também come frutos, raízes e insetos (urso, raposa): passa melhor quando a caça some. */
   omnivore?: boolean;
+  /** Ecologia própria (dieta, massa, bando, nicho): os alienígenas recebem a do gerador; a Terra usa a tabela de fauna.ts. */
+  eco?: Partial<Ecology>;
 }
 
 /** Onde a espécie pode ficar: 0 terra, 1 água, 2 as duas. */
@@ -92,7 +95,7 @@ const EARTH_BANK: Entry[] = [
   ['Elefante', 'herbivore', 'elephant', [150, 150, 158], 285, 325, { speed: 0.9, maxAge: 40, maturity: 8, size: 1.4 }],
   ['Mamute', 'herbivore', 'mammoth', [120, 78, 50], 225, 280, { speed: 0.9, maxAge: 40, maturity: 8, size: 1.4 }],
   ['Macaco', 'herbivore', 'monkey', [130, 86, 52], 285, 322, { size: 0.7 }],
-  ['Urso', 'predator', 'bear', [110, 76, 50], 240, 300, { speed: 1.6, maxAge: 22, maturity: 4, size: 1.1, omnivore: true }],
+  ['Urso', 'predator', 'bear', [110, 76, 50], 240, 305, { speed: 1.6, maxAge: 22, maturity: 4, size: 1.1, omnivore: true }],
   ['Raposa', 'predator', 'fox', [214, 110, 50], 245, 312, { speed: 2.2, size: 0.7, omnivore: true }],
   ['Onça', 'predator', 'jaguar', [214, 170, 70], 285, 322, { speed: 2.4, size: 0.9 }],
   ['Hiena', 'predator', 'hyena', [180, 150, 100], 285, 325, { size: 0.85 }],
@@ -106,10 +109,23 @@ const EARTH_BANK: Entry[] = [
   ['Lula', 'fish', 'squid', [220, 130, 170], 265, 305, { size: 0.5 }],
   ['Tartaruga-marinha', 'fish', 'seaTurtle', [70, 140, 110], 280, 315, { speed: 1, maxAge: 60, maturity: 8, size: 0.6 }],
   ['Baleia', 'shark', 'whale', [80, 100, 140], 255, 305, { speed: 1.3, maxAge: 70, maturity: 10, size: 1 }],
+  ['Rena', 'herbivore', 'reindeer', [150, 120, 90], 220, 290, { maxAge: 15, maturity: 2, size: 1 }],
+  ['Cabra-montesa', 'herbivore', 'ibex', [168, 140, 104], 235, 305, { maxAge: 14, maturity: 2, size: 0.85 }],
+  ['Leão', 'predator', 'lion', [212, 168, 96], 285, 325, { maxAge: 14, maturity: 3, size: 1.05 }],
+  ['Urubu', 'predator', 'vulture', [52, 46, 50], 265, 320, { maxAge: 15, maturity: 3, size: 0.6 }],
+  ['Zebra', 'herbivore', 'zebra', [236, 236, 230], 283, 325, { maxAge: 20, maturity: 3, size: 1 }],
 ];
 
-/** Espécies que já vivem na Terra no começo (as outras ficam no banco). */
-const EARTH_NATIVE = new Set(['Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão', 'Coelho', 'Bisão', 'Raposa', 'Urso', 'Caranguejo', 'Tartaruga', 'Pinguim', 'Baleia', 'Camelo']);
+/**
+ * Espécies que já vivem na Terra no começo (as outras ficam no banco): uma ou duas por guilda
+ * em cada bioma (docs/REFATORACAO-ECOSSISTEMA.md). Domésticas (ovelha, galinha, lhama), a cobra
+ * e o mamute ficam só no banco genético.
+ */
+const EARTH_NATIVE = new Set([
+  'Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão', 'Coelho', 'Bisão', 'Raposa', 'Urso', 'Caranguejo', 'Tartaruga', 'Pinguim', 'Baleia', 'Camelo',
+  'Elefante', 'Macaco', 'Javali', 'Onça', 'Hiena', 'Crocodilo', 'Sapo',
+  'Rena', 'Cabra-montesa', 'Leão', 'Urubu', 'Zebra',
+]);
 
 const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
@@ -179,6 +195,80 @@ export function nativeLifeLevel(planetId: string, potential: number): number {
   return nativeLifeTier(planetId, potential) === 'none' ? 0 : potential;
 }
 
+/**
+ * Papéis de um ecossistema alienígena (docs/REFATORACAO-ECOSSISTEMA.md): cada um vira uma
+ * espécie com ecologia própria, desenho emprestado de um bicho da Terra do mesmo papel e
+ * cor do planeta. `min` é a vida mínima do planeta para o papel aparecer.
+ */
+const ALIEN_GUILDS: { kind: SpeciesKind; sprites: string[]; min: number; eco: Partial<Ecology> & Pick<Ecology, 'guild' | 'mass'> }[] = [
+  { kind: 'herbivore', sprites: ['bison', 'zebra', 'camel'], min: 0, eco: { guild: 'pastador', mass: 300, herd: 10, range: 18, roam: 70, litter: 0.5, fear: 0.6 } },
+  { kind: 'herbivore', sprites: ['rabbit', 'frog'], min: 0, eco: { guild: 'pastador', mass: 3, herd: 6, range: 6, roam: 30, litter: 3, fear: 0.9 } },
+  { kind: 'herbivore', sprites: ['deer', 'ibex'], min: 0.3, eco: { guild: 'ramoneador', mass: 70, herd: 8, range: 10, roam: 50, litter: 0.9, fear: 0.8 } },
+  { kind: 'herbivore', sprites: ['monkey', 'boar'], min: 0.5, eco: { guild: 'onívoro', mass: 25, herd: 8, range: 10, roam: 45, litter: 1.5, fear: 0.6, forage: 0.7, insects: 0.5, carrion: 0.2 } },
+  { kind: 'predator', sprites: ['fox', 'jaguar'], min: 0.4, eco: { guild: 'predador', mass: 20, herd: 1, range: 12, roam: 70, litter: 1.5, fear: 0.4, forage: 0.2, meat: 1, insects: 0.3, maxPrey: 40 } },
+  { kind: 'predator', sprites: ['wolf', 'lion'], min: 0.6, eco: { guild: 'predador', mass: 80, herd: 5, range: 20, roam: 100, litter: 1.5, fear: 0.2, forage: 0, meat: 1, carrion: 0.5, maxPrey: 150, pack: true } },
+  { kind: 'predator', sprites: ['vulture', 'hyena'], min: 0.7, eco: { guild: 'necrófago', mass: 10, herd: 6, range: 30, roam: 200, litter: 0.8, fear: 0.5, forage: 0, carrion: 1 } },
+];
+
+/**
+ * Bichos de um planeta vivo, pelos papéis: o clima desloca a faixa de temperatura
+ * (todos vivem perto da média do planeta) e a gravidade muda o porte (gravidade
+ * baixa, bichos maiores e mais lentos de crescer; alta, menores e mais ninhadas).
+ */
+function alienFauna(planet: PlanetParams, rnd: () => number, color: () => [number, number, number]): Species[] {
+  // Gravidade aproximada pelo raio (densidade parecida com a da Terra).
+  const g = Math.max(0.3, Math.min(2.5, planet.radiusEarth));
+  const scale = Math.pow(g, -1.5);
+  const cold = planet.temperatureK < 260 ? 1.4 : 1;
+  const out: Species[] = [];
+  for (const row of ALIEN_GUILDS) {
+    if (planet.life < row.min) continue;
+    const kind = row.kind;
+    const mass = Math.max(0.5, row.eco.mass * scale * cold * (0.6 + rnd() * 0.8));
+    const big = Math.log10(mass / row.eco.mass + 1);
+    const sprite = row.sprites[Math.floor(rnd() * row.sprites.length)];
+    const eco: Partial<Ecology> = {
+      forage: 1,
+      meat: 0,
+      carrion: 0,
+      insects: 0,
+      fish: 0,
+      plankton: 0,
+      pack: false,
+      engineer: false,
+      hibernate: rnd() < 0.5 && planet.temperatureK < 265,
+      seasonal: rnd() < 0.7,
+      biomes: {},
+      open: 0.8,
+      moist: [0, 1],
+      alt: [0, 0.75],
+      ...row.eco,
+      mass,
+      maxPrey: (row.eco.maxPrey ?? 0) * scale,
+      // Gravidade alta: mais crias; baixa: menos.
+      litter: (row.eco.litter ?? 1) * Math.min(1.6, Math.max(0.6, g)),
+      parasite: 'vermes',
+    };
+    const spread = 45 + rnd() * 15;
+    const mid = planet.temperatureK + (rnd() - 0.5) * 10;
+    out.push({
+      ...TEMPLATES[kind],
+      id: `${planet.id}:${eco.guild}-${out.length}`,
+      name: alienName(rnd),
+      origin: planet.id,
+      color: color(),
+      sprite,
+      tempMin: Math.round(mid - spread * 0.55),
+      tempMax: Math.round(mid + spread * 0.45),
+      maxAge: Math.round(TEMPLATES[kind].maxAge * (0.8 + big)),
+      speed: TEMPLATES[kind].speed / Math.sqrt(g),
+      size: Math.max(0.5, Math.min(1.5, 0.6 + Math.log10(mass + 1) * 0.25)),
+      eco,
+    });
+  }
+  return out;
+}
+
 /** Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas. */
 export function nativeSpecies(planet: PlanetParams): Species[] {
   if (planet.life <= 0) return [];
@@ -194,8 +284,7 @@ export function nativeSpecies(planet: PlanetParams): Species[] {
   if (tier === 'none' || tier === 'plants') return [];
   const rnd = mulberry32(seedFor(`${planet.id}:species`));
   const color = (): [number, number, number] => [60 + rnd() * 190, 60 + rnd() * 190, 60 + rnd() * 190].map(Math.round) as [number, number, number];
-  const list = [make('fish', alienName(rnd), color()), make('herbivore', alienName(rnd), color())];
-  if (planet.life > 0.4) list.push(make('predator', alienName(rnd), color()));
+  const list = [make('fish', alienName(rnd), color()), ...alienFauna(planet, rnd, color)];
   if (tier === 'sapient') list.push({ ...make('sapient', alienName(rnd), color()), body: ALIEN_BODIES[Math.floor(rnd() * ALIEN_BODIES.length)] });
   if (planet.life > 0.4) list.push(make('shark', alienName(rnd), color()));
   return list;

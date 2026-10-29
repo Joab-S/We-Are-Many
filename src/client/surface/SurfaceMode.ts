@@ -23,6 +23,7 @@ import { bestCraft, TECH_BY_ID } from '../../sim/progress';
 import { notable } from '../../ai/traits';
 import { TIER_NAMES } from '../../sim/settlement';
 import { earthCatalog, EARTH_ID, habitatOf, nativeSpecies, type Species } from '../../sim/species';
+import { dietText, ecologyOf, guildName } from '../../sim/fauna';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
 import type { GameState } from '../state';
@@ -1468,7 +1469,7 @@ export class SurfaceMode {
     const eco = this.eco;
     const f = this.winFilter;
     const known = [...this.state.knownSpecies.values()].filter((sp) => (f === '' ? true : f === 'here' ? eco.species.some((o, s) => o.id === sp.id && eco.population[s] > 0) : f === 'sapient' ? sp.kind === 'sapient' : sp.kind !== 'sapient'));
-    const kindName = (sp: Species) => (sp.kind === 'sapient' ? 'Inteligente' : sp.kind === 'fish' ? 'Peixe' : sp.kind === 'shark' ? 'Marinho grande' : sp.kind === 'predator' ? 'Predador' : 'Herbívoro') + (sp.amphibious ? ' · anfíbio' : '');
+    const kindName = (sp: Species) => (sp.kind === 'sapient' ? 'Inteligente' : guildName(ecologyOf(sp))) + (sp.amphibious ? ' · anfíbio' : '');
     const cards = known
       .map((sp) => {
         const s = eco.species.findIndex((o) => o.id === sp.id);
@@ -2171,6 +2172,14 @@ export class SurfaceMode {
       }
     }
     this.pushCaravans(layer, z, w, h, margin, small);
+    // Carcaças: o que sobrou de uma caçada ou de uma morte no mato, até apodrecer (necrófagos vêm comer).
+    if (!small) {
+      for (const cc of eco.carcasses) {
+        const [sx, sy] = this.toScreen(cc.x, cc.y, z, w, h);
+        if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+        layer.push('carcass', sx, sy - z * 0.2, z * 0.45 * Math.min(1.3, 0.6 + Math.cbrt(cc.kg) / 8), eco.species[cc.sp]?.color ?? [150, 110, 80]);
+      }
+    }
     for (let i = 0; i < eco.count; i++) {
       if (!eco.alive[i]) continue;
       const [sx, sy] = this.toScreen(eco.x[i], eco.y[i], z, w, h);
@@ -2644,7 +2653,11 @@ export class SurfaceMode {
     const follow = following ? `<button class="wb-btn" data-act="follow">${this.follow ? '⏹ Parar de seguir (F)' : '🎥 Seguir (F)'}</button>` : '';
     const doing = `<span>Agora: ${eco.activityOf(i)}</span>`;
     if (sp.kind !== 'sapient') {
-      const diet = sp.kind === 'herbivore' ? 'plantas' : sp.kind === 'fish' ? 'algas e plâncton' : sp.kind === 'shark' ? 'peixes' : sp.omnivore ? 'carne, frutos e raízes' : 'carne';
+      const ecol = ecologyOf(sp);
+      const diet = sp.kind === 'fish' ? 'algas e plâncton' : sp.kind === 'shark' && ecol.guild !== 'filtrador' ? 'peixes' : dietText(ecol);
+      // Carga de parasitas (sobe com a lotação): pesa no metabolismo, na velocidade e nas crias.
+      const load = eco.parasite[i];
+      const sick = load > 0.25 ? `<span class="${load > 0.6 ? 'bad' : 'wb-dim'}">Com ${ecol.parasite} (${load > 0.6 ? 'muitos' : 'alguns'})</span>` : '';
       let group = 0;
       let threat = '';
       let td = Infinity;
@@ -2664,6 +2677,7 @@ export class SurfaceMode {
         ${this.vitals(i)}
         ${doing}
         <span>Come ${diet}</span>
+        ${sick}
         <span>${group > 1 ? `Num ${gname} de ${group}` : 'Sozinho por aqui'}</span>
         ${threat ? `<span class="bad">Predador por perto: ${threat}</span>` : ''}
         ${follow}`;
