@@ -248,8 +248,8 @@ export const PARASITE_RECOVERY = 0.6;
 /** Começo da estação de reprodução (fração do ano, 0 = primavera) e duração. */
 export const BREED_START = 0;
 export const BREED_LENGTH = 0.35;
-/** Tiles por segundo no máximo, para o bicho continuar legível na tela. */
-export const MAX_PACE = 30;
+/** Passo do bicho na tela, em fração de `Species.speed` (tiles por segundo): andando, ele não passa disto. */
+export const ANIMAL_PACE = 0.85;
 /** Multiplica o `roam` das tabelas (calibrado para o cervo andar 30 a 60 tiles por ano em linha reta). */
 export const ROAM_SCALE = 2;
 

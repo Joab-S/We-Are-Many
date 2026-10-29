@@ -9,6 +9,8 @@
 
 /** Casas novas por ano quando a população passa da capacidade (antes: 40% por segundo). */
 export const HOUSE_RATE = 3;
+/** Passo de quem anda a pé (fração de `Species.speed`, em tiles por segundo): calmo o bastante para ler a cena no x1. */
+export const WALK_PACE = 0.6;
 /** Parte das obras que vira construção especial, quando há uma disponível. */
 export const SPECIAL_BUILDING_SHARE = 0.35;
 /** Roças novas por ano enquanto faltam roças (antes: 30% por segundo). */
