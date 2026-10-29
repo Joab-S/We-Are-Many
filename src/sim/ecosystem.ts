@@ -731,6 +731,8 @@ class EcoCells {
   readonly wprod: Float32Array;
   /** Ração de todas as presas da célula (para a capacidade dos predadores). */
   readonly prey: Float32Array;
+  /** Caçadores por célula (na última recontagem): a presa só procura ameaça onde há algum. */
+  readonly hunters: Uint16Array;
   suit = new Float32Array(0);
   K = new Float32Array(0);
   N = new Uint16Array(0);
@@ -741,6 +743,9 @@ class EcoCells {
   /** Centro de cada bando (família): x de referência, soma dos desvios em x, soma de y e quantos. */
   readonly herds = new Map<number, [number, number, number, number]>();
   cursor = 0;
+  /** Voltas completas do refresco (o nicho é refeito numa de cada quatro). */
+  passes = 0;
+  recounts = 0;
   ready = false;
 
   constructor(width: number, height: number) {
@@ -755,6 +760,7 @@ class EcoCells {
     this.iprod = new Float32Array(this.n);
     this.wprod = new Float32Array(this.n);
     this.prey = new Float32Array(this.n);
+    this.hunters = new Uint16Array(this.n);
   }
 
   resize(species: number): void {
@@ -850,6 +856,15 @@ export class Ecosystem {
   readonly carcasses: Carcass[] = [];
   /** Abundância (0 a 1) da espécie da última presa escolhida, para o bote (rascunho da caçada). */
   private preyAbundance = 1;
+  /** Decisões normais que a decisão atual do bicho vale (detalhe menor longe da tela). */
+  private lodStride = 1;
+  /** O mapa tinha lava sem erupção (planeta quente)? -1 = ainda não olhou. */
+  private bornLava = -1;
+  /**
+   * Onde o jogador está olhando (centro e meia largura, em tiles). Bichos de terra longe disso
+   * decidem três vezes menos, cada decisão valendo por três: mesma biologia por ano, um terço do custo.
+   */
+  focus: { x: number; y: number; r: number } | null = null;
   /** Células ecológicas (comida, nicho, capacidade e contagem); vão no save para a simulação seguir idêntica. */
   private cells: EcoCells | null = null;
   /** Tempo (anos) desde a última recontagem das células ecológicas. */
@@ -1543,8 +1558,9 @@ export class Ecosystem {
         if (sk === 'herbivore' || sk === 'predator') {
           // Perseguição e fuga correm no relógio de ação: decisões três vezes mais frequentes enquanto duram.
           const quick = this.act[i] === ACT.hunt || this.act[i] === ACT.flee ? 3 : 1;
-          this.think[i] += animalThink / quick;
-          this.decideAnimal(i, 1 / (DECISIONS_PER_YEAR * quick));
+          const far = quick === 1 && this.offscreen(i) ? 3 : 1;
+          this.think[i] += (animalThink * far) / quick;
+          this.decideAnimal(i, far / (DECISIONS_PER_YEAR * quick));
         } else {
           this.think[i] += aquatic ? THINK_INTERVAL / legacy : THINK_INTERVAL;
           this.decide(i, THINK_INTERVAL);
@@ -2807,6 +2823,29 @@ export class Ecosystem {
   // ---- Fauna de terra: células ecológicas, pasto, carcaças e IA (docs/REFATORACAO-ECOSSISTEMA.md) ----
 
   /** Bicho de terra que usa a IA nova (os aquáticos e os inteligentes têm a sua). */
+  /** Algum caçador nas células que o raio toca (a lista é da última recontagem, com uma célula de folga). */
+  private huntersAround(x: number, y: number, radius: number): boolean {
+    const c = this.cells;
+    if (!c) return true;
+    const w = this.map.width;
+    const r = Math.ceil(radius / ECO_CELL);
+    const cx = Math.floor((((x % w) + w) % w) / ECO_CELL);
+    const cy = Math.floor(y / ECO_CELL);
+    for (let oy = -r; oy <= r; oy++) {
+      const yy = cy + oy;
+      if (yy < 0 || yy >= c.rows) continue;
+      for (let ox = -r; ox <= r; ox++) if (c.hunters[yy * c.cols + ((cx + ox + c.cols) % c.cols)]) return true;
+    }
+    return false;
+  }
+
+  /** Longe da área que o jogador está vendo (com folga), para o detalhe menor. */
+  private offscreen(i: number): boolean {
+    const f = this.focus;
+    if (!f) return false;
+    return Math.abs(wrapDx(this.x[i] - f.x, this.map.width)) > f.r || Math.abs(this.y[i] - f.y) > f.r;
+  }
+
   private wild(s: number): boolean {
     return isLandAnimal(this.species[s]);
   }
@@ -2930,8 +2969,9 @@ export class Ecosystem {
     let avail = 0;
     let bugs = 0;
     let shore = 0;
-    for (let y = y0; y < Math.min(m.height, y0 + ECO_CELL); y++) {
-      for (let x = x0; x < Math.min(w, x0 + ECO_CELL); x++) {
+    // Amostra um tile a cada dois em cada eixo (64 de 256) e escala: o mesmo retrato da célula a um quarto do custo.
+    for (let y = y0 + (k & 1); y < Math.min(m.height, y0 + ECO_CELL); y += 2) {
+      for (let x = x0 + ((k >> 1) & 1); x < Math.min(w, x0 + ECO_CELL); x += 2) {
         const t = y * w + x;
         if (isWater(m, t)) {
           if (m.elevation[t] > -0.2) shore++;
@@ -2944,6 +2984,11 @@ export class Ecosystem {
         bugs += this.insectsAt(t);
       }
     }
+    land *= 4;
+    veg *= 4;
+    bugs *= 4;
+    shore *= 4;
+    avail *= 4;
     c.land[k] = land;
     c.forage[k] = land ? avail / land : 0;
     c.bugs[k] = land ? bugs / land : 0;
@@ -2954,8 +2999,10 @@ export class Ecosystem {
     c.fprod[k] = (veg * REGROW_YEAR * GRAZE_MAX * 0.5 * FORAGE_USE) / GRAZE_COST;
     c.iprod[k] = bugs * INSECT_YIELD;
     c.wprod[k] = coast * COAST_YIELD;
-    // Nicho de cada espécie de terra, numa amostra de 16 tiles da célula.
+    // Nicho de cada espécie de terra, numa amostra de 16 tiles da célula. Muda devagar (clima e bioma):
+    // refeito numa de cada quatro voltas, exceto na primeira.
     const S = c.stride;
+    if (c.passes > 0 && (c.passes + k) % 4 !== 0) return;
     for (let s = 0; s < S; s++) c.suit[k * S + s] = 0;
     for (let sy = 2; sy < ECO_CELL; sy += 4) {
       const y = y0 + sy;
@@ -2970,15 +3017,19 @@ export class Ecosystem {
 
   /** Conta os bichos de terra de cada espécie em cada célula. */
   private countWild(c: EcoCells): void {
+    const hunter = this.species.map((sp, s) => this.wild(s) && hunts(ecologyOf(sp)));
     c.N.fill(0);
+    c.hunters.fill(0);
     c.dens.fill(-1);
     c.herds.clear();
     const S = c.stride;
     const w = this.map.width;
     for (let i = 0; i < this.count; i++) {
       if (!this.alive[i] || !this.wild(this.kind[i])) continue;
-      const k = c.of(this.x[i], this.y[i], w) * S + this.kind[i];
+      const cell = c.of(this.x[i], this.y[i], w);
+      const k = cell * S + this.kind[i];
       if (c.N[k] < 65535) c.N[k]++;
+      if (hunter[this.kind[i]] && c.hunters[cell] < 65535) c.hunters[cell]++;
       // Centro do bando, com a volta do mapa (desvios a partir do primeiro membro visto).
       const h = c.herds.get(this.family[i]);
       if (h) {
@@ -3108,13 +3159,15 @@ export class Ecosystem {
     while (slice-- > 0) {
       this.refreshCell(c, c.cursor);
       c.cursor = (c.cursor + 1) % c.n;
+      if (c.cursor === 0) c.passes++;
     }
     this.wildClock += yr;
     if (this.wildClock < 1 / 8) return;
     const span = this.wildClock;
     this.wildClock = 0;
     this.countWild(c);
-    this.updateCapacity(c);
+    // A capacidade (a conta mais cara) é refeita a cada quarto de ano; a contagem, a cada oitavo.
+    if ((c.recounts = (c.recounts + 1) % 2) === 0) this.updateCapacity(c);
     const fade = Math.exp(-FEAR_DECAY_YEAR * span);
     for (let k = 0; k < this.fear.length; k++) this.fear[k] *= fade;
     // Carcaças apodrecem; o que sobra aduba o chão (o pasto em volta rebrota na hora).
@@ -3306,6 +3359,7 @@ export class Ecosystem {
     // A presa só percebe o caçador de perto (ele chega de tocaia).
     const radius = 2 + 4 * e.fear;
     const s = this.kind[i];
+    if (hunts(e) || !this.huntersAround(this.x[i], this.y[i], radius)) return -1;
     let best = -1;
     let bd = Infinity;
     this.forEachNear(this.x[i], this.y[i], radius, (j, dx, dy) => {
@@ -3430,6 +3484,8 @@ export class Ecosystem {
    * vence a maior. Tudo por ano: a mesma coisa acontece com o ano de 6 s ou de 12 s.
    */
   private decideAnimal(i: number, yr: number): void {
+    // Quantas decisões normais esta vale (3 longe da tela): o que é por decisão rende na mesma proporção.
+    this.lodStride = yr * DECISIONS_PER_YEAR;
     const map = this.map;
     const s = this.kind[i];
     const sp = this.species[s];
@@ -3532,7 +3588,7 @@ export class Ecosystem {
       const going = this.act[i] === ACT.disperse && this.goal[i] >= 0;
       const young = this.age[i] < sp.maturity * 1.4;
       const big = young && (c.herds.get(this.family[i])?.[3] ?? 0) > e.herd * 1.5;
-      if (adult && (going || this.rnd() < 0.15) && (dens > 1.2 || big || (young && dens > 0.8))) consider(ACT.disperse, 0.3 + 0.3 * Math.min(1, Math.max(0.3, dens - 0.8)));
+      if (adult && (going || this.rnd() < 0.15 * this.lodStride) && (dens > 1.2 || big || (young && dens > 0.8))) consider(ACT.disperse, 0.3 + 0.3 * Math.min(1, Math.max(0.3, dens - 0.8)));
       // Bando: quem ficou longe do centro do seu bando volta para perto; sozinho e adulto, procura parceiro.
       const center = e.herd > 1 ? this.herdCenter(i, c) : null;
       const away = center ? Math.hypot(center.x, center.y) : 0;
@@ -3639,7 +3695,7 @@ export class Ecosystem {
 
   /** Come no lugar: pasto (some do tile e rebrota), insetos ou comida da costa. Devolve a energia ganha. */
   private eatHere(i: number, e: Ecology, t: number, en: number): number {
-    const gain = Math.min(BITE, SATED - en);
+    const gain = Math.min(BITE * this.lodStride, SATED - en);
     if (gain <= 0) return 0;
     const field = Math.max(e.insects * this.insectsAt(t), Math.max(e.fish, e.plankton) * this.shoreAt(t));
     const grass = e.forage * this.forageAt(t);
@@ -3650,7 +3706,7 @@ export class Ecosystem {
       const cost = GRAZE_COST * ration(e);
       got = (this.grazePatch(t, gain * cost) / cost) * e.forage;
       // Engenheiro (elefante): às vezes derruba uma árvore e abre clareira.
-      if (e.engineer && this.map.vegetation[t] > B.TREE_BAND && this.rnd() < 0.08) {
+      if (e.engineer && this.map.vegetation[t] > B.TREE_BAND && this.rnd() < 0.08 * this.lodStride) {
         this.map.vegetation[t] = Math.max(B.TREE_BAND - 0.1, this.map.vegetation[t] - 0.15);
         this.map.biome[t] = classify(this.map, t);
         this.onTileChanged(t);
@@ -6266,7 +6322,8 @@ export class Ecosystem {
     if (!this.grazeAt || this.grazeAt.length !== tiles) this.grazeAt = new Float32Array(tiles);
     const cells = Math.ceil(this.map.width / ECO_CELL) * Math.ceil(this.map.height / ECO_CELL);
     if (!this.fear || this.fear.length !== cells) this.fear = new Float32Array(cells);
-    // O save guarda os campos das células, não a classe.
+    // O save guarda os campos das células, não a classe; células de um save antigo são refeitas.
+    if (this.cells && !this.cells.hunters) this.cells = null;
     if (this.cells) Object.setPrototypeOf(this.cells, EcoCells.prototype);
     this.tally.wildStarved = this.tally.wildStarved || 0;
     this.tally.wildStarvedNearFood = this.tally.wildStarvedNearFood || 0;
@@ -9955,6 +10012,11 @@ export class Ecosystem {
     const map = this.map;
     const w = map.width;
     const n = w * map.height;
+    // Sem lava esfriando e sem lava de nascença, não há o que varrer (o mapa inteiro, uma vez por ano).
+    if (!this.cooling.length) {
+      if (this.bornLava < 0) this.bornLava = map.biome.some((b) => b === Biome.Lava) ? 1 : 0;
+      if (!this.bornLava) return;
+    }
     let started = 0;
     for (let t = 0; t < n && started < limit; t++) {
       if (map.biome[t] !== Biome.Lava || this.worldRnd() > B.LAVA_FIRE_RATE / 6) continue;

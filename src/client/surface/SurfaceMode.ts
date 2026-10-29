@@ -1654,16 +1654,18 @@ export class SurfaceMode {
     this.useTool(dt);
     this.stepFx(dt);
 
-    // Simulação em passos de no máximo 0,1 s, multiplicados pela velocidade escolhida.
+    // Simulação em passos curtos (0,1 a 0,25 s de jogo), multiplicados pela velocidade escolhida.
     const simDt = dt * SPEEDS[this.speed];
     // Bichos longe do que está na tela decidem menos (mesma biologia, menos custo).
     const half = Math.max(window.innerWidth, window.innerHeight) / (2 * Math.max(0.5, this.zoom)) + 24;
     this.eco.focus = { x: this.center.x, y: this.map.height - this.center.y, r: half };
     if (simDt > 0) {
       this.simClock += simDt;
-      while (this.simClock > 0.1) {
-        this.eco.step(0.1);
-        this.simClock -= 0.1;
+      // Passos maiores nas velocidades altas: o custo que é por passo (andar, grade de vizinhos) não cresce com a velocidade.
+      const h = SPEEDS[this.speed] >= 5 ? 0.25 : SPEEDS[this.speed] >= 2 ? 0.2 : 0.1;
+      while (this.simClock > h) {
+        this.eco.step(h);
+        this.simClock -= h;
       }
     }
 

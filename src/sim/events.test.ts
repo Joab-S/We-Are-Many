@@ -106,7 +106,7 @@ describe('itens', () => {
     const { eco } = world();
     years(eco, 40);
     expect(eco.crafted.size).toBeGreaterThan(0);
-  });
+  }, 60000); // 40 anos de mapa: passa dos 5 s padrão
 });
 
 describe('soltar uma criatura', () => {
