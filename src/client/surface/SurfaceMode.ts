@@ -1526,6 +1526,14 @@ export class SurfaceMode {
       <div class="wb-note">Espaço pausa · 1 a 5 mudam a velocidade · C crônica · R reinos · E espécies · I itens · Esc fecha a janela ou volta à órbita.</div>`;
   }
 
+  /** Planta dominante do tile e se está dando fruto, para a ficha do lugar. */
+  private floraInfo(i: number): string {
+    const f = this.eco.floraAt(i);
+    if (!f) return '';
+    const browse = this.eco.browseAt(i);
+    return `<span>${f.name}${f.fruiting ? ' · com frutos 🍒' : ''}${browse > 0.05 ? ` · ramagem ${(browse * 100).toFixed(0)}%` : ''}</span>`;
+  }
+
   /** Placa, limite e tensão sísmica de um tile, para a ficha do lugar. */
   private plateInfo(i: number): string {
     const map = this.map;
@@ -2831,7 +2839,7 @@ export class SurfaceMode {
           <span>Altitude ${(this.map.elevation[i] * 100).toFixed(0)}</span>
           <span>Temperatura ${(t - 273.15).toFixed(0)} °C</span>
           <span>Umidade ${(this.map.moisture[i] * 100).toFixed(0)}%</span>
-          <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>${this.plateInfo(i)}`;
+          <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>${this.floraInfo(i)}${this.plateInfo(i)}`;
       }
     }
     el.hidden = false;

@@ -393,6 +393,14 @@ export const SITE_LAVA_RANGE = 10;
 /** Lava ainda quente queima o que estiver em volta: alcance (tiles) e chance por ano de cada tile de lava acender o vizinho. */
 export const LAVA_FIRE_RANGE = 2;
 export const LAVA_FIRE_RATE = 0.6;
+/**
+ * Fogo natural (Plano 2): no auge do verão, células de mata densa são sorteadas e pegam fogo por raio
+ * com esta chance vezes a secura ao cubo (secura 1 = solo seco em ano de seca). No máximo
+ * WILDFIRE_MAX focos por ano no planeta; o fogo anda WILDFIRE_STEPS passos com o vento.
+ */
+export const WILDFIRE_RATE = 0.2;
+export const WILDFIRE_MAX = 3;
+export const WILDFIRE_STEPS = 5;
 
 // Construções e terreno (seção 19.18) -----------------------------------------------------
 
