@@ -112,7 +112,7 @@ const EARTH_BANK: Entry[] = [
   ['Rena', 'herbivore', 'reindeer', [150, 120, 90], 220, 290, { maxAge: 15, maturity: 2, size: 1 }],
   ['Cabra-montesa', 'herbivore', 'ibex', [168, 140, 104], 235, 305, { maxAge: 14, maturity: 2, size: 0.85 }],
   ['Leão', 'predator', 'lion', [212, 168, 96], 285, 325, { maxAge: 14, maturity: 3, size: 1.05 }],
-  ['Urubu', 'predator', 'vulture', [52, 46, 50], 265, 320, { maxAge: 15, maturity: 3, size: 0.6 }],
+  ['Urubu', 'predator', 'vulture', [52, 46, 50], 265, 320, { speed: 5, maxAge: 15, maturity: 3, size: 0.6 }],
   ['Zebra', 'herbivore', 'zebra', [236, 236, 230], 283, 325, { maxAge: 20, maturity: 3, size: 1 }],
 ];
 
@@ -269,6 +269,33 @@ function alienFauna(planet: PlanetParams, rnd: () => number, color: () => [numbe
   return out;
 }
 
+/**
+ * Teia segura (Plano 2), aplicada depois do sorteio: todo caçador tem pelo menos duas presas possíveis
+ * (o tamanho máximo de presa cresce até caber a segunda, sem passar de 1,5 vez o próprio peso, o dobro em
+ * bando) e, se nem assim, o caçador encolhe até as presas caberem. Todo herbívoro já tem parasita.
+ */
+export function safeWeb(list: Species[]): Species[] {
+  const herbs = list.filter((sp) => sp.kind === 'herbivore').map((sp) => sp.eco!.mass!).sort((a, b) => a - b);
+  for (const sp of list) {
+    const e = sp.eco;
+    if (sp.kind !== 'predator' || !e || !(e.meat! > 0) || !(e.maxPrey! > 0)) continue;
+    const reach = e.pack ? 2 : 1;
+    const min = e.mass! * 0.015;
+    const fits = herbs.filter((m) => m >= min);
+    if (fits.length < 2 && herbs.length >= 2) {
+      // Presas pequenas demais para o porte: o caçador encolhe (vira um caçador menor).
+      e.mass = Math.max(0.5, herbs[1] / 0.015 / 1.2);
+      e.maxPrey = Math.max(e.maxPrey!, herbs[1] * 1.05);
+      continue;
+    }
+    if (fits.length < 2) continue;
+    const need = fits[1] * 1.05;
+    if (e.maxPrey! * reach < need) e.maxPrey = Math.min(need, e.mass! * 1.5 * reach);
+    if (e.maxPrey! * reach < need) e.maxPrey = need / reach;
+  }
+  return list;
+}
+
 /** Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas. */
 export function nativeSpecies(planet: PlanetParams): Species[] {
   if (planet.life <= 0) return [];
@@ -284,7 +311,7 @@ export function nativeSpecies(planet: PlanetParams): Species[] {
   if (tier === 'none' || tier === 'plants') return [];
   const rnd = mulberry32(seedFor(`${planet.id}:species`));
   const color = (): [number, number, number] => [60 + rnd() * 190, 60 + rnd() * 190, 60 + rnd() * 190].map(Math.round) as [number, number, number];
-  const list = [make('fish', alienName(rnd), color()), ...alienFauna(planet, rnd, color)];
+  const list = [make('fish', alienName(rnd), color()), ...safeWeb(alienFauna(planet, rnd, color))];
   if (tier === 'sapient') list.push({ ...make('sapient', alienName(rnd), color()), body: ALIEN_BODIES[Math.floor(rnd() * ALIEN_BODIES.length)] });
   if (planet.life > 0.4) list.push(make('shark', alienName(rnd), color()));
   return list;

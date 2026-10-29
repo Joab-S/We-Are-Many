@@ -238,6 +238,11 @@ export const PASTURE_PER_HEAD = 1.5;
 export const PEN_AREA = 14;
 /** Crescimento do rebanho por ano (logístico até o teto do pasto). */
 export const HERD_GROWTH = 0.3;
+/**
+ * Pasto que cada cabeça do rebanho come por ano em volta dos currais (Plano 2), em tiles de erva:
+ * o mesmo pasto dos herbívoros selvagens. Pasto rapado (por eles ou pelos selvagens) segura o crescimento.
+ */
+export const HERD_GRAZE = 0.6;
 /** Cercados novos por ano quando o rebanho encosta no teto. */
 export const PEN_RATE = 0.8;
 /** Ataques de predador por ano para cada predador perto do pasto. */
@@ -393,6 +398,14 @@ export const SITE_LAVA_RANGE = 10;
 /** Lava ainda quente queima o que estiver em volta: alcance (tiles) e chance por ano de cada tile de lava acender o vizinho. */
 export const LAVA_FIRE_RANGE = 2;
 export const LAVA_FIRE_RATE = 0.6;
+/**
+ * Fogo natural (Plano 2): no auge do verão, células de mata densa são sorteadas e pegam fogo por raio
+ * com esta chance vezes a secura ao cubo (secura 1 = solo seco em ano de seca). No máximo
+ * WILDFIRE_MAX focos por ano no planeta; o fogo anda WILDFIRE_STEPS passos com o vento.
+ */
+export const WILDFIRE_RATE = 0.2;
+export const WILDFIRE_MAX = 3;
+export const WILDFIRE_STEPS = 5;
 
 // Construções e terreno (seção 19.18) -----------------------------------------------------
 

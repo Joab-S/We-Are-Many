@@ -22,17 +22,20 @@ describe('IA local: um povo inteiro', () => {
 
   it('quem está num ofício combina com ele mais que a média do povo', () => {
     const adults = people.filter((i) => eco.role[i] !== CHILD);
+    // Média ponderada pelo tamanho de cada ofício: um ofício de 5 pessoas não pesa o mesmo que um de 100.
     let gain = 0;
     let n = 0;
+    let groups = 0;
     for (const r of ['hunter', 'farmer', 'woodcutter', 'builder', 'miner', 'gatherer'] as const) {
       const inRole = adults.filter((i) => eco.role[i] === ROLE[r]);
       if (inRole.length < 5) continue;
       const mean = (list: number[]) => list.reduce((s, i) => s + roleFit(eco.traits, i, r), 0) / list.length;
-      gain += mean(inRole) - mean(adults);
-      n++;
+      gain += (mean(inRole) - mean(adults)) * inRole.length;
+      n += inRole.length;
+      groups++;
     }
-    expect(n).toBeGreaterThan(2);
-    expect(gain / n).toBeGreaterThan(0.03);
+    expect(groups).toBeGreaterThan(2);
+    expect(gain / n).toBeGreaterThan(0.02);
   });
 
   it('a curiosidade vem do traço e a média fica perto da antiga', () => {

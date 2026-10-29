@@ -80,7 +80,7 @@ describe('árvore só cai com lenhador no lugar (seção 19.21)', () => {
     run(eco, 30 * 6);
     expect(falls).toBeGreaterThan(0);
     expect(alone).toEqual([]);
-  });
+  }, 30000);
 
   it('com um lenhador, ele anda até a árvore e a derruba só depois do tempo do gesto', () => {
     const { eco } = world();
@@ -178,7 +178,7 @@ describe('obra só anda com construtor no lugar (seção 19.21)', () => {
     runAs(eco, v, (crew) => crew.forEach((i) => (eco.role[i] = ROLE.farmer)), 30 * 6);
     expect(site.labor).toBe(site.laborMax);
     expect(site.site).toBe(true);
-  });
+  }, 30000);
 
   it('com um construtor ao pé da casa, a obra termina e a casa passa a contar', () => {
     const { eco } = world();

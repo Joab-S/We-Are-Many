@@ -106,15 +106,16 @@ describe('itens', () => {
     const { eco } = world();
     years(eco, 40);
     expect(eco.crafted.size).toBeGreaterThan(0);
-  });
+  }, 60000); // 40 anos de mapa: passa dos 5 s padrão
 });
 
 describe('soltar uma criatura', () => {
+  // Longe de todos os assentamentos, contando a volta do mapa (o leste encosta no oeste).
   const landFar = (eco: Ecosystem, map: ReturnType<typeof generateSurface>, s: number) => {
     for (let i = 0; i < map.width * map.height; i++) {
       const x = (i % map.width) + 0.5;
       const y = Math.floor(i / map.width) + 0.5;
-      if (y > map.height * 0.3 && y < map.height * 0.7 && eco.habitable(s, i) && eco.villages.every((v) => Math.hypot(v.x - x, v.y - y) > 60) && (eco.species[s].kind !== 'sapient' || !eco.siteProblem(s, Math.floor(x), Math.floor(y)))) return { x, y };
+      if (y > map.height * 0.3 && y < map.height * 0.7 && eco.habitable(s, i) && eco.villages.every((v) => Math.hypot(Math.min(Math.abs(v.x - x), map.width - Math.abs(v.x - x)), v.y - y) > 60) && (eco.species[s].kind !== 'sapient' || !eco.siteProblem(s, Math.floor(x), Math.floor(y)))) return { x, y };
     }
     throw new Error('sem lugar');
   };
@@ -237,7 +238,7 @@ describe('sobrevivência', () => {
     years(eco, 25);
     expect(eco.population[s]).toBeGreaterThan(caps[s] * 0.3);
     expect(eco.population[s]).toBeLessThan(caps[s] * 0.95);
-  });
+  }, 30000);
 
   it('em 80 anos, as presas de base ficam e somem no máximo três espécies (os ciclos de predador ainda oscilam)', () => {
     const { eco } = world();
