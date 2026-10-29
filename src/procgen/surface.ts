@@ -1,10 +1,19 @@
 import { seedFor } from '../core/rng';
-import { ValueNoise3 } from './noise';
+import { Biome, PALETTE, temperatureNorm, whittaker } from './biomes';
+import { climateStage } from './climate';
+import { PerlinNoise3 } from './noise';
+import { makePlates, tectonicStage, type Plate } from './tectonics';
 
 /**
  * Superfície 2D de um planeta, no estilo WorldBox: um pixel do mapa por
  * elemento. O mapa é cilíndrico (dá a volta na horizontal) e é gerado de
  * forma determinística a partir do id e dos parâmetros físicos do planeta.
+ *
+ * O gerador roda em quatro etapas, cada uma num módulo:
+ * 1. Voronoi/placas (tectonics.ts): placas tectônicas com vetor de movimento.
+ * 2. Elevação e bordas (tectonics.ts): cordilheiras, subducção, dorsais, rifts e ilhas.
+ * 3. Temperatura e umidade (climate.ts): frentes climáticas, costa, interior e sombra de chuva.
+ * 4. Atribuição de bioma (biomes.ts + `classify`): matriz de Whittaker e transições de costa.
  */
 
 export interface PlanetParams {
@@ -20,60 +29,8 @@ export interface PlanetParams {
   life: number;
 }
 
-export enum Biome {
-  DeepOcean,
-  Ocean,
-  Ice,
-  Beach,
-  Grass,
-  Forest,
-  Jungle,
-  Savanna,
-  Desert,
-  Tundra,
-  Snow,
-  Rock,
-  Mountain,
-  Lava,
-  Barren,
-}
-
-export const BIOME_NAMES: Record<Biome, string> = {
-  [Biome.DeepOcean]: 'Oceano profundo',
-  [Biome.Ocean]: 'Oceano',
-  [Biome.Ice]: 'Gelo marinho',
-  [Biome.Beach]: 'Praia',
-  [Biome.Grass]: 'Planície',
-  [Biome.Forest]: 'Floresta',
-  [Biome.Jungle]: 'Selva',
-  [Biome.Savanna]: 'Savana',
-  [Biome.Desert]: 'Deserto',
-  [Biome.Tundra]: 'Tundra',
-  [Biome.Snow]: 'Neve',
-  [Biome.Rock]: 'Rocha',
-  [Biome.Mountain]: 'Montanha',
-  [Biome.Lava]: 'Lava',
-  [Biome.Barren]: 'Solo estéril',
-};
-
-/** Paleta plana e saturada, inspirada no WorldBox. */
-const PALETTE: Record<Biome, [number, number, number]> = {
-  [Biome.DeepOcean]: [28, 64, 140],
-  [Biome.Ocean]: [44, 102, 190],
-  [Biome.Ice]: [190, 220, 240],
-  [Biome.Beach]: [232, 214, 140],
-  [Biome.Grass]: [104, 178, 64],
-  [Biome.Forest]: [44, 128, 48],
-  [Biome.Jungle]: [24, 102, 40],
-  [Biome.Savanna]: [176, 176, 76],
-  [Biome.Desert]: [222, 190, 110],
-  [Biome.Tundra]: [128, 150, 120],
-  [Biome.Snow]: [240, 244, 250],
-  [Biome.Rock]: [128, 118, 108],
-  [Biome.Mountain]: [96, 88, 84],
-  [Biome.Lava]: [230, 90, 30],
-  [Biome.Barren]: [168, 112, 76],
-};
+export { Biome, BIOME_NAMES, isForestBiome, isRockyBiome } from './biomes';
+export { Boundary, BOUNDARY_NAMES, type Plate } from './tectonics';
 
 export interface SurfaceMap {
   params: PlanetParams;
@@ -95,6 +52,13 @@ export interface SurfaceMap {
    * sozinha, 3 muda plantada. Criado quando preciso; o Ecosystem faz crescer.
    */
   felled?: Uint8Array;
+  /** Desvio de temperatura das frentes climáticas (K); ausente em saves antigos. */
+  climate?: Float32Array;
+  /** Placas tectônicas, a placa de cada tile, o tipo de limite próximo e a tensão sísmica (0..255). */
+  plates?: Plate[];
+  plate?: Uint8Array;
+  boundary?: Uint8Array;
+  stress?: Uint8Array;
 }
 
 const FEATURE_SCALE = 80;
@@ -118,10 +82,10 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   const step = full.width / width;
   const n = width * height;
   const elevation = new Float32Array(n);
-  const moisture = new Float32Array(n);
   const vegetation = new Float32Array(n);
-  const terrain = new ValueNoise3(seedFor(`${params.id}:terrain`));
-  const wet = new ValueNoise3(seedFor(`${params.id}:moisture`));
+  const terrain = new PerlinNoise3(seedFor(`${params.id}:terrain`));
+  const wet = new PerlinNoise3(seedFor(`${params.id}:moisture`));
+  const warp = new PerlinNoise3(seedFor(`${params.id}:plates-warp`));
 
   // Amostrar o ruído num cilindro garante que a borda esquerda encaixa na direita.
   // As coordenadas são as do mapa completo, para qualquer resolução mostrar o mesmo planeta.
@@ -134,29 +98,34 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
     cosA[x] = Math.cos(a) * radius;
     sinA[x] = Math.sin(a) * radius;
   }
-  const raw = new Float32Array(n);
-  for (let y = 0; y < height; y++) {
-    const cy = (y * step) / FEATURE_SCALE;
-    for (let x = 0; x < width; x++) {
-      const cx = cosA[x];
-      const cz = sinA[x];
-      const i = y * width + x;
-      raw[i] = terrain.fbm(cx + 10, cy, cz, 5) + 0.35 * terrain.fbm(cx * 4, cy * 4, cz * 4 + 50, 2);
-      moisture[i] = 0.5 + 0.8 * wet.fbm(cx * 1.5 + 3, cy * 1.5, cz * 1.5, 3);
-    }
-  }
+
+  // Etapas 1 e 2: placas e elevação bruta.
+  const plates = makePlates(seedFor(`${params.id}:plates`), full.width, full.height, params.water);
+  const tect = tectonicStage({ plates, fullWidth: full.width, fullHeight: full.height, width, height, step, cosA, sinA, featureScale: FEATURE_SCALE, terrain, warp });
+  const raw = tect.raw;
 
   // O nível do mar é o quantil de `water` das altitudes brutas.
   const sorted = Float32Array.from(raw).sort();
   const seaLevel = sorted[Math.min(n - 1, Math.floor(params.water * n))];
   const lo = sorted[0];
-  const hi = sorted[n - 1];
+  // O teto é um quantil alto, não o pico isolado: as cordilheiras ocupam a faixa de cima inteira.
+  const hi = sorted[Math.floor((n - 1) * 0.998)];
   for (let i = 0; i < n; i++) {
     const v = raw[i];
-    elevation[i] = v < seaLevel ? -(seaLevel - v) / (seaLevel - lo || 1) : (v - seaLevel) / (hi - seaLevel || 1);
-    moisture[i] = Math.min(1, Math.max(0, moisture[i]));
-    vegetation[i] = params.life * Math.min(1, Math.max(0, moisture[i] * 1.4 - 0.2));
+    if (v < seaLevel) {
+      // Submarino: plataforma continental na margem, caindo gradualmente para bacias profundas
+      const depth = (seaLevel - v) / (seaLevel - lo || 1);
+      elevation[i] = -Math.pow(depth, 0.9);
+    } else {
+      // Emerso: planícies suaves perto da costa e elevação rápida para picos montanhosos
+      const alt = (v - seaLevel) / (hi - seaLevel || 1);
+      elevation[i] = Math.min(1, Math.pow(alt, 1.25));
+    }
   }
+
+  // Etapa 3: temperatura (frentes) e umidade (costa, interior e sombra de chuva).
+  const { climate, moisture } = climateStage({ elevation, width, height, fullWidth: full.width, step, cosA, sinA, featureScale: FEATURE_SCALE, wet });
+  for (let i = 0; i < n; i++) vegetation[i] = params.life * Math.min(1, Math.max(0, moisture[i] * 1.4 - 0.2));
 
   const map: SurfaceMap = {
     params,
@@ -167,7 +136,13 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
     heat: new Float32Array(n),
     vegetation,
     biome: new Uint8Array(n),
+    climate,
+    plates,
+    plate: tect.plate,
+    boundary: tect.boundary,
+    stress: tect.stress,
   };
+  // Etapa 4: bioma pela matriz de Whittaker e pelas regras de costa.
   for (let i = 0; i < n; i++) map.biome[i] = classify(map, i);
   return map;
 }
@@ -177,9 +152,45 @@ export function temperatureAt(map: SurfaceMap, i: number): number {
   const y = Math.floor(i / map.width);
   const lat = Math.abs(y / (map.height - 1) - 0.5) * 2;
   const alt = Math.max(0, map.elevation[i]);
-  return map.params.temperatureK + 22 - lat * lat * 55 - alt * 30 + map.heat[i];
+  const fronts = map.climate ? map.climate[i] : 0;
+  return map.params.temperatureK + 22 - lat * lat * 55 - alt * 30 + fronts + map.heat[i];
 }
 
+/** O terreno sobe rápido logo atrás do tile (2 tiles para dentro há uma encosta alta): costa de penhasco. */
+function steepAround(map: SurfaceMap, i: number, e: number): boolean {
+  const { width, height, elevation } = map;
+  const x = i % width;
+  const y = (i - x) / width;
+  const limit = e + 0.12;
+  return (
+    elevation[y * width + ((x + 2) % width)] > limit ||
+    elevation[y * width + ((x - 2 + width) % width)] > limit ||
+    (y >= 2 && elevation[i - 2 * width] > limit) ||
+    (y + 2 < height && elevation[i + 2 * width] > limit)
+  );
+}
+
+/** Água (mar ou lago, sem lava) a até `r` tiles na cruz em volta: o tile é costa. */
+function nearWater(map: SurfaceMap, i: number, r: number): boolean {
+  const { width, height, elevation } = map;
+  const x = i % width;
+  const y = (i - x) / width;
+  for (let k = 1; k <= r; k++) {
+    if (elevation[y * width + ((x + k) % width)] < 0) return true;
+    if (elevation[y * width + ((x - k + width) % width)] < 0) return true;
+    if (y - k >= 0 && elevation[i - k * width] < 0) return true;
+    if (y + k < height && elevation[i + k * width] < 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Bioma de um tile (etapa 4). O clima (T, H) dá o bioma clímax pela matriz
+ * de Whittaker; a vegetação decide se a mata está de pé (cortada vira
+ * campo, e sem planta nenhuma vira chão nu). Na beira do mar entram as
+ * transições: praia, manguezal no litoral quente e úmido e penhasco onde a
+ * terra sobe direto da água.
+ */
 export function classify(map: SurfaceMap, i: number): Biome {
   const e = map.elevation[i];
   const t = temperatureAt(map, i);
@@ -194,13 +205,34 @@ export function classify(map: SurfaceMap, i: number): Biome {
   if (e > 0.55) return t < 260 ? Biome.Snow : Biome.Rock;
   if (t < 255) return Biome.Snow;
   if (t > 340) return Biome.Barren;
-  if (e < 0.03 && m > 0.2) return Biome.Beach;
+  if (e < 0.2 && nearWater(map, i, e < 0.05 ? 2 : 1)) {
+    // Costa: a terra que sobe direto do mar vira penhasco; a baixa, praia ou mangue.
+    if (e > 0.04 && steepAround(map, i, e)) return Biome.Cliff;
+    if (e < 0.05 && m > 0.2 && t >= 268) {
+      if (t > 297 && m > 0.7 && veg > 0.5 && nearWater(map, i, 1)) return Biome.Mangrove;
+      return Biome.Beach;
+    }
+  }
   if (t < 268) return Biome.Tundra;
+  const climax = whittaker(temperatureNorm(t), m);
+  if (climax === Biome.Tundra) return Biome.Tundra;
   if (veg < 0.12) return m < 0.35 ? Biome.Desert : t > 300 ? Biome.Barren : Biome.Rock;
-  if (t > 300 && m > 0.6 && veg > 0.55) return Biome.Jungle;
-  if (veg > 0.5) return Biome.Forest;
-  if (t > 296 && m < 0.45) return Biome.Savanna;
-  return Biome.Grass;
+  switch (climax) {
+    case Biome.Desert:
+      return Biome.Desert;
+    case Biome.Savanna:
+      return veg > 0.5 && m > 0.45 ? Biome.Forest : Biome.Savanna;
+    case Biome.Jungle:
+      return veg > 0.55 ? Biome.Jungle : veg > 0.5 ? Biome.Forest : t > 296 && m < 0.45 ? Biome.Savanna : Biome.Grass;
+    case Biome.Taiga:
+      return veg > 0.45 ? Biome.Taiga : Biome.Grass;
+    case Biome.Swamp:
+      // Pântano só na baixada; no morro a mesma umidade fecha em mata.
+      if (veg > 0.5 && e < 0.12) return Biome.Swamp;
+      return veg > 0.5 ? (t > 300 ? Biome.Jungle : Biome.Forest) : Biome.Grass;
+    default:
+      return veg > 0.5 ? Biome.Forest : Biome.Grass;
+  }
 }
 
 /** Vegetação que um deserto aguenta (cactos e plantas secas): abaixo do limiar em que vira pasto. */
@@ -220,9 +252,10 @@ export function vegetationCap(map: SurfaceMap, i: number): number {
   if (t <= 262 || t >= 320) return 0;
   // Encosta de rocha: só capim e arbusto entre as pedras.
   if (e > 0.55) return 0.35;
+  const b = map.biome[i] as Biome;
+  if (b === Biome.Cliff) return 0.25;
   const m = map.moisture[i];
   if (m < 0.25) return DESERT_VEGETATION;
-  const b = map.biome[i] as Biome;
   if (m < 0.35 && (b === Biome.Desert || b === Biome.Beach || b === Biome.Barren)) return DESERT_VEGETATION;
   // Clima quente e semiárido (savana): sem umedecer o solo, para na savana com acácias em vez de fechar em floresta.
   if (t > 296 && m < 0.45) return 0.5;
@@ -290,6 +323,14 @@ export function decorAt(map: SurfaceMap, i: number): Decor {
       return h < 0.04 + veg * 0.1 ? Decor.Acacia : Decor.None;
     case Biome.Tundra:
       return veg > 0.15 && h < 0.3 ? Decor.Pine : Decor.None;
+    case Biome.Taiga:
+      return h < 0.75 ? Decor.Pine : Decor.None;
+    case Biome.Swamp:
+      return h < 0.3 ? Decor.Tree : Decor.None;
+    case Biome.Mangrove:
+      return h < 0.55 ? Decor.JungleTree : Decor.None;
+    case Biome.Cliff:
+      return h < 0.18 ? Decor.Boulder : Decor.None;
     case Biome.Desert:
       return h < 0.012 + veg * 0.5 ? Decor.Cactus : Decor.None;
     case Biome.Rock:

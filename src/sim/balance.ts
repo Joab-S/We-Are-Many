@@ -9,6 +9,8 @@
 
 /** Casas novas por ano quando a população passa da capacidade (antes: 40% por segundo). */
 export const HOUSE_RATE = 3;
+/** Passo de quem anda a pé (fração de `Species.speed`, em tiles por segundo): calmo o bastante para ler a cena no x1. */
+export const WALK_PACE = 0.6;
 /** Parte das obras que vira construção especial, quando há uma disponível. */
 export const SPECIAL_BUILDING_SHARE = 0.35;
 /** Roças novas por ano enquanto faltam roças (antes: 30% por segundo). */
@@ -19,6 +21,22 @@ export const FIELD_FALLOW_RATE = 0.5;
 export const FIELD_HANDS = 3;
 /** Porções de comida por ano que cada roça trabalhada produz em ano normal. */
 export const FIELD_YIELD = 3;
+/**
+ * Evolução dos povos, etapa 1: cada roça desenhada representa mais terra conforme o lugar cresce
+ * (FIELD_HANDS × (1 + FIELD_HANDS_TIER × nível) agricultores por roça), já que o mapa continua com no máximo 5.
+ * Antes o teto era fixo e um assentamento não passava de 40 a 60 moradores.
+ */
+export const FIELD_HANDS_TIER = 1;
+/** Rendimento de cada agricultor por era (Pedra … Industrial): ferramentas, rotação, adubo e máquinas. Antes era o mesmo em todas. */
+export const ERA_YIELD = [1, 1.2, 1.45, 1.75, 2.4];
+/**
+ * Natalidade dos inteligentes pela fome (etapas 1 e 2): com menos de BIRTH_FED_MIN dos moradores comendo bem quase não
+ * nascem filhos; a partir de BIRTH_FED_FULL nascem todos. Antes a fome só tirava até metade dos nascimentos e o povo
+ * crescia até morrer de fome. Conta quem comeu, não o celeiro (o atendimento de comida mistura os dois e fica perto de 0,6
+ * mesmo com todos comendo).
+ */
+export const BIRTH_FED_MIN = 0.9;
+export const BIRTH_FED_FULL = 1;
 /** Chegada de andarilhos por ano, pelo tamanho do assentamento (até 3, até 9, até 29, 30 ou mais). */
 export const WANDERER_RATE = [0.35, 0.15, 0.05, 0.01];
 /** Porto construído por ano, quando o assentamento pode (antes: 8% por segundo). */
@@ -116,8 +134,32 @@ export const AVENUE_MIN = 4;
 export const LEVEL_HOUSING = 2;
 /** Crescimento das ruas por ano quando os lotes acabam (1 = ruas do nível seguinte, metade da área). */
 export const STREET_GROW_RATE = 0.25;
-/** Mudanças de moradores por ano de um assentamento apertado para um vizinho do mesmo povo (RF-VIDA-281). */
-export const MIGRATION_RATE = 0.4;
+/**
+ * Migração por nota (evolução dos povos, etapa 2): chance por ano de cada família pensar em se mudar,
+ * multiplicada por 1 + MOVE_LACK × falta. Ela compara a nota de onde mora (mais o apego MOVE_STAY)
+ * com a dos lugares do seu povo a até MOVE_RANGE + MOVE_RANGE_ERA × era tiles, descontando 1 ponto a
+ * cada MOVE_DIST tiles e MOVE_FOREIGN (outro povo) ou MOVE_OTHER_KINGDOM (outro reino do mesmo povo).
+ * MOVE_TEMPER espalha o sorteio: menor, todos escolhem o melhor; maior, decisões mais variadas.
+ */
+export const MOVE_THINK = 0.06;
+export const MOVE_LACK = 4;
+export const MOVE_STAY = 0.35;
+export const MOVE_RANGE = 50;
+export const MOVE_RANGE_ERA = 15;
+export const MOVE_DIST = 120;
+export const MOVE_FOREIGN = 0.6;
+export const MOVE_OTHER_KINGDOM = 0.15;
+export const MOVE_TEMPER = 0.25;
+/** No êxodo (anos de falta), parte das famílias que sai para o melhor lugar conhecido ao alcance; sem nenhum, funda outro lugar. */
+export const EXODUS_SHARE = 0.35;
+/** Pesos da nota de um lugar: comida, lenha, casa sobrando, tamanho (log da população), nível, estabilidade e guerra. */
+export const MOVE_FOOD = 1.5;
+export const MOVE_FUEL = 0.5;
+export const MOVE_ROOM = 0.4;
+export const MOVE_CITY_PULL = 0.25;
+export const MOVE_TIER_PULL = 0.1;
+export const MOVE_STABLE = 0.3;
+export const MOVE_WAR = 0.4;
 /** Epidemias por ano numa cidade grande sem saneamento, por 100 moradores (RF-VIDA-284). */
 export const EPIDEMIC_RATE = 0.02;
 /** Parte dos moradores que uma epidemia atinge. */
@@ -165,6 +207,8 @@ export const HAUL_LOW = 0.2;
 /** Carga de uma carroça por recurso e alcance, em tiles. */
 export const HAUL_LOAD = 12;
 export const HAUL_RANGE = 60;
+/** Parte dos moradores comendo bem a partir da qual um lugar menor manda comida para o maior do mesmo reino (etapa 2). */
+export const SUPPLY_FED = 0.95;
 
 // Trabalho, vocação e estabilidade (seção 19.5 e RF-VIDA-280) ----------------------
 
@@ -453,9 +497,12 @@ export const FREEZE = 0.03;
 
 /** Mortes de fome num ano a partir das quais a crônica fala de fome. */
 export const FAMINE_DEATHS = 2;
-/** Atendimento abaixo do qual o assentamento vê gente partir em busca de comida, lenha ou casa (migração), e quantos por ano no máximo. */
+/**
+ * Falta (mais famílias pensam em se mudar; anos seguidos levam ao êxodo): lenha abaixo de SCARCITY_LEVEL de atendimento,
+ * ou menos de HUNGER_LEVEL dos moradores comendo bem (antes, o celeiro vazio contava como falta mesmo com todos comendo).
+ */
 export const SCARCITY_LEVEL = 0.55;
-export const SCARCITY_MOVERS = 3;
+export const HUNGER_LEVEL = 0.85;
 /**
  * Cobiça: reino com um assentamento abaixo de GREED_LEVEL de comida ou madeira, ao lado de um
  * vizinho que tem de sobra, perde relação com ele por ano (vezes a falta), e o reino mais forte
@@ -548,3 +595,34 @@ export const GRUDGE_PULL = 1.5;
 export const MERCENARY_RATE = 0.5;
 export const MERCENARY_MAX = 4;
 export const MERCENARY_PRICE = 2;
+
+// ---- Ações com presença (REQUISITOS-VIDA.md, seção 19.21) ----
+
+/**
+ * Chave por ofício: com a presença ligada, o mundo só muda quando um NPC do ofício está no tile
+ * pelo tempo do gesto; desligada, vale a taxa agregada de antes (comparação na calibração).
+ */
+export const PRESENCE_WOOD = true;
+/** Distância (tiles) a que o NPC precisa estar do alvo para o gesto contar. */
+export const JOB_REACH = 1.6;
+/**
+ * Segundos do gesto de derrubar uma árvore sem ferramenta e com a mata na porta. A taxa de antes dava 5 s (um ano ÷ CUT_RATE);
+ * com a presença sobra tempo andando e esperando lugar no armazém, então o gesto é mais curto para a lenha por ano ficar a mesma.
+ */
+export const FELL_SECONDS = 3.1;
+/** Segundos para plantar uma muda num toco, e quantas mudas cada árvore cortada deixa a plantar (o PLANT_RATE de antes ÷ CUT_RATE). */
+export const PLANT_SECONDS = 2.5;
+export const PLANT_PER_FELL = PLANT_RATE / CUT_RATE;
+/** Ferramenta não é exigida; o assentamento com ferramentas em estoque trabalha mais rápido (TOOL_SPEED, o 1,4 de antes). */
+export const TOOL_SPEED = 1.4;
+/** Segundos andando sem chegar ao alvo antes de largar a ordem, e anos que o tile fica fora do quadro de serviços. */
+export const JOB_TIMEOUT = 40;
+export const JOB_BLOCK_YEARS = 5;
+/** Quantas árvores livres da lista o lenhador compara para escolher a mais perto de si. */
+export const JOB_CHOICES = 8;
+
+/** Obra presencial: chave, alcance (tiles até o centro da casa), construtores por obra e trabalho de um construtor por ano de obra (1 = o tempo de andaime de antes). */
+export const PRESENCE_BUILD = true;
+export const BUILD_REACH = 2.4;
+export const JOB_SLOTS_BUILD = 4;
+export const BUILD_LABOR = 1;

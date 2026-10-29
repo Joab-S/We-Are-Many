@@ -20,6 +20,13 @@ export interface Indicators {
   cities: number;
   biggest: number;
   kingdoms: number;
+  /** Etapa 0 da evolução dos povos: mediana de moradores, parte do povo em cidades e metrópoles, metrópoles e reinos com 3 ou mais assentamentos. */
+  medianPop: number;
+  cityShare: number;
+  metropoles: number;
+  bigKingdoms: number;
+  /** Assentamentos fundados depois das aldeias semeadas (por êxodo, colonos, barco ou alguém sozinho). */
+  founded: number;
   /** Média de guerras ao mesmo tempo, amostrada uma vez por ano. */
   wars: number;
   /** Maior era alcançada (0 = Pedra) e o progresso dentro dela. */
@@ -72,6 +79,10 @@ export interface Indicators {
   greedWars: number;
   exodus: number;
   migrants: number;
+  /** Famílias que se mudaram por ano (migração por nota, etapa 2). */
+  familyMoves: number;
+  /** Comida que o campo mandou para cidades e vilas maiores do reino, por ano. */
+  supplied: number;
   /** Árvores cortadas por ano, parte delas replantada, assentamentos que manejam a mata e a mata que sobrou em volta. */
   treesCut: number;
   replanted: number;
@@ -193,6 +204,11 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       cities: live.filter((v) => v.tier >= 2).length,
       biggest: Math.max(0, ...live.map((v) => v.population)),
       kingdoms: live.filter((v) => v.kingdom === v.id).length,
+      medianPop: live.length ? [...live].sort((p, q) => p.population - q.population)[live.length >> 1].population : 0,
+      cityShare: live.reduce((n, v) => n + (v.tier >= 2 ? v.population : 0), 0) / Math.max(1, sapient()),
+      metropoles: live.filter((v) => v.tier >= 3).length,
+      bigKingdoms: live.filter((v) => v.kingdom === v.id && eco.kingdomSize(v) >= 3).length,
+      founded: eco.villages.length - placed,
       wars: wars / Math.max(1, years),
       era: Math.max(0, ...live.map((v) => v.tech)),
       techs: live.length ? live.reduce((n, v) => n + (v.techs?.length ?? 0), 0) / live.length : 0,
@@ -224,6 +240,8 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       greedWars: eco.tally.greedWars,
       exodus: eco.tally.exodus,
       migrants: eco.tally.migrants / Math.max(1, years),
+      familyMoves: eco.tally.familyMoves / Math.max(1, years),
+      supplied: eco.tally.supplied / Math.max(1, years),
       treesCut: eco.treesCut / Math.max(1, years),
       replanted: eco.treesCut ? eco.treesPlanted / eco.treesCut : 0,
       forestry: live.filter((v) => v.forestry).length,
@@ -276,10 +294,31 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
   { key: 'warsNoMotive', label: 'Declarações de guerra sem motivo na crônica', min: 0, max: 0 },
 ];
 
+/**
+ * Metas da rodada longa (`npm run calibrar:longa`, 1000 anos na Terra do jogo): o povo se
+ * concentra em cidades com o tempo, em vez de se espalhar em aldeias pequenas (evolução dos povos, etapa 0).
+ */
+export const LONG_TARGETS: { key: keyof Indicators; label: string; min: number; max: number }[] = [
+  { key: 'medianPop', label: 'Mediana de moradores por assentamento', min: 30, max: 9999 },
+  { key: 'cityShare', label: 'Parte do povo em cidades e metrópoles', min: 0.2, max: 0.6 },
+  { key: 'metropoles', label: 'Metrópoles', min: 1, max: 6 },
+  { key: 'bigKingdoms', label: 'Reinos com 3 ou mais assentamentos', min: 3, max: 25 },
+  { key: 'kingdoms', label: 'Reinos', min: 5, max: 40 },
+  { key: 'hunger', label: 'Mortes de fome por ano, por 100 moradores', min: 0, max: 0.5 },
+  { key: 'peopleTrend', label: 'Moradores: fim ÷ 60% da rodada', min: 1, max: 3 },
+];
+
 /** Nome de cada indicador no relatório. */
 export const LABELS: Partial<Record<keyof Indicators, string>> = {
+  settlements: 'Assentamentos vivos',
+  cities: 'Cidades',
   biggest: 'Maior assentamento (moradores)',
   kingdoms: 'Reinos',
+  medianPop: 'Mediana de moradores por assentamento',
+  cityShare: 'Parte do povo em cidades e metrópoles',
+  metropoles: 'Metrópoles',
+  bigKingdoms: 'Reinos com 3 ou mais assentamentos',
+  founded: 'Assentamentos fundados na rodada',
   era: 'Maior era (0 = Pedra, 1 = Bronze...)',
   techs: 'Técnicas por assentamento (média)',
   eraSpread: 'Diferença de progresso entre o mais e o menos adiantado',
@@ -302,7 +341,9 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   collapsed: 'Casas desabadas sem conserto por ano',
   greedWars: 'Guerras por cobiça (comida ou lenha)',
   exodus: 'Êxodos por falta',
-  migrants: 'Migrantes por falta ou aperto por ano',
+  migrants: 'Migrantes por ano',
+  familyMoves: 'Famílias que se mudaram por ano',
+  supplied: 'Comida do campo para lugares maiores do reino, por ano',
   treesCut: 'Árvores cortadas por ano',
   replanted: 'Parte das árvores replantada',
   forestry: 'Assentamentos que manejam a mata',
@@ -324,6 +365,19 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   retreats: 'Exércitos que voltaram sem comida',
   cavalry: 'Soldados montados (média por ano)',
 };
+
+/** Linhas da tabela do relatório: média, mediana, faixa de 10% a 90% e, quando há meta, se ficou dentro. */
+export function reportRows(runs: Indicators[], targets: { key: keyof Indicators; label: string; min: number; max: number }[], only?: (keyof Indicators)[]): string[] {
+  const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2)).replace('.', ',');
+  return (only ?? (Object.keys(runs[0]) as (keyof Indicators)[]))
+    .filter((k) => k !== 'seed' && k !== 'years')
+    .map((key) => {
+      const s = summary(runs.map((r) => r[key]));
+      const target = targets.find((t) => t.key === key);
+      const ok = target ? (s.p10 >= target.min && s.p90 <= target.max ? 'dentro' : '**fora**') : '';
+      return `| ${target?.label ?? LABELS[key] ?? key} | ${fmt(s.mean)} | ${fmt(s.median)} | ${fmt(s.p10)} a ${fmt(s.p90)} | ${target ? `${fmt(target.min)} a ${fmt(target.max)}` : ''} | ${ok} |`;
+    });
+}
 
 /** Média, mediana e faixa de 10% a 90% de uma lista. */
 export function summary(values: number[]): { mean: number; median: number; p10: number; p90: number } {

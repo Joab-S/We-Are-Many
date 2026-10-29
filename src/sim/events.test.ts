@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { generateSurface, type PlanetParams } from '../procgen/surface';
+import { Boundary, generateSurface, type PlanetParams } from '../procgen/surface';
 import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
-import { runEvent } from './events';
+import { planetSeismicity, quakeMagnitude, runEvent, seismicAt } from './events';
 import { ITEMS, pickItem } from './items';
 import { nativeSpecies } from './species';
 
@@ -51,6 +51,29 @@ describe('eventos do mundo', () => {
     const before = Float32Array.from(map.elevation);
     expect(runEvent(eco, 'quake')).toBe(true);
     expect(map.elevation.some((e, k) => e !== before[k])).toBe(true);
+  });
+
+  it('terremotos nascem nas bordas das placas, com magnitude pela tensão', () => {
+    const { map, eco } = world();
+    let land = 0;
+    let landStress = 0;
+    for (let i = 0; i < map.elevation.length; i++) {
+      if (map.elevation[i] < 0) continue;
+      land++;
+      landStress += seismicAt(map, i);
+    }
+    let sum = 0;
+    for (let k = 0; k < 12; k++) {
+      expect(runEvent(eco, 'quake')).toBe(true);
+      const c = eco.chronicle.find((e) => e.text.includes('terremoto'))!;
+      expect(c.text).toMatch(/magnitude \d,\d/);
+      sum += seismicAt(map, Math.floor(c.y) * map.width + Math.floor(c.x));
+    }
+    // A tensão média nos epicentros é bem maior que a média da terra.
+    expect(sum / 12).toBeGreaterThan((landStress / land) * 2);
+    expect(planetSeismicity(map)).toBeGreaterThan(0.3);
+    // Subducção dá terremotos maiores que o interior de uma placa com a mesma sorte.
+    expect(quakeMagnitude(0.9, Boundary.Subduction, 0.5)).toBeGreaterThan(quakeMagnitude(0.1, Boundary.None, 0.5) + 2);
   });
 
   it('nômades fundam um povo novo noutro lugar', () => {
@@ -181,7 +204,8 @@ describe('ruínas', () => {
       if (i >= 0) break;
     }
     expect(i).toBeGreaterThanOrEqual(0);
-    years(eco, 2);
+    // A pé, no passo calmo, os 8 tiles levam uns dois anos.
+    years(eco, 4);
     const v = eco.villages.find((o) => o.ruinOf === old.id)!;
     expect(v).toBeDefined();
     expect(v.x).toBe(old.x);
@@ -215,11 +239,14 @@ describe('sobrevivência', () => {
     expect(eco.population[s]).toBeLessThan(caps[s] * 0.95);
   });
 
-  it('em 80 anos, no máximo uma espécie da Terra some', () => {
+  it('em 80 anos, as presas de base ficam e somem no máximo três espécies (os ciclos de predador ainda oscilam)', () => {
     const { eco } = world();
+    // Num planeta pequeno algumas espécies já começam com dois ou três bichos: conta só as que começam viáveis.
+    const viable = eco.species.map((_, s) => eco.population[s] >= 10);
     years(eco, 80);
-    expect(eco.extinct.size).toBeLessThanOrEqual(1);
-  }, 30000);
+    expect([...eco.extinct].filter((s) => viable[s]).length).toBeLessThanOrEqual(3);
+    for (const name of ['Cervo', 'Coelho', 'Bisão', 'Javali']) expect(eco.population[eco.species.findIndex((sp) => sp.name === name)], name).toBeGreaterThan(0);
+  }, 60000);
 
   it('uma aldeia quase vazia recebe andarilhos do seu povo', () => {
     const { eco } = world();

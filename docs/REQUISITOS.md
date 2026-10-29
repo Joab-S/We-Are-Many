@@ -791,6 +791,9 @@ O que foi implementado gerou requisitos novos e mudou a ordem do que falta. A li
 
 ---
 | 22/10/2026 | Joab pediu salvar o progresso no navegador, de forma simples. Escolhido o IndexedDB em vez do localStorage porque o mapa de um planeta (arrays tipados de até 2048×1024) passa de 20 MB, muito acima da cota do localStorage (~5 MB). O localStorage ficou fora. |
+| 24/10/2026 | Progressão tecnológica reformulada (Opção 1): sem temporizador artificial de séculos nem trava rígida de pontos; o avanço é orgânico e segue a sequência física dos materiais (ferramentas iniciais de pedra e madeira → cerâmica e fornos → fundição de cobre, estanho ou bronze → siderurgia do ferro → aço com carvão e alvenaria → vapor), a divisão do trabalho pelas necessidades e a experimentação individual de moradores no ofício (cada NPC tem aptidão/curiosidade própria, descobre uma técnica trabalhando com o recurso e a ensina aos poucos para a aldeia; se morrer antes de ensinar, a descoberta se perde). |
+| 24/10/2026 | A ferramenta "📜 Ensinar" na aba Civilização foi retirada da interface por enquanto a pedido do Joab, por ser vaga demais, ficando para ser repensada no futuro. |
+| 27/10/2026 | Continuação da progressão orgânica (RF-VIDA-419 a 421): a ficha mostra quem está ensinando uma técnica; a morte ou partida do sábio abala a aldeia e, com o ensino adiantado, um aprendiz guarda parte; quem tem mais jeito para o ofício que falta muda primeiro; caravanas levam amostras que inspiram os artesãos do destino. Limites (60%, 30%, 2,5×, 10 anos) são padrão proposto, não decisão do Joab. |
 
 ## 13. Registro de remoções
 
@@ -800,6 +803,8 @@ As linhas de 19/10 e 20/10/2026 foram levantadas na revisão de 20/10/2026, a pa
 
 | Data | O que saiu | Motivo | Pedido por | O que ficou no lugar |
 |---|---|---|---|---|
+| 24/10/2026 | Temporizador fixo de séculos por era (`ERA_YEARS = [300, 350, 450, 550]`) e trava tripla rígida (`ERA_POINTS` + exigência simultânea de cobre e estanho para sair da Pedra) | Os povos ficavam presos em `0,99` na Idade da Pedra e nunca mudavam de era | Joab | Evolução orgânica por sequência física de materiais (17 técnicas encadeadas), trabalho no ofício e descoberta individual com ensino gradual à aldeia (RF-VIDA-73, 270, 271) |
+| 24/10/2026 | Botão "📜 Ensinar" na barra da aba Civilização (`SurfaceMode.ts`, RF-VIDA-75 e 141) | Habilidade vaga demais; ensinar tudo de forma descontrolada não é interessante agora | Joab | Retirado da interface para ser repensado futuramente (métodos `teach` e `teachVillage` preservados em `Ecosystem` para testes) |
 | 19/10/2026 | A/D deslocando a nave para os lados (RF-NAV-01) | Deixar o voo mais interessante, com curvas e inclinação | Joab | A/D fazem curva inclinando a nave; Q/E giram |
 | 19/10/2026 | Exigência de WebGL para abrir o jogo | Nem todo PC tem placa de vídeo liberada | Joab | Renderizador por software em Canvas 2D (RF-NAV-16) |
 | 19/10/2026 | Vida nativa em 1% dos planetas favoráveis | Raro demais para a diversão | Joab | Três níveis: 25% vegetação, 8% animais, 1 em 10 destes inteligente (RF-VIDA-02) |

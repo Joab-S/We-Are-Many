@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { seedFor } from '../../core/rng';
 import {
   BIOME_NAMES,
+  Boundary,
+  BOUNDARY_NAMES,
   classify,
   paintSurface,
   paintTile,
@@ -17,13 +19,17 @@ import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
 import { CATEGORIES, ITEMS, MATERIALS } from '../../sim/items';
 import { CHILD } from '../../sim/roles';
+import { bestCraft, TECH_BY_ID } from '../../sim/progress';
+import { notable } from '../../ai/traits';
 import { TIER_NAMES } from '../../sim/settlement';
 import { earthCatalog, EARTH_ID, habitatOf, nativeSpecies, type Species } from '../../sim/species';
+import { dietText, ecologyOf, guildName } from '../../sim/fauna';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
 import type { GameState } from '../state';
 import { BODY_NAMES, makeDecorCanvas, ROLE_NAMES, ROLES, SPRITES } from './art';
 import { generateSurfaceAsync } from './generateAsync';
+import { BOUNDARY_COLORS, GEO_VIEWS, paintGeoTile, paintGeoView, type GeoView } from '../../procgen/debugViews';
 import { SoftArt } from './softArt';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 import { animalStage, DEATH_TEXT, familyName, personName } from '../../sim/people';
@@ -31,8 +37,12 @@ import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, GRAVEL, houseStyle } from '../../s
 import { CURRENCY_NAMES } from '../../sim/trade';
 import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, sumLedger, type CompareKey, type PeriodSpan, type SettlementTab } from './settlementWindow';
 
-/** Raio de escolha de criaturas em pixels de tela, igual em qualquer zoom (RF-VIDA-330). */
-const PICK_RADIUS_PX = 10;
+/** Raio mínimo, em pixels de tela, do círculo de escolha de criaturas (RF-VIDA-330). */
+const PICK_RADIUS_PX = 6;
+/** Fator do raio por tile de zoom: o mesmo círculo desenhado ao redor da criatura. */
+const PICK_RADIUS_PER_ZOOM = 0.9;
+/** O desenho da criatura fica meio tile acima do ponto dela; o círculo é centrado no corpo. */
+const PICK_LIFT = 0.5;
 /** Atualizações por segundo da janela do assentamento (RF-VIDA-341). */
 const VWIN_HZ = 4;
 
@@ -135,8 +145,8 @@ const TERRAIN_TOOLS: Tool[] = [
   { id: 'flatten', fx: 'flatten', tab: 'terrain', label: 'Nivelar', icon: '▭', tip: 'Aplaina o terreno para perto do nível de planície.', mode: 'brush', apply: (m, i, s) => (m.elevation[i] += (0.12 - m.elevation[i]) * Math.min(1, 0.05 * s)) },
   { id: 'sand', fx: 'sand', tab: 'terrain', label: 'Areia', icon: '🏜', tip: 'Seca o solo: vira praia ou deserto.', mode: 'brush', apply: (m, i, s) => { m.moisture[i] = clamp(m.moisture[i] - 0.05 * s, 0, 1); m.vegetation[i] = clamp(m.vegetation[i] - 0.05 * s, 0, 1); } },
   { id: 'lake', fx: 'sea', tab: 'terrain', label: 'Lago', icon: '🏞', tip: 'Cava um lago raso, de margem suave, e umedece a terra em volta.', mode: 'brush', apply: (m, i, s) => { m.elevation[i] = Math.max(-0.12, m.elevation[i] - 0.05 * s); m.moisture[i] = clamp(m.moisture[i] + 0.02 * s, 0, 1); } },
-  { id: 'clear', fx: 'clear', tab: 'terrain', group: 'Remover', label: 'Limpar', icon: '🧹', tip: 'Tira árvores, pedras, cactos, ruínas e veios de minério do pincel. A madeira, a pedra e o minério vão para o assentamento mais perto.', mode: 'brush', act: (ctx, x, y) => ctx.clearNature(x, y) },
-  { id: 'demolish', fx: 'demolish', tab: 'terrain', group: 'Remover', label: 'Demolir', icon: '🧱', tip: 'Derruba casas, prédios, ruas, roças e pastos do pincel. Parte do material volta ao estoque; o povo reconstrói se precisar.', mode: 'brush', act: (ctx, x, y) => ctx.demolish(x, y) },
+  { id: 'clear', fx: 'clear', tab: 'terrain', group: 'Remover', label: 'Limpar', icon: '🧹', tip: 'Tira árvores, pedras, cactos, ruínas e veios de minério do pincel. O material removido se perde: só o trabalho do povo põe recursos no estoque.', mode: 'brush', act: (ctx, x, y) => ctx.clearNature(x, y) },
+  { id: 'demolish', fx: 'demolish', tab: 'terrain', group: 'Remover', label: 'Demolir', icon: '🧱', tip: 'Derruba casas, prédios, ruas, roças e pastos do pincel. O material se perde; o povo reconstrói depois, se precisar, pagando de novo.', mode: 'brush', act: (ctx, x, y) => ctx.demolish(x, y) },
   // Minérios: ajuda leve aos povos, que ainda precisam achar o veio e abrir a mina.
   ...ORES.map(
     (ore): Tool => ({
@@ -339,6 +349,8 @@ export class SurfaceMode {
   private showTerritory = true;
   /** Camada das áreas coloridas: reinos, vocação ou economia (RF-VIDA-287). */
   private layer: 'kingdoms' | 'vocation' | 'economy' = 'kingdoms';
+  /** Visão de depuração do gerador (placas, altitude, T, H, biomas) no lugar do mapa normal. */
+  private geoView: GeoView = 'none';
   private lastMini = 0;
   private miniBase: HTMLCanvasElement | null = null;
   private textureChanged = true;
@@ -485,19 +497,6 @@ export class SurfaceMode {
         act: (ctx: SurfaceMode, x: number, y: number) => ctx.introduce(sp, x, y),
       }));
     civ.push(
-      {
-        id: 'teach',
-        tab: 'civ',
-        group: 'Ajudar de leve',
-        label: 'Ensinar',
-        icon: '📜',
-        tip: 'Adianta um pouco o conhecimento das aldeias no pincel (não pula a condição de era).',
-        mode: 'click',
-        act: (ctx, x, y) => {
-          const taught = ctx.eco.teach(x, ctx.toRow(y), ctx.brush, 0.35);
-          if (taught.length) ctx.eco.note(`Você ensinou ${taught.map((v) => v.name).join(', ')}`, 'jogador', taught[0]);
-        },
-      },
       {
         id: 'harvest',
         tab: 'civ',
@@ -659,16 +658,30 @@ export class SurfaceMode {
 
   private repaint(i: number): void {
     this.map.biome[i] = classify(this.map, i);
-    paintTile(this.map, this.pixels, i);
+    if (this.geoView !== 'none') paintGeoTile(this.map, this.geoView, this.pixels, i);
+    else paintTile(this.map, this.pixels, i);
     if (this.eco.road[i] || this.eco.built[i]) this.paintSettlement(i);
     this.softArt?.invalidate(i);
     this.mapVersion++;
     this.textureChanged = true;
   }
 
+  /** Troca a visão do mapa (normal ou uma etapa do gerador) e repinta tudo. */
+  private setGeoView(view: GeoView): void {
+    this.geoView = view;
+    if (view === 'none') {
+      paintSurface(this.map, this.pixels);
+      for (let i = 0; i < this.eco.road.length; i++) if (this.eco.road[i] || this.eco.built[i]) this.paintSettlement(i);
+    } else paintGeoView(this.map, view, this.pixels);
+    // A arte detalhada guarda blocos pintados; recomeça do zero com os pixels novos.
+    this.softArt = null;
+    this.mapVersion++;
+    this.textureChanged = true;
+  }
+
   /** Ruas, praça e terreno das casas por cima do terreno, sem enfeites. */
   private paintSettlement(i: number): void {
-    if (!isLand(this.map, i)) return;
+    if (this.geoView !== 'none' || !isLand(this.map, i)) return;
     const o = i * 4;
     const px = this.pixels;
     const road = this.eco.road[i];
@@ -1003,7 +1016,7 @@ export class SurfaceMode {
 
   /** Raio de escolha em tiles para o zoom atual. */
   private pickRadius(): number {
-    return PICK_RADIUS_PX / this.zoom;
+    return Math.max(PICK_RADIUS_PX, this.zoom * PICK_RADIUS_PER_ZOOM) / this.zoom;
   }
 
   /**
@@ -1020,7 +1033,7 @@ export class SurfaceMode {
       this.openSettlement(anchor.id);
       return;
     }
-    const list = this.eco.pickAll(this.hover.x, row, this.pickRadius());
+    const list = this.eco.pickAll(this.hover.x, row + PICK_LIFT, this.pickRadius());
     this.showCrowd(null);
     if (list.length) {
       const m = this.mouse;
@@ -1244,6 +1257,7 @@ export class SurfaceMode {
       this.showTerritory = true;
       this.lastView = '';
     }
+    else if (opt.startsWith('geo:')) this.setGeoView(opt.slice(4) as GeoView);
     else if (opt === 'now') this.surprise();
     this.lastWinHtml = '';
     this.lastPanelHtml = '';
@@ -1455,7 +1469,7 @@ export class SurfaceMode {
     const eco = this.eco;
     const f = this.winFilter;
     const known = [...this.state.knownSpecies.values()].filter((sp) => (f === '' ? true : f === 'here' ? eco.species.some((o, s) => o.id === sp.id && eco.population[s] > 0) : f === 'sapient' ? sp.kind === 'sapient' : sp.kind !== 'sapient'));
-    const kindName = (sp: Species) => (sp.kind === 'sapient' ? 'Inteligente' : sp.kind === 'fish' ? 'Peixe' : sp.kind === 'shark' ? 'Marinho grande' : sp.kind === 'predator' ? 'Predador' : 'Herbívoro') + (sp.amphibious ? ' · anfíbio' : '');
+    const kindName = (sp: Species) => (sp.kind === 'sapient' ? 'Inteligente' : guildName(ecologyOf(sp))) + (sp.amphibious ? ' · anfíbio' : '');
     const cards = known
       .map((sp) => {
         const s = eco.species.findIndex((o) => o.id === sp.id);
@@ -1505,8 +1519,47 @@ export class SurfaceMode {
       <div class="wb-section">Camada do mapa</div>
       <div class="wb-filters">${[['kingdoms', 'Reinos'], ['vocation', 'Vocação'], ['economy', 'Economia']].map(([k, l]) => `<button data-opt="layer:${k}" class="${on(this.layer === k)}">${l}</button>`).join('')}</div>
       <div class="wb-note">${this.layer === 'vocation' ? Object.entries(VOCATION_NAMES).map(([k, n]) => `<span style="color:rgb(${VOCATION_COLORS[k as keyof typeof VOCATION_COLORS].join(',')})">■</span> ${VOCATION_ICONS[k as keyof typeof VOCATION_ICONS]} ${n}`).join(' · ') : this.layer === 'economy' ? 'Verde: necessidades atendidas e estoque cheio · amarelo: apertado · vermelho: em crise.' : 'Cada reino com a sua cor; capitais com linha cheia.'}</div>
+      <div class="wb-section">Geologia e clima (depuração do gerador)</div>
+      <div class="wb-filters">${GEO_VIEWS.map(([k, l]) => `<button data-opt="geo:${k}" class="${on(this.geoView === k)}">${l}</button>`).join('')}</div>
+      <div class="wb-note">${this.geoNote()}</div>
       <div class="wb-section">Atalhos</div>
       <div class="wb-note">Espaço pausa · 1 a 5 mudam a velocidade · C crônica · R reinos · E espécies · I itens · Esc fecha a janela ou volta à órbita.</div>`;
+  }
+
+  /** Placa, limite e tensão sísmica de um tile, para a ficha do lugar. */
+  private plateInfo(i: number): string {
+    const map = this.map;
+    if (!map.plates || !map.plate) return '';
+    const k = map.plate[i];
+    const p = map.plates[k];
+    const b = (map.boundary?.[i] ?? Boundary.None) as Boundary;
+    const stress = Math.round(((map.stress?.[i] ?? 0) / 255) * 100);
+    return `<span>Placa ${k + 1} (${p.continental ? 'continental' : 'oceânica'}) · ${BOUNDARY_NAMES[b]}${stress ? ` · tensão ${stress}%` : ''}</span>`;
+  }
+
+  /** Legenda da visão de depuração aberta. */
+  private geoNote(): string {
+    const swatch = (c: readonly number[]) => `<span style="color:rgb(${c.join(',')})">■</span>`;
+    switch (this.geoView) {
+      case 'plates': {
+        const plates = this.map.plates ?? [];
+        const cont = plates.filter((p) => p.continental).length;
+        const kinds = [Boundary.Convergent, Boundary.Subduction, Boundary.Divergent, Boundary.Transform].map((b) => `${swatch(BOUNDARY_COLORS[b])} ${BOUNDARY_NAMES[b]}`).join(' · ');
+        return plates.length
+          ? `${plates.length} placas (${cont} continentais, claras; ${plates.length - cont} oceânicas, escuras). Setas: direção e velocidade. Vermelho por cima: tensão sísmica. Bordas: ${kinds}.`
+          : 'Este mundo foi salvo antes das placas tectônicas: não há placas para mostrar.';
+      }
+      case 'elevation':
+        return 'Altitude: azul escuro nas fossas, azul claro na plataforma, verde nas planícies, marrom nas serras e branco nos picos.';
+      case 'temperature':
+        return 'Temperatura normalizada (T) da matriz de Whittaker: azul a -20 °C, branco perto de 10 °C, vermelho a 40 °C. Latitude, altitude e frentes climáticas.';
+      case 'humidity':
+        return 'Umidade (H) na terra: marrom seco, verde médio, azul encharcado. Costas úmidas, interior seco e sombra de chuva atrás das cordilheiras.';
+      case 'biomes':
+        return 'Bioma final de cada tile em cor chapada, sem relevo, enfeites nem construções.';
+      default:
+        return 'Mostra cada etapa do gerador: placas → altitude → temperatura e umidade → bioma.';
+    }
   }
 
   private lastW = 0;
@@ -1597,7 +1650,7 @@ export class SurfaceMode {
     if (this.follow && pin && 'creature' in pin && this.eco.alive[pin.creature] && this.eco.uid[pin.creature] === pin.uid) this.center.set(this.eco.x[pin.creature], this.map.height - this.eco.y[pin.creature]);
     this.updateHover();
     // Quem seria escolhido num clique ganha contorno (RF-VIDA-330).
-    this.hoverPick = !this.tool && !this.box && this.hover.x > -1e5 ? this.eco.pick(this.hover.x, this.toRow(this.hover.y), this.pickRadius()) : -1;
+    this.hoverPick = !this.tool && !this.box && this.hover.x > -1e5 ? this.eco.pick(this.hover.x, this.toRow(this.hover.y) + PICK_LIFT, this.pickRadius()) : -1;
     this.useTool(dt);
     this.stepFx(dt);
 
@@ -1800,7 +1853,7 @@ export class SurfaceMode {
       ctx.strokeStyle = `rgba(${colorOf(i)},${alpha.toFixed(2)})`;
       ctx.stroke();
     };
-    const base = Math.max(6, z * 0.9);
+    const base = Math.max(PICK_RADIUS_PX, z * PICK_RADIUS_PER_ZOOM);
     for (const i of this.highlighted()) ring(i, base * 0.8, 1.5, 0.85);
     const pin = this.pinned;
     if (pin && 'group' in pin) {
@@ -2013,7 +2066,7 @@ export class SurfaceMode {
         // Olaria acesa: fumaça saindo da chaminé.
         if (!small && house.kind === 'pottery') buildings.push({ sprite: flame ? 'smoke' : 'smoke2', sx: sx + z * 0.45, sy: sy + z * 2.05, h: z * 0.5, tint: v.color });
         // Obra em andamento (construção ou reforma): andaime por cima.
-        if (!small && (house.workUntil ?? 0) > eco.year) buildings.push({ sprite: 'scaffold', sx, sy: sy - 0.01, h: z * 1.75, tint: v.color });
+        if (!small && eco.underWork(house)) buildings.push({ sprite: 'scaffold', sx, sy: sy - 0.01, h: z * 1.75, tint: v.color });
         // Na Idade da Pedra, algumas cabanas têm uma fogueira no quintal.
         if (!small && era === 0 && house.kind === 'house' && house.variant === 1) {
           const [cx, cy] = this.toScreen(house.x + 2.3, house.y + 2, z, w, h);
@@ -2119,6 +2172,14 @@ export class SurfaceMode {
       }
     }
     this.pushCaravans(layer, z, w, h, margin, small);
+    // Carcaças: o que sobrou de uma caçada ou de uma morte no mato, até apodrecer (necrófagos vêm comer).
+    if (!small) {
+      for (const cc of eco.carcasses) {
+        const [sx, sy] = this.toScreen(cc.x, cc.y, z, w, h);
+        if (sx < -margin || sx > w + margin || sy < -margin || sy > h + margin) continue;
+        layer.push('carcass', sx, sy - z * 0.2, z * 0.45 * Math.min(1.3, 0.6 + Math.cbrt(cc.kg) / 8), eco.species[cc.sp]?.color ?? [150, 110, 80]);
+      }
+    }
     for (let i = 0; i < eco.count; i++) {
       if (!eco.alive[i]) continue;
       const [sx, sy] = this.toScreen(eco.x[i], eco.y[i], z, w, h);
@@ -2296,7 +2357,7 @@ export class SurfaceMode {
       const marks = stateIcons(this.eco, v);
       const text =
         (v.kingdom === v.id && this.eco.kingdomSize(v) > 1
-          ? `♛ ${icon}Reino de ${v.name} · ${v.population}`
+          ? `♛ ${icon}Reino de ${v.name} · ${this.eco.kingdomPopulation(v)}`
           : `${icon}${TIER_NAMES[v.tier]} ${v.name} · ${v.population}`) + (marks ? ` ${marks}` : '');
       el.classList.toggle('open', this.vwin?.id === v.id);
       if (el.textContent !== text) el.textContent = text;
@@ -2592,7 +2653,11 @@ export class SurfaceMode {
     const follow = following ? `<button class="wb-btn" data-act="follow">${this.follow ? '⏹ Parar de seguir (F)' : '🎥 Seguir (F)'}</button>` : '';
     const doing = `<span>Agora: ${eco.activityOf(i)}</span>`;
     if (sp.kind !== 'sapient') {
-      const diet = sp.kind === 'herbivore' ? 'plantas' : sp.kind === 'fish' ? 'algas e plâncton' : sp.kind === 'shark' ? 'peixes' : sp.omnivore ? 'carne, frutos e raízes' : 'carne';
+      const ecol = ecologyOf(sp);
+      const diet = sp.kind === 'fish' ? 'algas e plâncton' : sp.kind === 'shark' && ecol.guild !== 'filtrador' ? 'peixes' : dietText(ecol);
+      // Carga de parasitas (sobe com a lotação): pesa no metabolismo, na velocidade e nas crias.
+      const load = eco.parasite[i];
+      const sick = load > 0.25 ? `<span class="${load > 0.6 ? 'bad' : 'wb-dim'}">Com ${ecol.parasite} (${load > 0.6 ? 'muitos' : 'alguns'})</span>` : '';
       let group = 0;
       let threat = '';
       let td = Infinity;
@@ -2612,6 +2677,7 @@ export class SurfaceMode {
         ${this.vitals(i)}
         ${doing}
         <span>Come ${diet}</span>
+        ${sick}
         <span>${group > 1 ? `Num ${gname} de ${group}` : 'Sozinho por aqui'}</span>
         ${threat ? `<span class="bad">Predador por perto: ${threat}</span>` : ''}
         ${follow}`;
@@ -2627,6 +2693,25 @@ export class SurfaceMode {
       v && eco.movedAt[i] >= 0 && (!born || born.id !== v.id) ? `mudou para ${v.name} no ano ${Math.floor(eco.movedAt[i])}` : '',
     ].filter(Boolean).join(', ');
     const carry = v && role !== CHILD ? this.carries(i) : '';
+    // Quem descobriu uma técnica e ainda a ensina, a curiosidade e o ofício em que tem mais jeito (RF-VIDA-419 e 420).
+    const teaching = v?.pendingTech?.uid === eco.uid[i] ? v.pendingTech : null;
+    const teachName = teaching ? (TECH_BY_ID[teaching.id]?.name ?? teaching.id) : '';
+    // Personalidade (IA local, src/ai/traits.ts): os traços marcantes, e o ofício em que tem mais jeito.
+    const marks = notable(eco.traits, i).map((t) => `${t.icon} ${t.label}`);
+    const traits = v ? [...marks, role !== CHILD ? `⭐ jeito para ${ROLE_NAMES[ROLES[bestCraft(eco.uid[i])]].toLowerCase()}` : ''].filter(Boolean).join(' · ') : '';
+    // Laços (IA local, relações): cônjuge, amigos e rivais, clicáveis para seguir de uma pessoa a outra.
+    const ties = v ? eco.tiesOf(i) : null;
+    const some = (list: number[]) => `${list.slice(0, 3).map(person).join(', ')}${list.length > 3 ? ` e mais ${list.length - 3}` : ''}`;
+    const tieLine = ties
+      ? [
+          ties.partner >= 0 ? `💞 casado(a) com ${person(ties.partner)}` : '',
+          ties.friends.length ? `🤝 amigos: ${some(ties.friends)}` : '',
+          ties.rivals.length ? `😠 rivais: ${some(ties.rivals)}` : '',
+        ].filter(Boolean).join(' · ')
+      : '';
+    // O que a pessoa decidiu e por quê, do mais novo para o mais antigo (src/ai/trace.ts).
+    const diary = (eco.diary.get(eco.uid[i]) ?? []).slice(-4).reverse();
+    const thoughts = diary.map((t) => `<span class="wb-dim">Ano ${t.year}: ${t.text}</span>`).join('');
     return `
       <b>${name}</b>
       <span>${sp.name} · ${job}</span>
@@ -2636,6 +2721,10 @@ export class SurfaceMode {
       ${v ? `<span>Mora em <button class="wb-link" data-village="${v.id}">${TIER_NAMES[v.tier]} ${v.name}</button>${v.kingdom !== v.id ? ` · Reino de ${eco.capitalOf(v).name}` : ''}</span>` : ''}
       ${v ? `<span>Família ${familyName(eco.family[i], v.culture.id)}${fam.parent >= 0 ? ` · filho(a) de ${person(fam.parent)}` : ''}${fam.children.length ? ` · filhos: ${fam.children.slice(0, 5).map(person).join(', ')}${fam.children.length > 5 ? ` e mais ${fam.children.length - 5}` : ''}` : ''}</span>` : ''}
       ${carry ? `<span>Leva ${carry}</span>` : ''}
+      ${teaching ? `<span class="wb-line">📜 Ensinando ${teachName} ${bar(teaching.progress, `${Math.round(teaching.progress * 100)}%`, 'good')}</span>` : ''}
+      ${traits ? `<span>${traits}</span>` : ''}
+      ${tieLine ? `<span>${tieLine}</span>` : ''}
+      ${thoughts}
       ${story ? `<span class="wb-dim">${story[0].toUpperCase()}${story.slice(1)}.</span>` : ''}
       ${follow}`;
   }
@@ -2737,7 +2826,7 @@ export class SurfaceMode {
           <span>Altitude ${(this.map.elevation[i] * 100).toFixed(0)}</span>
           <span>Temperatura ${(t - 273.15).toFixed(0)} °C</span>
           <span>Umidade ${(this.map.moisture[i] * 100).toFixed(0)}%</span>
-          <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>`;
+          <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>${this.plateInfo(i)}`;
       }
     }
     el.hidden = false;

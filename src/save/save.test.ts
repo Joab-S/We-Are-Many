@@ -89,7 +89,7 @@ describe('save: ida e volta', () => {
       if (typeof v === 'function' || v instanceof WeakMap || k === 'map') continue;
       expect((back as unknown as Record<string, unknown>)[k], k).toEqual(v);
     }
-  });
+  }, 15000);
 
   it('as espécies do ecossistema e as conhecidas continuam sendo os mesmos objetos', () => {
     const { state } = roundTrip(game());

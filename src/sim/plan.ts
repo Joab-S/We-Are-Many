@@ -60,9 +60,9 @@ export function planItems(c: PlanContext): PlanItem[] {
     { id: 'housing', label: 'casas para todos', ok: c.housing >= c.population },
     { id: 'food', label: 'comida garantida', ok: c.fields > 0 || c.port || c.food >= 5 },
   ];
-  // Roças para as casas, quando o povo já planta (fim da Idade da Pedra).
-  if (c.tier >= 1 && c.tech >= 0.12) items.push({ id: 'fields', label: 'roças para as casas', ok: c.fields >= Math.ceil(c.homes / 4) });
-  if (c.tier >= 1 && c.coastal && c.tech >= 0.5) items.push({ id: 'port', label: 'porto', ok: c.port });
+  // Roças para as casas, quando o povo já planta.
+  if (c.tier >= 1 && (c.fields > 0 || c.tech >= 0.12)) items.push({ id: 'fields', label: 'roças para as casas', ok: c.fields >= Math.ceil(c.homes / 4) });
+  if (c.tier >= 1 && c.coastal && (c.port || c.tech >= 0.15)) items.push({ id: 'port', label: 'porto', ok: c.port });
   for (const b of c.buildable) {
     // Monumentos e a grande obra são orgulho, não estrutura; a estátua só entra na metrópole.
     if (b === 'wonder' || (b === 'statue' && c.tier < 3)) continue;

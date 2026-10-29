@@ -109,7 +109,7 @@ export function ouStep(rnd: Rng, value: number, dt: number, theta: number, sigma
 }
 
 /** Subsistemas com fluxo de sorteio próprio (RF-VIDA-306). */
-export const STREAMS = ['vida', 'povos', 'politica', 'mundo', 'terreno', 'clima', 'saber'] as const;
+export const STREAMS = ['vida', 'povos', 'politica', 'mundo', 'terreno', 'clima', 'saber', 'mente'] as const;
 export type Stream = (typeof STREAMS)[number];
 
 /**

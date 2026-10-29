@@ -14,7 +14,7 @@ import { TIER_NAMES } from '../../sim/settlement';
 import { MATERIAL_NAMES } from '../../sim/architecture';
 import { CURRENCY_NAMES, LUXURY_NAMES } from '../../sim/trade';
 import { elderAge } from '../../sim/ecosystem';
-import { ERA_POINTS, PILLARS, PILLAR_NAMES, TECHS, VOCATION_PILLAR } from '../../sim/progress';
+import { PILLARS, PILLAR_NAMES, TECHS, VOCATION_PILLAR } from '../../sim/progress';
 
 export type SettlementTab = 'summary' | 'economy' | 'people' | 'buildings' | 'relations' | 'history';
 
@@ -167,7 +167,7 @@ function summaryHtml(eco: Ecosystem, v: Village): string {
     <div class="wb-kv"><span>Nível</span><b>${TIER_NAMES[v.tier]}${v.vocation ? ` · ${VOCATION_ICONS[v.vocation]} ${VOCATION_NAMES[v.vocation]}` : ''}</b></div>
     <div class="wb-kv"><span>Era</span><b>${ERAS[era]}</b></div>
     <div class="wb-kv"><span>Progresso</span>${bar(v.tech - era, `${Math.floor((v.tech - era) * 100)}% ${next}`, '')}</div>
-    ${need ? `<div class="wb-kv"><span>Falta</span><b>${need}</b></div>` : ''}
+    ${need ? `<div class="wb-kv"><span>Próximo passo</span><b>${need}</b></div>` : ''}
     <div class="wb-kv"><span>População</span><b>${v.population} moradores${trend(v)}</b></div>
     <div class="wb-kv"><span>Líder</span><b>${leader >= 0 ? `${fullName(eco, leader)}, ${Math.floor(eco.age[leader])} anos` : 'nenhum'}</b></div>
     <div class="wb-kv"><span>Reino</span><b>${capital === v ? (eco.kingdomSize(v) > 1 ? 'capital do reino' : 'independente') : `Reino de ${capital.name}`}</b></div>
@@ -178,21 +178,23 @@ function summaryHtml(eco: Ecosystem, v: Village): string {
     ${pillarsHtml(eco, v)}`;
 }
 
-/** Pilares de desenvolvimento, técnicas e recursos ainda sem uso (RF-VIDA-270 a 273). */
+/** Pilares de desenvolvimento, técnicas, descobertas individuais e recursos ainda sem uso (RF-VIDA-270 a 273). */
 function pillarsHtml(eco: Ecosystem, v: Village): string {
-  const era = Math.floor(v.tech);
-  const need = ERA_POINTS[era];
   const special = v.vocation ? VOCATION_PILLAR[v.vocation] : null;
   const rows = PILLARS.map((p, i) => {
     const pts = Math.floor(v.pts?.[i] ?? 0);
-    return `<div class="wb-kv"><span>${PILLAR_NAMES[p]}${p === special ? ' ×2' : ''}</span>${bar(v.levels?.[i] ?? 0, need ? `${pts} pts` : 'completo', '')}</div>`;
+    return `<div class="wb-kv"><span>${PILLAR_NAMES[p]}${p === special ? ' ×2' : ''}</span>${bar(v.levels?.[i] ?? 0, `${pts} pts`, '')}</div>`;
   }).join('');
   const known = eco.knows(v);
   const techs = TECHS.filter((t) => known.has(t.id)).map((t) => t.name);
   const latent = eco.latent(v);
+  const samples = Object.entries(v.samples ?? {}).filter(([id, until]) => until > eco.year && !known.has(id)).map(([id]) => TECHS.find((t) => t.id === id)?.name ?? id);
+  const pending = v.pendingTech ? TECHS.find((t) => t.id === v.pendingTech!.id)?.name ?? v.pendingTech.id : null;
   return `
-    <div class="wb-sub">Desenvolvimento${need ? ` · ${Math.floor(v.pts?.reduce((a, b) => a + b, 0) ?? 0)} de ${need} pontos para a próxima era` : ''}</div>
+    <div class="wb-sub">Desenvolvimento · ${Math.floor(v.pts?.reduce((a, b) => a + b, 0) ?? 0)} pontos acumulados</div>
     ${rows}
+    ${v.pendingTech && pending ? `<div class="wb-kv"><span>Aprendendo</span>${bar(v.pendingTech.progress, `${v.pendingTech.name} ensina ${pending} (${pct(v.pendingTech.progress)})`, 'good')}</div>` : ''}
+    ${samples.length ? `<div class="wb-kv"><span>Amostras</span><b>${samples.join(', ')}</b><span class="wb-dim">trazidas por caravanas</span></div>` : ''}
     <div class="wb-kv"><span>Técnicas</span><b>${techs.length ? techs.join(', ') : 'nenhuma ainda'}</b><span class="wb-dim">${techs.length} de ${TECHS.length}</span></div>
     ${latent.length ? `<div class="wb-kv"><span>Sem uso ainda</span><b>${latent.join('; ')}</b></div>` : ''}`;
 }
@@ -349,7 +351,8 @@ function buildingsHtml(eco: Ecosystem, v: Village): string {
   const empty = houses.filter((h) => h.empty).length;
   const special = v.houses.filter((h) => h.kind !== 'house');
   const go = (x: number, y: number) => `data-go="${(x + 1).toFixed(1)},${(y + 1).toFixed(1)}"`;
-  const works = v.houses.filter((h) => (h.workUntil ?? 0) > eco.year);
+  const works = v.houses.filter((h) => eco.underWork(h));
+  const progress = (h: (typeof works)[number]) => (h.laborMax ? `${Math.round((1 - (h.labor ?? 0) / h.laborMax) * 100)}% pronta${h.crew ? ` · ${h.crew} trabalhando` : ' · parada, sem ninguém na obra'}` : `faltam ${Math.max(1, Math.ceil((h.workUntil ?? 0) - eco.year))} anos`);
   const list = special
     .map((h) => {
       const name = h.kind === 'wonder' ? WONDER_NAMES[v.culture.value] : BUILDING_NAMES[h.kind];
@@ -369,7 +372,7 @@ function buildingsHtml(eco: Ecosystem, v: Village): string {
     <div class="wb-kv"><span>Plantações</span><b>${v.fields}</b></div>
     ${pens ? `<div class="wb-kv"><span>Cercados</span><b>${pens}</b></div>` : ''}
     <div class="wb-kv"><span>Porto</span><b>${v.port >= 0 ? 'sim' : 'não'}</b></div>
-    ${works.length ? `<div class="wb-section">Obras em andamento</div>${works.map((h) => `<button class="wb-row" ${go(h.x, h.y)}><i>🏗</i>${h.kind === 'house' ? 'Casa' : BUILDING_NAMES[h.kind]} · faltam ${Math.max(1, Math.ceil(h.workUntil! - eco.year))} anos<em>📍</em></button>`).join('')}` : ''}
+    ${works.length ? `<div class="wb-section">Obras em andamento</div>${works.map((h) => `<button class="wb-row" ${go(h.x, h.y)}><i>🏗</i>${h.kind === 'house' ? 'Casa' : BUILDING_NAMES[h.kind]} · ${progress(h)}<em>📍</em></button>`).join('')}` : ''}
     <div class="wb-section">Prédios especiais</div>
     <div class="wb-list">${list || '<div class="wb-empty">Nenhum ainda.</div>'}</div>
     ${mines ? `<div class="wb-section">Minas</div><div class="wb-list">${mines}</div>` : ''}`;
