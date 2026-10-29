@@ -39,6 +39,8 @@ import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS,
 
 /** Gotas e flocos de chuva e neve na tela, no máximo (o visual do clima vivo fica barato). */
 const WEATHER_FX = 350;
+/** Média anual (K) abaixo da qual a pancada cai como neve (pela média: não troca de chuva para neve no meio). */
+const SNOWFALL_K = 275;
 /** Raio mínimo, em pixels de tela, do círculo de escolha de criaturas (RF-VIDA-330). */
 const PICK_RADIUS_PX = 6;
 /** Fator do raio por tile de zoom: o mesmo círculo desenhado ao redor da criatura. */
@@ -316,6 +318,14 @@ export class SurfaceMode {
   /** Gotas e flocos do clima vivo, só na área visível (coordenadas do mundo, y para cima). */
   private weatherFx: { x: number; y: number; vx: number; vy: number; age: number; life: number; snow: boolean }[] = [];
   private weatherLayer: { snow: HTMLCanvasElement; cloud: HTMLCanvasElement; at: number } | null = null;
+  /**
+   * O ano passa em segundos, então a chuva do mês (meio segundo) piscaria sem parar. A tela mostra a
+   * média: quanto chove e quanta neve fica no chão nos últimos anos de cada célula, e as pancadas
+   * vêm de tempestades que andam no relógio real, raras e de alguns segundos.
+   */
+  private weatherWet: Float32Array | null = null;
+  private weatherSnow: Float32Array | null = null;
+  private weatherClock = 0;
   private glow: { kind: FxKind; alpha: number } | null = null;
   private zoom = 3;
   private speed = 1;
@@ -1543,9 +1553,14 @@ export class SurfaceMode {
   private weatherInfo(i: number): string {
     const now = this.eco.weatherAt(i);
     if (!now) return '';
-    const sky = now.rain >= 0.25 ? (now.temp < 273 ? '🌨️ nevando' : '🌧️ chovendo') : now.rain >= 0.1 ? '☁️ nublado' : '☀️ firme';
+    const wx = this.eco.weather!;
+    const w = this.map.width;
+    const k = wx.of(i % w, Math.floor(i / w), w);
+    const shower = this.shower(k);
+    const sky = shower >= 0.25 ? (wx.temp[k] < SNOWFALL_K ? '🌨️ nevando' : '🌧️ chovendo') : shower > 0 ? '☁️ nublado' : '☀️ firme';
     const wind = Math.abs(now.wind.x) >= Math.abs(now.wind.y) ? (now.wind.x > 0 ? 'oeste' : 'leste') : now.wind.y > 0 ? 'norte' : 'sul';
-    const ground = now.snow >= 0.05 ? ` · neve no chão ${(now.snow * 100).toFixed(0)}%` : '';
+    const snowNow = this.weatherSnow?.[k] ?? now.snow;
+    const ground = snowNow >= 0.05 ? ` · neve no chão ${(snowNow * 100).toFixed(0)}%` : '';
     return `<span>Agora ${(now.temp - 273.15).toFixed(0)} °C · ${sky}${ground} · solo ${(now.soil * 100).toFixed(0)}% de água · vento de ${wind}</span>`;
   }
 
@@ -2476,6 +2491,7 @@ export class SurfaceMode {
    * chovendo; no máximo WEATHER_FX partículas, só com o jogo andando. O vento puxa para o lado.
    */
   private stepWeather(dt: number): void {
+    this.weatherClock += dt;
     const list = this.weatherFx;
     for (let k = list.length - 1; k >= 0; k--) {
       const p = list[k];
@@ -2497,8 +2513,11 @@ export class SurfaceMode {
       const t = this.tileIndex(x, y);
       if (t < 0) continue;
       const now = this.eco.weatherAt(t);
-      if (!now || now.rain < 0.2 || Math.random() > now.rain) continue;
-      const snow = now.temp < 273;
+      if (!now) continue;
+      const k = wx.of(x, y, this.map.width);
+      const shower = this.shower(k);
+      if (shower < 0.05 || Math.random() > shower) continue;
+      const snow = wx.temp[k] < SNOWFALL_K;
       list.push({
         x,
         y: y + 3,
@@ -2555,9 +2574,44 @@ export class SurfaceMode {
     }
   }
 
+  /**
+   * Pancada de chuva ou neve visível agora na célula (0 a 1). Tempestades lentas cruzam o mapa no
+   * relógio real (uma pancada dura uns 20 s, e o mesmo lugar recebe uma a cada dois ou três minutos);
+   * chovem só onde o lugar costuma chover, na medida da chuva média.
+   */
+  private shower(k: number): number {
+    const wx = this.eco.weather;
+    const wet = this.weatherWet;
+    if (!wx || !wet || wet.length !== wx.n) return 0;
+    const cx = k % wx.cols;
+    const cy = (k - cx) / wx.cols;
+    const c = this.weatherClock;
+    const storm = 0.6 * Math.sin(2 * Math.PI * (c / 170 + cx * 0.09 + cy * 0.05)) + 0.4 * Math.sin(2 * Math.PI * (c / 61 - cx * 0.04 + cy * 0.13));
+    const gate = Math.max(0, Math.min(1, (storm - 0.6) / 0.25));
+    return gate * Math.min(1, wet[k] * 3);
+  }
+
+  /** Médias lentas da chuva e da neve no chão (constante de uns 5 s, cerca de um ano de jogo). */
+  private smoothWeather(): void {
+    const wx = this.eco.weather!;
+    if (!this.weatherWet || this.weatherWet.length !== wx.n) {
+      this.weatherWet = Float32Array.from(wx.rain);
+      this.weatherSnow = Float32Array.from(wx.snow);
+      return;
+    }
+    const wet = this.weatherWet;
+    const snow = this.weatherSnow!;
+    for (let k = 0; k < wx.n; k++) {
+      wet[k] += (wx.rain[k] - wet[k]) * 0.1;
+      snow[k] += (wx.snow[k] - snow[k]) * 0.1;
+    }
+  }
+
   /** Pinta as imagens de neve e nuvem (uma célula do clima por pixel). */
   private paintWeather(prev: { snow: HTMLCanvasElement; cloud: HTMLCanvasElement; at: number } | null): { snow: HTMLCanvasElement; cloud: HTMLCanvasElement; at: number } {
     const wx = this.eco.weather!;
+    this.smoothWeather();
+    const avgSnow = this.weatherSnow!;
     const make = () => {
       const c = document.createElement('canvas');
       c.width = wx.cols;
@@ -2575,11 +2629,11 @@ export class SurfaceMode {
       si.data[o] = 240;
       si.data[o + 1] = 246;
       si.data[o + 2] = 255;
-      si.data[o + 3] = Math.round(Math.min(0.62, wx.snow[k] * wx.land[k] * 0.7) * 255);
+      si.data[o + 3] = Math.round(Math.min(0.62, avgSnow[k] * wx.land[k] * 0.7) * 255);
       ci.data[o] = 38;
       ci.data[o + 1] = 48;
       ci.data[o + 2] = 66;
-      ci.data[o + 3] = Math.round(Math.min(0.25, Math.max(0, wx.rain[k] - 0.15) * 0.35) * 255);
+      ci.data[o + 3] = Math.round(Math.min(0.25, this.shower(k) * 0.3) * 255);
     }
     sctx.putImageData(si, 0, 0);
     cctx.putImageData(ci, 0, 0);
