@@ -238,6 +238,11 @@ export const PASTURE_PER_HEAD = 1.5;
 export const PEN_AREA = 14;
 /** Crescimento do rebanho por ano (logístico até o teto do pasto). */
 export const HERD_GROWTH = 0.3;
+/**
+ * Pasto que cada cabeça do rebanho come por ano em volta dos currais (Plano 2), em tiles de erva:
+ * o mesmo pasto dos herbívoros selvagens. Pasto rapado (por eles ou pelos selvagens) segura o crescimento.
+ */
+export const HERD_GRAZE = 0.6;
 /** Cercados novos por ano quando o rebanho encosta no teto. */
 export const PEN_RATE = 0.8;
 /** Ataques de predador por ano para cada predador perto do pasto. */

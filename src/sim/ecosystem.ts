@@ -2,6 +2,7 @@ import { mulberry32 } from '../core/rng';
 import * as B from './balance';
 import { browseOf, floraOf, woody, type Flora } from './flora';
 import { windAt } from './climate';
+import { Weather } from './weather';
 import { binomial, happens, ouStep, streams } from './stochastic';
 import * as P from './progress';
 import { Biome, classify, Decor, decorAt, isForestBiome, isRockyBiome, isTree, temperatureAt, vegetationCap, type SurfaceMap } from '../procgen/surface';
@@ -679,6 +680,8 @@ const MIN_CAP = 30;
 const MIN_WILD = 12;
 /** Abaixo disso a espécie vira relicta: gasta menos e se reproduz mais (piso contra a extinção). */
 const RELICT = 10;
+/** Energia extra por ano (fração do metabolismo) de quem está numa célula sem água. */
+const THIRST_COST = 0.3;
 /** Até onde um adulto procura parceiro (tiles); bem mais longe quando a espécie está rara. */
 const MATE_RANGE = 24;
 
@@ -691,7 +694,7 @@ export function isLand(map: SurfaceMap, i: number): boolean {
 }
 
 /** O que um bicho de terra está fazendo (IA híbrida: portões fixos + IAUS, docs/REFATORACAO-ECOSSISTEMA.md). */
-export const ACT = { rest: 0, eat: 1, hunt: 2, scavenge: 3, flee: 4, shelter: 5, mate: 6, disperse: 7, herd: 8, hibernate: 9 } as const;
+export const ACT = { rest: 0, eat: 1, hunt: 2, scavenge: 3, flee: 4, shelter: 5, mate: 6, disperse: 7, herd: 8, hibernate: 9, drink: 10 } as const;
 
 /** Corpo de um bicho morto: alimenta quem matou, depois os necrófagos, depois aduba o chão. */
 export interface Carcass {
@@ -736,6 +739,11 @@ class EcoCells {
   /** Fração da ramagem já comida e quando (rebrota como o pasto), por célula. */
   readonly bused: Float32Array;
   readonly busedAt: Float32Array;
+  /** Do clima vivo, refeitos com a célula: ramagem por tile lenhoso na estação, rebrota do pasto (por ano)
+   * e quanto do pasto a neve deixa à vista. */
+  readonly bseason: Float32Array;
+  readonly regrow: Float32Array;
+  readonly cover: Float32Array;
   /** Produção por ano, em tanques de energia: pasto, insetos e comida da costa. */
   readonly fprod: Float32Array;
   readonly bprod: Float32Array;
@@ -774,6 +782,9 @@ class EcoCells {
     this.wood = new Float32Array(this.n);
     this.bused = new Float32Array(this.n);
     this.busedAt = new Float32Array(this.n);
+    this.bseason = new Float32Array(this.n).fill(0.5);
+    this.regrow = new Float32Array(this.n).fill(REGROW_YEAR);
+    this.cover = new Float32Array(this.n).fill(1);
     this.fprod = new Float32Array(this.n);
     this.bprod = new Float32Array(this.n);
     this.iprod = new Float32Array(this.n);
@@ -890,6 +901,8 @@ export class Ecosystem {
   focus: { x: number; y: number; r: number } | null = null;
   /** Células ecológicas (comida, nicho, capacidade e contagem); vão no save para a simulação seguir idêntica. */
   private cells: EcoCells | null = null;
+  /** Clima vivo: vento, umidade, chuva, neve e água no solo por célula de 16×16 (Plano 2). */
+  weather: Weather | null = null;
   /** Tempo (anos) desde a última recontagem das células ecológicas. */
   private wildClock = 0;
   readonly diary = new Map<number, Thought[]>();
@@ -1553,6 +1566,9 @@ export class Ecosystem {
     if (dt <= 0) return;
     const yr = dt / this.yearSpan;
     this.year += yr;
+    // Clima vivo: uma fatia das células por passo, o mundo inteiro duas vezes por mês de jogo.
+    this.weather ??= new Weather(this.map.width, this.map.height);
+    this.weather.step(this.map, this.year, this.yearPhase(), yr, (x, y) => -this.climateAt(x, y));
     // Fogo natural: uma vez por ano, no auge do verão.
     if (this.yearPhase() >= 0.45 && Math.floor(this.year) !== this.fireYear) {
       this.fireYear = Math.floor(this.year);
@@ -2244,7 +2260,9 @@ export class Ecosystem {
     const horses = h.kind === 'horse' || h.kind === 'camel';
     const keeper = horses && this.has(v, 'stable') ? 1 + 0.5 * Math.min(1, w[ROLE.horsekeeper]) : 1;
     const sick = (h.plague ?? 0) > this.year ? 0.3 : 1;
-    h.head += binomial(this.civRnd, h.head, Math.max(0, B.HERD_GROWTH * (1 - h.head / cap) * tend * keeper * sick));
+    // O rebanho come o pasto em volta dos currais, a mesma erva dos selvagens; faltando, cresce menos.
+    const fed = h.away || !pens ? 1 : this.herdGraze(v, h.head * B.HERD_GRAZE);
+    h.head += binomial(this.civRnd, h.head, Math.max(0, B.HERD_GROWTH * (1 - h.head / cap) * tend * keeper * sick * fed));
     h.head = Math.min(h.head, Math.ceil(cap));
     // Predadores rondam o pasto.
     let predators = 0;
@@ -2278,6 +2296,18 @@ export class Ecosystem {
       v.herd = undefined;
       if (horses) v.stock.horses = 0;
     }
+  }
+
+  /** Rebanho pastando em volta dos currais: come até `need` de pasto e devolve a fração que achou (0 a 1). */
+  private herdGraze(v: Village, need: number): number {
+    const pens = v.pens ?? [];
+    if (!pens.length || need <= 0) return 1;
+    let got = 0;
+    for (const p of pens) {
+      const t = this.tileAt(p.x, p.y);
+      if (t >= 0) got += this.grazePatch(t, need / pens.length);
+    }
+    return Math.min(1, got / need);
   }
 
   /** Profissões dos moradores de um assentamento agora. */
@@ -2525,7 +2555,8 @@ export class Ecosystem {
   }
 
   harvest(v: Village): number {
-    return Math.max(0.15, 1 + B.HARVEST_SENSITIVITY * this.climateAt(v.x, v.y));
+    // A água no solo do clima vivo pesa um quarto: chuva farta ajuda, seca de verdade derruba.
+    return Math.max(0.15, (1 + B.HARVEST_SENSITIVITY * this.climateAt(v.x, v.y)) * (0.75 + 0.25 * this.soilFactor(v.x, v.y)));
   }
 
   /** Um ano de clima: ruído com retorno à média, comum e regional; secas fortes vão para a crônica. */
@@ -2773,11 +2804,16 @@ export class Ecosystem {
           // Caçadores abatem herbívoros por perto; com fome e sem comida no celeiro, qualquer adulto caça.
           if (((role === ROLE.hunter && working) || (this.role[i] !== CHILD && e < 0.4 && v.food < 1)) && e < 0.8) {
             let prey = -1;
+            const c = this.cells?.ready ? this.cells : null;
             this.forEachNear(this.x[i], this.y[i], 3, (j) => {
-              // Caça sustentável: poupa a espécie quando ela fica rara.
+              // Caça sustentável: só abate onde a espécie está acima da metade do que a região sustenta.
               const k = this.kind[j];
-              if (prey < 0 && this.species[k].kind === 'herbivore' && this.population[k] > this.caps[k] * 0.25) prey = j;
+              if (prey >= 0 || this.species[k].kind !== 'herbivore') return;
+              const ok = c ? this.crowding(c, c.of(this.x[j], this.y[j], map.width), k, ecologyOf(this.species[k]).herd) > 0.5 : this.population[k] > this.caps[k] * 0.25;
+              if (ok) prey = j;
             });
+            // Sem caça por perto: o caçador vai para a célula vizinha com mais caça sobrando (o entorno esvaziado obriga a ir longe).
+            if (prey < 0 && role === ROLE.hunter && c && !march) bias = this.gameCell(i, c) ?? bias;
             if (prey >= 0) {
               this.kill(prey, false, 'predador');
               // A carne vai para o estoque e alimenta o assentamento (seção 19.19); a caça também dá peles.
@@ -2914,11 +2950,46 @@ export class Ecosystem {
    * rapado vale 0 e o bicho vai procurar outro.
    */
   forageAt(t: number): number {
-    const base = this.map.vegetation[t];
-    if (base <= 0 || !isLand(this.map, t)) return 0;
+    const veg = this.map.vegetation[t];
+    if (veg <= 0 || !isLand(this.map, t)) return 0;
+    const c = this.cells;
+    const k = c ? this.cellOfTile(c, t) : -1;
+    // Neve cobre o pasto: os bichos cavam, mas acham bem menos.
+    const base = k >= 0 ? veg * c!.cover[k] : veg;
     const g = this.graze[t];
     if (g <= 0) return base;
-    return (base * Math.max(0, GRAZE_MAX - g * Math.exp(-REGROW_YEAR * (this.year - this.grazeAt[t])))) / GRAZE_MAX;
+    const regrow = k >= 0 ? c!.regrow[k] : REGROW_YEAR;
+    return (base * Math.max(0, GRAZE_MAX - g * Math.exp(-regrow * (this.year - this.grazeAt[t])))) / GRAZE_MAX;
+  }
+
+  /** Célula ecológica de um tile. */
+  private cellOfTile(c: EcoCells, t: number): number {
+    const w = this.map.width;
+    const x = t % w;
+    return Math.floor((t - x) / w / ECO_CELL) * c.cols + Math.floor(x / ECO_CELL);
+  }
+
+  /**
+   * Água no solo em relação ao normal do lugar (1 = ano normal; menos na seca, mais num ano de chuva),
+   * de 0,4 a 1,3: multiplica a rebrota do pasto e do fruto e a colheita.
+   */
+  soilFactor(x: number, y: number): number {
+    const wx = this.weather;
+    if (!wx?.ready) return 1;
+    const k = wx.of(x, y, this.map.width);
+    return Math.max(0.4, Math.min(1.3, wx.soil[k] / Math.max(0.1, wx.base[k])));
+  }
+
+  /** O tempo agora no tile, para a ficha: temperatura da estação, chuva, neve e água no solo. */
+  weatherAt(t: number): { temp: number; rain: number; snow: number; soil: number; wind: { x: number; y: number } } | null {
+    const wx = this.weather;
+    if (!wx?.ready) return null;
+    const w = this.map.width;
+    const x = t % w;
+    const y = (t - x) / w;
+    const k = wx.of(x, y, w);
+    const temp = temperatureAt(this.map, t) + (wx.tempNow(k, this.yearPhase()) - wx.temp[k]);
+    return { temp, rain: wx.rain[k], snow: wx.snow[k], soil: wx.soil[k], wind: windAt(y, this.map.height) };
   }
 
   /** Come até `need` unidades de pasto em volta do tile (a mancha cresce com o tamanho do bicho); devolve o que comeu. */
@@ -2928,6 +2999,8 @@ export class Ecosystem {
     const x0 = t % w;
     const y0 = (t - x0) / w;
     const r = Math.max(1, Math.min(8, Math.ceil(Math.sqrt(need / (0.25 * Math.PI)))));
+    // A mancha é pequena perto da célula: a rebrota do centro vale para ela toda.
+    const regrow = this.cells ? this.cells.regrow[this.cellOfTile(this.cells, t)] : REGROW_YEAR;
     const share = need / (Math.PI * r * r) + 0.02;
     let taken = 0;
     for (let oy = -r; oy <= r && taken < need; oy++) {
@@ -2938,7 +3011,7 @@ export class Ecosystem {
         const tt = y * w + ((x0 + ox + w) % w);
         const base = m.vegetation[tt];
         if (base <= 0.02 || !isLand(m, tt)) continue;
-        const left = this.graze[tt] > 0 ? this.graze[tt] * Math.exp(-REGROW_YEAR * (this.year - this.grazeAt[tt])) : 0;
+        const left = this.graze[tt] > 0 ? this.graze[tt] * Math.exp(-regrow * (this.year - this.grazeAt[tt])) : 0;
         // Raiz: o pastejo nunca passa de GRAZE_MAX do tile.
         const room = base * (GRAZE_MAX - left);
         if (room <= 0) continue;
@@ -2985,13 +3058,12 @@ export class Ecosystem {
   /** Ramagem e fruto que sobram na mata do tile agora (0 a 1): a estação menos o que a célula já comeu. */
   browseAt(t: number): number {
     const m = this.map;
-    if (!isLand(m, t)) return 0;
-    const base = browseOf(m.vegetation[t], temperatureAt(m, t), this.yearPhase());
-    if (base <= 0) return 0;
+    const w = woody(m.vegetation[t]);
+    if (w <= 0 || !isLand(m, t)) return 0;
     const c = this.cells;
-    if (!c) return base;
-    const x = t % m.width;
-    return base * (1 - this.browseUsed(c, c.of(x, (t - x) / m.width, m.width)));
+    if (!c) return browseOf(m.vegetation[t], temperatureAt(m, t), this.yearPhase());
+    const k = this.cellOfTile(c, t);
+    return w * c.bseason[k] * (1 - this.browseUsed(c, k));
   }
 
   /** Planta dominante do tile e se está com fruto (para a ficha do tile). */
@@ -3046,7 +3118,6 @@ export class Ecosystem {
     let bugs = 0;
     let shore = 0;
     let wood = 0;
-    let browse = 0;
     const phase = this.yearPhase();
     // Amostra um tile a cada dois em cada eixo (64 de 256) e escala: o mesmo retrato da célula a um quarto do custo.
     for (let y = y0 + (k & 1); y < Math.min(m.height, y0 + ECO_CELL); y += 2) {
@@ -3062,10 +3133,7 @@ export class Ecosystem {
         avail += this.forageAt(t);
         bugs += this.insectsAt(t);
         const v = m.vegetation[t];
-        if (v > 0.25) {
-          wood += woody(v);
-          browse += browseOf(v, temperatureAt(m, t), phase);
-        }
+        if (v > 0.25) wood += woody(v);
       }
     }
     land *= 4;
@@ -3074,10 +3142,17 @@ export class Ecosystem {
     shore *= 4;
     avail *= 4;
     wood *= 4;
-    browse *= 4;
     c.land[k] = land;
     c.wood[k] = wood;
-    c.browse[k] = land ? (browse / land) * (1 - this.browseUsed(c, k)) : 0;
+    // Clima vivo da célula: estação dos frutos pela temperatura de agora, rebrota pela água no solo, neve.
+    const wx = this.weather;
+    if (wx?.ready) {
+      const T = wx.tempNow(k, phase);
+      c.bseason[k] = browseOf(1, T, phase) / woody(1);
+      c.regrow[k] = REGROW_YEAR * Math.max(0.4, Math.min(1.3, wx.soil[k] / Math.max(0.1, wx.base[k])));
+      c.cover[k] = 1 - 0.7 * wx.snow[k];
+    } else c.bseason[k] = browseOf(1, temperatureAt(m, Math.min(m.height - 1, y0 + 8) * w + ((x0 + 8) % w)), phase);
+    c.browse[k] = land ? (wood / land) * c.bseason[k] * (1 - this.browseUsed(c, k)) : 0;
     c.forage[k] = land ? avail / land : 0;
     c.bugs[k] = land ? bugs / land : 0;
     // Costa: só conta onde há terra e mar raso juntos.
@@ -3286,15 +3361,16 @@ export class Ecosystem {
     this.carcasses.push({ x: this.x[i], y: this.y[i], kg, at: this.year, sp: this.kind[i] });
   }
 
-  /** Carcaça mais perto a até `radius` tiles, ou -1. */
+  /** Carcaça mais perto a até `radius` tiles (com carne), ou -1. */
   private carcassNear(x: number, y: number, radius: number): number {
     const w = this.map.width;
     let best = -1;
     let bd = radius * radius;
     for (let k = 0; k < this.carcasses.length; k++) {
       const cc = this.carcasses[k];
-      const dx = wrapDx(cc.x - x, w);
       const dy = cc.y - y;
+      if (dy * dy >= bd || cc.kg < 0.3) continue;
+      const dx = wrapDx(cc.x - x, w);
       const d = dx * dx + dy * dy;
       if (d < bd) {
         bd = d;
@@ -3601,6 +3677,9 @@ export class Ecosystem {
     const hot = temp > sp.tempMax;
     if (cold || hot) en -= THERMAL_YEAR * yr;
     if (!this.canStand(s, tile)) en -= 6 * yr;
+    // Sede: sem água por perto (lago, rio, costa, chuva recente ou neve) o bicho gasta mais e vai beber.
+    const thirsty = this.thirsty(e, cell);
+    if (thirsty) en -= METABOLISM_YEAR * THIRST_COST * yr;
 
     // Parasitas: pega mais onde a célula está lotada; cura comendo bem.
     const dens = this.crowding(c, cell, s, e.herd);
@@ -3674,6 +3753,7 @@ export class Ecosystem {
     if (!starving) {
       const gap = Math.max(0, sp.tempMin + 2 - temp, temp - (sp.tempMax - 2));
       if (gap > 0) consider(ACT.shelter, Math.min(1, gap / 6) * 0.9 + (cold || hot ? 0.3 : 0));
+      if (thirsty) consider(ACT.drink, 0.5);
       const season = !e.seasonal || (phase >= BREED_START && phase < BREED_START + BREED_LENGTH);
       const adult = this.age[i] >= sp.maturity;
       if (season && adult && en > (hunts(e) ? 0.42 : 0.6) && dens < 1) consider(ACT.mate, 0.35);
@@ -3738,6 +3818,13 @@ export class Ecosystem {
           this.stop(i);
           this.energy[i] = Math.min(1, this.energy[i] + this.eatCarcass(i, carcass, e));
         } else this.headTo(i, dx, dy, speed);
+        break;
+      }
+      case ACT.drink: {
+        // Vai até a célula com água mais perto; os bichos se juntam nos bebedouros na seca.
+        const to = this.waterCell(i, c);
+        if (to) this.headTo(i, to.x, to.y, speed);
+        else this.roam(i, speed);
         break;
       }
       case ACT.shelter: {
@@ -3951,6 +4038,67 @@ export class Ecosystem {
     this.aimY[i] = Math.sin(a);
     this.vx[i] = this.aimX[i] * speed * 0.5;
     this.vy[i] = this.aimY[i] * speed * 0.5;
+  }
+
+  /** A célula não tem água para beber e a espécie precisa (bicho do deserto aguenta; caçador tira água da presa). */
+  private thirsty(e: Ecology, k: number): boolean {
+    const wx = this.weather;
+    if (!wx?.ready || (e.biomes[Biome.Desert] ?? 0) >= 0.8 || appetite(e) < 1) return false;
+    return wx.water[k] < 0.01 && wx.soil[k] < 0.2 && wx.snow[k] < 0.05 && wx.rain[k] < 0.15;
+  }
+
+  /** Direção da célula com água mais perto (até 3 células), ou undefined. */
+  private waterCell(i: number, c: EcoCells): { x: number; y: number } | undefined {
+    const wx = this.weather;
+    if (!wx?.ready) return undefined;
+    const w = this.map.width;
+    const here = c.of(this.x[i], this.y[i], w);
+    const cx = here % c.cols;
+    const cy = (here - cx) / c.cols;
+    let best = -1;
+    let bd = Infinity;
+    for (let oy = -3; oy <= 3; oy++) {
+      const y = cy + oy;
+      if (y < 0 || y >= c.rows) continue;
+      for (let ox = -3; ox <= 3; ox++) {
+        const k = y * c.cols + ((cx + ox + c.cols) % c.cols);
+        if (wx.water[k] < 0.01 && wx.soil[k] < 0.3 && wx.rain[k] < 0.15) continue;
+        const d = ox * ox + oy * oy;
+        if (d < bd) {
+          bd = d;
+          best = k;
+        }
+      }
+    }
+    if (best < 0) return undefined;
+    return { x: wrapDx((best % c.cols) * ECO_CELL + 8 - this.x[i], w), y: Math.floor(best / c.cols) * ECO_CELL + 8 - this.y[i] };
+  }
+
+  /** Direção da célula (até 3 de distância) com mais herbívoros acima da metade da capacidade: onde dá para caçar sem esvaziar. */
+  private gameCell(i: number, c: EcoCells): { x: number; y: number } | undefined {
+    const S = c.stride;
+    const w = this.map.width;
+    const here = c.of(this.x[i], this.y[i], w);
+    const cx = here % c.cols;
+    const cy = (here - cx) / c.cols;
+    let best = -1;
+    let most = 0.5;
+    for (let oy = -3; oy <= 3; oy++) {
+      const y = cy + oy;
+      if (y < 0 || y >= c.rows) continue;
+      for (let ox = -3; ox <= 3; ox++) {
+        const k = y * c.cols + ((cx + ox + c.cols) % c.cols);
+        let spare = 0;
+        for (let s = 0; s < S; s++) if (this.species[s].kind === 'herbivore') spare += Math.max(0, c.N[k * S + s] - c.K[k * S + s] * 0.5);
+        spare /= 1 + Math.hypot(ox, oy) * 0.3;
+        if (spare > most) {
+          most = spare;
+          best = k;
+        }
+      }
+    }
+    if (best < 0 || best === here) return undefined;
+    return { x: wrapDx((best % c.cols) * ECO_CELL + 8 - this.x[i], w), y: Math.floor(best / c.cols) * ECO_CELL + 8 - this.y[i] };
   }
 
   /** Célula a até 4 de distância com mais bichos da espécie (fora a do próprio bicho), ou -1. */
@@ -6468,7 +6616,11 @@ export class Ecosystem {
     if (!this.fear || this.fear.length !== cells) this.fear = new Float32Array(cells);
     if (!(this.threatened instanceof Set)) (this as { threatened: Set<number> }).threatened = new Set();
     // O save guarda os campos das células, não a classe; células de um save antigo são refeitas.
-    if (this.cells && (!this.cells.hunters || !this.cells.bused)) this.cells = null;
+    // O save guarda os campos das células, não a classe: devolve os métodos (ou refaz se o save é antigo).
+    if (this.cells && (!this.cells.hunters || !this.cells.bseason)) this.cells = null;
+    if (this.cells && !(this.cells instanceof EcoCells)) Object.setPrototypeOf(this.cells, EcoCells.prototype);
+    if (this.weather && !this.weather.base) this.weather = null;
+    if (this.weather && !(this.weather instanceof Weather)) Object.setPrototypeOf(this.weather, Weather.prototype);
     this.tally.wildfires ??= 0;
     if (this.cells) Object.setPrototypeOf(this.cells, EcoCells.prototype);
     this.tally.wildStarved = this.tally.wildStarved || 0;
@@ -9174,6 +9326,8 @@ export class Ecosystem {
 
   /** Neve no caminho: no inverno, as caravanas param nas terras frias (RF-VIDA-290). */
   private snowed(x: number, y: number): boolean {
+    // Com o clima vivo, é a neve que está no chão; sem ele, a regra fixa do inverno nas terras frias.
+    if (this.weather?.ready) return this.weather.snowAt(x, y, this.map.width) > 0.3;
     return this.season() === 3 && temperatureAt(this.map, this.tileAt(x, Math.floor(y))) < B.COLD_K;
   }
 
@@ -10203,10 +10357,13 @@ export class Ecosystem {
       const y0 = Math.floor(k / c.cols) * ECO_CELL + Math.floor(this.worldRnd() * ECO_CELL);
       const t0 = this.tileAt(x0, y0);
       if (t0 < 0 || !isLand(map, t0) || map.vegetation[t0] < 0.5 || this.built[t0]) continue;
-      const temp = temperatureAt(map, t0);
-      if (temp < 288) continue;
+      const wx = this.weather;
+      const temp = wx?.ready ? wx.tempNow(k, this.yearPhase()) : temperatureAt(map, t0);
+      if (temp < 288 || (wx?.ready && wx.snow[k] > 0.05)) continue;
       const drought = Math.max(0, -this.climateAt(x0, y0));
-      const dry = Math.min(1, (1 - map.moisture[t0]) * (0.6 + 0.6 * drought));
+      // Solo seco (pela água no solo do clima vivo, ou pela umidade do lugar) em ano de seca.
+      const soil = wx?.ready ? wx.soil[k] : map.moisture[t0];
+      const dry = Math.min(1, (1 - soil) * (0.6 + 0.6 * drought));
       if (this.worldRnd() > B.WILDFIRE_RATE * dry * dry * dry * 8) continue;
       fires++;
       this.burn(x0 + 0.5, y0 + 0.5);
@@ -10570,6 +10727,8 @@ export class Ecosystem {
         return e.pack ? 'andando com a matilha' : 'seguindo o bando';
       case ACT.hibernate:
         return 'hibernando';
+      case ACT.drink:
+        return 'indo beber água';
       default:
         return moving ? 'andando' : 'descansando';
     }
