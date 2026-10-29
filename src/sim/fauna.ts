@@ -100,12 +100,12 @@ const EARTH: Record<string, Row> = {
   crab: { guild: 'detritívoro', mass: 0.5, herd: 8, range: 3, roam: 12, litter: 6, fear: 0.8, forage: 0.3, carrion: 1, plankton: 0.6, biomes: COAST, parasite: 'cracas' },
   penguin: { guild: 'piscívoro', mass: 20, herd: 10, range: 6, roam: 25, litter: 1, fear: 0.6, forage: 0, fish: 1, plankton: 0.4, biomes: COAST, parasite: 'piolhos' },
   fox: { guild: 'predador', mass: 6, herd: 2, range: 10, roam: 60, litter: 3, fear: 0.6, forage: 0.25, meat: 1, carrion: 0.7, insects: 0.4, maxPrey: 6, biomes: ANY, parasite: 'sarna' },
-  wolf: { guild: 'predador', mass: 40, herd: 5, range: 20, roam: 110, litter: 2, fear: 0.2, forage: 0, meat: 1, carrion: 0.5, maxPrey: 90, pack: true, biomes: { ...FOREST, [B.Tundra]: 0.8, [B.Grass]: 0.7 }, parasite: 'sarna' },
+  wolf: { guild: 'predador', mass: 40, herd: 5, range: 20, roam: 110, litter: 3, fear: 0.2, forage: 0, meat: 1, carrion: 0.5, maxPrey: 90, pack: true, biomes: { ...FOREST, [B.Tundra]: 0.8, [B.Grass]: 0.7 }, parasite: 'sarna' },
   bear: { guild: 'onívoro', mass: 300, herd: 2, range: 18, roam: 70, litter: 0.8, fear: 0.1, forage: 0.8, meat: 0.3, carrion: 0.6, fish: 0.8, maxPrey: 80, hibernate: true, biomes: { ...FOREST, [B.Tundra]: 0.6 }, parasite: 'vermes' },
   jaguar: { guild: 'predador', mass: 90, herd: 1, range: 16, roam: 90, litter: 1.3, seasonal: false, fear: 0.2, forage: 0, meat: 1, fish: 0.4, maxPrey: 150, biomes: HOT_WET, parasite: 'carrapatos' },
-  lion: { guild: 'predador', mass: 180, herd: 4, range: 22, roam: 100, litter: 1.4, seasonal: false, fear: 0.1, forage: 0, meat: 1, carrion: 0.6, maxPrey: 300, pack: true, biomes: SAVANNA, parasite: 'carrapatos' },
+  lion: { guild: 'predador', mass: 180, herd: 4, range: 22, roam: 100, litter: 2, seasonal: false, fear: 0.1, forage: 0, meat: 1, carrion: 0.6, maxPrey: 300, pack: true, biomes: SAVANNA, parasite: 'carrapatos' },
   hyena: { guild: 'necrófago', mass: 55, herd: 5, range: 18, roam: 90, litter: 1.4, seasonal: false, fear: 0.4, forage: 0, meat: 0.6, carrion: 1, maxPrey: 60, pack: true, biomes: SAVANNA, parasite: 'sarna' },
-  vulture: { guild: 'necrófago', mass: 8, herd: 6, range: 30, roam: 220, litter: 0.6, fear: 0.5, forage: 0, carrion: 1, biomes: { ...SAVANNA, ...OPEN, [B.Rock]: 0.7 }, parasite: 'piolhos' },
+  vulture: { guild: 'necrófago', mass: 8, herd: 6, range: 30, roam: 220, litter: 1, fear: 0.5, forage: 0, carrion: 1, biomes: { ...SAVANNA, ...OPEN, [B.Rock]: 0.7 }, parasite: 'piolhos' },
   snake: { guild: 'predador', mass: 5, herd: 1, range: 5, roam: 25, litter: 4, fear: 0.5, forage: 0, meat: 1, insects: 0.3, maxPrey: 3, biomes: { ...HOT_WET, ...DRY }, parasite: 'ácaros' },
   crocodile: { guild: 'predador', mass: 400, herd: 4, range: 8, roam: 30, litter: 4, fear: 0.1, forage: 0, meat: 1, fish: 1, carrion: 0.6, maxPrey: 250, biomes: WET, parasite: 'sanguessugas' },
 };
@@ -183,9 +183,13 @@ export function metabolic(e: Ecology): number {
   return Math.pow(Math.max(0.05, e.mass), 0.75);
 }
 
-/** Fração da ração gasta por ano: carnívoros vivem de banquete e jejum e gastam menos entre uma caçada e outra. */
+/**
+ * Fração da ração gasta por ano: carnívoros vivem de banquete e jejum e gastam menos entre uma caçada e outra.
+ * O necrófago puro (urubu) também: plana sem gastar quase nada até achar a próxima carcaça.
+ */
 export function appetite(e: Ecology): number {
-  return hunts(e) ? 0.35 : 1;
+  const scavenger = e.carrion >= 0.8 && e.forage + e.insects + e.fish + e.plankton === 0;
+  return hunts(e) || scavenger ? 0.22 : 1;
 }
 
 /**
@@ -236,7 +240,7 @@ export const CARRION_RATIO = 0.1;
 /** Carne aproveitável por kg de presa, kg de carne por tanque (por massa^0,75) e duração da carcaça (anos). */
 export const EDIBLE = 0.6;
 export const TANK_KG = 0.75;
-export const CARCASS_YEARS = 0.6;
+export const CARCASS_YEARS = 1.5;
 /** Chance base de a caçada dar certo; refúgio (mata, pedra) corta para bichos pequenos. */
 export const HUNT_SUCCESS = 0.65;
 export const REFUGE = 0.4;

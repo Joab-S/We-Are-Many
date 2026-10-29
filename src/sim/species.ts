@@ -112,7 +112,7 @@ const EARTH_BANK: Entry[] = [
   ['Rena', 'herbivore', 'reindeer', [150, 120, 90], 220, 290, { maxAge: 15, maturity: 2, size: 1 }],
   ['Cabra-montesa', 'herbivore', 'ibex', [168, 140, 104], 235, 305, { maxAge: 14, maturity: 2, size: 0.85 }],
   ['Leão', 'predator', 'lion', [212, 168, 96], 285, 325, { maxAge: 14, maturity: 3, size: 1.05 }],
-  ['Urubu', 'predator', 'vulture', [52, 46, 50], 265, 320, { maxAge: 15, maturity: 3, size: 0.6 }],
+  ['Urubu', 'predator', 'vulture', [52, 46, 50], 265, 320, { speed: 5, maxAge: 15, maturity: 3, size: 0.6 }],
   ['Zebra', 'herbivore', 'zebra', [236, 236, 230], 283, 325, { maxAge: 20, maturity: 3, size: 1 }],
 ];
 
