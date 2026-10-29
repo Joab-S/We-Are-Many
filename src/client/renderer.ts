@@ -58,6 +58,18 @@ export class SoftRenderer implements GameRenderer {
   private readonly textureCanvases = new WeakMap<THREE.Texture, { version: number; canvas: HTMLCanvasElement }>();
   private readonly v = new THREE.Vector3();
   private readonly mv = new THREE.Matrix4();
+  // Objetos de trabalho reaproveitados a cada quadro, para não gerar lixo para o coletor.
+  private readonly v2 = new THREE.Vector3();
+  private readonly lightVec = new THREE.Vector3();
+  private readonly toCam = new THREE.Vector3();
+  private readonly pointPos = new THREE.Vector3();
+  private readonly dirPos = new THREE.Vector3();
+  private readonly dirTarget = new THREE.Vector3();
+  private readonly tmpColor = new THREE.Color();
+  private readonly tmpEmissive = new THREE.Color();
+  private readonly points: THREE.Points[] = [];
+  private readonly items: Item[] = [];
+  private readonly big: number[] = [];
 
   constructor() {
     this.context = this.domElement.getContext('2d', { alpha: false })!;
@@ -131,15 +143,17 @@ export class SoftRenderer implements GameRenderer {
       dir: null,
       dirIntensity: 0,
     };
-    const points: THREE.Points[] = [];
-    const items: Item[] = [];
+    const points = this.points;
+    const items = this.items;
+    points.length = 0;
+    items.length = 0;
     scene.traverseVisible((o) => {
       if ((o as THREE.AmbientLight).isAmbientLight) lights.ambient += (o as THREE.Light).intensity;
       else if ((o as THREE.PointLight).isPointLight && (o as THREE.Light).intensity > 0) {
-        lights.point = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).applyMatrix4(view);
+        lights.point = this.pointPos.setFromMatrixPosition(o.matrixWorld).applyMatrix4(view);
       } else if ((o as THREE.DirectionalLight).isDirectionalLight) {
         const l = o as THREE.DirectionalLight;
-        lights.dir = new THREE.Vector3().setFromMatrixPosition(l.matrixWorld).sub(new THREE.Vector3().setFromMatrixPosition(l.target.matrixWorld)).transformDirection(view);
+        lights.dir = this.dirPos.setFromMatrixPosition(l.matrixWorld).sub(this.dirTarget.setFromMatrixPosition(l.target.matrixWorld)).transformDirection(view);
         lights.dirIntensity = l.intensity;
       }
     });
@@ -168,14 +182,15 @@ export class SoftRenderer implements GameRenderer {
       const img = this.image;
       const hex = bg.getHex();
       new Uint32Array(img.data.buffer).fill(0xff000000 | ((hex & 0xff) << 16) | (hex & 0xff00) | ((hex >> 16) & 0xff));
-      const big: number[] = [];
+      const big = this.big;
+      big.length = 0;
       for (const p of points) this.drawStars(p, img, view, P, near, big);
       ctx.putImageData(img, 0, 0);
       ctx.globalCompositeOperation = 'lighter';
       for (let k = 0; k < big.length; k += 7) {
-        const [x, y, s, r, g, b, a] = big.slice(k, k + 7);
-        ctx.globalAlpha = a;
-        ctx.drawImage(this.glow('star', r, g, b), x - s, y - s, s * 2, s * 2);
+        const s = big[k + 2];
+        ctx.globalAlpha = big[k + 6];
+        ctx.drawImage(this.glow('star', big[k + 3], big[k + 4], big[k + 5]), big[k] - s, big[k + 1] - s, s * 2, s * 2);
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
@@ -259,7 +274,7 @@ export class SoftRenderer implements GameRenderer {
     project: (x: number, y: number, z: number) => [number, number],
     near: number,
   ): void {
-    const e = this.mv.multiplyMatrices(view, p.matrixWorld).elements.slice();
+    const e = this.mv.multiplyMatrices(view, p.matrixWorld).elements;
     const pos = p.geometry.getAttribute('position');
     const col = p.geometry.getAttribute('color');
     const center = this.v.setFromMatrixPosition(p.matrixWorld).applyMatrix4(view);
@@ -303,7 +318,7 @@ export class SoftRenderer implements GameRenderer {
   ): void {
     const v = this.v.setFromMatrixPosition(s.matrixWorld).applyMatrix4(view);
     if (v.z >= -near) return;
-    const scale = new THREE.Vector3().setFromMatrixScale(s.matrixWorld).x;
+    const scale = this.v2.setFromMatrixScale(s.matrixWorld).x;
     const size = (scale * focal) / -v.z;
     if (size < 0.5) return;
     const [x, y] = project(v.x, v.y, v.z);
@@ -318,7 +333,7 @@ export class SoftRenderer implements GameRenderer {
         ctx.globalCompositeOperation = additive ? 'lighter' : 'source-over';
         ctx.globalAlpha = opacity;
         const half = Math.min(size, 4000) / 2;
-        const rgb = c.clone().convertLinearToSRGB();
+        const rgb = this.tmpColor.copy(c).convertLinearToSRGB();
         ctx.drawImage(this.glow('sprite', rgb.r * 255, rgb.g * 255, rgb.b * 255), x - half, y - half, half * 2, half * 2);
       },
     });
@@ -335,7 +350,7 @@ export class SoftRenderer implements GameRenderer {
     if (m.transparent && m.opacity < 0.01) return;
     const pos = line.geometry.getAttribute('position');
     if (!pos) return;
-    const e = this.mv.multiplyMatrices(view, line.matrixWorld).elements.slice();
+    const e = this.mv.multiplyMatrices(view, line.matrixWorld).elements;
     const n = pos.count;
     const pts: ([number, number] | null)[] = [];
     for (let i = 0; i < n; i++) {
@@ -383,7 +398,7 @@ export class SoftRenderer implements GameRenderer {
     near: number,
     light: THREE.Vector3 | null,
   ): void {
-    const v = this.v.setFromMatrixPosition(mesh.matrixWorld).applyMatrix4(view).clone();
+    const v = this.v2.setFromMatrixPosition(mesh.matrixWorld).applyMatrix4(view);
     const radius = (mesh.geometry as THREE.SphereGeometry).parameters.radius * mesh.matrixWorld.getMaxScaleOnAxis();
     if (v.z >= -near) return;
     const r = (radius * focal) / -v.z;
@@ -399,7 +414,7 @@ export class SoftRenderer implements GameRenderer {
       // Atmosfera: anel de brilho na borda.
       const u = (material as THREE.ShaderMaterial).uniforms.uColor;
       if (!u) return;
-      const c = (u.value as THREE.Color).clone().convertLinearToSRGB();
+      const c = this.tmpColor.copy(u.value as THREE.Color).convertLinearToSRGB();
       const rgb = `${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)}`;
       items.push({
         depth: -v.z - radius * 1.01,
@@ -426,8 +441,8 @@ export class SoftRenderer implements GameRenderer {
     let ly = 0;
     let lz = 1;
     if (light) {
-      const l = light.clone().sub(v).normalize();
-      const toCam = v.clone().negate().normalize();
+      const l = this.lightVec.copy(light).sub(v).normalize();
+      const toCam = this.toCam.copy(v).negate().normalize();
       lx = l.x;
       ly = l.y;
       lz = l.dot(toCam);
@@ -483,7 +498,7 @@ export class SoftRenderer implements GameRenderer {
     near: number,
   ): void {
     const p = (mesh.geometry as THREE.RingGeometry).parameters;
-    const e = this.mv.multiplyMatrices(view, mesh.matrixWorld).elements.slice();
+    const e = this.mv.multiplyMatrices(view, mesh.matrixWorld).elements;
     const ring = (radius: number): [number, number][] | null => {
       const out: [number, number][] = [];
       for (let i = 0; i < 64; i++) {
@@ -534,7 +549,7 @@ export class SoftRenderer implements GameRenderer {
     const g = mesh.geometry;
     const pos = g.getAttribute('position');
     if (!pos || pos.count > 5000) return;
-    const e = this.mv.multiplyMatrices(view, mesh.matrixWorld).elements.slice();
+    const e = this.mv.multiplyMatrices(view, mesh.matrixWorld).elements;
     const vs: number[] = [];
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
@@ -543,8 +558,8 @@ export class SoftRenderer implements GameRenderer {
       vs.push(e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]);
     }
     const material = mesh.material as THREE.MeshStandardMaterial;
-    const base = material.color.clone().convertLinearToSRGB();
-    const emissive = material.emissive ? material.emissive.clone().convertLinearToSRGB() : new THREE.Color(0);
+    const base = this.tmpColor.copy(material.color).convertLinearToSRGB();
+    const emissive = material.emissive ? this.tmpEmissive.copy(material.emissive).convertLinearToSRGB() : this.tmpEmissive.setRGB(0, 0, 0);
     const index = g.index;
     const tris = index ? index.count / 3 : pos.count / 3;
     const ctx = this.context;

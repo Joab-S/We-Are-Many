@@ -239,7 +239,9 @@ export class StarField {
       geometry.setAttribute('starColor', new THREE.BufferAttribute(colors, 3));
       const points = new THREE.Points(geometry, this.material);
       points.scale.setScalar(AU_PER_PC);
-      points.frustumCulled = false;
+      // O shader não move as posições, então a esfera do chunk vale para o descarte
+      // por frustum: chunks atrás da nave ou fora do campo de visão nem são desenhados.
+      geometry.computeBoundingSphere();
       const centerAu = new THREE.Vector3(...node.c).multiplyScalar(AU_PER_PC);
       this.chunks.set(id, { node, data, points, centerAu });
       this.group.add(points);

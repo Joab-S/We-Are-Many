@@ -153,6 +153,18 @@ function surfaceTexture(map: SurfaceMap): THREE.Texture {
   return tex;
 }
 
+/** Mapas de 256 pixels dos planetas ainda não visitados: a geração é determinística, então guarda-se para as próximas voltas ao espaço. */
+const previews = new Map<string, SurfaceMap>();
+
+function previewSurface(id: string, params: PlanetParams): SurfaceMap {
+  let map = previews.get(id);
+  if (!map) {
+    map = generateSurface(params, Math.min(1, 256 / mapSizeFor(params.radiusEarth).width));
+    previews.set(id, map);
+  }
+  return map;
+}
+
 export function createPlanetBody(p: PlanetData, surfaces: Map<string, SurfaceMap>): Body {
   const radius = (p.radiusKm / KM_PER_AU) * PLANET_SCALE;
   let map: THREE.Texture;
@@ -160,7 +172,7 @@ export function createPlanetBody(p: PlanetData, surfaces: Map<string, SurfaceMap
     // Planeta já visitado usa o mapa completo (com a terraformação); os outros,
     // uma versão de 256 pixels de largura, bem mais rápida de gerar.
     const params = planetParams(p);
-    const surface = surfaces.get(p.id) ?? generateSurface(params, Math.min(1, 256 / mapSizeFor(params.radiusEarth).width));
+    const surface = surfaces.get(p.id) ?? previewSurface(p.id, params);
     map = surfaceTexture(surface);
   } else {
     map = bandTexture(p);
