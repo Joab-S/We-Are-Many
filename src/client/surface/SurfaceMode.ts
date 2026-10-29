@@ -37,6 +37,8 @@ import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, GRAVEL, houseStyle } from '../../s
 import { CURRENCY_NAMES } from '../../sim/trade';
 import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, sumLedger, type CompareKey, type PeriodSpan, type SettlementTab } from './settlementWindow';
 
+/** Gotas e flocos de chuva e neve na tela, no máximo (o visual do clima vivo fica barato). */
+const WEATHER_FX = 350;
 /** Raio mínimo, em pixels de tela, do círculo de escolha de criaturas (RF-VIDA-330). */
 const PICK_RADIUS_PX = 6;
 /** Fator do raio por tile de zoom: o mesmo círculo desenhado ao redor da criatura. */
@@ -311,6 +313,9 @@ export class SurfaceMode {
   private limitOn = true;
   /** Animação do pincel: partículas e brilho que some devagar depois que o jogador solta. */
   private particles: Particle[] = [];
+  /** Gotas e flocos do clima vivo, só na área visível (coordenadas do mundo, y para cima). */
+  private weatherFx: { x: number; y: number; vx: number; vy: number; age: number; life: number; snow: boolean }[] = [];
+  private weatherLayer: { snow: HTMLCanvasElement; cloud: HTMLCanvasElement; at: number } | null = null;
   private glow: { kind: FxKind; alpha: number } | null = null;
   private zoom = 3;
   private speed = 1;
@@ -1534,6 +1539,16 @@ export class SurfaceMode {
     return `<span>${f.name}${f.fruiting ? ' · com frutos 🍒' : ''}${browse > 0.05 ? ` · ramagem ${(browse * 100).toFixed(0)}%` : ''}</span>`;
   }
 
+  /** O tempo agora no tile (clima vivo): temperatura da estação, chuva ou neve, neve no chão, solo e vento. */
+  private weatherInfo(i: number): string {
+    const now = this.eco.weatherAt(i);
+    if (!now) return '';
+    const sky = now.rain >= 0.25 ? (now.temp < 273 ? '🌨️ nevando' : '🌧️ chovendo') : now.rain >= 0.1 ? '☁️ nublado' : '☀️ firme';
+    const wind = Math.abs(now.wind.x) >= Math.abs(now.wind.y) ? (now.wind.x > 0 ? 'oeste' : 'leste') : now.wind.y > 0 ? 'norte' : 'sul';
+    const ground = now.snow >= 0.05 ? ` · neve no chão ${(now.snow * 100).toFixed(0)}%` : '';
+    return `<span>Agora ${(now.temp - 273.15).toFixed(0)} °C · ${sky}${ground} · solo ${(now.soil * 100).toFixed(0)}% de água · vento de ${wind}</span>`;
+  }
+
   /** Placa, limite e tensão sísmica de um tile, para a ficha do lugar. */
   private plateInfo(i: number): string {
     const map = this.map;
@@ -1675,6 +1690,7 @@ export class SurfaceMode {
         this.eco.step(h);
         this.simClock -= h;
       }
+      this.stepWeather(dt);
     }
 
     // Parado e sem mudanças, não redesenha.
@@ -1727,6 +1743,7 @@ export class SurfaceMode {
     ctx.clearRect(0, 0, w, h);
     this.drawOpenSettlement(ctx, w, h);
     this.drawSelection(ctx, w, h);
+    this.drawWeather(ctx, w, h);
     this.drawFx(ctx, w, h);
     if (!this.showTerritory) return;
     const z = this.zoom;
@@ -2454,6 +2471,121 @@ export class SurfaceMode {
     }
   }
 
+  /**
+   * Chuva e neve caindo (clima vivo): sorteia pontos da tela e solta gotas ou flocos onde a célula está
+   * chovendo; no máximo WEATHER_FX partículas, só com o jogo andando. O vento puxa para o lado.
+   */
+  private stepWeather(dt: number): void {
+    const list = this.weatherFx;
+    for (let k = list.length - 1; k >= 0; k--) {
+      const p = list[k];
+      p.age += dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      if (p.age >= p.life) list.splice(k, 1);
+    }
+    const wx = this.eco.weather;
+    if (!wx?.ready) return;
+    const z = this.zoom;
+    const halfW = window.innerWidth / 2 / z;
+    const halfH = window.innerHeight / 2 / z;
+    // Mais tentativas de perto (poucas células na tela), menos de longe.
+    const tries = Math.min(40, Math.round(160 * dt * 60 / Math.max(1, (halfW * halfH) / 4000)) + 4);
+    for (let n = 0; n < tries && list.length < WEATHER_FX; n++) {
+      const x = this.center.x + (Math.random() * 2 - 1) * halfW;
+      const y = this.center.y + (Math.random() * 2 - 1) * halfH;
+      const t = this.tileIndex(x, y);
+      if (t < 0) continue;
+      const now = this.eco.weatherAt(t);
+      if (!now || now.rain < 0.2 || Math.random() > now.rain) continue;
+      const snow = now.temp < 273;
+      list.push({
+        x,
+        y: y + 3,
+        vx: now.wind.x * (snow ? 1.5 : 2.5) + (Math.random() - 0.5) * (snow ? 1.2 : 0.4),
+        vy: snow ? -2.2 - Math.random() : -14 - Math.random() * 4,
+        age: 0,
+        life: snow ? 1.4 + Math.random() : 0.25 + Math.random() * 0.2,
+        snow,
+      });
+    }
+  }
+
+  /** Véu de neve no chão e céu nublado por célula, e as gotas e flocos por cima (canvas dos territórios). */
+  private drawWeather(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const wx = this.eco.weather;
+    if (!wx?.ready) return;
+    const z = this.zoom;
+    // Neve no chão e nuvens de chuva: uma imagem de uma célula por pixel, esticada com suavização
+    // (as bordas das células somem), refeita duas vezes por segundo.
+    const now = performance.now();
+    if (!this.weatherLayer || now - this.weatherLayer.at > 500) this.weatherLayer = this.paintWeather(this.weatherLayer);
+    const { snow, cloud } = this.weatherLayer;
+    const span = this.map.width * z;
+    const x0 = (0 - this.center.x) * z + w / 2;
+    const y0 = h / 2 - (this.map.height - this.center.y) * z;
+    const hh = wx.rows * 16 * z;
+    ctx.imageSmoothingEnabled = true;
+    for (const off of [-span, 0, span]) {
+      const x = x0 + off;
+      if (x > w || x + span < 0) continue;
+      ctx.drawImage(snow, x, y0, wx.cols * 16 * z, hh);
+      ctx.drawImage(cloud, x, y0, wx.cols * 16 * z, hh);
+    }
+    const list = this.weatherFx;
+    if (!list.length) return;
+    ctx.lineWidth = Math.max(1, Math.min(2, z * 0.08));
+    ctx.strokeStyle = 'rgba(200,218,245,0.7)';
+    ctx.beginPath();
+    for (const p of list) {
+      if (p.snow) continue;
+      const sx = (p.x - this.center.x) * z + w / 2;
+      const sy = h / 2 - (p.y - this.center.y) * z;
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx - p.vx * z * 0.06, sy + p.vy * z * 0.06);
+    }
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    const size = Math.max(1.5, Math.min(3.5, z * 0.18));
+    for (const p of list) {
+      if (!p.snow) continue;
+      const sx = (p.x - this.center.x) * z + w / 2 + Math.sin(p.age * 5 + p.x) * z * 0.15;
+      const sy = h / 2 - (p.y - this.center.y) * z;
+      ctx.fillRect(sx, sy, size, size);
+    }
+  }
+
+  /** Pinta as imagens de neve e nuvem (uma célula do clima por pixel). */
+  private paintWeather(prev: { snow: HTMLCanvasElement; cloud: HTMLCanvasElement; at: number } | null): { snow: HTMLCanvasElement; cloud: HTMLCanvasElement; at: number } {
+    const wx = this.eco.weather!;
+    const make = () => {
+      const c = document.createElement('canvas');
+      c.width = wx.cols;
+      c.height = wx.rows;
+      return c;
+    };
+    const snow = prev?.snow.width === wx.cols ? prev.snow : make();
+    const cloud = prev?.cloud.width === wx.cols ? prev.cloud : make();
+    const sctx = snow.getContext('2d')!;
+    const cctx = cloud.getContext('2d')!;
+    const si = sctx.createImageData(wx.cols, wx.rows);
+    const ci = cctx.createImageData(wx.cols, wx.rows);
+    for (let k = 0; k < wx.n; k++) {
+      const o = k * 4;
+      si.data[o] = 240;
+      si.data[o + 1] = 246;
+      si.data[o + 2] = 255;
+      si.data[o + 3] = Math.round(Math.min(0.62, wx.snow[k] * wx.land[k] * 0.7) * 255);
+      ci.data[o] = 38;
+      ci.data[o + 1] = 48;
+      ci.data[o + 2] = 66;
+      ci.data[o + 3] = Math.round(Math.min(0.25, Math.max(0, wx.rain[k] - 0.15) * 0.35) * 255);
+    }
+    sctx.putImageData(si, 0, 0);
+    cctx.putImageData(ci, 0, 0);
+    return { snow, cloud, at: performance.now() };
+  }
+
   private stepFx(dt: number): void {
     for (let k = this.particles.length - 1; k >= 0; k--) {
       const p = this.particles[k];
@@ -2839,7 +2971,7 @@ export class SurfaceMode {
           <span>Altitude ${(this.map.elevation[i] * 100).toFixed(0)}</span>
           <span>Temperatura ${(t - 273.15).toFixed(0)} °C</span>
           <span>Umidade ${(this.map.moisture[i] * 100).toFixed(0)}%</span>
-          <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>${this.floraInfo(i)}${this.plateInfo(i)}`;
+          <span>Vegetação ${(this.map.vegetation[i] * 100).toFixed(0)}%</span>${this.floraInfo(i)}${this.weatherInfo(i)}${this.plateInfo(i)}`;
       }
     }
     el.hidden = false;

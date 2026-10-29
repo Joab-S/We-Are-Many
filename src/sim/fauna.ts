@@ -263,6 +263,7 @@ export const ROAM_SCALE = 2;
 
 const FOODS: [keyof Ecology, string][] = [
   ['forage', 'pasto e folhas'],
+  ['fruit', 'frutos e brotos da mata'],
   ['meat', 'carne'],
   ['carrion', 'carniça'],
   ['fish', 'peixe'],
