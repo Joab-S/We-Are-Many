@@ -170,6 +170,11 @@ export function ecologyOf(sp: Species): Ecology {
   return e;
 }
 
+/** Esquece a ecologia guardada da espécie (depois de ajustar `sp.eco`, como na checagem de viabilidade). */
+export function refreshEcology(sp: Species): void {
+  cache.delete(sp);
+}
+
 /** Bicho de terra que entra na conta de capacidade por célula (não peixe, não inteligente). */
 export function isLandAnimal(sp: Species): boolean {
   return sp.kind === 'herbivore' || sp.kind === 'predator';

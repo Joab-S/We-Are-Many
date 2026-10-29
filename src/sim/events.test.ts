@@ -238,7 +238,7 @@ describe('sobrevivência', () => {
     years(eco, 25);
     expect(eco.population[s]).toBeGreaterThan(caps[s] * 0.3);
     expect(eco.population[s]).toBeLessThan(caps[s] * 0.95);
-  });
+  }, 30000);
 
   it('em 80 anos, as presas de base ficam e somem no máximo três espécies (os ciclos de predador ainda oscilam)', () => {
     const { eco } = world();

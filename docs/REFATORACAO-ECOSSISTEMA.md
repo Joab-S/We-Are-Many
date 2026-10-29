@@ -395,6 +395,19 @@ Tudo numa grade de células de 16×16, atualizada em fatias ao longo do ano:
 - **Regras de segurança** aplicadas depois de sortear as espécies: todo predador tem pelo menos duas presas possíveis (ajusta o tamanho máximo de presa), presas entre 10% e 150% do predador, e todo herbívoro tem algum predador ou parasita.
 - **Checagem de viabilidade** em vez de pré-simulação: a capacidade de suporte é calculada para a fauna sorteada (o mesmo cálculo do jogo, sem simular). Espécie sem capacidade para uma população viável tem a faixa de temperatura e os biomas puxados para o clima do planeta até caber. Custa milissegundos, não segundos.
 
+### Estado da implementação do Plano 2
+
+Feito, na ordem do plano:
+
+- **Desempenho.** Detalhe menor fora da tela (decisão 3× mais rara com a mesma taxa por ano), refresco das células amostrado, ameaça só onde há caçador, passos de 0,2 s no x2 e 0,25 s no x5. Terra: 62 → 26 ms por segundo de jogo; com flora, clima vivo e sede, ~32 ms (o clima custa ~0,15 ms por passo).
+- **Fauna.** Território para caçadores e necrófagos puros (espécie rara não disputa), recolonização em raio maior, alerta "restam poucos", perseguição com fôlego pela distância, apetite de caçador 0,22, presa escassa no planeta sobra nos refúgios, população relicta gasta menos, espécie abaixo da metade da capacidade não sente a lotação de um canto ao procriar, caçador sem caça vai para onde sobra caça por caçador (antes todos iam para a mesma célula e morriam de fome juntos), fora da tela o bicho não passa mais do ponto (era o que matava os urubus).
+- **Flora.** Camada de ramagem e fruto por célula (cervo, macaco, urso, javali, elefante, cabra), frutos no verão e outono e o ano todo no trópico, planta dominante na ficha do tile, fogo natural no verão seco que anda com o vento e deixa carcaças.
+- **Povos.** Caça só onde a espécie está acima da metade da capacidade da região, caçador vai atrás da caça que sobra, rebanho come a mesma erva dos selvagens, colheita lê a água no solo.
+- **Clima vivo.** Vento por faixa de latitude, umidade que o vento leva, chuva de encosta e de frente, neve que acumula e derrete, água no solo presa à umidade de fundo do lugar (o clima oscila em volta do mapa, não o substitui), sede dos herbívoros (caçadores tiram água da presa; bichos do deserto aguentam). A neve decide onde as caravanas param. Visual: gotas e flocos só na tela (até 350), neve no chão e nuvens como uma imagem suavizada de uma célula por pixel, e o tempo na ficha do tile.
+- **Alienígenas.** Teia segura (todo caçador com duas presas do seu tamanho) e checagem de viabilidade sem simular (herbívoro nativo sem capacidade tem a faixa térmica puxada para o clima do planeta e os biomas soltos).
+
+Medição em 12 sementes da Terra, 40 anos, câmera parada numa aldeia: lobo some em 2, leão em 4, urubu em 2 (antes do plano o leão sumia em metade das sementes e o urubu em quase todas). O leão segue sendo o mais frágil: são ~20 no planeta inteiro, e o acaso de poucos indivíduos pesa. O próximo passo para ele é uma savana maior ou presas médias a mais (gnu, búfalo).
+
 ### Ordem
 
 1. Desempenho (orçamento, detalhe fora da tela, caches).

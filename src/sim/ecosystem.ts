@@ -80,7 +80,7 @@ import {
   type Vocation,
 } from './needs';
 import { lotsFor, maxFieldsOf, maxPensOf, plotSeed, pruneBlocks, radiusFor, streetOrder, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
-import { alienName, habitatOf, type Species, type SpeciesKind } from './species';
+import { alienName, EARTH_ID, habitatOf, type Species, type SpeciesKind } from './species';
 import {
   BITE,
   BREED_LENGTH,
@@ -91,6 +91,7 @@ import {
   DECISIONS_PER_YEAR,
   ECO_CELL,
   ecologyOf,
+  refreshEcology,
   EDIBLE,
   FEAR_DECAY_YEAR,
   FOOD_MIN,
@@ -681,7 +682,7 @@ const MIN_WILD = 12;
 /** Abaixo disso a espécie vira relicta: gasta menos e se reproduz mais (piso contra a extinção). */
 const RELICT = 10;
 /** Energia extra por ano (fração do metabolismo) de quem está numa célula sem água. */
-const THIRST_COST = 0.3;
+const THIRST_COST = 0.2;
 /** Até onde um adulto procura parceiro (tiles); bem mais longe quando a espécie está rara. */
 const MATE_RANGE = 24;
 
@@ -3150,7 +3151,7 @@ export class Ecosystem {
       const T = wx.tempNow(k, phase);
       c.bseason[k] = browseOf(1, T, phase) / woody(1);
       c.regrow[k] = REGROW_YEAR * Math.max(0.4, Math.min(1.3, wx.soil[k] / Math.max(0.1, wx.base[k])));
-      c.cover[k] = 1 - 0.7 * wx.snow[k];
+      c.cover[k] = 1 - 0.4 * wx.snow[k];
     } else c.bseason[k] = browseOf(1, temperatureAt(m, Math.min(m.height - 1, y0 + 8) * w + ((x0 + 8) % w)), phase);
     c.browse[k] = land ? (wood / land) * c.bseason[k] * (1 - this.browseUsed(c, k)) : 0;
     c.forage[k] = land ? avail / land : 0;
@@ -4044,7 +4045,7 @@ export class Ecosystem {
   private thirsty(e: Ecology, k: number): boolean {
     const wx = this.weather;
     if (!wx?.ready || (e.biomes[Biome.Desert] ?? 0) >= 0.8 || appetite(e) < 1) return false;
-    return wx.water[k] < 0.01 && wx.soil[k] < 0.2 && wx.snow[k] < 0.05 && wx.rain[k] < 0.15;
+    return wx.water[k] < 0.01 && wx.soil[k] < 0.12 && wx.snow[k] < 0.05 && wx.rain[k] < 0.15;
   }
 
   /** Direção da célula com água mais perto (até 3 células), ou undefined. */
@@ -4249,11 +4250,40 @@ export class Ecosystem {
   }
 
   /**
+   * Checagem de viabilidade da fauna sorteada de um planeta com vida própria (Plano 2), sem simular:
+   * a capacidade de suporte é calculada como no jogo, e a espécie nativa que não teria uma população
+   * viável tem a faixa de temperatura puxada para o clima do planeta e os biomas soltos, até três vezes.
+   */
+  private adaptNatives(): void {
+    const id = this.map.params.id;
+    if (id === EARTH_ID) return;
+    for (let round = 0; round < 3; round++) {
+      const c = this.ecoCells();
+      let changed = false;
+      this.species.forEach((sp, s) => {
+        // Herbívoros primeiro: a capacidade dos caçadores depende das presas já no mapa.
+        if (!this.wild(s) || sp.origin !== id || sp.kind !== 'herbivore' || c.total[s] >= RELICT * 2) return;
+        // A faixa anda metade do caminho até o clima médio do planeta e alarga um pouco.
+        const shift = (this.map.params.temperatureK + 10 - (sp.tempMin + sp.tempMax) / 2) * 0.5;
+        sp.tempMin = Math.round(sp.tempMin + shift - 8);
+        sp.tempMax = Math.round(sp.tempMax + shift + 8);
+        if (sp.eco) sp.eco = { ...sp.eco, biomes: {}, open: 1, moist: [0, 1], alt: [0, 0.85] };
+        refreshEcology(sp);
+        changed = true;
+      });
+      if (!changed) return;
+      c.ready = false;
+      c.passes = 0;
+    }
+  }
+
+  /**
    * Coloca os bichos de terra pela capacidade de cada célula (herbívoros primeiro,
    * depois quem os come), já em bandos do tamanho típico da espécie: a capacidade
    * das células vai se acumulando e, quando dá um bando, ele nasce ali.
    */
   private populateWild(): void {
+    this.adaptNatives();
     const c = this.ecoCells();
     const S = c.stride;
     const w = this.map.width;
