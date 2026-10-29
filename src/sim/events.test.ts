@@ -204,7 +204,8 @@ describe('ruínas', () => {
       if (i >= 0) break;
     }
     expect(i).toBeGreaterThanOrEqual(0);
-    years(eco, 2);
+    // A pé, no passo calmo, os 8 tiles levam uns dois anos.
+    years(eco, 4);
     const v = eco.villages.find((o) => o.ruinOf === old.id)!;
     expect(v).toBeDefined();
     expect(v.x).toBe(old.x);

@@ -100,7 +100,7 @@ import {
   INSECT_YIELD,
   isLandAnimal,
   LAND_BUDGET,
-  MAX_PACE,
+  ANIMAL_PACE,
   metabolic,
   METABOLISM_YEAR,
   ration,
@@ -2736,9 +2736,10 @@ export class Ecosystem {
         if (!v && e < 0.5) bias = this.betterSite(i) ?? bias;
         // Fora do clima, mesmo com assentamento, primeiro se protege.
         if (comfort && (!v || e < 0.4)) bias = comfort;
-        if (direct && bias) this.walkTo(i, sp.speed, bias.x, bias.y);
+        const walk = sp.speed * B.WALK_PACE;
+        if (direct && bias) this.walkTo(i, walk, bias.x, bias.y);
         else if (direct) this.stand(i);
-        else this.wander(i, sp.speed * (this.role[i] === CHILD ? 0.8 : elder ? 0.55 : 1), bias);
+        else this.wander(i, walk * (this.role[i] === CHILD ? 0.8 : elder ? 0.55 : 1), bias);
         // Muito tempo travado na beira da água com o destino do outro lado: corta árvores e faz uma jangada.
         if (this.stuck[i] >= B.RAFT_STUCK && this.role[i] !== CHILD && this.tryRaft(i)) return;
         break;
@@ -3166,9 +3167,12 @@ export class Ecosystem {
     return take / tank;
   }
 
-  /** Velocidade de viagem (tiles por segundo de simulação): a área de vida por ano dividida pela duração do ano. */
-  private pace(e: Ecology): number {
-    return Math.min(MAX_PACE, e.roam / this.yearSpan);
+  /**
+   * Velocidade de viagem (tiles por segundo de simulação): a área de vida por ano dividida pela duração
+   * do ano, mas nunca acima do passo da espécie na tela (senão no x1 o bicho atravessa o mapa correndo).
+   */
+  private pace(e: Ecology, sp: Species): number {
+    return Math.min(sp.speed * ANIMAL_PACE, e.roam / this.yearSpan);
   }
 
   /** Anda reto até (dx, dy) de distância; chega sem passar do ponto na próxima decisão. */
@@ -3465,7 +3469,7 @@ export class Ecosystem {
       return;
     }
     this.energy[i] = Math.min(1, en);
-    const speed = this.pace(e) * (1 - 0.3 * p);
+    const speed = this.pace(e, sp) * (1 - 0.3 * p);
 
     // Portão 1: perigo real. Foge para longe do predador, mais rápido que o normal.
     const threat = e.fear > 0 ? this.threatTo(i, e) : -1;
@@ -3749,7 +3753,7 @@ export class Ecosystem {
       const pe = ecologyOf(this.species[this.kind[prey]]);
       if (this.wild(this.kind[prey])) {
         this.act[prey] = ACT.flee;
-        this.headTo(prey, dx * 4, dy * 4, this.pace(pe) * 1.6);
+        this.headTo(prey, dx * 4, dy * 4, this.pace(pe, this.species[this.kind[prey]]) * 1.6);
       }
     }
   }
