@@ -1004,6 +1004,9 @@ export class Ecosystem {
    * decidem três vezes menos, cada decisão valendo por três: mesma biologia por ano, um terço do custo.
    */
   focus: { x: number; y: number; r: number } | null = null;
+  /** Lugar da pessoa aberta na ficha: fica no modo completo mesmo fora da vista (a ficha sempre mostra o porquê). */
+  pinned = -1;
+  private watchClock = 0;
   /** Células ecológicas (comida, nicho, capacidade e contagem); vão no save para a simulação seguir idêntica. */
   private cells: EcoCells | null = null;
   /** Clima vivo: vento, umidade, chuva, neve e água no solo por célula de 16×16 (Plano 2). */
@@ -1723,6 +1726,15 @@ export class Ecosystem {
     if (dt <= 0) return;
     const yr = dt / this.yearSpan;
     this.year += yr;
+    // Nível de detalhe (RF-AS-31): com a tela aberta, os lugares a até JOURNEY_MARGIN tiles da vista (e o da pessoa
+    // seguida) rodam as jornadas; os demais, o modo agregado. Revisto a cada meio segundo de jogo.
+    if (this.focus && (this.watchClock -= dt) <= 0) {
+      this.watchClock = 0.5;
+      const f = this.focus;
+      const ids: number[] = [];
+      for (const v of this.villages) if (!v.abandoned && (this.distance(v, f.x, f.y) <= f.r + B.JOURNEY_MARGIN + this.footprint(v) || v.id === this.pinned)) ids.push(v.id);
+      this.watch(ids);
+    }
     // Clima vivo: uma fatia das células por passo, o mundo inteiro duas vezes por mês de jogo.
     this.weather ??= new Weather(this.map.width, this.map.height);
     this.weather.step(this.map, this.year, this.yearPhase(), yr, (x, y) => -this.climateAt(x, y));
@@ -7648,7 +7660,6 @@ export class Ecosystem {
         this.tally.interMarriages++;
         // Mora no lugar com a melhor nota; quem se muda leva a memória de onde veio.
         const [mover, from, to] = this.placeScore(o) > this.placeScore(v) ? [a, v, o] : [b, o, v];
-        this.family[mover] = this.family[mover === a ? b : a];
         this.relocate(mover, from, to);
         this.addAffinity(v.id, o.id, B.AFFINITY_KIN * 5);
         this.logThought(a, 'família', `Casou com ${personName(this.uid[b], o.culture.id)}, de ${o.name}`);

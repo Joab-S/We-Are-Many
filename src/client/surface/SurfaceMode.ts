@@ -14,7 +14,7 @@ import {
   type PlanetParams,
   type SurfaceMap,
 } from '../../procgen/surface';
-import { BOATS, BUILDING_NAMES, Ecosystem, elderAge, ERAS, HERD_NAMES, isLand, WAR_MOTIVES, type ChronicleKind, type Village } from '../../sim/ecosystem';
+import { BOATS, BUILDING_NAMES, CARRIED, Ecosystem, GESTURE, elderAge, ERAS, HERD_NAMES, isLand, WAR_MOTIVES, type ChronicleKind, type Village } from '../../sim/ecosystem';
 import { NEED_NAMES, NEEDS, SEASONS, VOCATION_COLORS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../sim/needs';
 import { ORE_COLORS, ORE_NAMES, ORES, STOCK_NAMES, WONDER_NAMES, type Ore } from '../../sim/economy';
 import { QUIET_YEARS, runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
@@ -22,7 +22,6 @@ import { CATEGORIES, ITEMS, MATERIALS } from '../../sim/items';
 import { CHILD } from '../../sim/roles';
 import { bestCraft, TECH_BY_ID } from '../../sim/progress';
 import { notable } from '../../ai/traits';
-import { TIER_NAMES } from '../../sim/settlement';
 import { earthCatalog, EARTH_ID, habitatOf, nativeSpecies, type Species } from '../../sim/species';
 import { dietText, ecologyOf, guildName } from '../../sim/fauna';
 import { Input } from '../input';
@@ -34,7 +33,7 @@ import { BOUNDARY_COLORS, GEO_VIEWS, paintGeoTile, paintGeoView, type GeoView } 
 import { SoftArt } from './softArt';
 import { SpriteAtlas, SpriteLayer, type SpriteName } from './sprites';
 import { animalStage, DEATH_TEXT, familyName, personName } from '../../sim/people';
-import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, GRAVEL, houseStyle } from '../../sim/architecture';
+import { AVENUE, CREST_EMBLEMS, CREST_SHAPES, GRAVEL, houseStyle, TRAIL, WALL } from '../../sim/architecture';
 import { CURRENCY_NAMES } from '../../sim/trade';
 import { bar, compareHtml, economicState, fullName, ROLE_ICONS, SETTLEMENT_TABS, settlementTabHtml, stateIcons, sumLedger, type CompareKey, type PeriodSpan, type SettlementTab } from './settlementWindow';
 
@@ -468,7 +467,7 @@ export class SurfaceMode {
 
     this.pixels = new Uint8Array(map.width * map.height * 4);
     paintSurface(map, this.pixels);
-    for (let i = 0; i < eco.road.length; i++) if (eco.road[i] || eco.built[i]) this.paintSettlement(i);
+    for (let i = 0; i < eco.road.length; i++) if (eco.road[i] || eco.built[i] || eco.wall[i]) this.paintSettlement(i);
     this.center.set(map.width / 2, map.height / 2);
     this.zoom = Math.max(1, window.innerHeight / map.height);
     if (this.resume) {
@@ -690,7 +689,7 @@ export class SurfaceMode {
     this.map.biome[i] = classify(this.map, i);
     if (this.geoView !== 'none') paintGeoTile(this.map, this.geoView, this.pixels, i);
     else paintTile(this.map, this.pixels, i);
-    if (this.eco.road[i] || this.eco.built[i]) this.paintSettlement(i);
+    if (this.eco.road[i] || this.eco.built[i] || this.eco.wall[i]) this.paintSettlement(i);
     this.softArt?.invalidate(i);
     this.mapVersion++;
     this.textureChanged = true;
@@ -701,7 +700,7 @@ export class SurfaceMode {
     this.geoView = view;
     if (view === 'none') {
       paintSurface(this.map, this.pixels);
-      for (let i = 0; i < this.eco.road.length; i++) if (this.eco.road[i] || this.eco.built[i]) this.paintSettlement(i);
+      for (let i = 0; i < this.eco.road.length; i++) if (this.eco.road[i] || this.eco.built[i] || this.eco.wall[i]) this.paintSettlement(i);
     } else paintGeoView(this.map, view, this.pixels);
     // A arte detalhada guarda blocos pintados; recomeça do zero com os pixels novos.
     this.softArt = null;
@@ -727,6 +726,13 @@ export class SurfaceMode {
     else if (road === 3) c = [184, 160, 120];
     else if (road === 4) c = [196, 160, 78];
     else if (road === 5) c = [118, 168, 74];
+    else if (road === TRAIL) {
+      // Trilha de desejo (RF-AS-13): o chão gasto pelos passos, meio apagado sobre o terreno.
+      c = [px[o] * 0.45 + 172 * 0.55, px[o + 1] * 0.45 + 146 * 0.55, px[o + 2] * 0.45 + 104 * 0.55];
+    }
+    // Muralha que segue a pegada (RF-AS-18): paliçada de troncos, pedra e portão.
+    const wall = this.eco.wall[i];
+    if (wall) c = wall === WALL.palisade ? [104, 72, 44] : wall === WALL.stone ? [132, 128, 124] : [168, 136, 92];
     if (c) {
       px[o] = clamp(c[0] * (1 + n), 0, 255);
       px[o + 1] = clamp(c[1] * (1 + n), 0, 255);
@@ -738,7 +744,7 @@ export class SurfaceMode {
     }
     // Plantação leva o enfeite de trigo (7); terra batida, pedra e praça, os
     // enfeites 8, 9 e 10 (desenhados em softArt.ts); casas, o 15 (nem enfeite nem grama).
-    const kind = road === 4 ? 7 : road === 1 || road === GRAVEL ? 8 : road === 2 || road === AVENUE ? 9 : road === 3 ? 10 : 15;
+    const kind = wall ? 15 : road === 4 ? 7 : road === 1 || road === GRAVEL ? 8 : road === 2 || road === AVENUE ? 9 : road === 3 ? 10 : 15;
     px[o + 3] = kind * 16 + 15;
   }
 
@@ -1211,7 +1217,7 @@ export class SurfaceMode {
     if (!v) return;
     const tab = this.vwin.tab;
     const html = settlementTabHtml(this.eco, v, tab, (e) => Ecosystem.describe(e), this.vwinSpan);
-    const title = `${this.crest(this.eco.villages[v.kingdom])}<span>${v.vocation ? `${VOCATION_ICONS[v.vocation]} ` : ''}${TIER_NAMES[v.tier]} ${v.name} ${stateIcons(this.eco, v)}</span>`;
+    const title = `${this.crest(this.eco.villages[v.kingdom])}<span>${v.vocation ? `${VOCATION_ICONS[v.vocation]} ` : ''}${this.eco.tierName(v)} ${v.name} ${stateIcons(this.eco, v)}</span>`;
     const head = this.root.querySelector<HTMLElement>('[data-vwin-title]')!;
     if (head.dataset.html !== title) {
       head.dataset.html = title;
@@ -1492,7 +1498,7 @@ export class SurfaceMode {
         const tolls = [...eco.tolls.values()].filter((o) => ids.has(o)).length;
         return `
           <div class="wb-card">
-            <button class="wb-card-head" data-village="${k.id}">${this.crest(k)}<b>${members.length > 1 || k.tier >= 2 ? 'Reino de ' : ''}${k.name}</b><em>📍</em></button>
+            <button class="wb-card-head" data-village="${k.id}">${this.crest(k)}<b>${members.length > 1 ? this.eco.polityName(k) : k.name}</b><em>📍</em></button>
             <div>Povo ${c.name} · ${eco.species[k.species].name} · valoriza ${c.value} · crê em ${c.belief}${wonder}</div>
             <div>${members.length} assentamento${members.length > 1 ? 's' : ''} · ${pop} habitantes · ${ERAS[Math.floor(Math.max(...members.map((v) => v.tech)))]}</div>
             ${stock ? `<div class="wb-dim">${stock}</div>` : ''}
@@ -1711,6 +1717,8 @@ export class SurfaceMode {
     // Câmera seguindo a criatura fixada (RF-VIDA-333).
     const pin = this.pinned;
     if (this.follow && pin && 'creature' in pin && this.eco.alive[pin.creature] && this.eco.uid[pin.creature] === pin.uid) this.center.set(this.eco.x[pin.creature], this.map.height - this.eco.y[pin.creature]);
+    // A pessoa aberta na ficha mantém o lugar dela no modo completo (RF-AS-30 e 31).
+    this.eco.pinned = pin && 'creature' in pin && this.eco.alive[pin.creature] ? this.eco.village[pin.creature] : -1;
     this.updateHover();
     // Quem seria escolhido num clique ganha contorno (RF-VIDA-330).
     this.hoverPick = !this.tool && !this.box && this.hover.x > -1e5 ? this.eco.pick(this.hover.x, this.toRow(this.hover.y) + PICK_LIFT, this.pickRadius()) : -1;
@@ -2116,8 +2124,11 @@ export class SurfaceMode {
         // Estilo da era em que a casa foi feita ou reformada (a cidade mistura estilos na troca de era, RF-VIDA-251);
         // casa reformada ganha um andar e usa o estilo seguinte. Material da região (RF-VIDA-252).
         const style = houseStyle(house.era ?? era, v.tier, house.level ?? 0);
-        const sprite =
-          house.kind !== 'house'
+        // Acampamento (seção 4 do plano novo): tendas antes das casas fixas.
+        const camp = house.kind === 'house' && eco.camp(v);
+        const sprite = camp
+          ? 'tent'
+          : house.kind !== 'house'
             ? house.kind
             : material === 'plain'
               ? house.variant
@@ -2277,7 +2288,20 @@ export class SurfaceMode {
           layer.push(`${body}:soldier`, sx, sy - z * 1.15, z * 0.95 * (11 / 9), tint, sp.color);
           continue;
         }
-        layer.push(`${body}:${elder ? 'elder' : ROLES[role]}`, sx, sy - z * 0.5, z * 1.05 * (11 / 9), tint, sp.color);
+        // Gesto no lugar da tarefa (RF-AS-27): quem trabalha balança no ritmo do gesto, com a ferramenta ao lado.
+        const g = eco.gesture[i];
+        const beat = g && g !== GESTURE.carry ? Math.sin(performance.now() / (g === GESTURE.talk || g === GESTURE.pray ? 420 : 160) + i) : 0;
+        const bob = g === GESTURE.rest ? 0 : beat * z * 0.08;
+        layer.push(`${body}:${elder ? 'elder' : ROLES[role]}`, sx, sy - z * 0.5 + bob, z * 1.05 * (11 / 9), tint, sp.color);
+        if (g === GESTURE.dig || g === GESTURE.reap || g === GESTURE.chop || g === GESTURE.hammer || g === GESTURE.pick || g === GESTURE.row) {
+          layer.push('tool', sx + z * 0.45, sy - z * (0.75 + 0.15 * beat), z * 0.42, tint);
+        }
+        // Carga na mão (RF-AS-24): o cesto, o feixe, a pedra, o minério ou o balde acima do ombro.
+        const load = eco.carry[i] ? CARRIED[eco.carry[i] - 1] : null;
+        if (load) {
+          const art = load === 'food' ? 'load:food' : load === 'wood' ? 'load:wood' : load === 'stone' || load === 'clay' ? 'load:stone' : load === 'water' ? 'load:water' : 'load:ore';
+          layer.push(art, sx + z * 0.3, sy - z * 1.25, z * 0.5, tint);
+        }
         continue;
       }
       const name: SpriteName = spriteOf(sp);
@@ -2317,6 +2341,19 @@ export class SurfaceMode {
         }
         layer.push(`${bodyOf(sp)}:shepherd`, sx, sy - z * 0.5, z * 1.05 * (11 / 9), home.color, sp.color);
         continue;
+      }
+      // Visita (RF-AS-42): viajantes a pé, sem animal; colonos (RF-AS-03): famílias andando atrás do enxoval.
+      if (c.kind === 'visit') {
+        const [bx, by] = behind(0.7);
+        layer.push(`${bodyOf(sp)}:gatherer`, bx, by - z * 0.5, z * 1.05 * (11 / 9), home.color, sp.color);
+        layer.push(`${bodyOf(sp)}:merchant`, sx, sy - z * 0.5, z * 1.05 * (11 / 9), home.color, sp.color);
+        continue;
+      }
+      if (c.kind === 'settlers') {
+        for (let k = 3; k >= 1; k--) {
+          const [bx, by] = behind(1.6 + k * 0.6);
+          layer.push(k === 3 ? `${bodyOf(sp)}:child` : `${bodyOf(sp)}:farmer`, bx, by - z * 0.5, z * 1.05 * (k === 3 ? 6 / 9 : 11 / 9), home.color, sp.color);
+        }
       }
       const animal = c.animal === 'donkey' ? 'donkey' : c.animal;
       const tint = c.animal === 'donkey' ? [132, 122, 112] : (HERD_TINT[c.animal] ?? [140, 100, 70]);
@@ -2427,13 +2464,13 @@ export class SurfaceMode {
       const marks = stateIcons(this.eco, v);
       const text =
         (v.kingdom === v.id && this.eco.kingdomSize(v) > 1
-          ? `♛ ${icon}Reino de ${v.name} · ${this.eco.kingdomPopulation(v)}`
-          : `${icon}${TIER_NAMES[v.tier]} ${v.name} · ${v.population}`) + (marks ? ` ${marks}` : '');
+          ? `♛ ${icon}${this.eco.polityName(v)} · ${this.eco.kingdomPopulation(v)}`
+          : `${icon}${this.eco.tierName(v)} ${v.name} · ${v.population}`) + (marks ? ` ${marks}` : '');
       el.classList.toggle('open', this.vwin?.id === v.id);
       if (el.textContent !== text) el.textContent = text;
       const color = `rgb(${v.color.join(',')})`;
       if (el.style.borderLeftColor !== color) el.style.borderLeftColor = color;
-      el.title = `${v.kingdom === v.id ? `Povo ${v.culture.name}` : `Reino de ${this.eco.capitalOf(v).name} · povo ${v.culture.name}`} · clique para abrir a janela`;
+      el.title = `${v.kingdom === v.id && this.eco.kingdomSize(v) === 1 ? `Povo ${v.culture.name}` : `${this.eco.polityName(v)} · povo ${v.culture.name}`} · clique para abrir a janela`;
       el.style.transform = `translate(${sx}px, ${h - sy}px) translate(-50%, -100%)`;
     }
   }
@@ -2774,7 +2811,7 @@ export class SurfaceMode {
     const c = v.culture;
     const allies = eco.villages.filter((o) => !o.abandoned && o.kingdom === o.id && o.id !== v.kingdom && eco.allied(o.id, v.kingdom)).map((o) => o.name);
     return `
-      <b>${TIER_NAMES[v.tier]} ${v.name}${capital !== v ? ` · Reino de ${capital.name}` : ''}</b>
+      <b>${this.eco.tierName(v)} ${v.name}${capital !== v ? ` · ${this.eco.polityName(v)}` : ''}</b>
       <span>Povo ${c.name} · valoriza ${c.value} · crê n${c.belief.startsWith('a') ? 'a' : 'o'}${c.belief.startsWith('os') || c.belief.startsWith('as') ? 's' : ''} ${c.belief.split(' ').slice(1).join(' ')}</span>
       ${v.vocation ? `<span>${VOCATION_ICONS[v.vocation]} Vocação ${VOCATION_NAMES[v.vocation].toLowerCase()}${v.herd ? ` · rebanho de ${v.herd.head} ${HERD_NAMES[v.herd.kind]}` : ''}</span>` : ''}
       ${v.completeness !== undefined ? `<span>Planta ${Math.round(v.completeness * 100)}%${v.missing ? ` · falta ${v.missing}` : ' · completa'}</span>` : ''}
@@ -2917,6 +2954,8 @@ export class SurfaceMode {
       v && eco.movedAt[i] >= 0 && (!born || born.id !== v.id) ? `mudou para ${v.name} no ano ${Math.floor(eco.movedAt[i])}` : '',
     ].filter(Boolean).join(', ');
     const carry = v && role !== CHILD ? this.carries(i) : '';
+    // Jornada (plano novo dos assentamentos, RF-AS-30): tarefa, motivo e as alternativas que perderam.
+    const journey = v ? eco.dayOf(i) : null;
     // Quem descobriu uma técnica e ainda a ensina, a curiosidade e o ofício em que tem mais jeito (RF-VIDA-419 e 420).
     const teaching = v?.pendingTech?.uid === eco.uid[i] ? v.pendingTech : null;
     const teachName = teaching ? (TECH_BY_ID[teaching.id]?.name ?? teaching.id) : '';
@@ -2942,9 +2981,10 @@ export class SurfaceMode {
       <span>Idade ${eco.age[i].toFixed(0)} anos</span>
       ${this.vitals(i)}
       ${doing}
-      ${v ? `<span>Mora em <button class="wb-link" data-village="${v.id}">${TIER_NAMES[v.tier]} ${v.name}</button>${v.kingdom !== v.id ? ` · Reino de ${eco.capitalOf(v).name}` : ''}</span>` : ''}
+      ${v ? `<span>Mora em <button class="wb-link" data-village="${v.id}">${this.eco.tierName(v)} ${v.name}</button>${v.kingdom !== v.id ? ` · ${eco.polityName(v)}` : ''}</span>` : ''}
       ${v ? `<span>Família ${familyName(eco.family[i], v.culture.id)}${fam.parent >= 0 ? ` · filho(a) de ${person(fam.parent)}` : ''}${fam.children.length ? ` · filhos: ${fam.children.slice(0, 5).map(person).join(', ')}${fam.children.length > 5 ? ` e mais ${fam.children.length - 5}` : ''}` : ''}</span>` : ''}
       ${carry ? `<span>Leva ${carry}</span>` : ''}
+      ${journey ? `<span class="wb-line">🧭 ${journey.task}${journey.carry ? ` · leva ${journey.carry}` : ''}</span><span class="wb-dim">Por quê: ${journey.why}${journey.others.length ? `; perdeu para ${journey.others.join(', ')}` : ''}</span>` : ''}
       ${teaching ? `<span class="wb-line">📜 Ensinando ${teachName} ${bar(teaching.progress, `${Math.round(teaching.progress * 100)}%`, 'good')}</span>` : ''}
       ${traits ? `<span>${traits}</span>` : ''}
       ${tieLine ? `<span>${tieLine}</span>` : ''}
@@ -2983,7 +3023,7 @@ export class SurfaceMode {
     const st = economicState(v);
     const marks = stateIcons(this.eco, v);
     return `
-      <b>${TIER_NAMES[v.tier]} ${v.name}${marks ? ` ${marks}` : ''}</b>
+      <b>${this.eco.tierName(v)} ${v.name}${marks ? ` ${marks}` : ''}</b>
       <span>${v.population} moradores${v.vocation ? ` · ${VOCATION_ICONS[v.vocation]} ${VOCATION_NAMES[v.vocation]}` : ''} · <span class="${st.tone}">${st.label.toLowerCase()}</span></span>
       <span class="wb-dim">Clique no nome, na praça ou num prédio para abrir a janela</span>
       <hr>`;
@@ -3103,7 +3143,7 @@ export class SurfaceMode {
       ${kingdoms ? `<button class="wb-goto" data-open="kingdoms">Reinos e povos<b>${kingdoms}</b></button>` : ''}
       ${eco.alliances.size ? `<div class="wb-pop">Alianças<b>${eco.alliances.size}</b></div>` : ''}
       ${eco.wars.map((war) => `<button class="wb-goto bad" data-village="${war.target}" title="${WAR_MOTIVES[war.motive]}">⚔ ${eco.villages[war.a].name} × ${eco.villages[war.b].name} · ${WAR_MOTIVES[war.motive]}<b>${war.losses[0] + war.losses[1]}†</b></button>`).join('')}
-      ${[...live].sort((a, b) => b.population - a.population).slice(0, 4).map((v) => `<button class="wb-goto" data-village="${v.id}"><i style="background:rgb(${v.color.join(',')})"></i>${TIER_NAMES[v.tier]} ${v.name}<b>${v.population}</b></button>`).join('')}
+      ${[...live].sort((a, b) => b.population - a.population).slice(0, 4).map((v) => `<button class="wb-goto" data-village="${v.id}"><i style="background:rgb(${v.color.join(',')})"></i>${this.eco.tierName(v)} ${v.name}<b>${v.population}</b></button>`).join('')}
       ${events.length ? `<div class="wb-section">Acontecimentos</div>${events.map((e) => `<button class="wb-log"${e.x >= 0 ? ` data-go="${e.x.toFixed(1)},${e.y.toFixed(1)}"` : ''}><span class="wb-yr">${Math.floor(e.year)}</span> ${Ecosystem.describe(e)}</button>`).join('')}<button class="wb-goto" data-open="chronicle">Crônica completa…</button>` : ''}`;
     if (html !== this.lastPanelHtml) {
       this.lastPanelHtml = html;

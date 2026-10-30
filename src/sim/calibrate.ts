@@ -187,7 +187,7 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
     if (y === Math.floor(years * 0.6)) mid = sapient();
     wars += eco.wars.length;
     for (let i = 0; i < eco.count; i++) if (eco.alive[i] && eco.mounted(i)) cavalry++;
-    const moving = eco.caravans.filter((c) => c.kind !== 'flock').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
+    const moving = eco.caravans.filter((c) => c.kind === 'trade' || c.kind === 'tribute').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
     caravans += moving;
     caravansMax = Math.max(caravansMax, moving);
   }
