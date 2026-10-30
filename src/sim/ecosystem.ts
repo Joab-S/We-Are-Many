@@ -9191,8 +9191,8 @@ export class Ecosystem {
     this.migrate();
     this.epidemics();
     this.linkRoads();
-    // Estradas novas mudam por onde passa mais gente: as cidades revêem ruas principais e avenida a cada 10 anos.
-    for (const v of this.villages) if (!v.abandoned && v.tier >= 2 && (Math.floor(this.year) + v.id) % 10 === 0) this.rankStreets(v);
+    // Estradas novas mudam por onde passa mais gente: vilas e cidades revêem ruas principais e avenida a cada 10 anos.
+    for (const v of this.villages) if (!v.abandoned && v.tier >= 1 && (Math.floor(this.year) + v.id) % 10 === 0) this.rankStreets(v);
     this.economyYear();
     for (const k of this.crises) this.succession(this.villages[k]);
     this.crises.clear();
@@ -10864,7 +10864,7 @@ export class Ecosystem {
     if (target > v.tier) {
       v.tier++;
       v.lowYears = 0;
-      if (v.tier >= 2) this.rankStreets(v);
+      if (v.tier >= 1) this.rankStreets(v);
       this.note(`${v.name} virou ${TIER_NAMES[v.tier].toLowerCase()}`, 'povo', v, { major: v.tier >= 2 });
       return;
     }
