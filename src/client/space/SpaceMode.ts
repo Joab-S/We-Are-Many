@@ -138,7 +138,7 @@ const CMDS: [string, string, string][] = [
   ['KeyC', 'cruise', 'Cruzeiro'],
   ['KeyT', 'target', 'Travar alvo na mira'],
   ['KeyN', 'star', 'Próxima sugestão'],
-  ['KeyG', 'search', 'Painel do GUIA'],
+  ['KeyG', 'search', 'Busca do GUIA, Ctrl K'],
   ['KeyV', 'scan', 'Varredura'],
   ['KeyM', 'probe', 'Sonda no corpo'],
   ['KeyR', 'orbit', 'Sonda nos anéis'],
