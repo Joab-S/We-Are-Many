@@ -1,3 +1,4 @@
+import { icon as svgIcon, hasIcon } from '../ui/icons';
 import * as THREE from 'three';
 import { seedFor } from '../../core/rng';
 import {
@@ -54,6 +55,20 @@ const VWIN_HZ = 4;
 const DEBUG = typeof location !== 'undefined' && new URLSearchParams(location.search).has('debug');
 
 type Tab = 'terrain' | 'climate' | 'life' | 'civ' | 'events';
+
+/** Ícone de cada aba da barra de ferramentas e de cada janela de leitura (HUD Pergaminho de Bordo). */
+const TAB_ICONS: Record<Tab, string> = { terrain: 'terrain', climate: 'cloud', life: 'leaf', civ: 'civ', events: 'comet' };
+const WINDOW_ICONS: Record<string, string> = { chronicle: 'chron', kingdoms: 'crown', settlements: 'homes', species: 'paw', items: 'hammer', world: 'gear' };
+/** Ferramenta -> ícone de traço. As que não estão aqui mantêm o sprite ou o emoji de antes. */
+const TOOL_ICONS: Record<string, string> = {
+  raise: 'raise', lower: 'lower', mountain: 'peak', sea: 'wave', flatten: 'flat', sand: 'sand', lake: 'lake', clear: 'broom', demolish: 'demolish',
+  heat: 'hot', cool: 'cold', adjust: 'temp', snow: 'snow', thaw: 'sun', rain: 'rain', dry: 'sun', plant: 'sprout', forest: 'tree',
+  feed: 'apple', cull: 'x', harvest: 'grain', surprise: 'dice', provoke: 'fire', soothe: 'dove', incite: 'swords', inflame: 'fire', pacify: 'dove',
+  'event:comet': 'comet', 'event:quake': 'quake', 'event:volcano': 'volcano', 'event:island': 'wave', 'event:fire': 'fire', 'event:drought': 'sun',
+};
+const ORE_SWATCH: Record<string, string> = { copper: '#b87333', tin: '#c9ced6', iron: '#8a6a58', gold: '#e0c27a', coal: '#33363c' };
+const SETTLEMENT_TAB_ICONS: Record<string, string> = { summary: 'grain', economy: 'coin', people: 'users', buildings: 'home', relations: 'flag', history: 'chron' };
+const plain = (label: string) => label.replace(/^\S+\s/, '');
 
 const TABS: [Tab, string][] = [
   ['terrain', '⛰ Terreno'],
@@ -797,6 +812,9 @@ export class SurfaceMode {
   }
 
   private toolIcon(t: Tool): string {
+    const svg = TOOL_ICONS[t.id];
+    if (svg && hasIcon(svg)) return svgIcon(svg);
+    if (t.id.startsWith('ore:')) return `<span class="wb-ore" style="background:${ORE_SWATCH[t.id.slice(4)] ?? '#888'}"></span>`;
     return t.icon.startsWith('sprite:') ? this.icon(t.icon.slice(7), t.tint, t.skin) : `<span>${t.icon}</span>`;
   }
 
@@ -805,20 +823,20 @@ export class SurfaceMode {
       <canvas class="wb-terr" data-terr></canvas>
       <div class="wb-labels" data-l></div>
       <div class="wb-top">
-        <button class="wb-back" data-a="back">⟵ Órbita</button>
+        <button class="wb-back wb-ib" data-a="back" title="Voltar à órbita">${svgIcon('left')}</button>
         <div class="wb-title">${this.params.name}</div>
         <div class="wb-stats" data-s></div>
         <div class="wb-clock" data-clock></div>
         <div class="wb-menu">
-          ${WINDOWS.map(([id, label]) => `<button class="wb-back" data-w="${id}">${label}</button>`).join('')}
-          <button class="wb-back" data-a="help" title="Controles (H)">?</button>
+          ${WINDOWS.map(([id, label]) => `<button class="wb-back wb-ib" data-w="${id}" title="${plain(label)}">${svgIcon(WINDOW_ICONS[id])}</button>`).join('')}
+          <button class="wb-back wb-ib" data-a="help" title="Controles (H)">${svgIcon('help')}</button>
         </div>
       </div>
       <div class="wb-info" data-i hidden></div>
       <div class="wb-side" data-side>
         <div class="wb-side-head">
           <canvas class="wb-mini" data-mini width="200" height="100" title="Clique ou arraste para levar a câmera"></canvas>
-          <button class="wb-fold" data-fold title="Esconder ou mostrar o painel (P)">▾ Painel</button>
+          <button class="wb-fold" data-fold title="Esconder ou mostrar o painel (P)">${svgIcon('layers')}<span>Painel</span></button>
         </div>
         <div class="wb-side-body" data-p></div>
       </div>
@@ -829,7 +847,7 @@ export class SurfaceMode {
       </div>
       <div class="wb-vwin" data-vwin hidden>
         <div class="wb-win-head"><b data-vwin-title></b><button class="wb-x" data-vclose title="Fechar (Esc)">✕</button></div>
-        <div class="wb-vtabs" data-vtabs>${SETTLEMENT_TABS.map(([id, label]) => `<button data-vtab="${id}">${label}</button>`).join('')}</div>
+        <div class="wb-vtabs" data-vtabs>${SETTLEMENT_TABS.map(([id, label]) => `<button data-vtab="${id}" title="${label}" aria-label="${label}">${svgIcon(SETTLEMENT_TAB_ICONS[id] ?? 'eye')}</button>`).join('')}</div>
         <div class="wb-win-body" data-vwin-body></div>
       </div>
       <div class="wb-crowd" data-crowd hidden></div>
@@ -837,7 +855,7 @@ export class SurfaceMode {
       <div class="wb-toast" data-toast hidden></div>
       <div class="wb-dock">
         <div class="wb-tip" data-tip></div>
-        <div class="wb-tabs">${TABS.map(([id, label]) => `<button data-tab="${id}">${label}</button>`).join('')}</div>
+        <div class="wb-tabs">${TABS.map(([id, label]) => `<button data-tab="${id}" title="${plain(label)}">${svgIcon(TAB_ICONS[id])}</button>`).join('')}</div>
         <div class="wb-bar" data-bar></div>
       </div>
       <div class="wb-help" data-help hidden>
@@ -1026,7 +1044,6 @@ export class SurfaceMode {
   private fold(): void {
     this.folded = !this.folded;
     this.root.querySelector('[data-side]')!.classList.toggle('folded', this.folded);
-    this.root.querySelector('[data-fold]')!.textContent = this.folded ? '▸ Painel' : '▾ Painel';
   }
 
   /** Raio de escolha em tiles para o zoom atual. */
@@ -1292,12 +1309,12 @@ export class SurfaceMode {
         group = t.group;
         if (group) html += `<div class="wb-group">${group}</div>`;
       }
-      html += `<button class="wb-tool" data-t="${t.id}" title="${t.tip}">${this.toolIcon(t)}${t.label}</button>`;
+      html += `<button class="wb-tool" data-t="${t.id}" data-label="${t.label}" title="${t.tip}" aria-label="${t.label}">${this.toolIcon(t)}</button>`;
     }
     bar.innerHTML = `
       ${html}
       <div class="wb-group"></div>
-      <button class="wb-tool" data-t="inspect" title="Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes, sem mexer em nada"><span>✋</span>Mão</button>
+      <button class="wb-tool" data-t="inspect" data-label="Mão" aria-label="Mão" title="Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes, sem mexer em nada">${svgIcon('hand')}</button>
       <label class="wb-brush">Pincel <input type="range" min="1" max="30" value="${this.brush}" data-b /></label>
       ${
         tab === 'climate'
@@ -1314,6 +1331,14 @@ export class SurfaceMode {
         this.tool = t && t !== this.tool ? t : null;
         this.updateToolbar();
       }, { signal });
+    });
+    // Passar o mouse numa casa mostra o nome e a dica no lugar da faixa de dica; ao sair, volta o texto da ferramenta ativa.
+    const tipEl = this.root.querySelector<HTMLElement>('[data-tip]')!;
+    bar.querySelectorAll<HTMLButtonElement>('[data-t]').forEach((b) => {
+      b.addEventListener('mouseenter', () => {
+        tipEl.innerHTML = `<b>${b.dataset.label}</b>${b.title ? ` ${b.title}` : ''}`;
+      }, { signal });
+      b.addEventListener('mouseleave', () => this.updateToolbar(), { signal });
     });
     bar.querySelector<HTMLInputElement>('[data-b]')!.addEventListener('input', (e) => {
       this.brush = Number((e.target as HTMLInputElement).value);
@@ -1411,7 +1436,7 @@ export class SurfaceMode {
                 : this.worldHtml();
     if (body === this.lastWinHtml) return;
     this.lastWinHtml = body;
-    this.root.querySelector<HTMLElement>('[data-win-title]')!.textContent = title;
+    this.root.querySelector<HTMLElement>('[data-win-title]')!.textContent = plain(title);
     this.root.querySelector<HTMLElement>('[data-win-body]')!.innerHTML = body;
   }
 
@@ -3064,7 +3089,7 @@ export class SurfaceMode {
     const events = eco.chronicle.filter((e) => this.showMinor || e.major).slice(0, 6);
     const clock = `
       <div class="wb-clock-text"><b>${era}</b><span>Ano ${Math.floor(eco.year)}${this.progressLine(live)}</span></div>
-      <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === this.speed ? 'on' : ''}" title="${v === 0 ? 'Pausa (Espaço)' : `Velocidade ${v}x (${k + 1})`}">${v === 0 ? '❚❚' : `${v}x`}</button>`).join('')}</div>`;
+      <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === this.speed ? 'on' : ''}" title="${v === 0 ? 'Pausa (Espaço)' : `Velocidade ${v}x (${k + 1})`}">${v === 0 ? svgIcon('pause') : `${v}x`}</button>`).join('')}</div>`;
     if (clock !== this.lastClockHtml) {
       this.lastClockHtml = clock;
       this.root.querySelector<HTMLElement>('[data-clock]')!.innerHTML = clock;

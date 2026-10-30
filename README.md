@@ -38,6 +38,7 @@ npm run data
 | C | Cruzeiro: mantém a velocidade sem segurar W |
 | F | Observar a superfície (em órbita de um planeta rochoso) |
 | G | Painel do GUIA: sugestões, sistema atual, estrelas, pontos de interesse, marcadores, busca e diário de bordo |
+| Ctrl K | Busca do GUIA (a mesma lista do G), em qualquer lugar do espaço |
 | T | Trava como alvo o que estiver na mira |
 | N | Aceita a próxima sugestão do GUIA como alvo |
 | J | Liga ou desliga o piloto automático até o alvo (qualquer comando manual desliga) |

@@ -1,0 +1,195 @@
+/*
+ * HUD "Pergaminho de Bordo": estrutura medieval (bronze, pergaminho, abas com
+ * título, brasões) com acabamento de nave (cantos chanfrados, filete ciano,
+ * blocos indicadores). Carregado depois de style.css, que traz o comportamento
+ * e as regras antigas; aqui só mudamos a aparência. O espaço tem o próprio
+ * visual em space.css.
+ *
+ * Cores com significado: ciano = a nave (IA), ouro = o que está ativo,
+ * pergaminho = conteúdo do mundo, metal e bronze = estrutura, folha = bom,
+ * âmbar = atenção, cera = perigo.
+ */
+:root {
+  --g9: #14171c; --g8: #1b2027; --g7: #232830; --g5: #3a414c;
+  --br: #b08a4a; --br-d: #6f5326; --br-l: #d3b06a;
+  --gold: #e0c27a; --pa: #e9dcbc; --pa2: #d9c79c; --pa3: #bfa971;
+  --ink: #2b2118; --ink2: #5d4a33; --bronze-ink: #7a5418;
+  --cy: #4fd8e8; --cy-d: #2b8d9b;
+  --leaf: #4f8f4f; --amb: #e8a33d; --wax: #b8433a;
+  --ice: #dbe2ea; --dim: #aeb9c6;
+  --f-title: 'Cinzel', Georgia, serif;
+  --f-text: 'Alegreya Sans', 'Segoe UI', system-ui, sans-serif;
+  --f-num: 'Share Tech Mono', ui-monospace, 'Courier New', monospace;
+  --chamfer: 6px;
+}
+
+svg.ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; flex: none; pointer-events: none; }
+.chf, .wb-ib, .wb-tool, .wb-tabs button, .wb-bar, .wb-clock, .wb-tip, .wb-toast {
+  --c: var(--chamfer);
+}
+/* Forma chanfrada: aplicada por classe nos blocos de metal e pergaminho. */
+.wb-top, .wb-clock, .wb-bar, .wb-tip, .wb-ib, .wb-tool, .wb-tabs button, .wb-toast {
+  clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+}
+
+/* ---------- Superfície: barra superior ---------- */
+.surface-hud { font-family: var(--f-text); font-size: 15px; }
+.surface-hud button, .surface-hud input, .surface-hud label { font-family: inherit; }
+.wb-top {
+  --c: 0px; top: 0; left: 0; right: 0; height: 44px; padding: 0 12px; gap: 12px;
+  background: linear-gradient(#2a303a, var(--g9)); box-shadow: inset 0 -2px 0 var(--br-d), inset 0 -3px 0 rgba(79, 216, 232, 0.55);
+  pointer-events: auto; clip-path: none;
+}
+.wb-title { font-family: var(--f-title); font-weight: 600; font-size: 20px; letter-spacing: 0.1em; color: #f1e6c8; text-shadow: none; text-transform: uppercase; }
+.wb-stats { display: none; }
+.wb-ib, .wb-back.wb-ib {
+  --c: 5px; width: 32px; height: 32px; padding: 0; display: grid; place-items: center; background: var(--g8); color: var(--ice); border: 0;
+  box-shadow: none; position: relative;
+}
+.wb-ib { background: linear-gradient(var(--g7), var(--g8)); }
+.wb-ib:hover { background: var(--g5); color: #fff; }
+.wb-ib.on, .wb-menu .wb-back.on { background: #3b2f17; color: var(--gold); outline: 2px solid var(--gold); outline-offset: -2px; }
+.wb-menu { gap: 4px; margin-left: auto; }
+.wb-menu .wb-back, .wb-menu .wb-back::first-letter { font-size: inherit; }
+.wb-clock {
+  position: absolute; left: 50%; top: 5px; transform: translateX(-50%); margin: 0; height: 34px; gap: 14px; padding: 0 12px; background: #0d1014;
+  border: 0; box-shadow: none; --c: 8px; clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% 100%, 0 100%);
+  outline: 0;
+}
+.wb-clock::before { content: ''; position: absolute; inset: 0; box-shadow: inset 0 0 0 1px var(--br-d); pointer-events: none; }
+.wb-clock-text { flex-direction: row; align-items: baseline; gap: 10px; }
+.wb-clock-text b { color: var(--gold); font-family: var(--f-title); font-size: 15px; letter-spacing: 0.06em; font-weight: 600; }
+.wb-clock-text span { color: var(--dim); font-size: 13px; font-family: var(--f-num); }
+.wb-speed { gap: 2px; }
+.wb-speed button, .wb-clock .wb-speed button {
+  min-width: 28px; height: 24px; padding: 0 4px; display: grid; place-items: center; background: var(--g8); color: var(--dim); border: 0;
+  font-family: var(--f-num); font-size: 12px; cursor: pointer;
+}
+.wb-speed button svg { width: 12px; height: 12px; }
+.wb-speed button:hover { color: #fff; }
+.wb-speed button.on { background: var(--gold); color: #1d1503; }
+
+/* ---------- Superfície: barra de ferramentas ---------- */
+.wb-dock { bottom: 12px; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.5)); }
+.wb-tip {
+  --c: 7px; max-width: min(430px, calc(100vw - 24px)); margin: 0 0 6px; padding: 6px 12px 8px; background: #0d1014; color: var(--ice);
+  font-size: 14px; line-height: 1.25; text-align: left; box-shadow: inset 0 -2px 0 var(--cy-d); min-height: 0;
+}
+.wb-tip:empty { display: none; }
+.wb-tip b { color: var(--gold); font-weight: 700; }
+.wb-tabs { gap: 3px; align-self: flex-start; margin: 0 8px -2px; position: relative; z-index: 1; }
+.wb-tabs button {
+  --c: 6px; width: 44px; height: 28px; padding: 0; display: grid; place-items: center; color: var(--dim); background: linear-gradient(var(--g7), var(--g9)); border: 0;
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 100%, 0 100%); box-shadow: none; cursor: pointer;
+}
+.wb-tabs button svg { width: 18px; height: 18px; }
+.wb-tabs button:hover { color: #fff; }
+.wb-tabs button.on { color: var(--gold); background: linear-gradient(#3b2f17, var(--g8)); }
+.wb-bar {
+  --c: 10px; gap: 4px; padding: 10px 14px; background: linear-gradient(#2a303a, var(--g9)); border: 0; align-items: center;
+  box-shadow: inset 0 0 0 1px #0a0c0f; position: relative; scrollbar-color: var(--br) var(--g9);
+}
+.wb-bar::-webkit-scrollbar { height: 6px; }
+.wb-bar::-webkit-scrollbar-track { background: var(--g9); }
+.wb-bar::-webkit-scrollbar-thumb { background: var(--br-d); border: 0; }
+.wb-tool {
+  --c: 6px; width: 46px; min-width: 46px; height: 46px; padding: 0; display: grid; place-items: center; background: linear-gradient(var(--g7), var(--g8));
+  color: var(--ice); border: 0; box-shadow: none; cursor: pointer; position: relative;
+}
+.wb-tool:hover { background: var(--g5); color: #fff; }
+.wb-tool.on { background: #3b2f17; color: var(--gold); outline: 2px solid var(--gold); outline-offset: -2px; }
+.wb-tool svg { width: 26px; height: 26px; }
+.wb-tool .wb-px { height: 26px; max-width: 34px; object-fit: contain; margin: 0; }
+.wb-tool > span { font-size: 22px; line-height: 1; }
+.wb-ore { display: block; width: 24px; height: 24px; border-radius: 50%; box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.25), 0 0 0 2px #0a0c0f; }
+.wb-group {
+  writing-mode: horizontal-tb; transform: none; align-self: center; width: 2px; min-height: 30px; height: 30px; padding: 0; margin: 0 4px; overflow: hidden;
+  font-size: 0; color: transparent; border: 0; background: linear-gradient(transparent, var(--br-d), transparent);
+}
+.wb-brush { display: flex; align-items: center; gap: 8px; color: var(--ice); font-size: 13px; padding: 0 6px; flex-direction: row; }
+.wb-brush input[type='range'] { accent-color: var(--gold); width: 110px; }
+.wb-brush input[type='checkbox'] { accent-color: var(--gold); }
+.wb-brush b { font-family: var(--f-num); font-weight: 400; color: var(--gold); }
+
+/* ---------- Superfície: janelas (moldura de bronze, filete ciano, pergaminho) ---------- */
+.wb-window, .wb-vwin, .wb-side, .wb-help, .wb-info, .wb-crowd {
+  color: var(--ink); font-size: 14px; border: 0; padding: 0;
+  background: radial-gradient(ellipse at 30% 0%, #f3e8cb, transparent 70%), repeating-linear-gradient(0deg, rgba(120, 90, 40, 0.05) 0 1px, transparent 1px 4px), linear-gradient(var(--pa), #dccda3);
+  box-shadow: 0 0 0 4px var(--br), 0 0 0 5px var(--cy), 0 8px 18px rgba(0, 0, 0, 0.55);
+  border-radius: 3px;
+}
+.wb-info, .wb-crowd { padding: 8px 12px; }
+.wb-info b { color: var(--bronze-ink); }
+.wb-window, .wb-vwin { top: 70px; }
+.wb-side { top: 56px; right: 12px; }
+.wb-vwin { right: 232px; }
+.wb-info { top: 56px; left: 12px; }
+.wb-win-head {
+  padding: 6px 10px; border-bottom: 1px solid var(--pa3); background: transparent; color: var(--ink); font-family: var(--f-title); font-weight: 600;
+  letter-spacing: 0.08em; font-size: 15px; text-transform: uppercase;
+}
+.wb-win-head b { font-weight: 600; }
+.wb-x {
+  width: 24px; height: 24px; padding: 0; border: 0; background: var(--g8); color: var(--ice); font-size: 0; display: grid; place-items: center; cursor: pointer;
+  position: relative;
+}
+.wb-x::before, .wb-x::after { content: ''; position: absolute; width: 12px; height: 2px; background: currentColor; transform: rotate(45deg); }
+.wb-x::after { transform: rotate(-45deg); }
+.wb-x:hover { background: var(--wax); }
+.wb-win-body { padding: 10px 12px; }
+.wb-vtabs { gap: 3px; padding: 6px 8px 0; background: transparent; border-bottom: 1px solid var(--pa3); }
+.wb-vtabs button {
+  width: 38px; height: 28px; padding: 0; display: grid; place-items: center; border: 0; background: var(--pa2); color: var(--ink2); cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 0 100%);
+}
+.wb-vtabs button svg { width: 17px; height: 17px; }
+.wb-vtabs button.on { background: var(--g7); color: var(--gold); }
+.wb-side-head { background: transparent; border-bottom: 1px solid var(--pa3); padding: 8px; }
+.wb-mini { border: 0; box-shadow: 0 0 0 2px var(--br), 0 0 0 3px var(--br-d); }
+.wb-fold { color: var(--ink2); display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.wb-fold svg { width: 14px; height: 14px; }
+.wb-fold:hover { color: var(--bronze-ink); }
+.wb-side-body { padding: 4px 12px 10px; }
+
+/* texto sobre pergaminho: tudo que era claro sobre marrom escuro passa a tinta */
+.wb-section, .wb-sub { color: var(--ink2); border-bottom: 1px dotted var(--pa3); font-size: 12px; letter-spacing: 0.14em; }
+.wb-note, .wb-dim, .wb-empty, .wb-item span, .wb-yr, .wb-table th, .wb-kv > span:first-child, .wb-pin, .wb-log { color: var(--ink2); }
+.wb-note { font-size: 13px; }
+.wb-row, .wb-goto, .wb-log, .wb-chip, .wb-crowd button, .wb-crowd { color: var(--ink); }
+.wb-row.major { color: var(--ink); font-weight: 700; }
+.wb-row[data-go]:hover, .wb-crowd button:hover, .wb-table tr.wb-click:hover { background: rgba(122, 84, 24, 0.12); }
+.wb-goto:hover, .wb-log[data-go]:hover, .wb-fold:hover, .wb-table th button.on, .wb-link { color: var(--bronze-ink); }
+.wb-pop b { color: var(--bronze-ink); font-family: var(--f-num); font-weight: 400; }
+.wb-row, .wb-table th, .wb-table td, .wb-kv { border-bottom-color: var(--pa3); }
+.wb-goto.bad, .surface-hud .bad { color: #8f2a22; }
+.surface-hud .good { color: #2f6b2f; }
+.surface-hud .warn { color: #8a5a00; }
+.wb-card, .wb-sp, .wb-item { background: rgba(43, 33, 24, 0.07); border: 0; box-shadow: inset 0 0 0 1px var(--pa3); }
+.wb-card-head { color: var(--ink); font-weight: 700; }
+.wb-filters button, .wb-mini-btn, .wb-btn, .wb-chip {
+  background: var(--g8); color: var(--ice); border: 0; padding: 3px 10px; font-size: 13px; cursor: pointer;
+  clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px);
+}
+.wb-chip b { color: var(--gold); }
+.wb-filters button.on { background: #3b2f17; color: var(--gold); box-shadow: inset 0 0 0 2px var(--gold); }
+button.wb-mini { background: var(--g8); color: var(--ice); border: 0; padding: 3px 10px; cursor: pointer; width: auto; height: auto; aspect-ratio: auto; image-rendering: auto; }
+.wb-table th button { color: var(--ink2); }
+.wb-meter { background: rgba(43, 33, 24, 0.25); border: 0; height: 8px; }
+.wb-meter i { background: var(--leaf); }
+.wb-meter.warn i { background: var(--amb); }
+.wb-meter.bad i { background: var(--wax); }
+.wb-spark svg { background: rgba(43, 33, 24, 0.08); border: 0; }
+.wb-keys kbd { color: var(--bronze-ink); border-color: var(--br); }
+.wb-keys { font-size: 14px; }
+.wb-info.pinned { box-shadow: 0 0 0 4px var(--gold), 0 0 0 5px var(--cy), 0 8px 18px rgba(0, 0, 0, 0.55); }
+.wb-toast { --c: 6px; background: #0d1014; color: var(--ice); border: 0; box-shadow: inset 0 -2px 0 var(--cy-d); font-size: 14px; padding: 8px 16px; }
+.wb-village { font-family: var(--f-text); font-size: 14px; font-weight: 500; color: var(--ink); background: linear-gradient(#f0e5c8, #dccda3); border: 0; border-left: 5px solid #888; padding: 1px 8px 1px 6px; text-shadow: none; box-shadow: 0 0 0 2px var(--br), 0 2px 3px rgba(0, 0, 0, 0.5); }
+.wb-village:hover, .wb-village.open { background: #fff3d4; outline: 0; box-shadow: 0 0 0 2px var(--gold), 0 2px 3px rgba(0, 0, 0, 0.5); }
+.wb-cursor { color: var(--gold); }
+
+
+/* ---------- telas pequenas ---------- */
+@media (max-width: 1100px) {
+  .wb-clock-text span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01ms !important; } }
