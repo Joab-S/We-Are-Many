@@ -132,19 +132,25 @@ function poiArrive(p: Poi): number {
  * fica sempre na origem e o mundo é transladado em torno dela (origem
  * flutuante, RNF-05).
  */
-/** Grade de comandos da bancada: tecla, ícone e nome. Clicar faz o mesmo que apertar a tecla. */
-const CMDS: [string, string, string][] = [
-  ['KeyJ', 'auto', 'Piloto automático'],
-  ['KeyC', 'cruise', 'Cruzeiro'],
-  ['KeyT', 'target', 'Travar alvo na mira'],
-  ['KeyN', 'star', 'Próxima sugestão'],
-  ['KeyG', 'search', 'Busca do GUIA, Ctrl K'],
-  ['KeyV', 'scan', 'Varredura'],
-  ['KeyM', 'probe', 'Sonda no corpo'],
-  ['KeyR', 'orbit', 'Sonda nos anéis'],
-  ['KeyB', 'flag', 'Marcador'],
-  ['KeyH', 'home', 'Rota para casa'],
-  ['KeyX', 'stop', 'Limpar alvo'],
+/** Comandos do painel de navegação, por grupo: tecla, ícone, nome curto e dica. Clicar faz o mesmo que apertar a tecla. */
+const CMD_GROUPS: [string, [string, string, string, string][]][] = [
+  ['Pilotagem', [
+    ['KeyJ', 'auto', 'Piloto', 'Piloto automático até o alvo'],
+    ['KeyC', 'cruise', 'Cruzeiro', 'Mantém a velocidade sem segurar W'],
+    ['KeyH', 'home', 'Casa', 'Traça a rota para casa'],
+  ]],
+  ['Alvo', [
+    ['KeyT', 'target', 'Travar', 'Trava como alvo o que está na mira'],
+    ['KeyN', 'star', 'Sugestão', 'Aceita a próxima sugestão do GUIA'],
+    ['KeyG', 'search', 'Buscar', 'Painel do GUIA (também Ctrl K)'],
+    ['KeyX', 'stop', 'Limpar', 'Limpa o alvo'],
+  ]],
+  ['Explorar', [
+    ['KeyV', 'scan', 'Varrer', 'Varredura de longo alcance'],
+    ['KeyM', 'probe', 'Sonda', 'Envia sonda ao corpo'],
+    ['KeyR', 'orbit', 'Anéis', 'Envia sonda aos anéis'],
+    ['KeyB', 'flag', 'Marcar', 'Marca esta posição'],
+  ]],
 ];
 
 export class SpaceMode {
@@ -247,9 +253,8 @@ export class SpaceMode {
       <div class="hud-crosshair"></div>
       <div class="hud-orbit hud-panel" data-h="orbit" hidden></div>
       <div class="hud-help">
-        <div class="cmd-head"><span class="cmd-title">Comandos</span><span class="cmd-hint"><kbd>Ctrl</kbd><kbd>K</kbd> buscar</span></div>
-        <div class="cmd-grid">${CMDS.map(([key, ico, label]) => `<button class="cmd" data-key="${key}" title="${label} (${key.replace('Key', '')})" aria-label="${label}"><kbd>${key.replace('Key', '')}</kbd>${svgIcon(ico)}</button>`).join('')}</div>
-        <div class="cmd-keys"><b>W/S</b> acelera · <b>A/D</b> curva · <b>Espaço/Shift</b> sobe/desce · <b>Tab</b> turbo</div>
+        ${CMD_GROUPS.map(([title, list]) => `<div class="cmd-sec">${title}</div><div class="cmd-grid">${list.map(([key, ico, name, tip]) => `<button class="cmd" data-key="${key}" title="${tip} (${key.replace('Key', '')})">${svgIcon(ico)}<span>${name}</span><kbd>${key.replace('Key', '')}</kbd></button>`).join('')}</div>`).join('')}
+        <div class="cmd-keys"><b>W/S</b> acelera · <b>A/D</b> curva · <b>Espaço/Shift</b> sobe/desce · <b>Q/E</b> gira · <b>Tab</b> turbo</div>
       </div>
       <div class="hud-labels" data-h="labels"></div>
       <div class="hud-lock" data-h="lock">Clique para pilotar</div>`;
@@ -276,6 +281,8 @@ export class SpaceMode {
         this.refreshNav(performance.now());
       },
     });
+    // Os comandos moram no mesmo painel do radar.
+    this.guide.root.querySelector('.nav-panel')!.appendChild(this.hudRoot.querySelector('.hud-help')!);
     this.state.probes ??= createProbeState();
     this.probes = new ProbeControl(this.hudRoot, this.state.probes, this.scene, (text, tone) => this.guide.say(text, tone), (text) => this.addLog(text));
     if (!this.state.nav.greeted) {
