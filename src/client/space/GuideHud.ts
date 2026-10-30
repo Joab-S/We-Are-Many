@@ -357,7 +357,7 @@ export class GuideHud {
       g.stroke();
     }
     g.strokeStyle = 'rgba(79, 216, 232, 0.35)';
-    g.font = `${11 * dpr}px "Share Tech Mono", ui-monospace, monospace`;
+    g.font = `${11 * dpr}px Inter, "Segoe UI", system-ui, sans-serif`;
     g.fillStyle = 'rgba(174, 185, 198, 0.85)';
     for (const [au, label] of RADAR_RINGS) {
       const r = radarRadius(au) * R;
@@ -444,7 +444,7 @@ export class GuideHud {
     // Nomes: o alvo, as sugestões e os mais próximos, sem sobrepor.
     placed.sort((a, b) => a.rank - b.rank);
     const boxes: [number, number, number, number][] = [];
-    g.font = `${11 * dpr}px "Share Tech Mono", ui-monospace, monospace`;
+    g.font = `${11 * dpr}px Inter, "Segoe UI", system-ui, sans-serif`;
     let shown = 0;
     for (const o of placed) {
       if (shown >= 8) break;

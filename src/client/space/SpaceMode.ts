@@ -132,6 +132,18 @@ function poiArrive(p: Poi): number {
  * fica sempre na origem e o mundo é transladado em torno dela (origem
  * flutuante, RNF-05).
  */
+/** Fita da bússola: rumo da proa no plano da eclíptica (N é +y), 3 px por grau, repetida para dar a volta. */
+const CMP_PX = 3;
+const COMPASS_TAPE = (() => {
+  const names: Record<number, string> = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
+  let html = '';
+  for (let d = -180; d <= 540; d += 15) {
+    const n = names[((d % 360) + 360) % 360];
+    html += `<i class="${n ? 'big' : ''}" style="left:${(d + 180) * CMP_PX}px">${n ? `<b>${n}</b>` : ''}</i>`;
+  }
+  return html;
+})();
+
 /** Comandos do painel de navegação, por grupo: tecla, ícone, nome curto e dica. Clicar faz o mesmo que apertar a tecla. */
 const CMD_GROUPS: [string, [string, string, string, string][]][] = [
   ['Pilotagem', [
@@ -168,6 +180,7 @@ export class SpaceMode {
   private readonly probes: ProbeControl;
   private readonly velocity = new THREE.Vector3();
   private readonly hudRoot: HTMLDivElement;
+  private readonly tmpFwd = new THREE.Vector3();
   private readonly hudEls: Record<string, HTMLElement> = {};
   private readonly labels = new Map<string, Label>();
   private readonly poiBodies = new Map<string, { poi: Poi; body: Body }>();
@@ -235,13 +248,19 @@ export class SpaceMode {
     this.hudRoot.className = 'space-hud';
     this.hudRoot.innerHTML = `
       <div class="hud-panel hud-top-left">
-        <div class="hud-title">WE ARE MANY</div>
-        <div><span class="k">Velocidade</span> <b data-h="speed"></b></div>
-        <div><span class="k">Potência</span> <b data-h="throttle"></b></div>
-        <div class="turbo"><span class="k">Turbo</span> <span class="turbo-bar"><i data-h="turbo"></i></span></div>
-        <div><span class="k">Mais próximo</span> <b data-h="nearest"></b></div>
-        <div><span class="k">Distância</span> <b data-h="distance"></b></div>
-        <div><span class="k">Posição</span> <b data-h="position"></b></div>
+        <div class="hud-title">${svgIcon('ship')}WE ARE MANY</div>
+        <div>${svgIcon('bolt')}<span class="k">Potência</span> <b data-h="throttle"></b></div>
+        <div class="turbo">${svgIcon('cruise')}<span class="k">Turbo</span> <span class="turbo-bar"><i data-h="turbo"></i></span></div>
+        <div class="hud-pos">${svgIcon('target')}<span class="k">Posição</span> <b data-h="position"></b></div>
+      </div>
+      <div class="hud-compass">
+        <div class="cmp-view"><div class="cmp-tape" data-h="tape">${COMPASS_TAPE}</div><i class="cmp-mark"></i></div>
+        <div class="cmp-row">
+          <span>${svgIcon('sun')}<b data-h="system"></b></span>
+          <span>${svgIcon('planet')}<b data-h="nearest"></b></span>
+          <span>${svgIcon('target')}<b data-h="distance"></b></span>
+          <span>${svgIcon('play')}<b data-h="speed"></b></span>
+        </div>
       </div>
       <div class="hud-panel hud-top-right">
         <div><span class="k">FPS</span> <b data-h="fps"></b></div>
@@ -253,8 +272,7 @@ export class SpaceMode {
       <div class="hud-crosshair"></div>
       <div class="hud-orbit hud-panel" data-h="orbit" hidden></div>
       <div class="hud-help">
-        ${CMD_GROUPS.map(([title, list]) => `<div class="cmd-sec">${title}</div><div class="cmd-grid">${list.map(([key, ico, name, tip]) => `<button class="cmd" data-key="${key}" title="${tip} (${key.replace('Key', '')})">${svgIcon(ico)}<span>${name}</span><kbd>${key.replace('Key', '')}</kbd></button>`).join('')}</div>`).join('')}
-        <div class="cmd-keys"><b>W/S</b> acelera · <b>A/D</b> curva · <b>Espaço/Shift</b> sobe/desce · <b>Q/E</b> gira · <b>Tab</b> turbo</div>
+        ${CMD_GROUPS.map(([title, list]) => `<div class="cmd-group" title="${title}">${list.map(([key, ico, name, tip]) => `<button class="cmd" data-key="${key}" title="${tip}">${svgIcon(ico)}<span>${name}</span><kbd>${key.replace('Key', '')}</kbd></button>`).join('')}</div>`).join('<i class="cmd-sep"></i>')}
       </div>
       <div class="hud-labels" data-h="labels"></div>
       <div class="hud-lock" data-h="lock">Clique para pilotar</div>`;
@@ -281,8 +299,6 @@ export class SpaceMode {
         this.refreshNav(performance.now());
       },
     });
-    // Os comandos moram no mesmo painel do radar.
-    this.guide.root.querySelector('.nav-panel')!.appendChild(this.hudRoot.querySelector('.hud-help')!);
     this.state.probes ??= createProbeState();
     this.probes = new ProbeControl(this.hudRoot, this.state.probes, this.scene, (text, tone) => this.guide.say(text, tone), (text) => this.addLog(text));
     if (!this.state.nav.greeted) {
@@ -1243,6 +1259,10 @@ export class SpaceMode {
     this.hudEls.turbo.classList.toggle('on', this.turbo.active);
     this.hudEls.nearest.textContent = nearest.name;
     this.hudEls.distance.textContent = Number.isFinite(nearest.dist) ? formatDistance(Math.max(nearest.dist, 0)) : '—';
+    const fwd = this.tmpFwd.set(0, 0, -1).applyQuaternion(this.state.shipQuat);
+    const heading = ((Math.atan2(fwd.x, fwd.y) * 180) / Math.PI + 360) % 360;
+    this.hudEls.tape.style.transform = `translateX(${-(heading + 180) * CMP_PX}px)`;
+    this.hudEls.system.textContent = this.system ? this.system.info.name : this.state.shipPos.length() < SYSTEM_EXIT_PC * AU_PER_PC ? 'Sistema Sol' : 'Espaço profundo';
     this.hudEls.position.textContent = `${pc.x.toFixed(3)}, ${pc.y.toFixed(3)}, ${pc.z.toFixed(3)} pc`;
     this.hudEls.fps.textContent = this.fps.toFixed(0);
     this.hudEls.chunks.textContent = `${this.stars.loadedCount} / ${this.state.manifest.manifest.nodes.length}`;
