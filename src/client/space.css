@@ -1,0 +1,227 @@
+/*
+ * HUD do espaço, a partir da referência aprovada: painéis de vidro azul-escuro
+ * com borda fina azul e cantos arredondados, ícones de traço em ciano, rótulos
+ * em cinza-azulado e valores em branco. Tudo fica nas bordas para o centro
+ * mostrar o céu e a nave.
+ *
+ * Esquerda: nave e sinal/alvo. Topo: bússola e aviso. Direita: corpo em órbita
+ * e radar orbital. Embaixo: barra de comandos. Canto: DEV com os dados técnicos.
+ */
+.space-hud {
+  --sp-glass: linear-gradient(180deg, rgba(12, 26, 48, 0.88), rgba(6, 14, 30, 0.9));
+  --sp-edge: rgba(70, 150, 235, 0.5);
+  --sp-shadow: 0 0 0 1px var(--sp-edge), 0 0 20px rgba(30, 120, 255, 0.12), 0 10px 26px rgba(0, 0, 0, 0.5);
+  --sp-tx: #eaf3ff; --sp-dim: #8ea6c6; --sp-faint: #5a7092;
+  --sp-cy: #3cc4ff; --sp-cy-d: #1d76b8; --sp-cy-bg: rgba(60, 196, 255, 0.14);
+  --sp-amb: #f2b43f; --sp-ok: #5fd38a; --sp-bad: #ff7a6b;
+  --sp-line: rgba(120, 170, 230, 0.18);
+  --sp-head: 'Rajdhani', 'Exo 2', 'Segoe UI', system-ui, sans-serif;
+  --sp-text: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--sp-text); color: var(--sp-tx);
+}
+.space-hud svg.ic { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; pointer-events: none; }
+.space-hud kbd {
+  display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 3px; margin: 0; border: 1px solid var(--sp-faint); border-radius: 3px;
+  background: none; color: var(--sp-dim); font-family: var(--sp-text); font-size: 10px; line-height: 1; box-shadow: none;
+}
+.space-hud button { font-family: inherit; }
+
+/* vidro: base de todos os painéis */
+.space-hud .hud-panel, .space-hud .hud-compass, .space-hud .hud-help, .space-hud .guide-panel, .space-hud .guide-toast, .space-hud .hud-lock, .space-hud .dev-pill {
+  background: var(--sp-glass); color: var(--sp-tx); border: 0; border-radius: 12px; box-shadow: var(--sp-shadow); backdrop-filter: blur(6px); padding: 0;
+  font-size: 13px; line-height: 1.35;
+}
+
+/* ---------- nave: canto de cima, à esquerda ---------- */
+.space-hud .hud-top-left { top: 18px; left: 18px; width: 286px; padding: 0 14px 10px; }
+.space-hud .sp-head {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 0 9px; margin-bottom: 6px; border: 0; border-bottom: 1px solid var(--sp-line);
+  background: none; color: var(--sp-tx); cursor: pointer; pointer-events: auto; text-align: left;
+}
+.space-hud .sp-head span, .space-hud .gc-head span { flex: 1; font-family: var(--sp-head); font-weight: 600; font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase; }
+.space-hud .sp-head svg:first-child, .space-hud .gc-head svg:first-child { color: var(--sp-cy); width: 20px; height: 20px; }
+.space-hud .chev { width: 12px !important; height: 12px !important; color: var(--sp-dim); }
+.space-hud.show-probes .sp-head .chev { transform: rotate(90deg); }
+.space-hud .sp-row { display: flex; align-items: center; gap: 10px; height: 25px; }
+.space-hud .sp-row svg { color: var(--sp-cy); width: 17px; height: 17px; }
+.space-hud .sp-row > span:not(.turbo-bar) { flex: 1; color: var(--sp-dim); }
+.space-hud .sp-row b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.space-hud .turbo-bar { width: 116px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.space-hud .turbo-bar i { border-radius: 3px; background: linear-gradient(90deg, #2a8de0, var(--sp-cy)); box-shadow: 0 0 6px rgba(60, 196, 255, 0.6); }
+.space-hud .turbo-bar i.on { background: #fff; }
+.space-hud .turbo-bar i.out { background: var(--sp-bad); }
+/* painel de sondas: aparece ao clicar no título da nave */
+.space-hud .probe-panel { display: none; top: 160px; left: 18px; width: 286px; padding: 10px 14px; font-size: 12px; z-index: 3; }
+.space-hud.show-probes .probe-panel { display: block; }
+.space-hud .probe-panel .hud-title, .space-hud .probe-sec { font-family: var(--sp-head); font-weight: 600; letter-spacing: 0.08em; color: var(--sp-cy); font-size: 13px; }
+.space-hud .probe-panel small, .space-hud .probe-empty, .space-hud .probe-cargo span { color: var(--sp-dim); }
+.space-hud .probe-bar { background: rgba(255, 255, 255, 0.1); }
+.space-hud .probe-bar i { background: linear-gradient(90deg, #2a8de0, var(--sp-cy)); }
+
+/* ---------- sinal detectado ou alvo: logo abaixo ---------- */
+.space-hud .guide-card { top: 160px; left: 18px; bottom: auto; width: 286px; padding: 0 14px 12px; pointer-events: auto; }
+.space-hud.show-probes .guide-card { display: none; }
+.space-hud .gc-head { display: flex; align-items: center; gap: 10px; padding: 10px 0 9px; margin-bottom: 10px; border-bottom: 1px solid var(--sp-line); }
+.space-hud .gc-body { display: flex; align-items: center; gap: 14px; padding: 0 2px; }
+.space-hud .gc-body small { display: block; color: var(--sp-dim); font-size: 12px; margin-top: 2px; }
+.space-hud .gc-ring {
+  width: 46px; height: 46px; flex: none; display: grid; place-items: center; border-radius: 50%; color: var(--sp-cy);
+  box-shadow: inset 0 0 0 2px rgba(60, 196, 255, 0.35), 0 0 0 5px rgba(60, 196, 255, 0.08);
+}
+.space-hud .gc-ring svg { width: 24px; height: 24px; }
+.space-hud .guide-card .tname { font-size: 16px; font-weight: 600; color: var(--sp-tx); font-family: var(--sp-text); letter-spacing: 0; text-transform: none; }
+.space-hud .gc-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px; margin: 12px auto 0; height: 30px; padding: 0 16px; border: 0; border-radius: 15px;
+  background: rgba(20, 50, 90, 0.6); color: var(--sp-tx); font-size: 13px; cursor: pointer; box-shadow: inset 0 0 0 1px var(--sp-edge);
+}
+.space-hud .gc-btn svg { color: var(--sp-cy); width: 16px; height: 16px; }
+.space-hud .gc-btn:hover, .space-hud .gc-btn.on { background: var(--sp-cy-bg); box-shadow: inset 0 0 0 1px var(--sp-cy); }
+.space-hud .gc-btn kbd { margin-left: 2px; }
+.space-hud .nav-cue { display: flex; justify-content: center; gap: 10px; margin-top: 10px; font-size: 12px; white-space: nowrap; }
+.space-hud .nav-cue:empty { display: none; }
+.space-hud .nav-cue .dim { color: var(--sp-dim); }
+.space-hud .nav-cue b { font-weight: 600; color: var(--sp-amb); }
+.space-hud .nav-cue b.ok { color: var(--sp-ok); }
+
+/* ---------- bússola: topo, no meio, em trapézio ---------- */
+.space-hud .hud-compass {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); width: min(700px, calc(100vw - 680px)); min-width: 420px; padding: 4px 34px 8px; z-index: 2;
+  border-radius: 0; clip-path: polygon(0 0, 100% 0, calc(100% - 26px) 100%, 26px 100%);
+  box-shadow: inset 0 0 0 1px var(--sp-edge);
+}
+.space-hud .cmp-view {
+  position: relative; height: 30px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent); mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.space-hud .cmp-view::after { content: ''; position: absolute; left: 50%; bottom: 0; width: 2px; height: 14px; margin-left: -1px; background: var(--sp-cy); box-shadow: 0 0 8px var(--sp-cy); }
+.space-hud .cmp-tape { position: absolute; left: 50%; top: 0; height: 100%; will-change: transform; }
+.space-hud .cmp-tape i { position: absolute; bottom: 0; width: 1px; height: 5px; background: var(--sp-faint); }
+.space-hud .cmp-tape i.big { height: 8px; background: var(--sp-dim); }
+.space-hud .cmp-tape b { position: absolute; bottom: 11px; left: 0; transform: translateX(-50%); font-family: var(--sp-head); font-size: 14px; font-weight: 600; color: var(--sp-dim); }
+.space-hud .cmp-row { display: grid; grid-template-columns: repeat(4, 1fr); align-items: center; padding-top: 6px; border-top: 1px solid var(--sp-line); }
+.space-hud .cmp-row span { display: flex; align-items: center; justify-content: center; gap: 8px; height: 26px; min-width: 0; white-space: nowrap; position: relative; }
+.space-hud .cmp-row span + span::before { content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 1px; background: var(--sp-line); }
+.space-hud .cmp-row svg { color: var(--sp-tx); width: 17px; height: 17px; }
+.space-hud .cmp-row span:first-child svg { color: #ffd166; }
+.space-hud .cmp-row span:nth-child(3) svg, .space-hud .cmp-row span:nth-child(4) svg { color: var(--sp-cy); }
+.space-hud .cmp-row b { font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+.space-hud .cmp-row span:first-child b, .space-hud .cmp-row span.on b { font-family: var(--sp-head); font-weight: 600; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; }
+.space-hud .cmp-row span.on::after { content: ''; position: absolute; left: 22%; right: 22%; bottom: -8px; height: 2px; background: var(--sp-cy); box-shadow: 0 0 6px var(--sp-cy); }
+
+/* ---------- aviso do GUIA: uma pílula sob a bússola ---------- */
+.space-hud .guide-toasts { top: 104px; width: auto; max-width: min(560px, calc(100vw - 700px)); align-items: center; gap: 6px; }
+.space-hud .guide-toast:not(:last-child) { display: none; }
+.space-hud .guide-toast { display: flex; align-items: center; gap: 10px; padding: 7px 16px 7px 10px; border-radius: 10px; font-size: 13px; }
+.space-hud .guide-toast i {
+  width: 18px; height: 18px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--sp-cy); color: #04121f; font-style: normal;
+  font-weight: 700; font-size: 12px; font-family: Georgia, serif;
+}
+.space-hud .guide-toast.good i { background: var(--sp-ok); }
+.space-hud .guide-toast.warn i { background: var(--sp-amb); }
+
+/* ---------- corpo em órbita: canto de cima, à direita ---------- */
+.space-hud .hud-orbit { top: 18px; right: 18px; width: 312px; transform: none; padding: 0 16px 14px; z-index: 2; }
+.space-hud .oc-head { display: flex; align-items: center; gap: 14px; padding: 12px 0 12px; border-bottom: 1px solid var(--sp-line); margin-bottom: 8px; }
+.space-hud .oc-globe { width: 58px; height: 58px; flex: none; border-radius: 50%; box-shadow: inset -8px -8px 16px rgba(0, 0, 0, 0.55), 0 0 14px rgba(80, 170, 255, 0.35); background: radial-gradient(circle at 35% 30%, #d9b48a, #a0603a 55%, #4a2412); }
+.space-hud .oc-globe.earth { background: radial-gradient(circle at 34% 30%, #cfeaff 0, #4aa3e8 16%, #2c7a3f 34%, #1f5fb0 50%, #0b2c66 78%); }
+.space-hud .oc-globe.gas { background: repeating-linear-gradient(170deg, #e6c99a 0 6px, #c99a64 6px 11px, #ead7b2 11px 15px); }
+.space-hud .oc-globe.ice { background: radial-gradient(circle at 35% 30%, #e2f6ff, #7fc8e8 50%, #1f5f86); }
+.space-hud .oc-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.space-hud .oc-name svg { color: var(--sp-cy); width: 20px; height: 20px; }
+.space-hud .oc-name b { font-family: var(--sp-head); font-weight: 600; font-size: 18px; letter-spacing: 0.06em; text-transform: uppercase; }
+.space-hud .oc-name em { font-style: normal; font-family: var(--sp-head); font-weight: 600; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sp-cy); white-space: nowrap; }
+.space-hud .orbit-data { display: grid; grid-template-columns: 1fr auto; gap: 0 12px; margin: 0 0 10px; padding-bottom: 10px; border-bottom: 1px solid var(--sp-line); }
+.space-hud .orbit-data span { display: flex; align-items: center; gap: 10px; height: 25px; color: var(--sp-dim); }
+.space-hud .orbit-data span svg { width: 16px; height: 16px; color: var(--sp-dim); }
+.space-hud .orbit-data b { display: flex; align-items: center; justify-content: flex-end; font-weight: 500; }
+.space-hud .orbit-actions { display: grid; gap: 8px; }
+.space-hud .oc-btn {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0 14px; min-height: 40px; padding: 6px 16px; border: 0; border-radius: 8px; background: rgba(12, 30, 56, 0.7);
+  color: var(--sp-tx); font-family: var(--sp-head); font-weight: 600; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; text-align: left; cursor: pointer;
+  box-shadow: inset 0 0 0 1px var(--sp-edge); pointer-events: auto;
+}
+.space-hud .oc-btn svg { width: 20px; height: 20px; color: var(--sp-cy); }
+.space-hud .oc-btn kbd { margin-left: auto; }
+.space-hud .oc-btn small { flex-basis: 100%; padding-left: 34px; font-family: var(--sp-text); font-weight: 400; font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--sp-dim); }
+.space-hud .oc-btn:hover { box-shadow: inset 0 0 0 1px var(--sp-cy); }
+.space-hud .oc-btn.main { background: linear-gradient(180deg, rgba(30, 110, 200, 0.45), rgba(16, 60, 120, 0.45)); box-shadow: inset 0 0 0 1px var(--sp-cy), 0 0 14px rgba(60, 196, 255, 0.3); }
+.space-hud .oc-btn.off { color: var(--sp-faint); cursor: default; }
+.space-hud .source { margin-top: 10px; font-size: 11px; color: var(--sp-faint); }
+
+/* ---------- rótulos no céu: nome e distância com linha de chamada ---------- */
+.space-hud .hud-label { width: 0; height: 0; font-family: var(--sp-text); text-shadow: 0 0 4px #000; white-space: nowrap; }
+.space-hud .hud-label::before { content: ''; position: absolute; left: 4px; top: -4px; width: 23px; height: 1px; background: rgba(160, 200, 240, 0.7); transform: rotate(-45deg); transform-origin: 0 0; }
+.space-hud .hud-label span, .space-hud .hud-label small { position: absolute; left: 20px; }
+.space-hud .hud-label span { top: -40px; display: flex; align-items: center; gap: 5px; padding-right: 30px; padding-bottom: 2px; font-size: 12px; color: var(--sp-tx); border-bottom: 1px solid rgba(160, 200, 240, 0.7); }
+.space-hud .hud-label span svg { width: 11px; height: 11px; color: var(--sp-cy); }
+.space-hud .hud-label small { top: -20px; font-size: 11px; color: var(--sp-dim); }
+
+/* ---------- mira: pequena, no centro ---------- */
+.space-hud .hud-crosshair { width: 22px; height: 22px; margin: -11px; border: 1.5px solid rgba(60, 196, 255, 0.85); box-shadow: 0 0 8px rgba(60, 196, 255, 0.4); }
+.space-hud .hud-crosshair::after { content: ''; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px; border-radius: 50%; background: var(--sp-cy); }
+.space-hud .hud-lock { padding: 8px 16px; font-size: 13px; top: 62%; }
+
+/* ---------- barra de comandos: embaixo, no meio, em trapézio ---------- */
+.space-hud .hud-help {
+  left: 50%; right: auto; bottom: 18px; transform: translateX(-50%); width: auto; height: auto; padding: 8px 40px 8px; display: flex; align-items: stretch;
+  border-radius: 0; clip-path: polygon(30px 0, calc(100% - 30px) 0, 100% 100%, 0 100%); box-shadow: inset 0 0 0 1px var(--sp-edge); white-space: nowrap; text-align: center;
+  pointer-events: auto; z-index: 2;
+}
+.space-hud .cmd {
+  width: 118px; height: 76px; padding: 6px 4px 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 0; border-radius: 6px;
+  background: none; color: var(--sp-tx); font-size: 13px; cursor: pointer; position: relative;
+}
+.space-hud .cmd + .cmd::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 1px; background: var(--sp-line); }
+.space-hud .cmd svg { width: 26px; height: 26px; color: var(--sp-cy); }
+.space-hud .cmd:hover { background: var(--sp-cy-bg); }
+
+/* ---------- radar orbital: canto de baixo, à direita ---------- */
+.space-hud .sp-radar { position: absolute; right: 18px; bottom: 18px; width: 268px; z-index: 2; pointer-events: none; }
+.space-hud .sp-radar-tab {
+  width: 160px; margin: 0 auto -1px; padding: 5px 0 4px; text-align: center; font-family: var(--sp-head); font-weight: 600; font-size: 13px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--sp-tx); background: var(--sp-glass); clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
+  box-shadow: inset 0 0 0 1px var(--sp-edge);
+}
+.space-hud .guide-radar { position: static; width: 268px; height: 268px; }
+.space-hud .guide-radar canvas { width: 268px; height: 268px; }
+.space-hud .radar-title { display: none; }
+
+/* ---------- DEV: dados técnicos escondidos ---------- */
+.space-hud .dev-pill {
+  position: absolute; left: 18px; bottom: 18px; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 12px; border-radius: 13px; font-size: 11px;
+  color: var(--sp-dim); cursor: pointer; pointer-events: auto; z-index: 2;
+}
+.space-hud .dev-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--sp-ok); box-shadow: 0 0 6px var(--sp-ok); }
+.space-hud .hud-top-right { top: auto; right: auto; left: 18px; bottom: 52px; padding: 8px 12px; font-size: 11px; z-index: 2; }
+.space-hud .hud-top-right .k { min-width: 120px; color: var(--sp-dim); }
+
+/* ---------- busca (G ou Ctrl K) ---------- */
+.space-hud .guide-panel { z-index: 6; padding: 14px 16px; }
+.space-hud .guide-panel .hud-title { font-family: var(--sp-head); font-weight: 600; letter-spacing: 0.08em; color: var(--sp-cy); font-size: 14px; }
+.space-hud .guide-panel-head input { background: rgba(4, 10, 22, 0.8); border: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--sp-cy-d); color: var(--sp-tx); font-size: 15px; padding: 8px 12px; }
+.space-hud .guide-panel button { background: rgba(12, 30, 56, 0.8); color: var(--sp-tx); border: 0; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--sp-line); }
+.space-hud .guide-panel button:hover { box-shadow: inset 0 0 0 1px var(--sp-cy); }
+.space-hud .guide-sec { color: var(--sp-dim); border-bottom: 1px solid var(--sp-line); font-size: 11px; letter-spacing: 0.14em; }
+.space-hud .guide-row { border-radius: 6px; }
+.space-hud .guide-row:hover, .space-hud .guide-row.sel { background: var(--sp-cy-bg); box-shadow: inset 2px 0 0 var(--sp-cy); }
+.space-hud .guide-row .n small, .space-hud .guide-row .d small, .space-hud .guide-empty, .space-hud .guide-log, .space-hud .guide-panel-foot { color: var(--sp-dim); }
+.space-hud .guide-log span { color: var(--sp-cy); }
+.space-hud .nav-target { border-color: var(--sp-amb); box-shadow: 0 0 8px rgba(242, 180, 63, 0.5); border-radius: 50%; }
+
+/* ---------- telas menores ---------- */
+@media (max-width: 1400px) {
+  .space-hud .cmd { width: 96px; }
+  .space-hud .hud-compass { min-width: 380px; padding: 4px 28px 8px; }
+  .space-hud .sp-radar { width: 220px; }
+  .space-hud .guide-radar, .space-hud .guide-radar canvas { width: 220px; height: 220px; }
+}
+@media (max-width: 1100px) {
+  .space-hud .hud-compass { display: none; }
+  .space-hud .cmd span { display: none; }
+  .space-hud .cmd { width: 56px; height: 56px; }
+  .space-hud .sp-radar { display: none; }
+}
+
+/* salvar e créditos: no espaço vão para o canto de baixo, à esquerda, ao lado do DEV */
+body:has(.space-hud) .save-bar { left: 92px; right: auto; bottom: 18px; }
+body:has(.space-hud) #credits { left: 18px; right: auto; bottom: 2px; font-size: 10px; }

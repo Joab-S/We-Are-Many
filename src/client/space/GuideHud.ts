@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { formatDistance } from '../../core/flight';
+import { icon } from '../ui/icons';
 import { etaSeconds, formatEta, radarRadius, type LogEntry, type NavTarget, type Suggestion } from '../../nav/guide';
 
 /**
@@ -53,13 +54,6 @@ const GROUP_TITLES: Record<EntryGroup, string> = {
   mark: 'Marcadores',
 };
 
-const FILTERS: [EntryGroup, string][] = [
-  ['system', 'Corpos'],
-  ['star', 'Estrelas'],
-  ['poi', 'Pontos'],
-  ['mark', 'Marcas'],
-];
-
 const RADAR_RINGS: [number, string][] = [
   [1, '1 UA'],
   [100, '100 UA'],
@@ -91,8 +85,10 @@ export class GuideHud {
   private suggestions: Suggestion[] = [];
   private log: LogEntry[] = [];
   private pulseStart = -1;
-  private readonly hidden = new Set<EntryGroup>();
-  private cueEl!: HTMLElement;
+  private cueEl: HTMLElement | null = null;
+  private cardHtml = '';
+  private center: THREE.Vector3 | null = null;
+  private heading = 0;
   private cueHtml = '';
   private panelRows: { el: HTMLElement; target: NavTarget }[] = [];
   private selected = 0;
@@ -110,11 +106,9 @@ export class GuideHud {
       <div class="nav-markers"></div>
       <div class="guide-toasts"></div>
       <div class="hud-panel guide-card" hidden></div>
-      <div class="nav-panel">
-        <div class="nav-head"><span>Navegação</span><span class="nav-kbd"><kbd>Ctrl</kbd><kbd>K</kbd> buscar</span></div>
+      <div class="sp-radar">
+        <div class="sp-radar-tab">Radar orbital</div>
         <div class="guide-radar"><canvas></canvas></div>
-        <div class="nav-cue" data-cue></div>
-        <div class="nav-chips">${FILTERS.map(([id, label]) => `<button data-f="${id}" class="on">${label}</button>`).join('')}</div>
       </div>
       <div class="hud-panel guide-panel" hidden>
         <div class="guide-panel-head">
@@ -131,15 +125,6 @@ export class GuideHud {
     this.card = this.root.querySelector('.guide-card')!;
     this.radar = this.root.querySelector('.guide-radar canvas')!;
     this.radarCtx = this.radar.getContext('2d')!;
-    this.cueEl = this.root.querySelector('[data-cue]')!;
-    this.root.querySelectorAll<HTMLButtonElement>('[data-f]').forEach((b) => {
-      b.addEventListener('click', () => {
-        const id = b.dataset.f as EntryGroup;
-        if (this.hidden.has(id)) this.hidden.delete(id);
-        else this.hidden.add(id);
-        b.classList.toggle('on', !this.hidden.has(id));
-      });
-    });
     this.panel = this.root.querySelector('.guide-panel')!;
 
     this.targetEl = document.createElement('div');
@@ -202,7 +187,7 @@ export class GuideHud {
   say(text: string, tone: 'info' | 'good' | 'warn' = 'info', seconds = 7): void {
     const el = document.createElement('div');
     el.className = `guide-toast ${tone}`;
-    el.innerHTML = `<b>GUIA</b> ${esc(text)}`;
+    el.innerHTML = `<i>i</i>${esc(text)}`;
     this.toasts.appendChild(el);
     this.toastList.push({ el, until: performance.now() + seconds * 1000 });
     while (this.toastList.length > 4) this.toastList.shift()!.el.remove();
@@ -286,23 +271,35 @@ export class GuideHud {
 
   /** Cartão do alvo: nome, distância, chegada e modo de pilotagem. */
   updateCard(view: TargetView | null, mode: 'manual' | 'cruise' | 'auto', top: Suggestion | null): void {
-    const modeText = mode === 'auto' ? '<b class="auto">PILOTO AUTOMÁTICO</b> · <kbd>J</kbd>desliga' : mode === 'cruise' ? '<b class="cruise">CRUZEIRO</b> · <kbd>C</kbd>desliga' : 'Manual';
+    const chev = icon('play', 'chev');
+    let html: string;
     if (!view) {
-      this.card.hidden = false;
-      this.card.innerHTML = `<div class="hud-title">SEM ALVO</div>
-        ${top ? `<div class="sug">Sugestão: <b>${esc(top.target.name)}</b><small>${esc(top.reason)} · ≈ ${formatEta(top.eta)}</small></div><div><kbd>N</kbd>aceitar sugestão · <kbd>G</kbd>painel</div>` : '<div><kbd>V</kbd>varredura · <kbd>G</kbd>painel</div>'}
-        <div class="mode">${modeText}</div>`;
-      return;
+      html = top
+        ? `<div class="gc-head">${icon('scan')}<span>Sinal detectado</span>${chev}</div>
+          <div class="gc-body"><span class="gc-ring">${icon('target')}</span><div><b class="tname">${esc(top.target.name)}</b><small>≈ ${formatEta(top.eta)}</small></div></div>
+          <button class="gc-btn" data-key="KeyN" title="${esc(top.reason)}">${icon('target')}Rastrear<kbd>N</kbd></button>`
+        : `<div class="gc-head">${icon('scan')}<span>Sem sinais</span>${chev}</div>
+          <div class="gc-body"><small>Faça uma varredura para achar destinos.</small></div>
+          <button class="gc-btn" data-key="KeyV">${icon('scan')}Varredura<kbd>V</kbd></button>`;
+    } else {
+      const auto = mode === 'auto';
+      html = `<div class="gc-head">${icon('target')}<span>Alvo${auto ? ' · piloto automático' : mode === 'cruise' ? ' · cruzeiro' : ''}</span>${chev}</div>
+        <div class="gc-body"><span class="gc-ring">${icon('target')}</span><div><b class="tname">${esc(view.target.name)}</b><small>${formatDistance(Math.max(0, view.dist))} · ≈ ${formatEta(this.etaFor(view))}</small></div></div>
+        <div class="nav-cue" data-cue></div>
+        <button class="gc-btn${auto ? ' on' : ''}" data-key="KeyJ">${icon('auto')}${auto ? 'Desligar piloto' : 'Piloto automático'}<kbd>J</kbd></button>`;
     }
-    const eta = formatEta(this.etaFor(view));
     this.card.hidden = false;
-    this.card.innerHTML = `<div class="hud-title">ALVO</div>
-      <div class="tname">${esc(view.target.name)}</div>
-      <div class="tinfo">${esc(view.info)}</div>
-      <div><span class="k">Distância</span> <b>${formatDistance(Math.max(0, view.dist))}</b></div>
-      <div><span class="k">Chegada</span> <b>≈ ${eta}</b>${mode === 'auto' ? '' : ' <small>(com piloto)</small>'}</div>
-      ${view.viaSystem ? '<div class="via">Rota em duas etapas: primeiro o sistema, depois o corpo.</div>' : ''}
-      <div class="mode">${modeText}${mode === 'auto' ? '' : ' · <kbd>J</kbd>piloto automático'}</div>`;
+    if (html === this.cardHtml) return;
+    this.cardHtml = html;
+    this.card.innerHTML = html;
+    this.cueEl = this.card.querySelector('[data-cue]');
+    this.cueHtml = '';
+  }
+
+  /** Centro do radar orbital: a estrela do sistema em que a nave está, ou nada no espaço profundo. */
+  setRadarCenter(center: THREE.Vector3 | null, heading: number): void {
+    this.center = center;
+    this.heading = heading;
   }
 
   private etaFor(view: TargetView): number {
@@ -318,63 +315,41 @@ export class GuideHud {
   }
 
   private drawRadar(ship: THREE.Vector3, shipQuat: THREE.Quaternion, view: TargetView | null, now: number): void {
-    const css = this.radar.clientWidth || 232;
+    const css = this.radar.clientWidth || 240;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const px = Math.round(css * dpr);
     if (this.radar.width !== px) this.radar.width = this.radar.height = px;
     const g = this.radarCtx;
-    const R = px / 2 - 6 * dpr;
     const c = px / 2;
+    const R = px / 2 - 14 * dpr;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, px, px);
-    g.fillStyle = 'rgba(8, 14, 22, 0.82)';
+    // Mostrador: fundo, anel de graus e marca do norte.
+    g.fillStyle = 'rgba(6, 14, 30, 0.88)';
     g.beginPath();
-    g.arc(c, c, R, 0, Math.PI * 2);
+    g.arc(c, c, R + 10 * dpr, 0, Math.PI * 2);
     g.fill();
-    // Cone de visão à frente.
-    g.fillStyle = 'rgba(79, 216, 232, 0.10)';
+    g.strokeStyle = 'rgba(80, 170, 255, 0.55)';
+    g.lineWidth = 1.2 * dpr;
     g.beginPath();
-    g.moveTo(c, c);
-    g.arc(c, c, R, -Math.PI / 2 - 0.6, -Math.PI / 2 + 0.6);
-    g.closePath();
-    g.fill();
-    // Eixos e régua de graus na borda (0° é a proa).
-    g.strokeStyle = 'rgba(79, 216, 232, 0.16)';
+    g.arc(c, c, R + 10 * dpr, 0, Math.PI * 2);
+    g.stroke();
+    g.strokeStyle = 'rgba(150, 190, 235, 0.55)';
     g.lineWidth = dpr;
-    g.beginPath();
-    g.moveTo(c, c - R);
-    g.lineTo(c, c + R);
-    g.moveTo(c - R, c);
-    g.lineTo(c + R, c);
-    g.stroke();
-    g.strokeStyle = 'rgba(174, 185, 198, 0.55)';
-    for (let a = 0; a < 360; a += 30) {
+    for (let a = 0; a < 360; a += 10) {
       const t = (a * Math.PI) / 180 - Math.PI / 2;
-      const len = (a % 90 === 0 ? 8 : 4) * dpr;
+      const len = (a % 90 === 0 ? 8 : a % 30 === 0 ? 5 : 2.5) * dpr;
       g.beginPath();
-      g.moveTo(c + Math.cos(t) * R, c + Math.sin(t) * R);
-      g.lineTo(c + Math.cos(t) * (R - len), c + Math.sin(t) * (R - len));
+      g.moveTo(c + Math.cos(t) * (R + 9 * dpr), c + Math.sin(t) * (R + 9 * dpr));
+      g.lineTo(c + Math.cos(t) * (R + 9 * dpr - len), c + Math.sin(t) * (R + 9 * dpr - len));
       g.stroke();
     }
-    g.strokeStyle = 'rgba(79, 216, 232, 0.35)';
-    g.font = `${11 * dpr}px Inter, "Segoe UI", system-ui, sans-serif`;
-    g.fillStyle = 'rgba(174, 185, 198, 0.85)';
-    for (const [au, label] of RADAR_RINGS) {
-      const r = radarRadius(au) * R;
-      g.beginPath();
-      g.arc(c, c, r, 0, Math.PI * 2);
-      g.stroke();
-      g.fillText(label, c + 3 * dpr, c - r + 12 * dpr);
-    }
-    g.beginPath();
-    g.arc(c, c, R, 0, Math.PI * 2);
-    g.stroke();
     // Onda da varredura.
     if (this.pulseStart >= 0) {
       const t = (now - this.pulseStart) / 1400;
       if (t > 1) this.pulseStart = -1;
       else {
-        g.strokeStyle = `rgba(128, 255, 160, ${0.8 * (1 - t)})`;
+        g.strokeStyle = `rgba(128, 255, 200, ${0.7 * (1 - t)})`;
         g.lineWidth = 2 * dpr;
         g.beginPath();
         g.arc(c, c, R * t, 0, Math.PI * 2);
@@ -382,101 +357,118 @@ export class GuideHud {
       }
     }
 
-    this.inv.copy(shipQuat).invert();
-    const spot = (pos: THREE.Vector3) => {
-      const v = this.tmp.copy(pos).sub(ship);
-      const d = v.length();
-      v.applyQuaternion(this.inv);
-      const flat = Math.hypot(v.x, v.z) || 1;
-      const r = radarRadius(d) * R;
-      const x = c + (v.x / flat) * r;
-      const y = c + (v.z / flat) * r;
-      // Haste: para cima se o objeto está acima do plano da nave, para baixo se está abaixo.
-      const stem = THREE.MathUtils.clamp((v.y / Math.max(d, 1e-12)) * 14, -14, 14) * dpr;
-      return { x, y: y - stem, bx: x, by: y, stem };
+    // Vista de cima, norte (+y da eclíptica) para cima. Dentro de um sistema, a estrela fica no centro;
+    // no espaço profundo, a nave fica no centro e as distâncias seguem a escala logarítmica do GUIA.
+    const center = this.center;
+    const bodies = center ? this.entries.filter((e) => e.group === 'system') : [];
+    let span = 1e-9;
+    if (center) {
+      for (const e of bodies) span = Math.max(span, Math.hypot(e.pos.x - center.x, e.pos.y - center.y));
+      span = Math.max(span, Math.hypot(ship.x - center.x, ship.y - center.y)) * 1.08;
+    }
+    const origin = center ?? ship;
+    const project = (pos: THREE.Vector3): [number, number, number] => {
+      const dx = pos.x - origin.x;
+      const dy = pos.y - origin.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 1e-12) return [c, c, 0];
+      const r = center ? Math.sqrt(Math.min(1, d / span)) * R : radarRadius(this.tmp.copy(pos).sub(ship).length()) * R;
+      return [c + (dx / d) * r, c - (dy / d) * r, r];
     };
-    const dot = (pos: THREE.Vector3, color: string, size: number, ring: string | null) => {
-      const p = spot(pos);
-      g.strokeStyle = color;
-      g.globalAlpha = 0.55;
+    if (center) {
+      g.strokeStyle = 'rgba(80, 170, 255, 0.22)';
       g.lineWidth = dpr;
-      g.beginPath();
-      g.moveTo(p.bx, p.by);
-      g.lineTo(p.x, p.y);
-      g.stroke();
-      g.globalAlpha = 1;
-      g.fillStyle = color;
-      g.beginPath();
-      g.arc(p.x, p.y, size * dpr, 0, Math.PI * 2);
-      g.fill();
-      if (ring) {
-        g.strokeStyle = ring;
-        g.lineWidth = 1.5 * dpr;
+      for (const e of bodies) {
+        const [, , r] = project(e.pos);
         g.beginPath();
-        g.arc(p.x, p.y, (size + 3) * dpr, 0, Math.PI * 2);
+        g.arc(c, c, r, 0, Math.PI * 2);
         g.stroke();
       }
-      return p;
-    };
-    // Rumo ao alvo: linha tracejada da nave até ele.
+      // A estrela.
+      const glow = g.createRadialGradient(c, c, 0, c, c, 9 * dpr);
+      glow.addColorStop(0, '#fff3c4');
+      glow.addColorStop(0.35, '#ffc94a');
+      glow.addColorStop(1, 'rgba(255, 180, 60, 0)');
+      g.fillStyle = glow;
+      g.beginPath();
+      g.arc(c, c, 9 * dpr, 0, Math.PI * 2);
+      g.fill();
+      for (const e of bodies) {
+        const [x, y] = project(e.pos);
+        g.fillStyle = e.color;
+        g.beginPath();
+        g.arc(x, y, 3 * dpr, 0, Math.PI * 2);
+        g.fill();
+      }
+    } else {
+      g.strokeStyle = 'rgba(80, 170, 255, 0.22)';
+      g.lineWidth = dpr;
+      g.font = `${10 * dpr}px Inter, "Segoe UI", system-ui, sans-serif`;
+      g.fillStyle = 'rgba(150, 190, 235, 0.7)';
+      for (const [au, label] of RADAR_RINGS) {
+        const r = radarRadius(au) * R;
+        g.beginPath();
+        g.arc(c, c, r, 0, Math.PI * 2);
+        g.stroke();
+        g.fillText(label, c + 3 * dpr, c - r + 11 * dpr);
+      }
+      for (const e of this.entries) {
+        const [x, y] = project(e.pos);
+        g.fillStyle = e.color;
+        g.beginPath();
+        g.arc(x, y, (e.group === 'star' ? 2 : 2.6) * dpr, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    const [sx, sy] = project(ship);
+    // Alvo: anel âmbar e linha tracejada desde a nave; fora da escala, fica na borda.
     if (view) {
-      const p = spot(view.pos);
-      g.strokeStyle = 'rgba(224, 194, 122, 0.8)';
-      g.lineWidth = 1.5 * dpr;
+      let [tx, ty] = project(view.pos);
+      const dr = Math.hypot(tx - c, ty - c);
+      if (dr > R) {
+        tx = c + ((tx - c) / dr) * R;
+        ty = c + ((ty - c) / dr) * R;
+      }
+      g.strokeStyle = 'rgba(242, 180, 63, 0.85)';
+      g.lineWidth = 1.4 * dpr;
       g.setLineDash([4 * dpr, 4 * dpr]);
       g.beginPath();
-      g.moveTo(c, c);
-      g.lineTo(p.bx, p.by);
+      g.moveTo(sx, sy);
+      g.lineTo(tx, ty);
       g.stroke();
       g.setLineDash([]);
+      g.lineWidth = 1.8 * dpr;
+      g.beginPath();
+      g.arc(tx, ty, 6 * dpr, 0, Math.PI * 2);
+      g.stroke();
     }
-    const sug = new Set(this.suggestions.slice(0, 3).map((s) => s.target.id));
-    const placed: { x: number; y: number; name: string; rank: number }[] = [];
-    for (const e of this.entries) {
-      if (this.hidden.has(e.group)) continue;
-      const p = dot(e.pos, e.color, e.group === 'star' ? 1.8 : 2.6, sug.has(e.target.id) ? 'rgba(232, 163, 61, 0.9)' : null);
-      placed.push({ x: p.x, y: p.y, name: e.target.name, rank: (sug.has(e.target.id) ? 0 : 10) + Math.hypot(p.bx - c, p.by - c) / R });
-    }
-    if (view) {
-      const p = dot(view.pos, '#e0c27a', 3.2, '#e0c27a');
-      placed.unshift({ x: p.x, y: p.y, name: view.target.name, rank: -1 });
-    }
-    // Nomes: o alvo, as sugestões e os mais próximos, sem sobrepor.
-    placed.sort((a, b) => a.rank - b.rank);
-    const boxes: [number, number, number, number][] = [];
-    g.font = `${11 * dpr}px Inter, "Segoe UI", system-ui, sans-serif`;
-    let shown = 0;
-    for (const o of placed) {
-      if (shown >= 8) break;
-      const w = g.measureText(o.name).width;
-      const right = o.x + 7 * dpr + w < px - 2 * dpr;
-      const x0 = Math.max(2 * dpr, right ? o.x + 7 * dpr : o.x - 7 * dpr - w);
-      const y0 = o.y - 6 * dpr;
-      if (boxes.some(([bx, by, bw, bh]) => x0 < bx + bw && x0 + w > bx && y0 < by + bh && y0 + 12 * dpr > by)) continue;
-      boxes.push([x0, y0, w, 12 * dpr]);
-      g.fillStyle = o.rank === -1 ? '#e0c27a' : 'rgba(219, 226, 234, 0.9)';
-      g.shadowColor = '#000';
-      g.shadowBlur = 3 * dpr;
-      g.fillText(o.name, x0, o.y + 4 * dpr);
-      g.shadowBlur = 0;
-      shown++;
-    }
-    // A nave no centro, apontando para cima.
-    g.fillStyle = '#4fd8e8';
+    // A nave: anel ciano e seta no rumo da proa.
+    g.strokeStyle = '#38c8ff';
+    g.lineWidth = 1.8 * dpr;
     g.beginPath();
-    g.moveTo(c, c - 7 * dpr);
-    g.lineTo(c - 5 * dpr, c + 5 * dpr);
-    g.lineTo(c + 5 * dpr, c + 5 * dpr);
+    g.arc(sx, sy, 7 * dpr, 0, Math.PI * 2);
+    g.stroke();
+    const h = (this.heading * Math.PI) / 180;
+    g.fillStyle = '#e8f6ff';
+    g.save();
+    g.translate(sx, sy);
+    g.rotate(h);
+    g.beginPath();
+    g.moveTo(0, -5 * dpr);
+    g.lineTo(-3.5 * dpr, 3.5 * dpr);
+    g.lineTo(3.5 * dpr, 3.5 * dpr);
     g.closePath();
     g.fill();
+    g.restore();
+    this.inv.copy(shipQuat).invert();
     this.updateCue(ship, view);
   }
 
   /** Instrução de rumo: quanto virar e subir ou descer para ficar de frente para o alvo. */
   private updateCue(ship: THREE.Vector3, view: TargetView | null): void {
     let html: string;
-    if (!view) html = '<span class="dim">Sem alvo · <kbd>T</kbd> trava o que está na mira</span>';
-    else {
+    if (!view) return;
+    {
       const v = this.tmp.copy(view.pos).sub(ship).applyQuaternion(this.inv);
       const d = v.length() || 1;
       const yaw = Math.round((Math.atan2(v.x, -v.z) * 180) / Math.PI);
@@ -489,7 +481,7 @@ export class GuideHud {
         html = `<span class="dim">Virar</span>${side}${vert}`;
       }
     }
-    if (html !== this.cueHtml) {
+    if (html !== this.cueHtml && this.cueEl) {
       this.cueHtml = html;
       this.cueEl.innerHTML = html;
     }

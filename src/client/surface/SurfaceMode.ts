@@ -824,11 +824,12 @@ export class SurfaceMode {
       <div class="wb-labels" data-l></div>
       <div class="wb-top">
         <button class="wb-back wb-ib" data-a="back" title="Voltar à órbita">${svgIcon('left')}</button>
-        <div class="wb-planet"><span class="wb-globe"></span><div><div class="wb-title">${this.params.name}</div><div class="wb-stats" data-s></div></div></div>
+        <div class="wb-title">${this.params.name}</div>
+        <div class="wb-stats" data-s></div>
         <div class="wb-clock" data-clock></div>
         <div class="wb-menu">
-          ${WINDOWS.map(([id, label]) => `<button class="wb-back wb-ib" data-w="${id}" title="${plain(label)}">${svgIcon(WINDOW_ICONS[id])}<span>${id === 'settlements' ? 'Vilas' : plain(label)}</span></button>`).join('')}
-          <button class="wb-back wb-ib" data-a="help" title="Controles (H)">${svgIcon('help')}<span>Ajuda</span></button>
+          ${WINDOWS.map(([id, label]) => `<button class="wb-back wb-ib" data-w="${id}" title="${plain(label)}">${svgIcon(WINDOW_ICONS[id])}</button>`).join('')}
+          <button class="wb-back wb-ib" data-a="help" title="Controles (H)">${svgIcon('help')}</button>
         </div>
       </div>
       <div class="wb-info" data-i hidden></div>
@@ -854,7 +855,7 @@ export class SurfaceMode {
       <div class="wb-toast" data-toast hidden></div>
       <div class="wb-dock">
         <div class="wb-tip" data-tip></div>
-        <div class="wb-tabs">${TABS.map(([id, label]) => `<button data-tab="${id}" title="${plain(label)}">${svgIcon(TAB_ICONS[id])}<span>${plain(label)}</span></button>`).join('')}</div>
+        <div class="wb-tabs">${TABS.map(([id, label]) => `<button data-tab="${id}" title="${plain(label)}">${svgIcon(TAB_ICONS[id])}</button>`).join('')}</div>
         <div class="wb-bar" data-bar></div>
       </div>
       <div class="wb-help" data-help hidden>
@@ -1308,12 +1309,12 @@ export class SurfaceMode {
         group = t.group;
         if (group) html += `<div class="wb-group">${group}</div>`;
       }
-      html += `<button class="wb-tool" data-t="${t.id}" data-label="${t.label}" title="${t.tip}" aria-label="${t.label}">${this.toolIcon(t)}<span class="lb">${t.label}</span></button>`;
+      html += `<button class="wb-tool" data-t="${t.id}" data-label="${t.label}" title="${t.tip}" aria-label="${t.label}">${this.toolIcon(t)}</button>`;
     }
     bar.innerHTML = `
       ${html}
       <div class="wb-group"></div>
-      <button class="wb-tool" data-t="inspect" data-label="Mão" aria-label="Mão" title="Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes, sem mexer em nada">${svgIcon('hand')}<span class="lb">Mão</span></button>
+      <button class="wb-tool" data-t="inspect" data-label="Mão" aria-label="Mão" title="Mão vazia: arraste para mover o mapa e passe o mouse para ver detalhes, sem mexer em nada">${svgIcon('hand')}</button>
       <label class="wb-brush">Pincel <input type="range" min="1" max="30" value="${this.brush}" data-b /></label>
       ${
         tab === 'climate'
@@ -3116,12 +3117,8 @@ export class SurfaceMode {
     }
     const total = this.map.elevation.length / 7;
     const yrSec = Number((REAL_YEAR_SECONDS / Math.max(1, SPEEDS[this.speed])).toFixed(1));
-    const stats = `<span title="Terra firme">${svgIcon('terrain')}${Math.round((land / total) * 100)}% terra</span><span title="Vegetação">${svgIcon('leaf')}${Math.round((life / total) * 100)}% vegetação</span><span title="Duração de 1 ano na velocidade 1x">${svgIcon('sun')}1 ano = ${yrSec} s</span>`;
-    const el = this.root.querySelector<HTMLElement>('[data-s]')!;
-    if (el.dataset.html !== stats) {
-      el.dataset.html = stats;
-      el.innerHTML = stats;
-    }
+    this.root.querySelector<HTMLElement>('[data-s]')!.textContent =
+      `terra ${Math.round((land / total) * 100)}% · vegetação ${Math.round((life / total) * 100)}% · 1 ano = ${yrSec} s`;
   }
 
   private toastUntil = 0;

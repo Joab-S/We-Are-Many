@@ -56,7 +56,7 @@ import {
 } from './bodies';
 import { GuideHud, type NavEntry, type TargetView } from './GuideHud';
 import { ProbeControl, type MineSource } from './ProbeControl';
-import { createProbeState } from '../../explore/probes';
+import { createProbeState, freeProbes } from '../../explore/probes';
 import { StarField, type CatalogStar } from './starField';
 
 /** Distância (pc) em que o sistema de uma estrela passa a ser desenhado. */
@@ -144,25 +144,13 @@ const COMPASS_TAPE = (() => {
   return html;
 })();
 
-/** Comandos do painel de navegação, por grupo: tecla, ícone, nome curto e dica. Clicar faz o mesmo que apertar a tecla. */
-const CMD_GROUPS: [string, [string, string, string, string][]][] = [
-  ['Pilotagem', [
-    ['KeyJ', 'auto', 'Piloto', 'Piloto automático até o alvo'],
-    ['KeyC', 'cruise', 'Cruzeiro', 'Mantém a velocidade sem segurar W'],
-    ['KeyH', 'home', 'Casa', 'Traça a rota para casa'],
-  ]],
-  ['Alvo', [
-    ['KeyT', 'target', 'Travar', 'Trava como alvo o que está na mira'],
-    ['KeyN', 'star', 'Sugestão', 'Aceita a próxima sugestão do GUIA'],
-    ['KeyG', 'search', 'Buscar', 'Painel do GUIA (também Ctrl K)'],
-    ['KeyX', 'stop', 'Limpar', 'Limpa o alvo'],
-  ]],
-  ['Explorar', [
-    ['KeyV', 'scan', 'Varrer', 'Varredura de longo alcance'],
-    ['KeyM', 'probe', 'Sonda', 'Envia sonda ao corpo'],
-    ['KeyR', 'orbit', 'Anéis', 'Envia sonda aos anéis'],
-    ['KeyB', 'flag', 'Marcar', 'Marca esta posição'],
-  ]],
+/** Barra de comandos embaixo: tecla, ícone e nome. Clicar faz o mesmo que apertar a tecla; o resto fica na busca (G ou Ctrl K). */
+const CMDS: [string, string, string][] = [
+  ['KeyJ', 'auto', 'Piloto automático'],
+  ['KeyC', 'cruise', 'Cruzeiro'],
+  ['KeyV', 'scan', 'Varredura'],
+  ['KeyM', 'probe', 'Sonda'],
+  ['KeyB', 'flag', 'Marcador'],
 ];
 
 export class SpaceMode {
@@ -181,6 +169,7 @@ export class SpaceMode {
   private readonly velocity = new THREE.Vector3();
   private readonly hudRoot: HTMLDivElement;
   private readonly tmpFwd = new THREE.Vector3();
+  private readonly origin = new THREE.Vector3();
   private readonly hudEls: Record<string, HTMLElement> = {};
   private readonly labels = new Map<string, Label>();
   private readonly poiBodies = new Map<string, { poi: Poi; body: Body }>();
@@ -248,42 +237,49 @@ export class SpaceMode {
     this.hudRoot.className = 'space-hud';
     this.hudRoot.innerHTML = `
       <div class="hud-panel hud-top-left">
-        <div class="hud-title">${svgIcon('ship')}WE ARE MANY</div>
-        <div>${svgIcon('bolt')}<span class="k">Potência</span> <b data-h="throttle"></b></div>
-        <div class="turbo">${svgIcon('cruise')}<span class="k">Turbo</span> <span class="turbo-bar"><i data-h="turbo"></i></span></div>
-        <div class="hud-pos">${svgIcon('target')}<span class="k">Posição</span> <b data-h="position"></b></div>
+        <button class="sp-head" data-a="probes" title="Mostrar ou esconder as sondas">${svgIcon('ship')}<span>We Are Many</span>${svgIcon('play', 'chev')}</button>
+        <div class="sp-row">${svgIcon('bolt')}<span>Potência</span><b data-h="throttle"></b></div>
+        <div class="sp-row turbo">${svgIcon('cruise')}<span>Turbo</span><span class="turbo-bar"><i data-h="turbo"></i></span></div>
+        <div class="sp-row">${svgIcon('probe')}<span>Sondas</span><b data-h="probes"></b></div>
       </div>
       <div class="hud-compass">
-        <div class="cmp-view"><div class="cmp-tape" data-h="tape">${COMPASS_TAPE}</div><i class="cmp-mark"></i></div>
+        <div class="cmp-view"><div class="cmp-tape" data-h="tape">${COMPASS_TAPE}</div></div>
         <div class="cmp-row">
           <span>${svgIcon('sun')}<b data-h="system"></b></span>
-          <span>${svgIcon('planet')}<b data-h="nearest"></b></span>
+          <span class="on">${svgIcon('planet')}<b data-h="nearest"></b></span>
           <span>${svgIcon('target')}<b data-h="distance"></b></span>
           <span>${svgIcon('play')}<b data-h="speed"></b></span>
         </div>
       </div>
-      <div class="hud-panel hud-top-right">
+      <div class="hud-panel hud-top-right" data-h="dev" hidden>
         <div><span class="k">FPS</span> <b data-h="fps"></b></div>
         <div><span class="k">Chunks</span> <b data-h="chunks"></b></div>
         <div><span class="k">Estrelas carregadas</span> <b data-h="stars"></b></div>
         <div><span class="k">Memória GPU</span> <b data-h="memory"></b></div>
         <div><span class="k">Resolução</span> <b data-h="resolution"></b></div>
+        <div><span class="k">Posição</span> <b data-h="position"></b></div>
       </div>
+      <button class="dev-pill" data-a="dev" title="Dados técnicos"><i></i>DEV</button>
       <div class="hud-crosshair"></div>
       <div class="hud-orbit hud-panel" data-h="orbit" hidden></div>
       <div class="hud-help">
-        ${CMD_GROUPS.map(([title, list]) => `<div class="cmd-group" title="${title}">${list.map(([key, ico, name, tip]) => `<button class="cmd" data-key="${key}" title="${tip}">${svgIcon(ico)}<span>${name}</span><kbd>${key.replace('Key', '')}</kbd></button>`).join('')}</div>`).join('<i class="cmd-sep"></i>')}
+        ${CMDS.map(([key, ico, name]) => `<button class="cmd" data-key="${key}" title="${name} (${key.replace('Key', '')})">${svgIcon(ico)}<span>${name}</span><kbd>${key.replace('Key', '')}</kbd></button>`).join('')}
       </div>
       <div class="hud-labels" data-h="labels"></div>
       <div class="hud-lock" data-h="lock">Clique para pilotar</div>`;
     hud.appendChild(this.hudRoot);
-    this.hudRoot.querySelectorAll<HTMLElement>('.cmd').forEach((b) => {
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const code = b.dataset.key!;
+    // Botões com tecla (barra de comandos, cartões) fazem o mesmo que apertar a tecla.
+    this.hudRoot.addEventListener('click', (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-key], [data-a]');
+      if (!el) return;
+      e.stopPropagation();
+      if (el.dataset.a === 'probes') this.hudRoot.classList.toggle('show-probes');
+      else if (el.dataset.a === 'dev') this.hudEls.dev.hidden = !this.hudEls.dev.hidden;
+      else {
+        const code = el.dataset.key!;
         window.dispatchEvent(new KeyboardEvent('keydown', { code }));
         window.dispatchEvent(new KeyboardEvent('keyup', { code }));
-      });
+      }
     });
     this.hudRoot.querySelectorAll<HTMLElement>('[data-h]').forEach((el) => {
       this.hudEls[el.dataset.h!] = el;
@@ -928,20 +924,19 @@ export class SpaceMode {
     };
     el.hidden = false;
     el.innerHTML = `
-      <div class="hud-title">Em órbita de ${p.name}</div>
+      <div class="oc-head"><span class="oc-globe ${p.id === 'sol-3' ? 'earth' : p.kind}"></span><div class="oc-name">${svgIcon('target')}<b>${p.name}</b><em>· em órbita</em></div></div>
       <div class="orbit-data">
-        <span>Tipo</span><b>${KIND_LABEL[p.kind]}</b>
-        <span>Raio</span><b>${p.radiusKm.toLocaleString('pt-BR')} km</b>
-        <span>Distância da estrela</span><b>${p.aAu} UA</b>
-        <span>Temperatura média</span><b>${p.temperatureK} K</b>
-        <span>Zona habitável</span><b>${inZone ? 'Sim' : 'Não'}</b>
-        <span>Vida nativa</span><b>${p.id === 'sol-3' ? 'Sim (Terra)' : tier === 'none' ? 'Nenhum sinal' : LIFE_LABEL[tier].replace('sinais de ', '')}</b>
+        <span>${svgIcon('planet')}Tipo</span><b>${KIND_LABEL[p.kind]}</b>
+        <span>${svgIcon('orbit')}Raio</span><b>${p.radiusKm.toLocaleString('pt-BR')} km</b>
+        <span>${svgIcon('sun')}Distância da estrela</span><b>${p.aAu} UA</b>
+        <span>${svgIcon('temp')}Temperatura média</span><b>${p.temperatureK} K</b>
+        <span>${svgIcon('leaf')}Zona habitável</span><b>${inZone ? 'Sim' : 'Não'}</b>
+        <span>${svgIcon('sprout')}Vida nativa</span><b>${p.id === 'sol-3' ? 'Sim' : tier === 'none' ? 'Nenhum sinal' : LIFE_LABEL[tier].replace('sinais de ', '')}</b>
       </div>
       <div class="orbit-actions">
-        ${p.kind === 'rocky' ? '<div class="action"><kbd>F</kbd> Observar superfície</div>' : '<div class="action off">Sem superfície sólida</div>'}
-        ${p.kind === 'rocky' ? `<div class="action"><kbd>M</kbd> Enviar sonda de extração${res(p.id)}</div>` : ''}
-        ${p.rings ? `<div class="action"><kbd>R</kbd> Sonda aos anéis (gelo e rochas)${res(`${p.id}:aneis`)}</div>` : ''}
-        <div class="action off">Construir (Fase 3)</div>
+        ${p.kind === 'rocky' ? `<button class="oc-btn main" data-key="KeyF">${svgIcon('eye')}Observar superfície<kbd>F</kbd></button>` : '<div class="oc-btn off">Sem superfície sólida</div>'}
+        ${p.kind === 'rocky' ? `<button class="oc-btn" data-key="KeyM">${svgIcon('probe')}Enviar sonda<kbd>M</kbd>${res(p.id)}</button>` : ''}
+        ${p.rings ? `<button class="oc-btn" data-key="KeyR">${svgIcon('orbit')}Sonda aos anéis<kbd>R</kbd>${res(`${p.id}:aneis`)}</button>` : ''}
       </div>
       <div class="source">${source}</div>`;
   }
@@ -1262,7 +1257,10 @@ export class SpaceMode {
     const fwd = this.tmpFwd.set(0, 0, -1).applyQuaternion(this.state.shipQuat);
     const heading = ((Math.atan2(fwd.x, fwd.y) * 180) / Math.PI + 360) % 360;
     this.hudEls.tape.style.transform = `translateX(${-(heading + 180) * CMP_PX}px)`;
-    this.hudEls.system.textContent = this.system ? this.system.info.name : this.state.shipPos.length() < SYSTEM_EXIT_PC * AU_PER_PC ? 'Sistema Sol' : 'Espaço profundo';
+    this.hudEls.probes.textContent = `${freeProbes(this.state.probes)}/${this.state.probes.probes}`;
+    const star = this.system ? this.system.star.pos : this.state.shipPos.length() < SYSTEM_EXIT_PC * AU_PER_PC ? this.origin : null;
+    this.guide.setRadarCenter(star, heading);
+    this.hudEls.system.textContent = this.system ? `Sistema ${this.system.info.name}` : star ? 'Sistema Sol' : 'Espaço profundo';
     this.hudEls.position.textContent = `${pc.x.toFixed(3)}, ${pc.y.toFixed(3)}, ${pc.z.toFixed(3)} pc`;
     this.hudEls.fps.textContent = this.fps.toFixed(0);
     this.hudEls.chunks.textContent = `${this.stars.loadedCount} / ${this.state.manifest.manifest.nodes.length}`;
@@ -1306,8 +1304,12 @@ export class SpaceMode {
         this.labels.set(it.key, label);
       }
       label.visible = true;
-      label.el.textContent = `${it.name} · ${formatDistance(dist)}`;
-      label.el.style.transform = `translate(${((v.x + 1) / 2) * w + 10}px, ${((1 - v.y) / 2) * h - 8}px)`;
+      const text = `<span>${svgIcon('target')}${it.name}</span><small>${formatDistance(dist)}</small>`;
+      if (label.el.dataset.html !== text) {
+        label.el.dataset.html = text;
+        label.el.innerHTML = text;
+      }
+      label.el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
     }
     for (const l of this.labels.values()) l.el.hidden = !l.visible;
   }
