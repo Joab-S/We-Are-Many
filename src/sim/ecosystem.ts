@@ -36,7 +36,7 @@ import { socialYear, type Resident } from '../ai/decisions/social';
 import { LEADER, SOCIAL } from '../ai/tuning';
 import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../ai/decisions/leader';
 import { completeness, missingText, planItems, type PlanItem } from './plan';
-import { belowTier, loyaltyScore, missingFunctions, MOTIVE_TEXT, pairKey, polityOf, POLITY_NAMES, siteValue, spacingFor, tierAllowed, type ColonyMotive, type Polity, type SiteLook, type TierCheck } from './community';
+import { belowTier, missingFunctions, MOTIVE_TEXT, pairKey, polityOf, POLITY_NAMES, siteValue, spacingFor, tierAllowed, type ColonyMotive, type Polity, type SiteLook, type TierCheck } from './community';
 import { AVENUE, GRAVEL, isStreet, mainStreets, pickMaterial, TRAIL, WALL, type BuildMaterial } from './architecture';
 import {
   CURRENCY_EFFICIENCY,
