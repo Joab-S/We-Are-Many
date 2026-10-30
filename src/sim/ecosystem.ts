@@ -610,6 +610,8 @@ export interface Village {
   foundedBy?: 'bando' | 'colônia' | 'sítio' | 'refúgio' | 'cisma' | 'família' | 'mar';
   /** Colônia em formação: motivo, sítios que os batedores visitam e quando o grupo parte (RF-AS-03). */
   colony?: { motive: ColonyMotive; sites: { x: number; y: number; value: number }[]; until: number; scouts: number[] };
+  /** Ano em que a última colônia partiu daqui (COLONY_COOLDOWN). */
+  colonyAt?: number;
   /** Bairros que vieram de aldeias engolidas pela cidade (RF-AS-06). */
   quarters?: { name: string; culture: number; foreign: boolean }[];
   /** Virou bairro deste assentamento (some do mapa como lugar à parte). */
@@ -1518,7 +1520,7 @@ export class Ecosystem {
       const vital = (v.vitalNow ??= emptyVital());
       if (age === 0) vital.births++;
       else vital.arrived++;
-      this.role[i] = age < this.species[s].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.rnd(), this.roleContext(v));
+      this.role[i] = age < this.species[s].maturity ? CHILD : pickRole(Math.floor(v.tech), this.scale(v), this.rnd(), this.roleContext(v));
     }
     if (this.species[s].kind === 'sapient') randomTraits(this.traits, i, this.mindRnd, village >= 0 ? this.villages[village].culture.value : undefined);
     else this.traits.fill(0, i * TRAIT_COUNT, (i + 1) * TRAIT_COUNT);
@@ -1738,7 +1740,7 @@ export class Ecosystem {
     const fuel = n?.fuel ?? 1;
     const free = this.housing(o) - o.population;
     const room = Math.max(-1, Math.min(1, free / (3 + o.population * 0.15)));
-    const size = B.MOVE_CITY_PULL * Math.log2(1 + o.population / 20) + B.MOVE_TIER_PULL * o.tier;
+    const size = B.MOVE_CITY_PULL * Math.log2(1 + o.population / 20) + B.MOVE_TIER_PULL * this.scale(o);
     const war = this.warOf(o.kingdom) ? B.MOVE_WAR : 0;
     return B.MOVE_FOOD * food + B.MOVE_FUEL * Math.min(1, fuel / 0.8) + B.MOVE_ROOM * room + size + B.MOVE_STABLE * (o.stability ?? 1) - war;
   }
@@ -1989,7 +1991,7 @@ export class Ecosystem {
     const n = v.needs ?? fullNeeds();
     v.fedShare = ratio('_fed');
     n.food = 0.6 * v.fedShare + 0.4 * Math.min(1, v.food / (pop * B.CONSUME_FOOD));
-    n.water = v.wet ? 1 : this.has(v, 'aqueduct') ? 1 : v.tier >= 3 ? 0.5 : era >= 1 ? 0.85 : 0.75;
+    n.water = v.wet ? 1 : this.has(v, 'aqueduct') ? 1 : this.scale(v) >= 3 ? 0.5 : era >= 1 ? 0.85 : 0.75;
     // Lenha para o fogo e madeira para consertar as casas (seção 19.19).
     const fuel = l['_fuel'] ?? [0, 0];
     const fix = l['_upkeep'] ?? [0, 0];
@@ -2093,7 +2095,7 @@ export class Ecosystem {
    */
   private firstRole(v: Village, era: number, i: number): number {
     const ctx = this.roleContext(v);
-    const weights = roleWeights(era, v.tier, ctx);
+    const weights = roleWeights(era, this.scale(v), ctx);
     let total = 0;
     let arms = 0;
     for (const [r, w] of weights) {
@@ -2111,7 +2113,7 @@ export class Ecosystem {
       return ROLE.soldier;
     }
     const pick = this.thinkProfession(v, i, weights);
-    return pick ?? pickRole(era, v.tier, this.rnd(), ctx);
+    return pick ?? pickRole(era, this.scale(v), this.rnd(), ctx);
   }
 
   /** Contexto e escolha do ofício pela IA; anota no diário. Devolve null se não houver ofício civil. */
@@ -2340,7 +2342,7 @@ export class Ecosystem {
     if ((h.plague ?? 0) <= this.year && happens(this.civRnd, B.HERD_PLAGUE_RATE * (1 + h.head / 40), 1)) this.herdPlague(v, null);
     if (horses) v.stock.horses = h.head;
     // Pasto cheio: mais um cercado, até o limite do nível.
-    const maxPens = maxPensOf(v.tier, v.vocation);
+    const maxPens = maxPensOf(this.scale(v), v.vocation);
     if (h.head > cap * 0.8 && pens < maxPens && happens(this.civRnd, B.PEN_RATE, 1)) this.addPen(v);
     // Cercados demais para o rebanho que sobrou (ou acima do limite): o mais longe é desmontado.
     const needed = Math.max(1, Math.ceil((h.head * B.PASTURE_PER_HEAD) / (B.PEN_AREA * 0.8)));
@@ -2542,7 +2544,7 @@ export class Ecosystem {
           let moved = false;
           // O campo abastece a cidade (evolução dos povos, etapa 2): aldeia ou vila do reino onde todos comem bem manda a
           // comida que passa de meio ano de consumo para o lugar maior que não tem nem um ano guardado.
-          if (b.tier > a.tier && (a.fedShare ?? 0) >= B.SUPPLY_FED) {
+          if (this.scale(b) > this.scale(a) && (a.fedShare ?? 0) >= B.SUPPLY_FED) {
             const spare = a.food - a.population * B.CONSUME_FOOD * 0.5;
             const room = b.population * B.CONSUME_FOOD - b.food;
             const load = Math.min(B.HAUL_LOAD * 2, spare, room, this.capOf(b, 'food') - b.food);
@@ -2614,7 +2616,7 @@ export class Ecosystem {
   /** Quanto a colheita rende neste ano no assentamento (1 = ano normal). */
   /** Agricultores que cada roça do mapa comporta: a roça desenhada representa mais terra conforme o lugar cresce. */
   fieldHands(v: Village): number {
-    return B.FIELD_HANDS * (1 + B.FIELD_HANDS_TIER * v.tier);
+    return B.FIELD_HANDS * (1 + B.FIELD_HANDS_TIER * this.scale(v));
   }
 
   harvest(v: Village): number {
@@ -4600,7 +4602,7 @@ export class Ecosystem {
     (v.vitalNow ??= emptyVital()).arrived++;
     v.lastCause = undefined;
     v.population++;
-    this.role[i] = this.age[i] < this.species[this.kind[i]].maturity ? CHILD : pickRole(Math.floor(v.tech), v.tier, this.civRnd(), this.roleContext(v));
+    this.role[i] = this.age[i] < this.species[this.kind[i]].maturity ? CHILD : pickRole(Math.floor(v.tech), this.scale(v), this.civRnd(), this.roleContext(v));
   }
 
   /**
@@ -4661,8 +4663,8 @@ export class Ecosystem {
   /** Andares a mais que uma casa pode ter (sobrado em vilas e cidades com siderurgia/Ferro; mais um na cidade com aço/Medieval). */
   private maxLevel(v: Village): number {
     const era = Math.floor(v.tech);
-    if (v.tier >= 2 && (era >= 3 || this.knew(v, 'aco'))) return 2;
-    if (v.tier >= 1 && (era >= 2 || this.knew(v, 'siderurgia'))) return 1;
+    if (this.scale(v) >= 2 && (era >= 3 || this.knew(v, 'aco'))) return 2;
+    if (this.scale(v) >= 1 && (era >= 2 || this.knew(v, 'siderurgia'))) return 1;
     return 0;
   }
 
@@ -4672,7 +4674,7 @@ export class Ecosystem {
     const built = new Set<string>(v.houses.map((h) => h.kind));
     const ctx = this.buildContext(v);
     return planItems({
-      tier: v.tier,
+      tier: this.scale(v),
       tech: v.tech,
       population: v.population,
       housing: this.housing(v),
@@ -4692,7 +4694,7 @@ export class Ecosystem {
     const st = this.store(v);
     return {
       era: Math.floor(v.tech),
-      tier: v.tier,
+      tier: this.scale(v),
       metal: st.copper + st.tin + st.iron > 0,
       culture: v.culture,
       capital: v.kingdom === v.id,
@@ -6050,7 +6052,7 @@ export class Ecosystem {
 
   /** O que entra no teto do estoque do assentamento (RF-VIDA-218). */
   capContext(v: Village): CapContext {
-    return { tier: v.tier, granary: this.has(v, 'granary'), warehouse: this.has(v, 'warehouse'), treasury: this.has(v, 'market'), mines: v.mines.length };
+    return { tier: this.scale(v), granary: this.has(v, 'granary'), warehouse: this.has(v, 'warehouse'), treasury: this.has(v, 'market'), mines: v.mines.length };
   }
 
   /** Teto de um recurso no assentamento. */
@@ -6222,7 +6224,7 @@ export class Ecosystem {
     const herbivores = (!!v.herd && v.herd.head > 0) || this.species.some((sp, k) => sp.kind === 'herbivore' && this.population[k] > 0);
     return {
       tech: v.tech,
-      tier: v.tier,
+      tier: this.scale(v),
       wet: !!v.wet,
       herd: v.herd && v.herd.head > 0 ? v.herd.kind : undefined,
       farming: v.fields > 0,
@@ -6260,7 +6262,7 @@ export class Ecosystem {
       monument: this.has(v, 'statue') || this.has(v, 'wonder'),
       luxuryJoy: !!v.luxuryJoy,
       leader: v.leader >= 0 && !!this.alive[v.leader],
-      tier: v.tier,
+      tier: this.scale(v),
       stability: v.stability ?? 1,
       linked: !!v.linked,
       kingdom: this.kingdomSize(this.capitalOf(v)) > 1,
@@ -6304,7 +6306,7 @@ export class Ecosystem {
     const kmade = this.villages[v.kingdom].made;
     const organic = P.organicTech({
       techs: this.knows(v),
-      tier: v.tier,
+      tier: this.scale(v),
       fields: v.fields,
       herd: !!v.herd && v.herd.head > 0,
       port: v.port >= 0,
@@ -6509,10 +6511,10 @@ export class Ecosystem {
     // Lenha (seção 19.19): os lenhadores derrubam árvores de verdade, da mais perto para a mais longe;
     // quanto mais longe a mata, menos madeira chega por ano. A serraria aproveita mais de cada tronco.
     v.crew = w[ROLE.builder];
-    const cutters = w[ROLE.woodcutter] + (v.tier === 0 && v.population <= 4 && st.wood < 6 ? w[ROLE.leader] * 0.5 : 0);
+    const cutters = w[ROLE.woodcutter] + (this.scale(v) === 0 && v.population <= 4 && st.wood < 6 ? w[ROLE.leader] * 0.5 : 0);
     if (cutters && !B.PRESENCE_WOOD) this.cutWood(v, cutters * B.CUT_RATE * yr * tools * bonus('madeireira'), this.has(v, 'sawmill') ? 1.3 : 1);
     // Coletores trazem frutos, raízes e mel do mato, que se gasta e rebrota (seção 19.19). Numa aldeia pequenina, o líder também ajuda a colher.
-    if (v.tier === 0 && v.population <= 6 && w[ROLE.leader] && v.food < 6 && v.forest > 0.2) {
+    if (this.scale(v) === 0 && v.population <= 6 && w[ROLE.leader] && v.food < 6 && v.forest > 0.2) {
       this.book(v, '_gather', this.put(v, 'food', w[ROLE.leader] * B.GATHER_RATE * 0.6 * yr * this.harvest(v)), 0);
     }
     if (w[ROLE.gatherer]) this.gather(v, w[ROLE.gatherer] * B.GATHER_RATE * yr * this.harvest(v) * B.SEASON_HARVEST[season] ** 0.5);
@@ -6608,7 +6610,7 @@ export class Ecosystem {
       }
     }
     // Abre uma mina numa jazida conhecida, respeitando a sequência de materiais que o povo já sabe explorar.
-    if (w[ROLE.miner] && v.mines.length < 1 + v.tier && happens(this.civRnd, B.MINE_RATE, dt / YEAR_SECONDS)) this.openMine(v);
+    if (w[ROLE.miner] && v.mines.length < 1 + this.scale(v) && happens(this.civRnd, B.MINE_RATE, dt / YEAR_SECONDS)) this.openMine(v);
   }
 
   // Recursos do mapa (seção 19.19) ----------------------------------------------
@@ -7655,7 +7657,7 @@ export class Ecosystem {
       const v = this.villages[this.village[i]];
       if (v.kingdom !== war.a && v.kingdom !== war.b) continue;
       // O mercenário fica onde está, com uma profissão de paz.
-      this.role[i] = pickRole(Math.floor(v.tech), v.tier, this.civRnd(), this.roleContext(v));
+      this.role[i] = pickRole(Math.floor(v.tech), this.scale(v), this.civRnd(), this.roleContext(v));
       if (this.role[i] === ROLE.soldier) this.role[i] = ROLE.gatherer;
       this.mercenaries.delete(i);
     }
@@ -8719,7 +8721,7 @@ export class Ecosystem {
 
   /** Começa a juntar uma colônia em `v`: batedores saem para ver os sítios (RF-AS-03). */
   private organizeColony(v: Village, motive: ColonyMotive): boolean {
-    if (v.colony || v.population < B.COLONY_GROUP_MIN + 6) return false;
+    if (v.colony || v.population < B.COLONY_SOURCE_POP || this.year - (v.colonyAt ?? -1e9) < B.COLONY_COOLDOWN) return false;
     const sites = this.scoutSites(v, motive, B.COLONY_SCOUTS);
     if (!sites.length) return false;
     // Batedores: os adultos mais curiosos e corajosos, nunca o líder.
@@ -8752,6 +8754,7 @@ export class Ecosystem {
   private departColony(v: Village, families: Map<number, number[]> | undefined): void {
     const c = v.colony!;
     v.colony = undefined;
+    v.colonyAt = this.year;
     const sites = c.sites
       .filter((p) => this.canSettle(v.species, p.x, p.y, v.tech))
       .map((p) => ({ ...p, value: p.value + (this.civRnd() - 0.5) * 0.4 }))
@@ -8867,7 +8870,7 @@ export class Ecosystem {
     this.tally.exodus++;
     if (why === 'lenha') this.tally.exodusFuel++;
     if (why === 'comida' && this.openFarmstead(v)) return;
-    if (v.population >= B.COLONY_GROUP_MIN + 6 && this.organizeColony(v, why === 'comida' ? 'terra' : 'espaço')) return;
+    if (this.organizeColony(v, why === 'comida' ? 'terra' : 'espaço')) return;
     if (families && this.seekRefuge(v, families, why)) return;
     const near = this.villages.some((o) => o !== v && !o.abandoned && o.species === v.species && this.distance(o, v.x, v.y) < B.LONE_FOUND_DIST);
     if (!near && this.colonizeByLand(v)) {
@@ -9095,6 +9098,36 @@ export class Ecosystem {
   }
 
   /** Reino ou império de verdade (RF-AS-48): só esses contam como reino e ganham o nome no rótulo. */
+  /**
+   * Porte econômico (0 a 3) só pela população, com os limiares antigos: quanto o lugar produz, guarda,
+   * comercia e que ofícios tem. O degrau com nome (`tier`) pede também as funções (RF-AS seção 4).
+   */
+  scale(v: Village): number {
+    let t = 0;
+    while (t + 1 < B.SCALE_POPULATION.length && v.population >= B.SCALE_POPULATION[t + 1]) t++;
+    return Math.max(t, v.tier);
+  }
+
+  /** Lugar de mercado: cidade em diante ou já escolhido como referência por outros (RF-AS-44). */
+  isMarket(v: Village): boolean {
+    return v.tier >= 2 || (v.market ?? 0) > 0;
+  }
+
+  /** Lugares no modo completo (jornadas, RF-AS-31): os que estão na tela, ou os escolhidos pela calibração. */
+  private watched = new Set<number>();
+
+  watch(ids: Iterable<number>): void {
+    this.watched = new Set(ids);
+  }
+
+  /** O lugar roda jornadas e passos completos (os demais, o modo agregado). */
+  full(v: Village): boolean {
+    return this.watched.has(v.id);
+  }
+
+  /** Amostras do comportamento nos lugares em modo completo (seção 7.3): tarefa reservada, parado e passos sobre rua. */
+  dayStats = { samples: 0, tasked: 0, idle: 0, steps: 0, streetSteps: 0 };
+
   isRealm(v: Village): boolean {
     const k = this.villages[v.kingdom];
     const p = k.polity ?? polityOf(k.tier, this.kingdomSize(k), 0);
@@ -10470,16 +10503,16 @@ export class Ecosystem {
     if (v.tech < 0.5 || v.population < 8) return;
     const merc = v.vocation === 'mercantil';
     const market = this.has(v, 'market');
-    if ((v.tier < 1 && !merc && !market && !v.request) || this.snowed(v.x, v.y)) return;
-    if (this.tradeInMotion() >= B.CARAVANS_MAX || this.caravansOf(v) >= caravanCap(v.tier, merc)) return;
+    if ((this.scale(v) < 1 && !merc && !market && !v.request) || this.snowed(v.x, v.y)) return;
+    if (this.tradeInMotion() >= B.CARAVANS_MAX || this.caravansOf(v) >= caravanCap(this.scale(v), merc)) return;
     if (v.request && happens(this.civRnd, 2, yr)) {
       this.sendTribute(v);
       return;
     }
-    if (v.tier < 1 && !merc && !market) return;
+    if (this.scale(v) < 1 && !merc && !market) return;
     if (!happens(this.civRnd, B.CARAVAN_RATE * (merc ? 2 : 1) * (market ? 1.5 : 1), yr)) return;
     const era = Math.floor(v.tech);
-    const load = B.CARAVAN_LOAD * (2 + Math.min(2, v.tier));
+    const load = B.CARAVAN_LOAD * (2 + Math.min(2, this.scale(v)));
     const year = Math.floor(this.year);
     const boat = BOATS[Math.min(BOATS.length - 1, era)];
     let best: { o: Village; cargo: Cargo[]; d: number } | null = null;
@@ -10518,7 +10551,7 @@ export class Ecosystem {
       this.addTo(v, c.good, -c.amount);
       this.book(v, 'saiu', 0, c.amount);
     }
-    const purse = kind === 'trade' ? Math.min(v.stock.gold, 3 + v.tier * 2) : 0;
+    const purse = kind === 'trade' ? Math.min(v.stock.gold, 3 + this.scale(v) * 2) : 0;
     v.stock.gold -= purse;
     const era = Math.floor(v.tech);
     const animal = packAnimal(v.material === 'adobe' || v.herd?.kind === 'camel', v.stock.horses);
@@ -10535,7 +10568,7 @@ export class Ecosystem {
       facing: 1,
       back: false,
       animal,
-      animals: 1 + Math.min(2, v.tier),
+      animals: 1 + Math.min(2, this.scale(v)),
       cart: cartOf(era),
       cargo: cargo.filter((c) => c.amount >= 1),
       purse,
@@ -10566,7 +10599,7 @@ export class Ecosystem {
       this.addTo(v, c.good, -c.amount);
       this.book(v, 'saiu', 0, c.amount);
     }
-    const purse = Math.min(v.stock.gold, 3 + v.tier * 2);
+    const purse = Math.min(v.stock.gold, 3 + this.scale(v) * 2);
     v.stock.gold -= purse;
     const boat = this.launch(v, 'trade', path, -1, [this.embark(i)]);
     boat.trade = { target: o.id, cargo: cargo.filter((c) => c.amount >= 1), purse, back: false };
@@ -10626,7 +10659,7 @@ export class Ecosystem {
       t.purse += gold;
       budget = t.purse * B.GOLD_VALUE;
     }
-    const load = (sea ? B.TRADE_BOAT_LOAD : B.CARAVAN_LOAD * (2 + Math.min(2, v.tier))) - t.cargo.reduce((n, c) => n + c.amount, 0);
+    const load = (sea ? B.TRADE_BOAT_LOAD : B.CARAVAN_LOAD * (2 + Math.min(2, this.scale(v)))) - t.cargo.reduce((n, c) => n + c.amount, 0);
     // A volta traz outro bem (ninguém leva ferramentas para trazer ferramentas).
     const back = this.offer(o, v, load, t.cargo.map((c) => c.good).concat(sold ? [sold] : []));
     let bought: Good | 'food' | undefined;
@@ -10987,7 +11020,7 @@ export class Ecosystem {
   private luxuryYear(v: Village): void {
     if (v.luxury === undefined) v.luxury = this.luxuryOf(v);
     const era = Math.floor(v.tech);
-    if (v.luxury && era >= LUXURY_ERA[v.luxury]) this.gain(v, v.luxury, B.LUXURY_MAKE * (1 + v.tier) * (v.vocation === 'mercantil' ? 1.4 : 1));
+    if (v.luxury && era >= LUXURY_ERA[v.luxury]) this.gain(v, v.luxury, B.LUXURY_MAKE * (1 + this.scale(v)) * (v.vocation === 'mercantil' ? 1.4 : 1));
     v.luxuryJoy = false;
     if (!v.needs || welfare(v.needs) < 0.75) return;
     for (const l of LUXURIES) {
@@ -11035,7 +11068,7 @@ export class Ecosystem {
     for (const v of this.villages) {
       if (v.abandoned) continue;
       // Feira anual (RF-VIDA-234): no verão, nas vilas e cidades mercantis.
-      if (v.vocation === 'mercantil' && v.tier >= 1 && v.population >= 20) {
+      if (v.vocation === 'mercantil' && this.scale(v) >= 1 && v.population >= 20) {
         v.fair = year;
         this.note(`Feira anual em ${v.name}`, 'economia', v, { key: `fair-${v.id}` });
       }

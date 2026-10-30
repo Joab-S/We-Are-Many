@@ -26,7 +26,7 @@ export const FIELD_YIELD = 3;
  * (FIELD_HANDS × (1 + FIELD_HANDS_TIER × nível) agricultores por roça), já que o mapa continua com no máximo 5.
  * Antes o teto era fixo e um assentamento não passava de 40 a 60 moradores.
  */
-export const FIELD_HANDS_TIER = 0.5;
+export const FIELD_HANDS_TIER = 1;
 /** Rendimento de cada agricultor por era (Pedra … Industrial): ferramentas, rotação, adubo e máquinas. Antes era o mesmo em todas. */
 export const ERA_YIELD = [1, 1.2, 1.45, 1.75, 2.4];
 /**
@@ -645,7 +645,9 @@ export const BUILD_LABOR = 1;
 /** Fase 1, nascimento: menor distância (tiles) entre um lugar novo e uma aldeia, vila, cidade ou metrópole (RF-AS-05). */
 export const SPACING = [14, 22, 30, 30];
 /** Colônia organizada (RF-AS-03): moradores mínimos da origem, pessoas no grupo e anos de batedores antes de partir. */
-export const COLONY_SOURCE_POP = 30;
+export const COLONY_SOURCE_POP = 60;
+/** Anos entre duas colônias do mesmo lugar: a origem precisa se refazer antes de mandar outro grupo. */
+export const COLONY_COOLDOWN = 40;
 export const COLONY_GROUP_MIN = 12;
 export const COLONY_GROUP_MAX = 30;
 export const COLONY_SCOUT_YEARS = 1;
@@ -684,6 +686,8 @@ export const LAST_WAVE_POP = 4;
  * Fase 2, degraus (RF-AS seção 4): moradores mínimos de aldeia, vila, cidade e metrópole. Abaixo de
  * CAMP_POP, sem casa de verdade, a aldeia ainda é um acampamento de tendas.
  */
+/** Limiares do porte econômico (`scale`): os antigos degraus por população, que regem produção, estoque e comércio. */
+export const SCALE_POPULATION = [0, 25, 60, 140];
 export const TIER_POPULATION_NEW = [0, 40, 120, 400];
 export const CAMP_POP = 10;
 /** Descida de nível: fração do limiar e anos seguidos abaixo dela (ou sem as funções do nível). */

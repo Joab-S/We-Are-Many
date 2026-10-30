@@ -5,7 +5,8 @@
  */
 
 import { generateSurface, type PlanetParams } from '../procgen/surface';
-import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
+import * as B from './balance';
+import { Ecosystem, isLand, YEAR_SECONDS, type Village } from './ecosystem';
 import { isStreet } from './architecture';
 import { GOODS } from './economy';
 import { welfare } from './needs';
@@ -108,6 +109,30 @@ export interface Indicators {
   mercenaries: number;
   retreats: number;
   cavalry: number;
+  /** Plano novo dos assentamentos (RF-AS, seção 7 do plano): nascimento e tamanho. */
+  realms: number;
+  smallShare: number;
+  soloShare: number;
+  shortLived: number;
+  colonies: number;
+  farmsteads: number;
+  merged: number;
+  tierDowns: number;
+  /** Visual: densidade do núcleo de cidades, árvores nativas no núcleo de vilas em diante, roças perto das casas. */
+  coreDensity: number;
+  coreTrees: number;
+  fieldsNear: number;
+  /** Comportamento (lugares no modo completo): tarefa reservada, tempo parado e passos sobre rua ou trilha. */
+  taskShare: number;
+  idleShare: number;
+  onStreet: number;
+  /** Relações: casamentos entre lugares, aldeias e vilas com cidade de referência, anexações pacíficas, povos novos, ajudas e rivalidades. */
+  interMarriage: number;
+  refCoverage: number;
+  annexations: number;
+  newPeoples: number;
+  aid: number;
+  rivalries: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -150,8 +175,14 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
     return n;
   };
   const trees0 = countTrees();
+  // Os 3 maiores lugares rodam no modo completo (jornadas), revistos todo ano, para medir o comportamento (seção 7.3).
+  const watch = () => {
+    const top = eco.villages.filter((v) => !v.abandoned).sort((p, q) => q.population - p.population).slice(0, 3);
+    eco.watch(top.map((v) => v.id));
+  };
   const sapient = () => eco.villages.reduce((n, v) => n + (v.abandoned ? 0 : v.population), 0);
   for (let y = 0; y < years; y++) {
+    watch();
     for (let t = 0; t < YEAR_SECONDS; t += 0.25) eco.step(0.25);
     if (y === Math.floor(years * 0.6)) mid = sapient();
     wars += eco.wars.length;
@@ -178,6 +209,7 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       if (!near) off++;
     }
   }
+  const ring = settlementForm(eco, live);
   let fill = 0;
   let fills = 0;
   let over = 0;
@@ -264,8 +296,78 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       retreats: eco.tally.retreats,
       cavalry: cavalry / Math.max(1, years),
       forestLeft: live.reduce((n, v) => n + (v.treesStart ? (v.trees ?? 0) / v.treesStart : 1), 0) / Math.max(1, live.length),
+      realms: live.filter((v) => eco.isRealm(v)).length,
+      smallShare: live.filter((v) => v.population < 15).length / Math.max(1, live.length),
+      soloShare: eco.tally.soloFounds / Math.max(1, eco.villages.length - placed),
+      shortLived: eco.tally.shortLived / Math.max(1, eco.villages.length),
+      colonies: eco.tally.colonies,
+      farmsteads: eco.tally.farmsteads,
+      merged: eco.tally.merged,
+      tierDowns: eco.tally.tierDowns,
+      coreDensity: ring.density,
+      coreTrees: ring.trees,
+      fieldsNear: ring.fieldsNear,
+      taskShare: eco.dayStats.samples ? eco.dayStats.tasked / eco.dayStats.samples : 0,
+      idleShare: eco.dayStats.samples ? eco.dayStats.idle / eco.dayStats.samples : 0,
+      onStreet: eco.dayStats.steps ? eco.dayStats.streetSteps / eco.dayStats.steps : 0,
+      interMarriage: eco.tally.interMarriages / Math.max(1, eco.tally.marriages),
+      refCoverage: (() => {
+        const small = live.filter((v) => v.tier <= 1 && !eco.isMarket(v));
+        return small.filter((v) => v.ref !== undefined && !eco.villages[v.ref]?.abandoned).length / Math.max(1, small.length);
+      })(),
+      annexations: eco.tally.annexations,
+      newPeoples: eco.tally.newPeoples,
+      aid: eco.tally.aid,
+      rivalries: eco.tally.rivalries,
     },
   };
+}
+
+/**
+ * Forma dos lugares no fim (seção 7.2 do plano): parte da metade interna da pegada de cidades e
+ * metrópoles ocupada (casa, prédio, rua ou praça), árvores nativas no núcleo de vilas em diante
+ * e parte das roças a até `FIELD_RING` tiles de uma casa.
+ */
+export function settlementForm(eco: Ecosystem, live: Village[]): { density: number; trees: number; fieldsNear: number } {
+  const map = eco.map;
+  const w = map.width;
+  const e = eco as unknown as { road: Uint8Array; built: Uint8Array };
+  let filled = 0;
+  let cells = 0;
+  let trees = 0;
+  for (const v of live) {
+    if (v.tier < 1) continue;
+    const r = eco.footprint(v) / 2;
+    for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) {
+      for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const ty = Math.floor(v.y) + dy;
+        if (ty < 0 || ty >= map.height) continue;
+        const t = ty * w + ((((Math.floor(v.x) + dx) % w) + w) % w);
+        if (!isLand(map, t)) continue;
+        if (eco.standingTree(t)) trees++;
+        if (v.tier < 2) continue;
+        cells++;
+        if (e.built[t] || (e.road[t] && e.road[t] !== 4 && e.road[t] !== 5)) filled++;
+      }
+    }
+  }
+  let fields = 0;
+  let near = 0;
+  for (let t = 0; t < w * map.height; t++) {
+    if (e.road[t] !== 4) continue;
+    fields++;
+    const x = t % w;
+    const y = Math.floor(t / w);
+    let hit = false;
+    for (let dy = -B.FIELD_RING; dy <= B.FIELD_RING && !hit; dy++) {
+      const ty = y + dy;
+      if (ty < 0 || ty >= map.height) continue;
+      for (let dx = -B.FIELD_RING; dx <= B.FIELD_RING && !hit; dx++) if (e.built[ty * w + ((((x + dx) % w) + w) % w)]) hit = true;
+    }
+    if (hit) near++;
+  }
+  return { density: cells ? filled / cells : 1, trees, fieldsNear: fields ? near / fields : 1 };
 }
 
 /** Faixas-alvo da tabela de 19.15 que já podem ser medidas. */
@@ -299,13 +401,34 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
  * concentra em cidades com o tempo, em vez de se espalhar em aldeias pequenas (evolução dos povos, etapa 0).
  */
 export const LONG_TARGETS: { key: keyof Indicators; label: string; min: number; max: number }[] = [
-  { key: 'medianPop', label: 'Mediana de moradores por assentamento', min: 30, max: 9999 },
+  // Seção 7.1 do plano novo dos assentamentos (RF-AS): menos fundações, lugares maiores e reino só com cidade.
+  { key: 'founded', label: 'Assentamentos fundados na rodada', min: 60, max: 110 },
+  { key: 'settlements', label: 'Assentamentos vivos', min: 40, max: 90 },
+  { key: 'medianPop', label: 'Mediana de moradores por assentamento', min: 50, max: 99999 },
+  { key: 'biggest', label: 'Maior assentamento (moradores)', min: 400, max: 99999 },
+  { key: 'metropoles', label: 'Metrópoles (400 ou mais)', min: 1, max: 4 },
+  { key: 'smallShare', label: 'Parte dos lugares com menos de 15 moradores', min: 0, max: 0.2 },
+  { key: 'soloShare', label: 'Parte das fundações feitas por uma família sozinha', min: 0, max: 0.15 },
+  { key: 'shortLived', label: 'Parte dos lugares que morreram antes de 50 anos', min: 0, max: 0.15 },
+  { key: 'realms', label: 'Reinos (com cidade como capital)', min: 5, max: 25 },
   { key: 'cityShare', label: 'Parte do povo em cidades e metrópoles', min: 0.2, max: 0.6 },
-  { key: 'metropoles', label: 'Metrópoles', min: 1, max: 6 },
-  { key: 'bigKingdoms', label: 'Reinos com 3 ou mais assentamentos', min: 3, max: 25 },
-  { key: 'kingdoms', label: 'Reinos', min: 5, max: 40 },
   { key: 'hunger', label: 'Mortes de fome por ano, por 100 moradores', min: 0, max: 0.5 },
   { key: 'peopleTrend', label: 'Moradores: fim ÷ 60% da rodada', min: 1, max: 3 },
+  // Seção 7.2: forma.
+  { key: 'coreDensity', label: 'Metade interna da pegada das cidades ocupada', min: 0.6, max: 1 },
+  { key: 'coreTrees', label: 'Árvores nativas no núcleo de vilas em diante', min: 0, max: 0 },
+  { key: 'fieldsNear', label: 'Roças a até 6 tiles de uma casa', min: 0.8, max: 1 },
+  { key: 'housesOffStreet', label: 'Casas longe de rua ou trilha', min: 0, max: 0 },
+  { key: 'roadBlocks', label: 'Blocos 2x2 de rua fora das praças', min: 0, max: 0 },
+  // Seção 7.3: comportamento nos lugares em modo completo.
+  { key: 'taskShare', label: 'Adultos que trabalham com tarefa reservada', min: 0.8, max: 1 },
+  { key: 'idleShare', label: 'Tempo dos adultos parado sem tarefa nem necessidade', min: 0, max: 0.1 },
+  { key: 'onStreet', label: 'Passos dentro da pegada sobre rua ou trilha', min: 0.7, max: 1 },
+  // Seção 7.4: relações.
+  { key: 'interMarriage', label: 'Casamentos entre pessoas de lugares diferentes', min: 0.1, max: 0.3 },
+  { key: 'refCoverage', label: 'Aldeias e vilas com cidade de referência', min: 0.95, max: 1 },
+  { key: 'annexations', label: 'Anexações pacíficas na rodada', min: 5, max: 9999 },
+  { key: 'newPeoples', label: 'Povos novos por deriva cultural', min: 1, max: 9999 },
 ];
 
 /** Nome de cada indicador no relatório. */
