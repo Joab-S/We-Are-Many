@@ -31,13 +31,13 @@ import { CHILD, pickRole, ROLE, ROLE_NAMES, ROLES, roleWeights, type Role, type 
 import { inheritTraits, randomTraits, TRAIT, TRAIT_COUNT } from '../ai/traits';
 import { chooseProfession, needDemand, professionReason, switchWill, type ProfessionContext } from '../ai/decisions/work';
 import { remember, type Thought, type ThoughtKind } from '../ai/trace';
-import { BOND, forget, partnerOf, type Bond } from '../ai/relations';
+import { BOND, forget, partnerOf, touch, type Bond } from '../ai/relations';
 import { socialYear, type Resident } from '../ai/decisions/social';
 import { LEADER, SOCIAL } from '../ai/tuning';
 import { chooseDay, DAY, DAY_NAMES, dayWhy, type BoardTask, type DayKind } from '../ai/decisions/day';
 import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../ai/decisions/leader';
 import { completeness, missingText, planItems, type PlanItem } from './plan';
-import { belowTier, missingFunctions, MOTIVE_TEXT, pairKey, polityOf, POLITY_NAMES, siteValue, spacingFor, tierAllowed, type ColonyMotive, type Polity, type SiteLook, type TierCheck } from './community';
+import { belowTier, loyaltyScore, missingFunctions, MOTIVE_TEXT, pairKey, polityOf, POLITY_NAMES, siteValue, spacingFor, tierAllowed, type ColonyMotive, type Polity, type SiteLook, type TierCheck } from './community';
 import { AVENUE, GRAVEL, isStreet, mainStreets, pickMaterial, TRAIL, WALL, type BuildMaterial } from './architecture';
 import {
   CURRENCY_EFFICIENCY,
@@ -608,6 +608,8 @@ export interface Village {
   learnAt?: number;
   /** Plano novo dos assentamentos (seção 20): ano e jeito da fundação (RF-AS-01 a 08). */
   foundedAt?: number;
+  /** Lugar de onde vieram os fundadores (a deriva cultural de um lugar livre conta a partir dele, RF-AS-52). */
+  mother?: number;
   foundedBy?: 'bando' | 'colônia' | 'sítio' | 'refúgio' | 'cisma' | 'família' | 'mar';
   /** Colônia em formação: motivo, sítios que os batedores visitam e quando o grupo parte (RF-AS-03). */
   colony?: { motive: ColonyMotive; sites: { x: number; y: number; value: number }[]; until: number; scouts: number[] };
@@ -1494,6 +1496,7 @@ export class Ecosystem {
     this.jobWork = copy(this.jobWork, (n) => new Float32Array(n));
     this.jobWait = copy(this.jobWait, (n) => new Float32Array(n));
     this.home = copy(this.home, (n) => new Int32Array(n));
+    this.origin = copy(this.origin, (n) => new Int32Array(n));
     this.day = copy(this.day, (n) => new Uint8Array(n));
     this.dayAt = copy(this.dayAt, (n) => new Int32Array(n));
     this.dayLeg = copy(this.dayLeg, (n) => new Uint8Array(n));
@@ -1580,6 +1583,7 @@ export class Ecosystem {
     this.jobWork[i] = 0;
     this.jobWait[i] = 0;
     this.home[i] = -1;
+    this.origin[i] = village;
     this.day[i] = 0;
     this.dayLeg[i] = 0;
     this.dayTime[i] = 0;
@@ -1946,6 +1950,8 @@ export class Ecosystem {
 
   /** Muda a criatura `i` de `from` para `to`: chega pela borda do destino e vai andando até a praça. */
   private relocate(i: number, from: Village, to: Village): void {
+    // Memória de origem (RF-AS-41): quem se muda guarda o laço com o lugar de onde veio.
+    this.origin[i] = from.id;
     from.population--;
     (from.vitalNow ??= emptyVital()).left++;
     this.village[i] = -1;
@@ -5788,7 +5794,7 @@ export class Ecosystem {
       near,
       (x, y) => {
         const t = at(x, y);
-        return t >= 0 && (this.road[t] === 1 || this.road[t] === 2);
+        return t >= 0 && (this.road[t] === 1 || this.road[t] === 2 || this.road[t] === TRAIL);
       },
       (x, y) => {
         const t = at(x, y);
@@ -5868,6 +5874,7 @@ export class Ecosystem {
       abandoned: false,
       foundedAt: this.year,
       foundedBy: how ?? (from ? 'colônia' : 'bando'),
+      mother: from?.id,
     };
     if (!from) village.culture = makeCulture(village.culture.id, village.name, rnd);
     if (ruin) {
@@ -6021,6 +6028,7 @@ export class Ecosystem {
       this.updateLeader(v, adults[v.id] ?? []);
       // Assentamentos fundados neste passo ainda não têm contagem.
       if (workers[v.id]) this.produce(v, workers[v.id], adults[v.id].length, dt);
+      if (v.yard) this.reserveFromYard(v);
       // Crescimento para dentro (RF-VIDA-202): preencher os lotes, completar a planta e reformar, adensar e só então expandir.
       const homes = v.houses.filter((h) => h.kind === 'house').length;
       const yr = dt / YEAR_SECONDS;
@@ -6753,6 +6761,11 @@ export class Ecosystem {
     if (this.jobWork.length < n) this.jobWork = new Float32Array(n);
     if (this.jobWait.length < n) this.jobWait = new Float32Array(n);
     if (this.home.length < n) this.home = new Int32Array(n).fill(-1);
+    if (this.origin.length < n) {
+      const old = this.origin;
+      this.origin = new Int32Array(n).fill(-1);
+      this.origin.set(old);
+    }
     // Saves de antes das jornadas: todo mundo sem jornada, sem carga e descansado.
     for (const k of ['day', 'dayLeg', 'carry', 'gesture'] as const) if (this[k].length < n) this[k] = new Uint8Array(n);
     if (this.dayAt.length < n) this.dayAt = new Int32Array(n);
@@ -6842,6 +6855,19 @@ export class Ecosystem {
   private flushYard(v: Village): void {
     if (!v.yard) return;
     for (const g of Object.keys(v.yard) as (Good | 'food')[]) this.deliver(v, g, v.yard[g] ?? 0);
+  }
+
+  /**
+   * Estoque quase vazio com carga parada no pátio: as famílias buscam o que precisam direto da roça e da
+   * mata (conta como entrega). Evita fome e frio só porque os carregadores ainda não chegaram.
+   */
+  private reserveFromYard(v: Village): void {
+    const yard = v.yard!;
+    for (const g of Object.keys(yard) as (Good | 'food')[]) {
+      const have = g === 'food' ? v.food : v.stock[g];
+      const want = g === 'food' ? v.population * B.YARD_RESERVE_FOOD : g === 'wood' ? v.population * B.YARD_RESERVE_WOOD : 0;
+      if ((yard[g] ?? 0) > 0 && have < want) this.deliver(v, g, want - have);
+    }
   }
 
   /** Tile do celeiro (ou da praça, sem celeiro). */
@@ -7410,7 +7436,7 @@ export class Ecosystem {
     for (const t of this.wearTiles) {
       const r = this.road[t];
       const wear = this.wear[t];
-      if (!r && wear >= B.TRAIL_WEAR && !this.built[t] && !this.wall[t] && this.depositAt[t] < 0 && isLand(this.map, t)) {
+      if (!r && wear >= B.TRAIL_WEAR && !this.built[t] && !this.wall[t] && this.depositAt[t] < 0 && isLand(this.map, t) && !this.closesBlock(t)) {
         this.road[t] = TRAIL;
         changed.push(t);
       } else if (r === TRAIL && wear >= B.ROAD_WEAR) {
@@ -7436,6 +7462,28 @@ export class Ecosystem {
     this.pruneRoads(changed);
   }
 
+  /** Virar rua no tile `t` fecharia um bloco 2x2 de rua (RF-VIDA-191): a trilha contorna. */
+  private closesBlock(t: number): boolean {
+    const w = this.map.width;
+    const x = t % w;
+    const y = Math.floor(t / w);
+    const street = (ox: number, oy: number) => {
+      const n = this.tileAt(x + ox, y + oy);
+      return n >= 0 && (isStreet(this.road[n]) || this.road[n] === 3);
+    };
+    for (const [ax, ay] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) {
+      let all = true;
+      for (let k = 0; k < 4 && all; k++) {
+        const ox = ax + (k & 1);
+        const oy = ay + (k >> 1);
+        if (ox === 0 && oy === 0) continue;
+        if (!street(ox, oy)) all = false;
+      }
+      if (all) return true;
+    }
+    return false;
+  }
+
   /** O tile de rua encosta numa casa (sem ele a casa perde o acesso à rua). */
   private servesHouse(t: number): boolean {
     const w = this.map.width;
@@ -7448,6 +7496,479 @@ export class Ecosystem {
       }
     }
     return false;
+  }
+
+  // ---- Relações entre lugares e política que emerge (plano novo dos assentamentos, fase 5: RF-AS-40 a 53) ----
+
+  /** Lugar de onde cada pessoa veio (memória de origem, RF-AS-41): onde nasceu ou de onde se mudou. */
+  origin = new Int32Array(0);
+  /** Trocas do ano entre pares de lugares (caravanas que chegaram), para a afinidade. */
+  private pairTrades = new Map<string, number>();
+  /** Dívidas de ajuda (RF-AS-45): quem deve a quem, pelo par, com o ano em que vence. */
+  readonly debts = new Map<string, { creditor: number; debtor: number; until: number }>();
+
+  /** Um ano de relações (chamado por `yearly`): afinidade, referência, casamentos, visitas, ajuda, rivalidade, lealdade e cultura. */
+  private relationsYear(): void {
+    const live = this.villages.filter((v) => !v.abandoned && v.population > 0);
+    this.updateAffinity(live);
+    this.chooseReferences(live);
+    this.marryAcross(live);
+    this.sendVisits(live);
+    this.askAid(live);
+    this.resourceRivalry(live);
+    this.updateLoyalty(live);
+    this.moveCapitals(live);
+    this.driftCultures(live);
+    this.pairTrades.clear();
+    for (const [k, d] of this.debts) if (d.until <= this.year || this.villages[d.creditor]?.abandoned || this.villages[d.debtor]?.abandoned) this.debts.delete(k);
+  }
+
+  /**
+   * Afinidade (RF-AS-43): cada par a até AFFINITY_RANGE tiles se aproxima de um alvo somado de laços de
+   * família (gente de um que veio do outro), trocas do ano, mesmo povo e mesma fé, e afastado por rancor
+   * de guerra. A ajuda, a recusa, a rivalidade e as festas mexem nela na hora em que acontecem.
+   */
+  private updateAffinity(live: Village[]): void {
+    const kin = new Map<string, number>();
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || this.village[i] < 0) continue;
+      const o = this.origin[i];
+      if (o < 0 || o === this.village[i] || !this.villages[o] || this.villages[o].abandoned) continue;
+      const k = pairKey(o, this.village[i]);
+      kin.set(k, (kin.get(k) ?? 0) + 1);
+    }
+    const seen = new Set<string>();
+    for (let x = 0; x < live.length; x++) {
+      for (let y = x + 1; y < live.length; y++) {
+        const a = live[x];
+        const b = live[y];
+        if (a.species !== b.species || this.distance(a, b.x, b.y) > B.AFFINITY_RANGE) continue;
+        const k = pairKey(a.id, b.id);
+        seen.add(k);
+        let target = B.AFFINITY_KIN * Math.min(30, kin.get(k) ?? 0) + B.AFFINITY_TRADE * Math.min(5, this.pairTrades.get(k) ?? 0);
+        if (a.culture.id === b.culture.id) target += B.AFFINITY_PEOPLE * 10;
+        if (a.culture.belief === b.culture.belief) target += B.AFFINITY_FAITH * 10;
+        if (a.kingdom === b.kingdom) target += 10;
+        const grudge = this.grudges.get(this.key(a.kingdom, b.kingdom));
+        if (grudge !== undefined && grudge > this.year) target -= B.AFFINITY_GRUDGE * 10;
+        if (this.warBetween(a.kingdom, b.kingdom)) target -= 40;
+        const now = this.affinities.get(k) ?? 0;
+        this.affinities.set(k, Math.max(-100, Math.min(100, now + (target - now) * B.AFFINITY_FADE)));
+      }
+    }
+    // Pares que se afastaram demais (ou sumiram) esquecem devagar.
+    for (const [k, n] of this.affinities) {
+      if (seen.has(k)) continue;
+      const next = n * (1 - B.AFFINITY_FADE);
+      if (Math.abs(next) < 1) this.affinities.delete(k);
+      else this.affinities.set(k, next);
+    }
+  }
+
+  /**
+   * Cidade de referência (RF-AS-44): cada aldeia e vila escolhe, por nota (distância, tamanho, afinidade
+   * e segurança), o lugar maior onde vende o excedente e compra o que falta. Os mercados e suas bacias
+   * nascem disso. Quem não tem ninguém maior por perto é a própria referência.
+   */
+  private chooseReferences(live: Village[]): void {
+    for (const v of live) v.market = 0;
+    for (const v of live) {
+      if (v.tier >= 2) {
+        v.ref = v.id;
+        continue;
+      }
+      let best = v;
+      let bv = -Infinity;
+      for (const o of live) {
+        if (o === v || o.species !== v.species || o.population <= v.population * 1.3) continue;
+        const d = this.distance(o, v.x, v.y);
+        if (d > B.MARKET_RANGE) continue;
+        const war = this.warBetween(o.kingdom, v.kingdom) ? 10 : 0;
+        const value = -d / 10 + Math.log2(o.population) + o.tier + this.affinity(v.id, o.id) / 25 - war + (o.kingdom === v.kingdom ? 1 : 0);
+        if (value > bv) {
+          bv = value;
+          best = o;
+        }
+      }
+      if (best !== v && v.ref !== best.id && v.ref !== undefined && v.ref !== v.id) this.logVillage(v, `passou a vender em ${best.name}`);
+      v.ref = best.id;
+    }
+    for (const v of live) if (v.ref !== undefined && v.ref !== v.id) this.villages[v.ref].market = (this.villages[v.ref].market ?? 0) + 1;
+  }
+
+  /** Nota no diário do lugar (crônica sem destaque). */
+  private logVillage(v: Village, text: string): void {
+    this.note(`${v.name} ${text}`, 'economia', v, { key: `log-${v.id}` });
+  }
+
+  /**
+   * Casamento entre lugares (RF-AS-40): quem não acha par em casa casa com alguém de um vizinho que
+   * visita (afinidade alta, perto). O casal mora no lugar com a melhor nota e o laço fica registrado.
+   */
+  private marryAcross(live: Village[]): void {
+    const singles = new Map<number, number[]>();
+    const sp = (v: Village) => this.species[v.species];
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || this.village[i] < 0 || this.role[i] === CHILD || this.role[i] >= ROLE.leader) continue;
+      const v = this.villages[this.village[i]];
+      if (this.age[i] >= elderAge(sp(v), Math.floor(v.tech)) || partnerOf(this.bonds, this.uid[i])) continue;
+      const list = singles.get(v.id);
+      if (list) list.push(i);
+      else singles.set(v.id, [i]);
+    }
+    for (const v of live) {
+      const mine = singles.get(v.id);
+      if (!mine || mine.length < 2) continue;
+      // Quanto mais solteiros sem par em casa, mais casam fora; só uma parte dos que visitam acha alguém.
+      const tries = Math.min(3, Math.floor(mine.length / 6));
+      for (let k = 0; k < tries; k++) {
+        if (!happens(this.civRnd, B.MARRY_ACROSS, 1)) continue;
+        let o: Village | null = null;
+        let ov = -Infinity;
+        for (const c of live) {
+          if (c === v || c.species !== v.species || !(singles.get(c.id)?.length)) continue;
+          const d = this.distance(c, v.x, v.y);
+          if (d > B.VISIT_RANGE) continue;
+          const value = this.affinity(v.id, c.id) / 20 - d / 15 + this.civRnd();
+          if (value > ov) {
+            ov = value;
+            o = c;
+          }
+        }
+        if (!o) continue;
+        const theirs = singles.get(o.id)!;
+        const a = mine.splice(Math.floor(this.civRnd() * mine.length), 1)[0];
+        const b = theirs.splice(Math.floor(this.civRnd() * theirs.length), 1)[0];
+        if (a === undefined || b === undefined) continue;
+        const ab = touch(this.bonds, this.uid[a], this.uid[b]);
+        const ba = touch(this.bonds, this.uid[b], this.uid[a]);
+        ab.kind = BOND.partner;
+        ba.kind = BOND.partner;
+        this.tally.marriages++;
+        this.tally.interMarriages++;
+        // Mora no lugar com a melhor nota; quem se muda leva a memória de onde veio.
+        const [mover, from, to] = this.placeScore(o) > this.placeScore(v) ? [a, v, o] : [b, o, v];
+        this.family[mover] = this.family[mover === a ? b : a];
+        this.relocate(mover, from, to);
+        this.addAffinity(v.id, o.id, B.AFFINITY_KIN * 5);
+        this.logThought(a, 'família', `Casou com ${personName(this.uid[b], o.culture.id)}, de ${o.name}`);
+        this.logThought(b, 'família', `Casou com ${personName(this.uid[a], v.culture.id)}, de ${v.name}`);
+      }
+    }
+  }
+
+  /**
+   * Visitas visíveis (RF-AS-42): parentes de quem se mudou, mascates e peregrinos andam pelas estradas
+   * até o lugar com mais afinidade ou laço de família, ficam um pouco e voltam.
+   */
+  private sendVisits(live: Village[]): void {
+    let sent = 0;
+    const order = [...live].sort(() => this.civRnd() - 0.5);
+    for (const v of order) {
+      if (sent >= B.VISITORS * Math.max(1, live.length / 20) || v.population < 10 || this.tradeInMotion() >= B.CARAVANS_MAX) break;
+      if (!happens(this.civRnd, B.VISIT_RATE, 1)) continue;
+      let o: Village | null = null;
+      let ov = 0;
+      for (const c of live) {
+        if (c === v || c.species !== v.species || this.warBetween(c.kingdom, v.kingdom)) continue;
+        const d = this.distance(c, v.x, v.y);
+        if (d > B.VISIT_RANGE) continue;
+        const value = this.affinity(v.id, c.id) - d;
+        if (value > ov) {
+          ov = value;
+          o = c;
+        }
+      }
+      if (!o) continue;
+      const path = this.roadPath(v.x, v.y, o.x, o.y);
+      const who = this.traveler(v, ROLE.merchant);
+      if (!path || who < 0) continue;
+      if (this.launchConvoy(v, o, 'visit', path, [], who)) {
+        sent++;
+        this.tally.visits++;
+        this.pairTrades.set(pairKey(v.id, o.id), (this.pairTrades.get(pairKey(v.id, o.id)) ?? 0) + 0.5);
+      }
+    }
+  }
+
+  /**
+   * Ajuda e dívida (RF-AS-45): um lugar com fome pede comida a quem tem mais afinidade e sobra. Quem ajuda
+   * ganha afinidade e um crédito: o devedor manda ajuda sem discutir quando o credor precisar. Recusar custa
+   * afinidade. É a tarefa "buscar comida no vizinho" da fome (RF-AS-29).
+   */
+  private askAid(live: Village[]): void {
+    for (const v of live) {
+      if ((v.needs?.food ?? 1) >= B.AID_HUNGER || v.population < 4) continue;
+      let o: Village | null = null;
+      let ov = -Infinity;
+      for (const c of live) {
+        if (c === v || c.species !== v.species || this.warBetween(c.kingdom, v.kingdom)) continue;
+        const d = this.distance(c, v.x, v.y);
+        if (d > B.MARKET_RANGE) continue;
+        const spare = c.food - c.population * B.CONSUME_FOOD;
+        if (spare <= 4) continue;
+        const owes = this.debts.get(pairKey(v.id, c.id));
+        const value = this.affinity(v.id, c.id) / 20 + Math.log2(spare) - d / 20 + (owes && owes.creditor === v.id ? 5 : 0);
+        if (value > ov) {
+          ov = value;
+          o = c;
+        }
+      }
+      if (!o) continue;
+      const k = pairKey(v.id, o.id);
+      const owes = this.debts.get(k);
+      const owed = owes !== undefined && owes.creditor === v.id;
+      const leader = o.leader >= 0 && this.alive[o.leader] ? this.traits[o.leader * TRAIT_COUNT + TRAIT.kindness] / 10 : 0;
+      const will = owed ? 1 : 0.35 + this.affinity(v.id, o.id) / 100 + 0.25 * leader + (o.kingdom === v.kingdom ? 0.25 : 0);
+      if (this.civRnd() > will) {
+        this.addAffinity(v.id, o.id, -B.AFFINITY_REFUSE);
+        this.tally.aidRefused++;
+        this.note(`${o.name} negou comida a ${v.name}, que passava fome`, 'economia', v, { key: `aid-no-${v.id}` });
+        continue;
+      }
+      const amount = (o.food - o.population * B.CONSUME_FOOD) * B.AID_SHARE;
+      const path = this.roadPath(o.x, o.y, v.x, v.y);
+      const who = this.traveler(o, ROLE.merchant);
+      if (!path || who < 0 || amount < 1) continue;
+      o.food -= amount;
+      this.book(o, 'food', 0, amount);
+      if (!this.launchConvoy(o, v, 'aid', path, [{ good: 'food', amount }], who)) {
+        o.food += amount;
+        continue;
+      }
+      this.tally.aid++;
+      if (owed) this.debts.delete(k);
+      else this.debts.set(k, { creditor: o.id, debtor: v.id, until: this.year + B.DEBT_YEARS });
+      this.note(`${v.name} pediu comida e ${o.name} mandou ${Math.round(amount)}${owed ? ', pagando o que devia' : ''}`, 'economia', v, { key: `aid-${v.id}` });
+    }
+  }
+
+  /**
+   * Rivalidade por recurso (RF-AS-46): dois lugares que usam a mesma mata, o mesmo pasto ou a mesma jazida
+   * brigam por ela, com a causa na crônica; com afinidade alta fazem um acordo de divisão. Substitui o
+   * sorteio de incidentes (RF-VIDA-128d). O rancor que fica entra na diplomacia (RF-AS-53).
+   */
+  private resourceRivalry(live: Village[]): void {
+    for (let x = 0; x < live.length; x++) {
+      for (let y = x + 1; y < live.length; y++) {
+        const a = live[x];
+        const b = live[y];
+        const d = this.distance(a, b.x, b.y);
+        const woods = this.reachOf(a, B.WOOD_REACH) + this.reachOf(b, B.WOOD_REACH);
+        let cause = '';
+        if (d < woods * 0.8 && ((a.needs?.fuel ?? 1) < 0.8 || (b.needs?.fuel ?? 1) < 0.8)) cause = 'a mata entre os dois';
+        else if (a.herd && b.herd && d < 2 * B.RIVAL_PASTURE) cause = 'o pasto';
+        else {
+          const shared = this.deposits.find((dp) => dp.amount > 0 && (dp.mine === a.id || dp.mine === b.id || (dp.known.has(a.id) && dp.known.has(b.id))) && this.distance(a, dp.x, dp.y) < 30 && this.distance(b, dp.x, dp.y) < 30);
+          if (shared) cause = `a jazida de ${ORE_NAMES[shared.ore]}`;
+        }
+        if (!cause || !happens(this.civRnd, B.RIVALRY_RATE, 1)) continue;
+        const aff = this.affinity(a.id, b.id);
+        if (aff > 40) {
+          this.addAffinity(a.id, b.id, 2);
+          this.note(`${a.name} e ${b.name} fizeram um acordo para dividir ${cause}`, 'povo', a, { key: `share-${pairKey(a.id, b.id)}` });
+          continue;
+        }
+        this.addAffinity(a.id, b.id, -B.AFFINITY_RIVAL);
+        this.tally.rivalries++;
+        const who = cause === 'o pasto' ? 'Pastores' : cause.startsWith('a mata') ? 'Lenhadores' : 'Mineiros';
+        this.note(`${who} de ${a.name} e ${b.name} brigaram por ${cause}`, 'guerra', a, { key: `rival-${pairKey(a.id, b.id)}` });
+        if (a.kingdom !== b.kingdom) this.relations.set(this.key(a.kingdom, b.kingdom), Math.max(-100, this.relation(a.kingdom, b.kingdom) - B.AFFINITY_RIVAL));
+      }
+    }
+  }
+
+  /** Lealdade de `v` a um centro político `k` (RF-AS-49). */
+  private loyaltyTo(v: Village, k: Village): number {
+    const trade = Math.min(1, (this.pairTrades.get(pairKey(v.id, k.id)) ?? 0) / 3 + (v.ref === k.id ? 0.4 : 0));
+    const strong = Math.min(1, this.kingdomSize(k) / 6 + k.tier / 4);
+    const king = k.leader >= 0 && this.alive[k.leader] ? this.traits[k.leader * TRAIT_COUNT + TRAIT.charisma] / 10 : 0;
+    return loyaltyScore({
+      affinity: this.affinity(v.id, k.id),
+      trade,
+      protection: strong,
+      burden: Math.min(1, (v.refused ?? 0) / 3),
+      dist: this.distance(k, v.x, v.y),
+      sameCulture: v.culture.id === k.culture.id,
+      charisma: king,
+    });
+  }
+
+  /**
+   * Lealdade e troca de lado sem guerra (RF-AS-49 e 50): substitui a independência só por distância.
+   * Quando outro centro atrai mais que o atual por LOYALTY_MARGIN durante LOYALTY_YEARS, o lugar muda
+   * de reino em paz (anexação por atração). Lealdade muito baixa sem ter para onde ir vira independência.
+   * Lugares livres também se juntam a um centro que os atrai (assim nascem chefias e reinos sem guerra).
+   */
+  private updateLoyalty(live: Village[]): void {
+    const centers = live.filter((v) => v.kingdom === v.id && (v.tier >= 1 || this.kingdomSize(v) >= 2));
+    for (const v of live) {
+      const own = v.kingdom === v.id;
+      if (own && this.kingdomSize(v) > 1) continue;
+      const k = this.villages[v.kingdom];
+      const now = own ? B.LOYALTY_FREE : this.loyaltyTo(v, k);
+      v.loyalty = now;
+      let best: Village | null = null;
+      let bv = now + B.LOYALTY_MARGIN;
+      for (const c of centers) {
+        if (c.id === v.kingdom || c.id === v.id || c.species !== v.species || this.warBetween(c.id, v.kingdom)) continue;
+        if (this.distance(c, v.x, v.y) > B.AFFINITY_RANGE) continue;
+        const l = this.loyaltyTo(v, c);
+        if (l > bv) {
+          bv = l;
+          best = c;
+        }
+      }
+      if (best) {
+        if (v.lure?.k === best.id) v.lure.years++;
+        else v.lure = { k: best.id, years: 1 };
+        if (v.lure.years >= B.LOYALTY_YEARS) {
+          const from = own ? null : k;
+          v.kingdom = best.id;
+          v.color = best.color;
+          v.lure = undefined;
+          this.tally.annexations++;
+          this.note(from ? `${v.name} deixou ${from.name} e passou, em paz, para o lado de ${best.name}` : `${v.name} se juntou, em paz, a ${best.name}`, 'povo', v, { major: true });
+        }
+        continue;
+      }
+      v.lure = undefined;
+      if (!own && now < B.LOYALTY_REVOLT && v.population >= 20 && happens(this.polRnd, B.SECEDE_RATE, 1)) {
+        const old = v.kingdom;
+        for (const o of live) if (o.kingdom === old && o !== k && this.distance(v, o.x, o.y) < 30 && (o.loyalty ?? 1) < B.LOYALTY_REVOLT * 1.5) o.kingdom = v.id;
+        v.kingdom = v.id;
+        this.newKingdom(v, k);
+        this.relations.set(this.key(old, v.id), -45);
+        this.tally.revolts++;
+        this.tally.newPeoples++;
+        this.note(`${v.name}, sem lealdade a ${k.name}, se revoltou e declarou independência: nasce o povo ${v.culture.name}`, 'povo', v, { major: true });
+      }
+    }
+  }
+
+  /**
+   * Capital que se move (RF-AS-51): se outra cidade do reino fica bem maior que a capital por
+   * CAPITAL_MOVE_YEARS anos, a corte se muda para ela. O reino troca de número (o da capital nova)
+   * e tudo o que estava guardado pelo número antigo passa para o novo.
+   */
+  private moveCapitals(live: Village[]): void {
+    for (const k of live) {
+      if (k.kingdom !== k.id) continue;
+      let big: Village | null = null;
+      for (const o of live) if (o.kingdom === k.id && o !== k && o.tier >= 2 && o.population > k.population * B.CAPITAL_MOVE_SHARE && (!big || o.population > big.population)) big = o;
+      if (!big || this.warOf(k.id)) {
+        k.rival = undefined;
+        continue;
+      }
+      if (k.rival?.id === big.id) k.rival.years++;
+      else k.rival = { id: big.id, years: 1 };
+      if (k.rival.years < B.CAPITAL_MOVE_YEARS) continue;
+      k.rival = undefined;
+      this.rekeyKingdom(k.id, big.id);
+      big.culture = k.culture;
+      big.made = { ...k.made };
+      this.tally.capitalMoves++;
+      this.note(`A corte de ${k.name} se mudou para ${big.name}, que cresceu mais que a velha capital`, 'povo', big, { major: true });
+    }
+  }
+
+  /** Troca o número do reino `old` por `nw` em tudo que o guarda (lugares, relações, tréguas, rancores, planos e guerras). */
+  private rekeyKingdom(old: number, nw: number): void {
+    for (const v of this.villages) if (v.kingdom === old) v.kingdom = nw;
+    const swap = (k: string) => {
+      const [a, b] = k.split(':').map(Number) as [number, number];
+      return this.key(a === old ? nw : a, b === old ? nw : b);
+    };
+    for (const m of [this.relations, this.truces, this.grudges, this.alliances] as Map<string, number>[]) {
+      for (const [k, val] of [...m]) {
+        const n = swap(k);
+        if (n === k) continue;
+        m.delete(k);
+        m.set(n, val);
+      }
+    }
+    for (const k of [...this.contacts]) {
+      const n = swap(k);
+      if (n !== k) {
+        this.contacts.delete(k);
+        this.contacts.add(n);
+      }
+    }
+    const plan = this.plans.get(old);
+    if (plan) {
+      this.plans.delete(old);
+      this.plans.set(nw, plan);
+    }
+    for (const p of this.plans.values()) if (p.enemy === old) p.enemy = nw;
+    const t = this.temper.get(old);
+    if (t !== undefined) {
+      this.temper.delete(old);
+      this.temper.set(nw, t);
+    }
+    for (const w of this.wars) {
+      if (w.a === old) w.a = nw;
+      if (w.b === old) w.b = nw;
+    }
+    const polity = this.villages[old].polity;
+    this.villages[old].polity = undefined;
+    this.villages[nw].polity = polity;
+  }
+
+  /**
+   * Povos e cultura (RF-AS-52): lugares do mesmo povo longe do centro e com pouca convivência derivam
+   * devagar; convivência (afinidade, trocas, visitas) puxa de volta. Quando a deriva passa de DRIFT_LIMIT
+   * nasce um povo novo, com nome e cores próprios, e a crônica registra a separação.
+   */
+  private driftCultures(live: Village[]): void {
+    for (const v of live) {
+      const k = this.villages[v.kingdom];
+      if (k === v && this.kingdomSize(v) === 1) {
+        // Lugar livre: deriva em relação ao lugar de onde veio.
+        const from = v.mother !== undefined ? this.villages[v.mother] : null;
+        if (!from || from.abandoned || from.culture.id !== v.culture.id) {
+          v.drift = 0;
+          continue;
+        }
+        this.drift(v, from);
+        continue;
+      }
+      if (k === v || k.culture.id !== v.culture.id) {
+        v.drift = 0;
+        continue;
+      }
+      this.drift(v, k);
+    }
+  }
+
+  private drift(v: Village, from: Village): void {
+    const d = this.distance(from, v.x, v.y);
+    const near = this.affinity(v.id, from.id);
+    const push = B.DRIFT_RATE * Math.min(3, d / 30) * (1 - Math.max(0, near) / 100);
+    const pull = B.DRIFT_BACK * Math.max(0, near) / 50 + (this.pairTrades.get(pairKey(v.id, from.id)) ?? 0) * 0.5;
+    v.drift = Math.max(0, (v.drift ?? 0) + push - pull);
+    if (v.drift < B.DRIFT_LIMIT) return;
+    const old = v.culture.name;
+    v.culture = makeCulture(this.cultures++, v.name, this.polRnd);
+    for (const o of this.villages) if (!o.abandoned && o.kingdom === v.kingdom && o !== v && this.distance(v, o.x, o.y) < 20 && o.culture.name === old) o.culture = v.culture;
+    v.drift = 0;
+    this.tally.newPeoples++;
+    this.note(`Os ${v.culture.name} de ${v.name} já não se veem como ${old}`, 'povo', v, { major: true });
+  }
+
+  /** Média das afinidades entre os lugares de dois reinos (entrada da diplomacia, RF-AS-53). */
+  private kingdomAffinity(a: number, b: number): number {
+    let sum = 0;
+    let n = 0;
+    for (const [k, val] of this.affinities) {
+      const [x, y] = k.split(':').map(Number);
+      const kx = this.villages[x]?.kingdom;
+      const ky = this.villages[y]?.kingdom;
+      if ((kx === a && ky === b) || (kx === b && ky === a)) {
+        sum += val;
+        n++;
+      }
+    }
+    return n ? sum / n : 0;
   }
 
   // ---- Ações presenciais (seção 19.21) ----
@@ -8648,7 +9169,8 @@ export class Ecosystem {
   /** Uma vez por ano: diplomacia, lava esfriando, ruínas sumindo e eventos do mundo. */
   private yearly(): void {
     this.updateClimate();
-    this.communityYear();
+        this.communityYear();
+    this.relationsYear();
     this.updateWear();
     // Rede de ruas: o que escapou da limpeza na hora (ruas de dois assentamentos que se encostam) sai uma vez por ano.
     if (this.roadDirty.length) {
@@ -8678,7 +9200,7 @@ export class Ecosystem {
    * ou sangrentas acabam em paz.
    */
   private diplomacy(): void {
-    this.independence();
+    // A independência só por distância (RF-VIDA-81) deu lugar à lealdade (RF-AS-49 e 50, `updateLoyalty`).
     for (const [k, t] of this.temper) {
       const next = t * (1 - B.TEMPER_FADE);
       if (Math.abs(next) < 0.02) this.temper.delete(k);
@@ -8768,7 +9290,10 @@ export class Ecosystem {
         const market = (has(a.id, 'market') && has(b.id, 'market') && (border || (port(a.id) && port(b.id)))) || (border && rel > 20);
         // Com caravanas entre os dois neste ano, a troca invisível não acontece (fica como reserva, 19.6).
         if (!atWar && market && !this.caravanPairs.has(key) && this.trade(a, b)) rel += 3 * (a.culture.value === 'comércio' || b.culture.value === 'comércio' ? 2 : 1);
-        if (!atWar && this.polRnd() < 0.03) rel += this.incident(a, b, border);
+        // Entradas da diplomacia (RF-AS-53): a relação puxa para a média das afinidades entre os lugares dos dois
+        // reinos, mais o temperamento dos reis; os incidentes vêm das rivalidades por recurso (`resourceRivalry`).
+        if (!atWar) rel += (this.kingdomAffinity(a.id, b.id) + 20 * ((this.temper.get(a.id) ?? 0) + (this.temper.get(b.id) ?? 0)) - rel) * B.AFFINITY_PULL;
+        if (!atWar && this.polRnd() < 0.01 && this.kingdomAffinity(a.id, b.id) > 40) rel += this.royalWedding(a, b);
         rel = Math.max(-100, Math.min(100, rel));
         this.relations.set(key, rel);
         if (atWar) continue;
@@ -9171,31 +9696,14 @@ export class Ecosystem {
   }
 
   /** Incidente entre dois reinos (presente, casamento, insulto, escaramuça, disputa); devolve a mudança na relação. */
-  private incident(a: Village, b: Village, border: boolean): number {
-    const warlike = (a.culture.value === 'guerra' ? 1 : 0) + (b.culture.value === 'guerra' ? 1 : 0);
-    const kind = (a.culture.value === 'fé' || b.culture.value === 'fé' || a.culture.value === 'comércio') ? 0.55 : 0.4;
-    const good = this.polRnd() < kind - warlike * 0.12;
-    const [x, y] = this.polRnd() < 0.5 ? [a, b] : [b, a];
-    if (good) {
-      if (a.species === b.species && a.tier >= 1 && b.tier >= 1 && this.polRnd() < 0.35) {
-        this.note(`Um casamento real uniu as famílias de ${a.name} e ${b.name}`, 'povo', a);
-        return 12;
-      }
-      this.note(`${x.name} enviou presentes a ${y.name}`, 'povo', x);
-      return 6;
-    }
-    const shared = this.deposits.find((d) => d.amount > 0 && d.known.has(a.id) && d.known.has(b.id) && this.distance(a, d.x, d.y) < 50 && this.distance(b, d.x, d.y) < 50);
-    if (shared && this.polRnd() < 0.5) {
-      this.note(`${a.name} e ${b.name} disputam a jazida de ${ORE_NAMES[shared.ore]}`, 'guerra', shared);
-      return -7;
-    }
-    if (border && this.polRnd() < 0.5) {
-      this.note(`Escaramuça na fronteira entre ${a.name} e ${b.name}`, 'guerra', y);
-      return -9;
-    }
-    this.note(`O líder de ${x.name} insultou o povo de ${y.name}`, 'povo', x);
-    return -6;
+  /** Casamento de líderes (RF-AS-47): reúne gente dos dois lados e aproxima os reinos. */
+  private royalWedding(a: Village, b: Village): number {
+    if (a.species !== b.species) return 0;
+    this.note(`Um casamento real uniu as famílias de ${a.name} e ${b.name}`, 'povo', a);
+    this.addAffinity(a.id, b.id, B.AFFINITY_FEAST * 3);
+    return 12;
   }
+
 
   /**
    * Alianças: relação acima de 50 pode virar aliança; abaixo de 15 ela acaba.
@@ -9284,27 +9792,7 @@ export class Ecosystem {
     v.made = { ...old.made };
   }
 
-  /**
-   * Assentamentos grandes e longe da capital podem declarar independência e
-   * formar um povo novo (cisma), com cultura própria.
-   */
-  private independence(): void {
-    for (const v of this.villages) {
-      if (v.abandoned || v.kingdom === v.id || v.population < 20) continue;
-      const capital = this.villages[v.kingdom];
-      const far = this.distance(capital, v.x, v.y);
-      // Reinos grandes são difíceis de manter unidos.
-      const size = Math.min(2, 1 + (this.kingdomSize(capital) - 4) * 0.1);
-      // Colônia que recusa os pedidos da capital pensa mais em se separar (RF-VIDA-289).
-      const refused = 1 + B.REFUSAL_INDEPENDENCE * (v.refused ?? 0);
-      if (far < 40 || this.polRnd() > 0.005 * (far / 40) * size * refused * (capital.culture.tolerance < 0.3 ? 2 : 1)) continue;
-      const old = v.kingdom;
-      for (const o of this.villages) if (!o.abandoned && o.kingdom === old && this.distance(v, o.x, o.y) < 30) o.kingdom = v.id;
-      this.newKingdom(v, capital);
-      this.relations.set(this.key(old, v.id), -45);
-      this.note(`${v.name} declarou independência de ${capital.name}: nasce o povo ${v.culture.name}`, 'povo', v, { major: true });
-    }
-  }
+
 
   /**
    * Troca de excedentes entre dois reinos com mercado; quem recebe paga em
@@ -9479,7 +9967,9 @@ export class Ecosystem {
 
   /** Começa a juntar uma colônia em `v`: batedores saem para ver os sítios (RF-AS-03). */
   private organizeColony(v: Village, motive: ColonyMotive): boolean {
-    if (v.colony || v.population < B.COLONY_SOURCE_POP || this.year - (v.colonyAt ?? -1e9) < B.COLONY_COOLDOWN) return false;
+    // Com fome (motivo terra) basta ter gente para um grupo e sobrar o bastante na origem.
+    const min = motive === 'terra' ? B.COLONY_GROUP_MIN * 2.5 : B.COLONY_SOURCE_POP;
+    if (v.colony || v.population < min || this.year - (v.colonyAt ?? -1e9) < B.COLONY_COOLDOWN) return false;
     const sites = this.scoutSites(v, motive, B.COLONY_SCOUTS);
     if (!sites.length) return false;
     // Batedores: os adultos mais curiosos e corajosos, nunca o líder.
@@ -10393,6 +10883,13 @@ export class Ecosystem {
       if (v.population >= 8 && (v.needs?.food ?? 1) >= B.FESTIVAL_FED) {
         v.festivalUntil = this.year + B.FESTIVAL_SPAN;
         this.tally.festivals++;
+        // Evento compartilhado (RF-AS-47): os vizinhos amigos vêm à festa e todos se aproximam.
+        let guests = 0;
+        for (const o of this.villages) {
+          if (guests >= 2 || o === v || o.abandoned || o.species !== v.species || this.distance(o, v.x, v.y) > B.VISIT_RANGE || this.affinity(v.id, o.id) < 20) continue;
+          this.addAffinity(v.id, o.id, B.AFFINITY_FEAST);
+          guests++;
+        }
       }
       if (v.colony && this.year >= v.colony.until) this.departColony(v, families.get(v.id));
       this.assignHomes(v, families.get(v.id));
@@ -11659,6 +12156,8 @@ export class Ecosystem {
     // Caravana chegando junta curiosos na praça (RF-AS-29).
     const at = this.villages[c.back ? c.home : c.target];
     if (at && !at.abandoned) at.curiousUntil = this.year + B.CURIOUS_SPAN;
+    // Troca entre os dois lugares conta para a afinidade e a lealdade (RF-AS-43 e 49).
+    if ((c.kind === 'trade' || c.kind === 'tribute') && !c.back) this.pairTrades.set(pairKey(c.home, c.target), (this.pairTrades.get(pairKey(c.home, c.target)) ?? 0) + 1);
     // Enxoval dos colonos (RF-AS-03): chega ao lugar novo, descarrega e quem levou fica morando lá.
     if (c.kind === 'settlers') {
       this.unload(home, c.cargo, 0);

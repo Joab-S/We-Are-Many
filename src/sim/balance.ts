@@ -645,9 +645,9 @@ export const BUILD_LABOR = 1;
 /** Fase 1, nascimento: menor distância (tiles) entre um lugar novo e uma aldeia, vila, cidade ou metrópole (RF-AS-05). */
 export const SPACING = [14, 22, 30, 30];
 /** Colônia organizada (RF-AS-03): moradores mínimos da origem, pessoas no grupo e anos de batedores antes de partir. */
-export const COLONY_SOURCE_POP = 60;
+export const COLONY_SOURCE_POP = 40;
 /** Anos entre duas colônias do mesmo lugar: a origem precisa se refazer antes de mandar outro grupo. */
-export const COLONY_COOLDOWN = 40;
+export const COLONY_COOLDOWN = 25;
 export const COLONY_GROUP_MIN = 12;
 export const COLONY_GROUP_MAX = 30;
 export const COLONY_SCOUT_YEARS = 1;
@@ -727,6 +727,9 @@ export const TASK_SECONDS = 1.6;
 /** Carga de uma pessoa por viagem ao celeiro, e o multiplicador da carroça da vila em diante (RF-AS-24). */
 export const CARRY_LOAD = 3;
 export const CART_LOAD = 3;
+/** Reserva por morador que as famílias buscam direto no pátio quando o celeiro fica abaixo dela (comida e lenha). */
+export const YARD_RESERVE_FOOD = 1;
+export const YARD_RESERVE_WOOD = 0.5;
 export const NEED_REST = 0.08;
 export const NEED_SOCIAL = 0.05;
 export const NEED_FAITH = 0.03;
@@ -770,6 +773,16 @@ export const AFFINITY_FEAST = 4;
 /** Casamento entre lugares: visitantes por ano e alcance. */
 export const VISITORS = 4;
 export const VISIT_RANGE = 40;
+/** Chance por ano de um lugar mandar visita, e de um solteiro sem par em casa casar num vizinho (RF-AS-40 e 42). */
+export const VISIT_RATE = 0.25;
+export const MARRY_ACROSS = 0.25;
+/** Atendimento de comida abaixo do qual o lugar pede ajuda (RF-AS-45). */
+export const AID_HUNGER = 0.55;
+/** Distância (tiles) em que dois rebanhos disputam o mesmo pasto (RF-AS-46). */
+export const RIVAL_PASTURE = 18;
+/** Lealdade de um lugar livre a si mesmo (outro centro precisa atrair mais que isso, mais a margem) e chance anual de revolta com lealdade baixa. */
+export const LOYALTY_FREE = 0.45;
+export const SECEDE_RATE = 0.1;
 /** Cidade de referência: alcance e custo da distância. */
 export const MARKET_RANGE = 50;
 /** Ajuda: parte do excedente que vai para quem pede e anos para cobrar a dívida. */
@@ -792,3 +805,5 @@ export const DRIFT_LIMIT = 150;
 export const TERRITORY_BASE = 5;
 export const TERRITORY_GROWTH = 1.7;
 export const TERRITORY_MAX = 34;
+/** Quanto a relação entre reinos anda por ano rumo à média das afinidades (RF-AS-53). */
+export const AFFINITY_PULL = 0.1;
