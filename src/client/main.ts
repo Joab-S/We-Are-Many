@@ -15,7 +15,11 @@ import { planetParams, SOL_PLANETS } from './space/bodies';
 import { SpaceMode } from './space/SpaceMode';
 import type { GameState } from './state';
 import { SurfaceMode } from './surface/SurfaceMode';
+import { mountIcons } from './ui/icons';
 import './style.css';
+import './hud.css';
+
+mountIcons();
 
 /** Intervalo do autosave. */
 const AUTOSAVE_MS = 20_000;

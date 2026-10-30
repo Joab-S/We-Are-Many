@@ -147,6 +147,13 @@ export class GuideHud {
       } else this.handlers.select(row.target);
       this.renderPanel();
     }, opts);
+    // Ctrl+K abre a busca do GUIA, a mesma lista do G.
+    window.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK') {
+        e.preventDefault();
+        this.togglePanel(true);
+      }
+    }, opts);
     window.addEventListener('keydown', (e) => {
       if (!this.panelOpen) return;
       if (e.code === 'ArrowDown' || e.code === 'ArrowUp') {
