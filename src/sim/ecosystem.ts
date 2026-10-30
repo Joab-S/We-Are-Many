@@ -34,6 +34,7 @@ import { remember, type Thought, type ThoughtKind } from '../ai/trace';
 import { BOND, forget, partnerOf, type Bond } from '../ai/relations';
 import { socialYear, type Resident } from '../ai/decisions/social';
 import { LEADER, SOCIAL } from '../ai/tuning';
+import { chooseDay, DAY, DAY_NAMES, dayWhy, type BoardTask, type DayKind } from '../ai/decisions/day';
 import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../ai/decisions/leader';
 import { completeness, missingText, planItems, type PlanItem } from './plan';
 import { belowTier, missingFunctions, MOTIVE_TEXT, pairKey, polityOf, POLITY_NAMES, siteValue, spacingFor, tierAllowed, type ColonyMotive, type Polity, type SiteLook, type TierCheck } from './community';
@@ -635,6 +636,13 @@ export interface Village {
   walls?: number[];
   /** Pegada (raio das casas do núcleo mais a folga, RF-AS-10), refeita quando as casas mudam. */
   foot?: number;
+  /** Produção só por entrega (RF-AS-23): o que foi feito no modo completo e ainda não chegou ao celeiro. */
+  yard?: Partial<Record<Good | 'food', number>>;
+  /** Eventos que juntam gente (RF-AS-28 e 29): festa, enterro (com o tile), alarme e caravana na praça. */
+  festivalUntil?: number;
+  funeral?: { tile: number; until: number; family: number };
+  alarmUntil?: number;
+  curiousUntil?: number;
 }
 
 /** Quem a pessoa é, guardado quando ela embarca e devolvido quando desembarca. */
@@ -713,6 +721,45 @@ const THINK_INTERVAL = 0.4;
 
 /** Tipos de ação presencial (seção 19.21); 0 é nenhuma. */
 const JOB = { fell: 1, plant: 2, build: 3 } as const;
+/** Bens brutos que só chegam ao estoque com uma entrega no modo completo (RF-AS-23). */
+const RAW = new Set<string>(['food', 'wood', 'stone', 'clay', 'copper', 'tin', 'iron', 'coal', 'gold']);
+/** Carga na mão (RF-AS-24): o código é a posição em CARRIED mais 1 (0 = mãos vazias); a tela desenha o feixe, o cesto ou a pedra. */
+export const CARRIED = ['food', 'wood', 'stone', 'clay', 'copper', 'tin', 'iron', 'coal', 'gold', 'water'] as const;
+const carryCode = (g: string) => CARRIED.indexOf(g as (typeof CARRIED)[number]) + 1;
+const CARGO_GOOD = (c: number): Good | 'food' | 'water' | null => (c > 0 ? CARRIED[c - 1] : null);
+export const CARGO_NAMES: Record<string, string> = { food: 'cesto de comida', wood: 'feixe de lenha', stone: 'pedra', clay: 'barro', copper: 'minério de cobre', tin: 'minério de estanho', iron: 'minério de ferro', coal: 'carvão', gold: 'ouro', water: 'balde de água' };
+/** Gesto no lugar da tarefa (RF-AS-27): a tela anima cada um. */
+export const GESTURE = { none: 0, dig: 1, reap: 2, chop: 3, hammer: 4, row: 5, pray: 6, pick: 7, carry: 8, talk: 9, rest: 10, cheer: 11 } as const;
+const GESTURE_OF: Record<number, number> = {
+  [DAY.harvest]: GESTURE.reap,
+  [DAY.build]: GESTURE.hammer,
+  [DAY.water]: GESTURE.dig,
+  [DAY.bucket]: GESTURE.dig,
+  [DAY.militia]: GESTURE.hammer,
+  [DAY.eat]: GESTURE.rest,
+  [DAY.rest]: GESTURE.rest,
+  [DAY.social]: GESTURE.talk,
+  [DAY.pray]: GESTURE.pray,
+  [DAY.festival]: GESTURE.cheer,
+  [DAY.funeral]: GESTURE.pray,
+  [DAY.curious]: GESTURE.talk,
+  [DAY.haul]: GESTURE.carry,
+  // Trabalho no posto: 100 + ofício.
+  [100 + ROLE.farmer]: GESTURE.dig,
+  [100 + ROLE.gatherer]: GESTURE.reap,
+  [100 + ROLE.miner]: GESTURE.pick,
+  [100 + ROLE.fisher]: GESTURE.row,
+  [100 + ROLE.blacksmith]: GESTURE.hammer,
+  [100 + ROLE.weaver]: GESTURE.hammer,
+  [100 + ROLE.potter]: GESTURE.hammer,
+  [100 + ROLE.miller]: GESTURE.hammer,
+  [100 + ROLE.merchant]: GESTURE.talk,
+  [100 + ROLE.priest]: GESTURE.pray,
+  [100 + ROLE.shepherd]: GESTURE.talk,
+  [100 + ROLE.horsekeeper]: GESTURE.hammer,
+  [100 + ROLE.leader]: GESTURE.talk,
+  [100 + ROLE.king]: GESTURE.talk,
+};
 /** Teto mínimo de qualquer espécie: abaixo disso, um azar qualquer acaba com ela. */
 const MIN_CAP = 30;
 /** Teto mínimo de um bicho de terra (rede de segurança; quem regula é a capacidade de cada célula). */
@@ -906,6 +953,21 @@ export class Ecosystem {
   jobWait = new Float32Array(0);
   /** Casa da família (tile do canto da casa, -1 sem casa), RF-AS-17 e 20. */
   home = new Int32Array(0);
+  /**
+   * Jornadas (RF-AS-20 a 27): a jornada (DAY), o tile do destino, a perna (0 indo, 1 no lugar, 2 voltando
+   * com a carga), o tempo no lugar, a carga (CARGO) e quanto leva, as necessidades de descanso, convívio e
+   * fé (0 satisfeita, 1 urgente) e o gesto que a tela anima (GESTURE).
+   */
+  day = new Uint8Array(0);
+  dayAt = new Int32Array(0);
+  dayLeg = new Uint8Array(0);
+  dayTime = new Float32Array(0);
+  carry = new Uint8Array(0);
+  carryAmt = new Float32Array(0);
+  needRest = new Float32Array(0);
+  needSocial = new Float32Array(0);
+  needFaith = new Float32Array(0);
+  gesture = new Uint8Array(0);
   /**
    * IA local das pessoas (src/ai): TRAIT_COUNT traços de −10 a 10 por indivíduo (inteligentes; bichos ficam em 0)
    * e o diário curto das decisões de cada um, pelo `uid`.
@@ -1173,6 +1235,8 @@ export class Ecosystem {
     this.trafficEra = new Uint8Array(map.width * map.height);
     this.mainStreet = new Uint8Array(map.width * map.height);
     this.wall = new Uint8Array(map.width * map.height);
+    this.wear = new Float32Array(map.width * map.height);
+    this.roadIdle = new Uint8Array(map.width * map.height);
     this.built = new Uint8Array(map.width * map.height);
     this.treeGrow = new Float32Array(map.width * map.height);
     this.treeVeg = new Float32Array(map.width * map.height);
@@ -1430,6 +1494,16 @@ export class Ecosystem {
     this.jobWork = copy(this.jobWork, (n) => new Float32Array(n));
     this.jobWait = copy(this.jobWait, (n) => new Float32Array(n));
     this.home = copy(this.home, (n) => new Int32Array(n));
+    this.day = copy(this.day, (n) => new Uint8Array(n));
+    this.dayAt = copy(this.dayAt, (n) => new Int32Array(n));
+    this.dayLeg = copy(this.dayLeg, (n) => new Uint8Array(n));
+    this.dayTime = copy(this.dayTime, (n) => new Float32Array(n));
+    this.carry = copy(this.carry, (n) => new Uint8Array(n));
+    this.carryAmt = copy(this.carryAmt, (n) => new Float32Array(n));
+    this.needRest = copy(this.needRest, (n) => new Float32Array(n));
+    this.needSocial = copy(this.needSocial, (n) => new Float32Array(n));
+    this.needFaith = copy(this.needFaith, (n) => new Float32Array(n));
+    this.gesture = copy(this.gesture, (n) => new Uint8Array(n));
     this.act = copy(this.act, (n) => new Uint8Array(n));
     this.goal = copy(this.goal, (n) => new Int32Array(n));
     this.chase = copy(this.chase, (n) => new Int32Array(n));
@@ -1506,6 +1580,15 @@ export class Ecosystem {
     this.jobWork[i] = 0;
     this.jobWait[i] = 0;
     this.home[i] = -1;
+    this.day[i] = 0;
+    this.dayLeg[i] = 0;
+    this.dayTime[i] = 0;
+    this.carry[i] = 0;
+    this.carryAmt[i] = 0;
+    this.needRest[i] = 0;
+    this.needSocial[i] = 0;
+    this.needFaith[i] = 0;
+    this.gesture[i] = 0;
     this.act[i] = 0;
     this.goal[i] = -1;
     this.chase[i] = -1;
@@ -1552,6 +1635,10 @@ export class Ecosystem {
       else vital.deaths[cause] = (vital.deaths[cause] ?? 0) + 1;
       if (cause === 'fome') this.tally.hunger++;
       else if (cause === 'frio') this.tally.cold++;
+      // Enterro (RF-AS-28): a família de quem morreu num lugar na tela se junta onde ele caiu.
+      const home = this.villages[this.village[i]];
+      if (cause !== 'partiu' && this.full(home) && this.family[i]) home.funeral = { tile: this.tileOf(i), until: this.year + B.FUNERAL_SPAN, family: this.family[i] };
+      if (this.carry[i]) this.dropDay(i, home);
     }
     this.population[s]--;
     // Alerta (uma vez por queda): a espécie de terra ficou com tão poucos que pode sumir do planeta.
@@ -2871,6 +2958,16 @@ export class Ecosystem {
             dy = march.y;
             range = 2;
           }
+          // Modo completo (RF-AS-20 a 31): a jornada decide para onde ir e quando parar para o gesto.
+          if (!march && !scout && this.full(v) && !this.expedition.has(i)) {
+            const j = this.journey(i, v, working, dt);
+            if (j) {
+              dx = j.x;
+              dy = j.y;
+              range = 0;
+              direct = true;
+            }
+          } else if (this.day[i]) this.dropDay(i, v);
           if (dx * dx + dy * dy > range * range) bias = { x: dx, y: dy };
           // Caçadores abatem herbívoros por perto; com fome e sem comida no celeiro, qualquer adulto caça.
           if (((role === ROLE.hunter && working) || (this.role[i] !== CHILD && e < 0.4 && v.food < 1)) && e < 0.8) {
@@ -2889,7 +2986,9 @@ export class Ecosystem {
               this.kill(prey, false, 'predador');
               // A carne vai para o estoque e alimenta o assentamento (seção 19.19); a caça também dá peles.
               e += B.HUNT_EAT;
-              this.book(v, '_hunt', this.put(v, 'food', B.HUNT_FOOD), 0);
+              const meat = this.put(v, 'food', B.HUNT_FOOD);
+              this.book(v, '_hunt', meat, 0);
+              this.pickUp(i, v, 'food', meat);
               this.gain(v, 'hides', 1);
             }
           }
@@ -6076,10 +6175,9 @@ export class Ecosystem {
   private gain(v: Village, good: Good | 'food', amount: number): number {
     if (amount <= 0) return 0;
     const cap = this.capOf(v, good);
-    const have = good === 'food' ? v.food : v.stock[good];
+    const have = (good === 'food' ? v.food : v.stock[good]) + (v.yard?.[good] ?? 0);
     const got = Math.max(0, Math.min(cap - have, amount * room(have, cap)));
-    if (good === 'food') v.food += got;
-    else v.stock[good] += got;
+    this.store1(v, good, got);
     this.book(v, good, got, 0);
     return got;
   }
@@ -6621,10 +6719,9 @@ export class Ecosystem {
    */
   private put(v: Village, good: Good | 'food', amount: number): number {
     if (amount <= 0) return 0;
-    const have = good === 'food' ? v.food : v.stock[good];
+    const have = (good === 'food' ? v.food : v.stock[good]) + (v.yard?.[good] ?? 0);
     const got = Math.max(0, Math.min(this.capOf(v, good) - have, amount));
-    if (good === 'food') v.food += got;
-    else v.stock[good] += got;
+    this.store1(v, good, got);
     this.book(v, good, got, 0);
     return got;
   }
@@ -6656,8 +6753,17 @@ export class Ecosystem {
     if (this.jobWork.length < n) this.jobWork = new Float32Array(n);
     if (this.jobWait.length < n) this.jobWait = new Float32Array(n);
     if (this.home.length < n) this.home = new Int32Array(n).fill(-1);
+    // Saves de antes das jornadas: todo mundo sem jornada, sem carga e descansado.
+    for (const k of ['day', 'dayLeg', 'carry', 'gesture'] as const) if (this[k].length < n) this[k] = new Uint8Array(n);
+    if (this.dayAt.length < n) this.dayAt = new Int32Array(n);
+    for (const k of ['dayTime', 'carryAmt', 'needRest', 'needSocial', 'needFaith'] as const) if (this[k].length < n) this[k] = new Float32Array(n);
     // Saves de antes do plano novo dos assentamentos: sem muralha e com os contadores novos zerados.
     if (!this.wall || this.wall.length !== this.map.width * this.map.height) this.wall = new Uint8Array(this.map.width * this.map.height);
+    // Ruas por uso (fase 4): desgaste e anos sem uso; a lista de tiles acompanhados é refeita dos vetores.
+    if (!this.wear || this.wear.length !== this.map.width * this.map.height) this.wear = new Float32Array(this.map.width * this.map.height);
+    if (!this.roadIdle || this.roadIdle.length !== this.map.width * this.map.height) this.roadIdle = new Uint8Array(this.map.width * this.map.height);
+    this.wearTiles = new Set();
+    for (let t = 0; t < this.wear.length; t++) if (this.wear[t] > 0) this.wearTiles.add(t);
     const tally = this.tally as Record<string, number>;
     for (const k of ['soloFounds', 'colonies', 'farmsteads', 'merged', 'shortLived', 'lastWaves', 'tierDowns', 'interMarriages', 'annexations', 'revolts', 'capitalMoves', 'newPeoples', 'aid', 'aidRefused', 'rivalries', 'visits', 'festivals']) tally[k] ||= 0;
     // Saves de antes da fauna nova: sem ação, destino nem parasitas; pasto e medo zerados.
@@ -6693,6 +6799,655 @@ export class Ecosystem {
         if (this.alive[i] && this.species[this.kind[i]].kind === 'sapient') randomTraits(this.traits, i, this.mindRnd, this.villages[this.village[i]]?.culture.value);
       }
     }
+  }
+
+  // ---- Jornadas (plano novo dos assentamentos, fase 3: RF-AS-20 a 31) ----
+
+  /** O que entrou no pátio no modo completo e o que foi entregue no celeiro, por bem (o teste compara os dois). */
+  yardIn: Record<string, number> = {};
+  delivered: Record<string, number> = {};
+  /** Porquê da última jornada de cada pessoa, pelo uid (RF-AS-30). */
+  private dayNotes = new Map<number, { label: string; why: string; others: { label: string; score: number }[] }>();
+  /** Quadro de tarefas de cada assentamento no modo completo, refeito a cada TASK_SECONDS (RF-AS-21). */
+  private boards = new Map<number, { at: number; tasks: BoardTask[] }>();
+  /** Roças de cada assentamento (tiles), refeitas no máximo uma vez por ano. */
+  private fieldCache = new Map<number, { year: number; tiles: number[] }>();
+
+  /** Guarda o que foi feito: no modo completo, bruto vai para o pátio e só chega ao estoque com uma entrega (RF-AS-23). */
+  private store1(v: Village, good: Good | 'food', got: number): void {
+    if (got <= 0) return;
+    if (RAW.has(good) && this.full(v)) {
+      const y = (v.yard ??= {});
+      y[good] = (y[good] ?? 0) + got;
+      this.yardIn[good] = (this.yardIn[good] ?? 0) + got;
+      return;
+    }
+    if (good === 'food') v.food += got;
+    else v.stock[good] += got;
+  }
+
+  /** Entrega no celeiro: tira do pátio e põe no estoque. Devolve quanto entregou. */
+  private deliver(v: Village, good: Good | 'food', amount: number): number {
+    const y = v.yard;
+    const n = Math.min(amount, y?.[good] ?? 0);
+    if (n <= 0 || !y) return 0;
+    y[good] = (y[good] ?? 0) - n;
+    if (good === 'food') v.food += n;
+    else v.stock[good] += n;
+    this.delivered[good] = (this.delivered[good] ?? 0) + n;
+    return n;
+  }
+
+  /** Tudo o que ficou no pátio vai ao celeiro de carroça (fim do ano, ou o lugar saiu da tela). */
+  private flushYard(v: Village): void {
+    if (!v.yard) return;
+    for (const g of Object.keys(v.yard) as (Good | 'food')[]) this.deliver(v, g, v.yard[g] ?? 0);
+  }
+
+  /** Tile do celeiro (ou da praça, sem celeiro). */
+  private granaryTile(v: Village): number {
+    const g = v.houses.find((h) => h.kind === 'granary' || h.kind === 'warehouse');
+    return g ? this.tileAt(g.x + 1, g.y + 1) : this.tileAt(Math.floor(v.x), Math.floor(v.y));
+  }
+
+  private plazaTile(v: Village): number {
+    return this.tileAt(Math.floor(v.x), Math.floor(v.y));
+  }
+
+  /** Roças do assentamento (tiles de lavoura perto dele). */
+  private fieldTiles(v: Village): number[] {
+    const c = this.fieldCache.get(v.id);
+    const year = Math.floor(this.year);
+    if (c && c.year === year) return c.tiles;
+    const r = Math.ceil(this.footprint(v) + B.FIELD_RING * 2);
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    const tiles: number[] = [];
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t >= 0 && this.road[t] === 4) tiles.push(t);
+      }
+    }
+    this.fieldCache.set(v.id, { year, tiles });
+    return tiles;
+  }
+
+  /** Posto de trabalho do ofício (RF-AS-20): a roça, a mina, o porto, a oficina, o templo, o mercado ou a praça. */
+  private workplace(i: number, v: Village, role: number): number {
+    const find = (...kinds: BuildingKind[]) => {
+      const h = v.houses.find((b) => kinds.includes(b.kind) && !b.site);
+      return h ? this.tileAt(h.x + 1, h.y + 1) : -1;
+    };
+    switch (role) {
+      case ROLE.farmer: {
+        const f = this.fieldTiles(v);
+        return f.length ? f[(this.uid[i] * 7) % f.length] : -1;
+      }
+      case ROLE.miner:
+        return v.mines.length ? this.tileAt(this.deposits[v.mines[i % v.mines.length]].x, this.deposits[v.mines[i % v.mines.length]].y) : -1;
+      case ROLE.fisher:
+        return v.port;
+      case ROLE.blacksmith:
+        return find('smithy');
+      case ROLE.weaver:
+        return find('loom');
+      case ROLE.potter:
+        return find('pottery');
+      case ROLE.miller:
+        return find('windmill');
+      case ROLE.merchant:
+        return find('market');
+      case ROLE.priest:
+        return find('temple');
+      case ROLE.shepherd:
+        return find('corral') >= 0 ? find('corral') : v.pens?.length ? this.tileAt(v.pens[0].x, v.pens[0].y) : -1;
+      case ROLE.horsekeeper:
+        return find('stable');
+      case ROLE.gatherer: {
+        // Coletores vão a um ponto além da borda, que muda de pessoa para pessoa e de estação para estação.
+        const a = ((this.uid[i] * 2654435761) % 1000) / 1000 * Math.PI * 2 + this.season();
+        const r = this.footprint(v) + B.FIELD_RING + 3;
+        return this.tileAt(Math.floor(v.x + Math.cos(a) * r), Math.floor(v.y + Math.sin(a) * r));
+      }
+      case ROLE.leader:
+      case ROLE.king:
+        return this.plazaTile(v);
+      default:
+        return -1;
+    }
+  }
+
+  /** O que cada ofício traz do posto (a carga que leva ao celeiro). */
+  private yieldOf(role: number): Good | 'food' | null {
+    if (role === ROLE.farmer || role === ROLE.gatherer || role === ROLE.hunter || role === ROLE.fisher) return 'food';
+    if (role === ROLE.woodcutter) return 'wood';
+    if (role === ROLE.miner) return 'stone';
+    return null;
+  }
+
+  /** Quadro de tarefas do assentamento (RF-AS-21): o que ele precisa agora, com prioridade e vagas. */
+  private board(v: Village): BoardTask[] {
+    const b = this.boards.get(v.id);
+    if (b && this.year - b.at < B.TASK_SECONDS / YEAR_SECONDS) return b.tasks;
+    const tasks: BoardTask[] = [];
+    const season = this.season();
+    const pop = Math.max(1, v.population);
+    const foodNeed = 1 - (v.needs?.food ?? 1);
+    // Colheita: na safra (verão) vira urgente e junta ajudantes de todos os ofícios (colheita coletiva, RF-AS-28).
+    const fields = this.fieldTiles(v);
+    const harvest = season === 2;
+    const nf = Math.min(fields.length, 8);
+    for (let k = 0; k < nf; k++) {
+      const t = fields[Math.floor((k * fields.length) / nf)];
+      tasks.push({ kind: DAY.harvest, tile: t, prio: Math.min(1, B.SEASON_HARVEST[season] / 2.6 + foodNeed), slots: harvest ? 4 : 2, taken: 0, role: ROLE.farmer, urgent: harvest, label: `colher a roça ${k + 1}` });
+    }
+    // Carga parada no pátio: alguém leva ao celeiro.
+    let left = 0;
+    for (const g of Object.keys(v.yard ?? {}) as (Good | 'food')[]) left += v.yard![g] ?? 0;
+    if (left >= B.CARRY_LOAD) {
+      const at = fields.length ? fields[0] : this.plazaTile(v);
+      tasks.push({ kind: DAY.haul, tile: at, prio: Math.min(1, left / (left + pop)), slots: Math.min(6, Math.ceil(left / B.CARRY_LOAD)), taken: 0, role: -1, label: `levar ${Math.round(left)} de carga ao celeiro` });
+    }
+    // Obras: o mutirão é chamado para a muralha, o templo e quando o lugar não tem construtor.
+    for (const h of v.houses) {
+      if ((h.labor ?? 0) <= 0) continue;
+      const big = h.kind !== 'house' || (v.crew ?? 1) === 0;
+      tasks.push({ kind: DAY.build, tile: this.tileAt(h.x, h.y), prio: big ? 0.8 : 0.5, slots: B.JOB_SLOTS_BUILD + (big ? 3 : 0), taken: 0, role: ROLE.builder, urgent: big, label: `erguer ${h.kind === 'house' ? 'uma casa' : BUILDING_NAMES[h.kind]?.toLowerCase() ?? 'uma obra'}` });
+    }
+    // Água do poço (ou do rio) para as casas.
+    // O poço fica na praça da Idade do Bronze em diante (a tela desenha); antes, a água vem do rio ou do lago.
+    if (Math.floor(v.tech) >= 1 || v.wet) {
+      const t = this.plazaTile(v);
+      tasks.push({ kind: DAY.water, tile: t, prio: 0.3, slots: Math.max(1, Math.ceil(pop / 25)), taken: 0, role: -1, label: 'buscar água' });
+    }
+    // Ofício no posto: uma tarefa por ofício com vagas para todos dele.
+    for (const role of [ROLE.miner, ROLE.fisher, ROLE.blacksmith, ROLE.weaver, ROLE.potter, ROLE.miller, ROLE.merchant, ROLE.priest, ROLE.shepherd, ROLE.horsekeeper, ROLE.gatherer, ROLE.leader, ROLE.king]) {
+      tasks.push({ kind: DAY.work, tile: -1, prio: 0.55, slots: 999, taken: 0, role, label: `trabalhar como ${ROLE_NAMES[ROLES[role]].toLowerCase()}` });
+    }
+    // Reservas de quem já está numa tarefa do quadro anterior continuam valendo.
+    for (const t of tasks) t.taken = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || this.village[i] !== v.id || !this.day[i] || this.day[i] >= DAY.eat) continue;
+      const t = tasks.find((x) => x.kind === this.day[i] && x.tile === this.dayAt[i]);
+      if (t) t.taken++;
+    }
+    this.boards.set(v.id, { at: this.year, tasks });
+    return tasks;
+  }
+
+  /** Larga a jornada (e a carga volta ao pátio). */
+  private dropDay(i: number, v: Village | null): void {
+    if (this.carry[i] && this.carryAmt[i] > 0 && v) {
+      const g = CARGO_GOOD(this.carry[i]);
+      if (g && g !== 'water') (v.yard ??= {})[g] = (v.yard[g] ?? 0) + this.carryAmt[i];
+    }
+    this.day[i] = DAY.none;
+    this.dayLeg[i] = 0;
+    this.dayTime[i] = 0;
+    this.carry[i] = 0;
+    this.carryAmt[i] = 0;
+    this.gesture[i] = 0;
+  }
+
+  /** Escolhe a próxima jornada pelo quadro e pelas necessidades (RF-AS-22 e 25). */
+  private pickDay(i: number, v: Village, working: boolean): void {
+    const role = this.role[i];
+    const w = this.map.width;
+    const tasks = working ? this.board(v) : [];
+    const options: { task: BoardTask; dist: number }[] = [];
+    for (const t of tasks) {
+      if (t.taken >= t.slots) continue;
+      let tile = t.tile;
+      if (t.kind === DAY.work) {
+        if (t.role !== role) continue;
+        tile = this.workplace(i, v, role);
+        if (tile < 0) continue;
+      }
+      const d = Math.hypot(wrapDx((tile % w) + 0.5 - this.x[i], w), Math.floor(tile / w) + 0.5 - this.y[i]);
+      options.push({ task: t.kind === DAY.work ? { ...t, tile } : t, dist: d });
+    }
+    // Amigos na mesma tarefa (o sociável gosta de trabalhar junto).
+    const friends = (t: BoardTask) => {
+      let n = 0;
+      for (const b of this.bonds.get(this.uid[i]) ?? []) {
+        const j = this.indexOfUid(b.uid);
+        if (j >= 0 && this.day[j] === t.kind && this.dayAt[j] === t.tile) n++;
+      }
+      return n;
+    };
+    const c = chooseDay(
+      {
+        traits: this.traits,
+        i,
+        role,
+        hunger: Math.max(0, Math.min(1, (0.75 - this.energy[i]) / 0.5)),
+        rest: this.needRest[i],
+        social: this.needSocial[i],
+        faith: this.needFaith[i],
+        tasks: options,
+        friends,
+        temple: this.has(v, 'temple'),
+      },
+      this.mindRnd,
+    );
+    if (!c) {
+      this.day[i] = DAY.none;
+      return;
+    }
+    const a = c.pick.action;
+    let tile = a.task?.tile ?? -1;
+    if (a.kind === DAY.eat) tile = v.food >= 1 ? this.granaryTile(v) : this.home[i] >= 0 ? this.home[i] : this.plazaTile(v);
+    else if (a.kind === DAY.rest) tile = this.home[i] >= 0 ? this.home[i] : this.plazaTile(v);
+    else if (a.kind === DAY.social) tile = this.plazaTile(v);
+    else if (a.kind === DAY.pray) {
+      const h = v.houses.find((b) => b.kind === 'temple');
+      tile = h ? this.tileAt(h.x + 1, h.y + 1) : this.plazaTile(v);
+    }
+    if (tile < 0) {
+      this.day[i] = DAY.none;
+      return;
+    }
+    if (a.task) a.task.taken++;
+    this.day[i] = a.kind;
+    this.dayAt[i] = tile;
+    this.dayLeg[i] = 0;
+    this.dayTime[i] = 0;
+    this.dayNotes.set(this.uid[i], { label: c.pick.label, why: dayWhy(c), others: c.others.slice(0, 2).map((o) => ({ label: o.label, score: o.score })) });
+  }
+
+  /** Para onde andar agora rumo ao tile `t`: o vizinho que encurta o caminho, preferindo rua e trilha (RF-AS-26). */
+  private stepToward(i: number, t: number): { x: number; y: number } {
+    const w = this.map.width;
+    const tx = (t % w) + 0.5;
+    const ty = Math.floor(t / w) + 0.5;
+    const dx = wrapDx(tx - this.x[i], w);
+    const dy = ty - this.y[i];
+    const d = Math.hypot(dx, dy);
+    if (d < 2.5) return { x: dx, y: dy };
+    const cx = Math.floor(this.x[i]);
+    const cy = Math.floor(this.y[i]);
+    let best = { x: dx, y: dy };
+    let bv = Infinity;
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        if (!ox && !oy) continue;
+        const n = this.tileAt(cx + ox, cy + oy);
+        if (n < 0 || !isLand(this.map, n)) continue;
+        const nx = cx + ox + 0.5;
+        const ny = cy + oy + 0.5;
+        const rest = Math.hypot(wrapDx(tx - nx, w), ty - ny);
+        const step = Math.hypot(ox, oy) * this.walkCost(n);
+        const value = step + rest;
+        if (value < bv) {
+          bv = value;
+          best = { x: wrapDx(nx - this.x[i], w), y: ny - this.y[i] };
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Custo de andar num tile: rua e trilha baratas, roça e mato mais caros, casa evitada (RF-AS-26). */
+  private walkCost(t: number): number {
+    const r = this.road[t];
+    if (isStreet(r)) return r === TRAIL ? 0.7 : 0.5;
+    if (this.built[t]) return 4;
+    if (this.wall[t] && this.wall[t] !== WALL.gate) return 6;
+    if (r === 4 || r === 5) return 1.6;
+    return 1.2;
+  }
+
+  /**
+   * Um passo da jornada da pessoa `i` (modo completo): escolhe a jornada quando não tem, anda até o lugar,
+   * faz o gesto, volta com a carga e entrega. Devolve o vetor até onde andar (0,0 = parada no lugar), ou
+   * null quando outra regra cuida dela (lenhador e construtor com ordem presencial, soldado em marcha).
+   */
+  private journey(i: number, v: Village, working: boolean, dt: number): { x: number; y: number } | null {
+    const role = this.role[i];
+    const w = this.map.width;
+    this.needRest[i] = Math.min(1, this.needRest[i] + B.NEED_REST * dt * (working ? 1 : 0.6));
+    this.needSocial[i] = Math.min(1, this.needSocial[i] + B.NEED_SOCIAL * dt);
+    this.needFaith[i] = Math.min(1, this.needFaith[i] + B.NEED_FAITH * dt);
+    // Eventos do lugar passam na frente de tudo (RF-AS-28 e 29).
+    const event = this.eventFor(i, v, working);
+    if (event) {
+      if (this.day[i] !== event.kind || this.dayAt[i] !== event.tile) {
+        this.dropDay(i, v);
+        this.day[i] = event.kind;
+        this.dayAt[i] = event.tile;
+        this.dayNotes.set(this.uid[i], { label: DAY_NAMES[event.kind], why: event.why, others: [] });
+      }
+    } else if (this.day[i] >= DAY.shelter && this.day[i] !== DAY.festival + 100) {
+      if (this.day[i] === DAY.shelter || this.day[i] === DAY.festival || this.day[i] === DAY.funeral || this.day[i] === DAY.curious) this.dropDay(i, v);
+    } else if (this.day[i] === DAY.militia) this.dropDay(i, v);
+    // Lenhador e construtor com ordem presencial seguem a ordem; com a carga na mão, primeiro entregam.
+    if (!this.carry[i] && this.jobKind[i] && !event) return null;
+    if (role === ROLE.soldier || role === ROLE.guard) {
+      if (!event) return null;
+    }
+    // Com carga: leva ao celeiro.
+    if (this.carry[i] && this.dayLeg[i] !== 2) {
+      this.dayLeg[i] = 2;
+      this.dayAt[i] = this.granaryTile(v);
+      if (!this.day[i]) this.day[i] = DAY.haul;
+    }
+    if (!this.day[i]) {
+      this.pickDay(i, v, working);
+      if (!this.day[i]) {
+        this.sampleDay(i, v, working, false, true);
+        // Sem nada a fazer: fica pela praça, devagar.
+        return null;
+      }
+    }
+    const t = this.dayAt[i];
+    if (t < 0) {
+      this.dropDay(i, v);
+      return null;
+    }
+    const dx = wrapDx((t % w) + 0.5 - this.x[i], w);
+    const dy = Math.floor(t / w) + 0.5 - this.y[i];
+    const reach = this.day[i] === DAY.build ? B.BUILD_REACH : this.day[i] === DAY.festival || this.day[i] === DAY.social || this.day[i] === DAY.shelter || this.day[i] === DAY.curious || this.day[i] === DAY.funeral ? 3 : 1.4;
+    this.sampleDay(i, v, working, true, false);
+    if (dx * dx + dy * dy > reach * reach) {
+      this.gesture[i] = this.carry[i] ? GESTURE.carry : 0;
+      // Muito tempo sem chegar (água no caminho): desiste e devolve a carga ao pátio.
+      if ((this.dayTime[i] += dt) > B.JOB_TIMEOUT * 2) this.dropDay(i, v);
+      return this.stepToward(i, t);
+    }
+    if (this.dayLeg[i] === 0) {
+      this.dayLeg[i] = 1;
+      this.dayTime[i] = 0;
+    }
+    this.dayTime[i] += dt;
+    // Chegou com a carga: entrega no celeiro (RF-AS-23).
+    if (this.dayLeg[i] === 2) {
+      const g = CARGO_GOOD(this.carry[i]);
+      if (g) {
+        if (g === 'food' || g === 'water') {
+          if (g === 'food') {
+            v.food += this.carryAmt[i];
+            this.delivered.food = (this.delivered.food ?? 0) + this.carryAmt[i];
+          }
+        } else {
+          v.stock[g] += this.carryAmt[i];
+          this.delivered[g] = (this.delivered[g] ?? 0) + this.carryAmt[i];
+        }
+      }
+      this.carry[i] = 0;
+      this.carryAmt[i] = 0;
+      this.dropDay(i, v);
+      return { x: 0, y: 0 };
+    }
+    this.gesture[i] = GESTURE_OF[this.day[i] === DAY.work ? 100 + role : this.day[i]] ?? GESTURE.none;
+    const k = this.day[i] as DayKind;
+    if (this.dayTime[i] < B.TASK_SECONDS) {
+      if (k === DAY.build) this.helpBuild(i, v, dt);
+      return { x: 0, y: 0 };
+    }
+    // Terminou o gesto: o efeito e a próxima perna.
+    switch (k) {
+      case DAY.eat:
+        if (v.food >= 1 && this.energy[i] < 0.9) {
+          v.food -= 1;
+          this.book(v, 'food', 0, 1);
+          this.energy[i] = Math.min(1, this.energy[i] + 0.35);
+        }
+        break;
+      case DAY.rest:
+        this.needRest[i] = 0;
+        break;
+      case DAY.social:
+      case DAY.festival:
+      case DAY.curious:
+        this.needSocial[i] = 0;
+        break;
+      case DAY.pray:
+      case DAY.funeral:
+        this.needFaith[i] = 0;
+        break;
+      case DAY.water:
+        this.carry[i] = carryCode('water');
+        this.carryAmt[i] = 1;
+        this.dayAt[i] = this.home[i] >= 0 ? this.home[i] : this.plazaTile(v);
+        this.dayLeg[i] = 2;
+        this.dayTime[i] = 0;
+        return { x: 0, y: 0 };
+      case DAY.harvest:
+      case DAY.haul:
+      case DAY.work: {
+        const g = k === DAY.haul ? this.biggestYard(v) : this.yieldOf(role) ?? (k === DAY.harvest ? 'food' : null);
+        const have = g ? v.yard?.[g] ?? 0 : 0;
+        if (g && have > 0) {
+          const load = Math.min(have, B.CARRY_LOAD * (this.scale(v) >= 1 && k !== DAY.work ? B.CART_LOAD : 1));
+          v.yard![g] = have - load;
+          this.carry[i] = carryCode(g);
+          this.carryAmt[i] = load;
+          this.dayAt[i] = this.granaryTile(v);
+          this.dayLeg[i] = 2;
+          this.dayTime[i] = 0;
+          return { x: 0, y: 0 };
+        }
+        break;
+      }
+      default:
+        if (this.dayTime[i] < B.TASK_SECONDS * 2) return { x: 0, y: 0 };
+    }
+    this.dropDay(i, v);
+    return { x: 0, y: 0 };
+  }
+
+  /** No modo completo, quem produziu leva nas mãos o que acabou de ir para o pátio (caçador com a carne, lenhador com o feixe). */
+  private pickUp(i: number, v: Village, good: Good | 'food', amount: number): void {
+    if (amount <= 0 || !this.full(v) || !v.yard?.[good]) return;
+    const n = Math.min(amount, v.yard[good] ?? 0);
+    v.yard[good] = (v.yard[good] ?? 0) - n;
+    if (this.carry[i] && CARGO_GOOD(this.carry[i]) !== good) this.dropDay(i, v);
+    this.carry[i] = carryCode(good);
+    this.carryAmt[i] += n;
+  }
+
+  /** O bem com mais carga parada no pátio. */
+  private biggestYard(v: Village): Good | 'food' | null {
+    let best: Good | 'food' | null = null;
+    let n = 0;
+    for (const g of Object.keys(v.yard ?? {}) as (Good | 'food')[]) {
+      if ((v.yard![g] ?? 0) > n) {
+        n = v.yard![g] ?? 0;
+        best = g;
+      }
+    }
+    return best;
+  }
+
+  /** Mutirão: quem não é construtor também bate na obra (RF-AS-28). */
+  private helpBuild(i: number, v: Village, dt: number): void {
+    const w = this.map.width;
+    const t = this.dayAt[i];
+    const h = v.houses.find((b) => b.x + b.y * w === t);
+    if (!h || (h.labor ?? 0) <= 0) {
+      this.dayTime[i] = B.TASK_SECONDS;
+      return;
+    }
+    h.labor = Math.max(0, h.labor! - dt * 0.6 * (v.stock.tools > 0 ? B.TOOL_SPEED : 1));
+    if (h.labor <= 0) h.site = undefined;
+  }
+
+  /**
+   * Evento do lugar que chama esta pessoa agora (RF-AS-28 e 29): no alarme quem luta vira milícia e os
+   * demais se abrigam; na festa e na caravana todos vão à praça; no enterro vai a família.
+   */
+  private eventFor(i: number, v: Village, working: boolean): { kind: DayKind; tile: number; why: string } | null {
+    if ((v.alarmUntil ?? -1) > this.year) {
+      const brave = working && this.traits[i * TRAIT_COUNT + TRAIT.courage] >= 0 && this.role[i] !== ROLE.priest;
+      if (brave) return { kind: DAY.militia, tile: this.gateTile(v), why: 'o alarme tocou e ela é corajosa: pegou a lança' };
+      return { kind: DAY.shelter, tile: this.plazaTile(v), why: 'o alarme tocou: correu para dentro' };
+    }
+    if (v.funeral && v.funeral.until > this.year && this.family[i] === v.funeral.family) return { kind: DAY.funeral, tile: v.funeral.tile, why: 'enterro de alguém da família' };
+    if ((v.festivalUntil ?? -1) > this.year) return { kind: DAY.festival, tile: this.plazaTile(v), why: 'festa da colheita na praça' };
+    if ((v.curiousUntil ?? -1) > this.year && this.traits[i * TRAIT_COUNT + TRAIT.curiosity] >= 3 && !this.carry[i]) return { kind: DAY.curious, tile: this.plazaTile(v), why: 'chegou uma caravana e ela é curiosa' };
+    return null;
+  }
+
+  /** Portão (ou a borda da praça, sem muralha) onde a milícia se junta. */
+  private gateTile(v: Village): number {
+    const gate = v.walls?.find((t) => this.wall[t] === WALL.gate);
+    return gate ?? this.plazaTile(v);
+  }
+
+  /** Amostra do comportamento (seção 7.3): adultos que trabalham, com tarefa, parados e passos sobre rua. */
+  private sampleDay(i: number, v: Village, working: boolean, tasked: boolean, idle: boolean): void {
+    if (!working) return;
+    const s = this.dayStats;
+    s.samples++;
+    const busy = tasked || this.jobKind[i] > 0 || this.carry[i] > 0;
+    if (busy) s.tasked++;
+    if (idle && !busy) s.idle++;
+    if (Math.hypot(this.vx[i], this.vy[i]) > 0.05 && this.distance(v, this.x[i], this.y[i]) <= this.footprint(v) + B.FIELD_RING) this.tread(this.tileOf(i), THINK_INTERVAL * B.STEP_WEAR);
+    if (this.distance(v, this.x[i], this.y[i]) <= this.footprint(v) && Math.hypot(this.vx[i], this.vy[i]) > 0.05) {
+      s.steps++;
+      const r = this.road[this.tileOf(i)];
+      if (isStreet(r) || r === 3) s.streetSteps++;
+    }
+  }
+
+  /** Ficha com o porquê (RF-AS-30): tarefa, as duas alternativas que perderam e o motivo. */
+  dayOf(i: number): { task: string; why: string; others: string[]; carry: string } {
+    const f = (n: number) => n.toFixed(2).replace('.', ',');
+    const n = this.dayNotes.get(this.uid[i]);
+    const carry = this.carry[i] ? `${CARGO_NAMES[CARGO_GOOD(this.carry[i]) ?? ''] ?? 'carga'} (${f(this.carryAmt[i])})` : '';
+    if (this.jobKind[i] && !this.carry[i]) {
+      const kind = this.jobKind[i] === JOB.build ? 'bater na obra' : this.jobKind[i] === JOB.plant ? 'plantar uma muda' : 'derrubar uma árvore';
+      return { task: kind, why: 'ordem do quadro do lugar para o seu ofício', others: n?.others.map((o) => `${o.label} (${f(o.score)})`) ?? [], carry };
+    }
+    const vi = this.village[i];
+    const v = vi >= 0 ? this.villages[vi] : null;
+    if (!v) return { task: 'sem lugar', why: 'vive solto, sem assentamento', others: [], carry };
+    if (!this.full(v)) return { task: 'rotina do lugar', why: 'o lugar está fora da tela: a produção corre no modo agregado', others: [], carry };
+    if (!this.day[i] || !n) return { task: DAY_NAMES[DAY.none], why: 'nada urgente no quadro e nenhuma necessidade: fica pela praça', others: [], carry };
+    const task = this.dayLeg[i] === 2 ? `${n.label}, levando a carga ao celeiro` : n.label;
+    return { task, why: n.why, others: n.others.map((o) => `${o.label} (${f(o.score)})`), carry };
+  }
+
+  // ---- Ruas por uso (plano novo dos assentamentos, fase 4: RF-AS-13 e 14) ----
+
+  /** Desgaste de cada tile pelos passos (modo completo) e pelo tráfego anual (modo agregado). */
+  wear = new Float32Array(0);
+  /** Anos seguidos de cada tile de rua sem uso (para esquecer a rua que ninguém pisa). */
+  roadIdle = new Uint8Array(0);
+  /** Tiles com desgaste ou rua de terra a acompanhar (refeito a partir dos vetores depois de carregar). */
+  private wearTiles = new Set<number>();
+
+  /** Um passo de alguém pisando o tile `t` (só fora de casa, água e roça). */
+  private tread(t: number, amount: number): void {
+    if (t < 0 || this.built[t] || !isLand(this.map, t)) return;
+    const r = this.road[t];
+    if (r === 4 || r === 5) return;
+    this.wear[t] += amount;
+    this.wearTiles.add(t);
+  }
+
+  /**
+   * Tráfego do ano (modo agregado, RF-AS-13): de cada casa até a praça e de cada roça até o celeiro, pelo
+   * caminho mais barato (rua e trilha valem menos), soma desgaste em cada tile do trajeto. Assim as
+   * trilhas nascem de onde a gente anda, e o caminho já gasto atrai mais gente.
+   */
+  private yearTraffic(v: Village): void {
+    if (this.full(v)) return;
+    const plaza = this.plazaTile(v);
+    const granary = this.granaryTile(v);
+    for (const h of v.houses) {
+      if (h.kind === 'port') continue;
+      this.trafficPath(this.tileAt(h.x + (h.x % 2), h.y + 2), plaza, B.HOME_TRIPS);
+    }
+    const fields = this.fieldTiles(v);
+    for (let k = 0; k < fields.length; k += 4) this.trafficPath(fields[k], granary, B.FIELD_TRIPS);
+  }
+
+  /** Anda do tile `a` ao `b` passo a passo (como `stepToward`) e gasta cada tile do caminho. */
+  private trafficPath(a: number, b: number, trips: number): void {
+    if (a < 0 || b < 0) return;
+    const w = this.map.width;
+    let x = a % w;
+    let y = Math.floor(a / w);
+    const bx = b % w;
+    const by = Math.floor(b / w);
+    for (let n = 0; n < 80; n++) {
+      if (Math.abs(wrapDx(bx - x, w)) <= 1 && Math.abs(by - y) <= 1) return;
+      let best = -1;
+      let bv = Infinity;
+      let nx = x;
+      let ny = y;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          if (!ox && !oy) continue;
+          const t = this.tileAt(x + ox, y + oy);
+          if (t < 0 || !isLand(this.map, t)) continue;
+          const value = Math.hypot(ox, oy) * this.walkCost(t) + Math.hypot(wrapDx(bx - x - ox, w), by - y - oy);
+          if (value < bv) {
+            bv = value;
+            best = t;
+            nx = x + ox;
+            ny = y + oy;
+          }
+        }
+      }
+      if (best < 0) return;
+      this.tread(best, trips);
+      x = ((nx % w) + w) % w;
+      y = ny;
+    }
+  }
+
+  /**
+   * Uma vez por ano (RF-AS-13 e 14): onde o desgaste passou de TRAIL_WEAR nasce trilha; trilha muito usada
+   * vira rua de terra; rua de terra ou trilha sem uso por ROAD_FORGET_YEARS some (menos a que dá acesso
+   * a uma casa). O desgaste se apaga devagar, então só fica o caminho que continua sendo usado.
+   */
+  private updateWear(): void {
+    for (const v of this.villages) if (!v.abandoned && v.population > 0) this.yearTraffic(v);
+    const changed: number[] = [];
+    for (const t of this.wearTiles) {
+      const r = this.road[t];
+      const wear = this.wear[t];
+      if (!r && wear >= B.TRAIL_WEAR && !this.built[t] && !this.wall[t] && this.depositAt[t] < 0 && isLand(this.map, t)) {
+        this.road[t] = TRAIL;
+        changed.push(t);
+      } else if (r === TRAIL && wear >= B.ROAD_WEAR) {
+        this.road[t] = 1;
+        changed.push(t);
+      }
+      if ((r === TRAIL || r === 1) && wear < B.WEAR_IDLE) {
+        this.roadIdle[t] = Math.min(255, this.roadIdle[t] + 1);
+        if (this.roadIdle[t] >= B.ROAD_FORGET_YEARS && !this.servesHouse(t)) {
+          this.road[t] = r === 1 ? TRAIL : 0;
+          this.roadIdle[t] = 0;
+          changed.push(t);
+        }
+      } else this.roadIdle[t] = 0;
+      this.wear[t] = wear * B.WEAR_FADE;
+      if (this.wear[t] < 0.5 && !this.road[t]) {
+        this.wear[t] = 0;
+        this.wearTiles.delete(t);
+      }
+    }
+    if (!changed.length) return;
+    for (const t of changed) this.onTileChanged(t);
+    this.pruneRoads(changed);
+  }
+
+  /** O tile de rua encosta numa casa (sem ele a casa perde o acesso à rua). */
+  private servesHouse(t: number): boolean {
+    const w = this.map.width;
+    const x = t % w;
+    const y = Math.floor(t / w);
+    for (let oy = -2; oy <= 2; oy++) {
+      for (let ox = -2; ox <= 2; ox++) {
+        const n = this.tileAt(x + ox, y + oy);
+        if (n >= 0 && this.built[n]) return true;
+      }
+    }
+    return false;
   }
 
   // ---- Ações presenciais (seção 19.21) ----
@@ -6974,7 +7729,7 @@ export class Ecosystem {
       // Sem lugar no armazém a árvore fica de pé: o gesto espera pronto.
       if (v.stock.wood + per > this.capOf(v, 'wood')) return;
       this.fellTree(t, !!v.forestry);
-      this.put(v, 'wood', per);
+      this.pickUp(i, v, 'wood', this.put(v, 'wood', per));
       this.book(v, '_trees', 1, 0);
       if (v.forestry) v.plantDue = (v.plantDue ?? 0) + B.PLANT_PER_FELL;
     } else {
@@ -7522,6 +8277,8 @@ export class Ecosystem {
       if (war.a !== v.kingdom || war.returning !== undefined) continue;
       const target = this.villages[war.target];
       if (!this.expedition.has(i) && (war.naval || this.distance(target, v.x, v.y) > 90)) continue;
+      // Soldados inimigos à vista: o alarme toca no alvo (RF-AS-28, milícia e abrigo).
+      if (this.distance(target, this.x[i], this.y[i]) < this.footprint(target) + B.ALARM_DIST) target.alarmUntil = this.year + B.ALARM_SPAN;
       return { x: wrapDx(target.x - this.x[i], this.map.width), y: target.y - this.y[i] };
     }
     return null;
@@ -7892,6 +8649,7 @@ export class Ecosystem {
   private yearly(): void {
     this.updateClimate();
     this.communityYear();
+    this.updateWear();
     // Rede de ruas: o que escapou da limpeza na hora (ruas de dois assentamentos que se encostam) sai uma vez por ano.
     if (this.roadDirty.length) {
       this.pruneRoads(this.roadDirty);
@@ -9117,7 +9875,14 @@ export class Ecosystem {
   private watched = new Set<number>();
 
   watch(ids: Iterable<number>): void {
-    this.watched = new Set(ids);
+    const next = new Set(ids);
+    // Quem sai da tela entrega o pátio de carroça e larga as jornadas (o modo agregado não tem pátio).
+    for (const id of this.watched) {
+      if (next.has(id) || !this.villages[id]) continue;
+      this.flushYard(this.villages[id]);
+      this.boards.delete(id);
+    }
+    this.watched = next;
   }
 
   /** O lugar roda jornadas e passos completos (os demais, o modo agregado). */
@@ -9622,6 +10387,13 @@ export class Ecosystem {
     const families = this.familyGroups();
     for (const v of this.villages) {
       if (v.abandoned || v.population <= 0) continue;
+      // O que ficou no pátio vai ao celeiro de carroça na virada do ano (RF-AS-23 e 24).
+      this.flushYard(v);
+      // Festa da colheita na virada do ano, quando houve comida (RF-AS-28).
+      if (v.population >= 8 && (v.needs?.food ?? 1) >= B.FESTIVAL_FED) {
+        v.festivalUntil = this.year + B.FESTIVAL_SPAN;
+        this.tally.festivals++;
+      }
       if (v.colony && this.year >= v.colony.until) this.departColony(v, families.get(v.id));
       this.assignHomes(v, families.get(v.id));
       this.clearCore(v);
@@ -10884,6 +11656,9 @@ export class Ecosystem {
   /** A caravana chegou ao fim do caminho. Retorna se a viagem acabou. */
   private arrived(c: Caravan): boolean {
     const home = this.villages[c.home];
+    // Caravana chegando junta curiosos na praça (RF-AS-29).
+    const at = this.villages[c.back ? c.home : c.target];
+    if (at && !at.abandoned) at.curiousUntil = this.year + B.CURIOUS_SPAN;
     // Enxoval dos colonos (RF-AS-03): chega ao lugar novo, descarrega e quem levou fica morando lá.
     if (c.kind === 'settlers') {
       this.unload(home, c.cargo, 0);

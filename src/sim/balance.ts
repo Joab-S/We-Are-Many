@@ -724,14 +724,24 @@ export const WALL_STONE = 0.8;
  * segundo e a partir de quanto ela vira prioridade.
  */
 export const TASK_SECONDS = 1.6;
-export const NEED_REST = 0.02;
-export const NEED_SOCIAL = 0.015;
-export const NEED_FAITH = 0.01;
+/** Carga de uma pessoa por viagem ao celeiro, e o multiplicador da carroça da vila em diante (RF-AS-24). */
+export const CARRY_LOAD = 3;
+export const CART_LOAD = 3;
+export const NEED_REST = 0.08;
+export const NEED_SOCIAL = 0.05;
+export const NEED_FAITH = 0.03;
 export const NEED_URGENT = 0.75;
 /** Folga do modo agregado: só os assentamentos a até tantos tiles da tela rodam as jornadas. */
 export const JOURNEY_MARGIN = 20;
 /** Festa da colheita: duração (fração do ano) no fim do outono. */
 export const FESTIVAL_SPAN = 0.06;
+/** Comida mínima (atendimento) para ter festa; enterro e alarme (fração do ano) e a distância em que o inimigo à vista toca o alarme. */
+export const FESTIVAL_FED = 0.7;
+export const FUNERAL_SPAN = 0.08;
+export const ALARM_SPAN = 0.25;
+export const ALARM_DIST = 12;
+/** Curiosos na praça quando chega uma caravana (fração do ano). */
+export const CURIOUS_SPAN = 0.08;
 
 /** Fase 4, ruas por uso (RF-AS-13): desgaste para virar trilha e rua, decaimento por ano e anos sem uso até sumir. */
 export const TRAIL_WEAR = 40;
@@ -739,6 +749,8 @@ export const ROAD_WEAR = 160;
 export const WEAR_FADE = 0.75;
 export const WEAR_IDLE = 8;
 export const ROAD_FORGET_YEARS = 30;
+/** Desgaste de um segundo de passos de uma pessoa no modo completo (o tráfego anual do agregado vem de HOME_TRIPS e FIELD_TRIPS). */
+export const STEP_WEAR = 3;
 /** Viagens de cada casa até a praça e de cada roça até o celeiro por ano (tráfego do modo agregado). */
 export const HOME_TRIPS = 12;
 export const FIELD_TRIPS = 8;
