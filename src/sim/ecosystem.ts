@@ -36,7 +36,8 @@ import { socialYear, type Resident } from '../ai/decisions/social';
 import { LEADER, SOCIAL } from '../ai/tuning';
 import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../ai/decisions/leader';
 import { completeness, missingText, planItems, type PlanItem } from './plan';
-import { AVENUE, GRAVEL, isStreet, mainStreets, pickMaterial, type BuildMaterial } from './architecture';
+import { belowTier, loyaltyScore, missingFunctions, MOTIVE_TEXT, pairKey, polityOf, POLITY_NAMES, siteValue, spacingFor, tierAllowed, type ColonyMotive, type Polity, type SiteLook, type TierCheck } from './community';
+import { AVENUE, GRAVEL, isStreet, mainStreets, pickMaterial, TRAIL, WALL, type BuildMaterial } from './architecture';
 import {
   CURRENCY_EFFICIENCY,
   LUXURIES,
@@ -79,7 +80,7 @@ import {
   type SiteSample,
   type Vocation,
 } from './needs';
-import { lotsFor, maxFieldsOf, maxPensOf, plotSeed, pruneBlocks, radiusFor, streetOrder, tierFor, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
+import { maxPensOf, plotSeed, pruneBlocks, TIER_NAMES, TIER_RADIUS, wrapDx } from './settlement';
 import { alienName, EARTH_ID, habitatOf, type Species, type SpeciesKind } from './species';
 import {
   BITE,
@@ -453,6 +454,13 @@ export interface Building {
   empty?: boolean;
   /** Anos seguidos sem conserto por falta de madeira ou pedra (seção 19.19). */
   wear?: number;
+  /** Casa de sítio rural, fora do núcleo (RF-AS-02). */
+  farm?: boolean;
+  /** Nome do bairro, quando veio de uma aldeia que a cidade engoliu (RF-AS-06). */
+  quarter?: string;
+  /** Família que mora nela (chave da família) e anos seguidos sem ninguém (RF-AS-17). */
+  owner?: number;
+  idle?: number;
 }
 
 export interface Village {
@@ -597,6 +605,34 @@ export interface Village {
   peak?: number;
   /** Última vez que as técnicas foram sorteadas. */
   learnAt?: number;
+  /** Plano novo dos assentamentos (seção 20): ano e jeito da fundação (RF-AS-01 a 08). */
+  foundedAt?: number;
+  foundedBy?: 'bando' | 'colônia' | 'sítio' | 'refúgio' | 'cisma' | 'família' | 'mar';
+  /** Colônia em formação: motivo, sítios que os batedores visitam e quando o grupo parte (RF-AS-03). */
+  colony?: { motive: ColonyMotive; sites: { x: number; y: number; value: number }[]; until: number; scouts: number[] };
+  /** Bairros que vieram de aldeias engolidas pela cidade (RF-AS-06). */
+  quarters?: { name: string; culture: number; foreign: boolean }[];
+  /** Virou bairro deste assentamento (some do mapa como lugar à parte). */
+  mergedInto?: number;
+  /** Para onde foi a última leva de moradores (RF-AS-08). */
+  leftTo?: number;
+  /** Anos seguidos abaixo do que o degrau pede (descida de nível). */
+  lowYears?: number;
+  /** Degrau político do centro (RF-AS-48), cidade de referência e quantos a têm como referência (RF-AS-44). */
+  polity?: Polity;
+  ref?: number;
+  market?: number;
+  /** Lealdade ao centro (0 a 1), e o outro centro que atrai o lugar e há quantos anos (RF-AS-49 e 50). */
+  loyalty?: number;
+  lure?: { k: number; years: number };
+  /** Deriva cultural acumulada (RF-AS-52) e a cidade que cresce mais que a capital (RF-AS-51). */
+  drift?: number;
+  rival?: { id: number; years: number };
+  /** Ano da última revisão da muralha (RF-AS-18) e os tiles dela. */
+  wallAt?: number;
+  walls?: number[];
+  /** Pegada (raio das casas do núcleo mais a folga, RF-AS-10), refeita quando as casas mudam. */
+  foot?: number;
 }
 
 /** Quem a pessoa é, guardado quando ela embarca e devolvido quando desembarca. */
@@ -866,6 +902,8 @@ export class Ecosystem {
   jobWork = new Float32Array(0);
   /** Segundos que o indivíduo anda sem chegar ao alvo da ordem. */
   jobWait = new Float32Array(0);
+  /** Casa da família (tile do canto da casa, -1 sem casa), RF-AS-17 e 20. */
+  home = new Int32Array(0);
   /**
    * IA local das pessoas (src/ai): TRAIT_COUNT traços de −10 a 10 por indivíduo (inteligentes; bichos ficam em 0)
    * e o diário curto das decisões de cada um, pelo `uid`.
@@ -952,6 +990,8 @@ export class Ecosystem {
   readonly depositAt: Int32Array;
   /** Relação entre reinos (chave "a:b", a < b), de -100 a 100. */
   readonly relations = new Map<string, number>();
+  /** Afinidade entre assentamentos (chave "a:b", a < b), de -100 a 100 (RF-AS-43). */
+  readonly affinities = new Map<string, number>();
   readonly wars: War[] = [];
   private cultures = 0;
   private yearClock = 0;
@@ -1005,6 +1045,8 @@ export class Ecosystem {
   private readonly cooling: { i: number; heat: number }[] = [];
   /** Ruas por tile: 0 nenhuma, 1 terra, 2 pedra, 3 praça. */
   readonly road: Uint8Array;
+  /** Paliçada, muralha e portões (RF-AS-18, `WALL`). */
+  wall: Uint8Array;
   /** Rua principal (1) ou viela (0), refeito a cada traçado das ruas (RF-VIDA-253). */
   readonly mainStreet: Uint8Array;
   /** Tiles ocupados por casas. */
@@ -1051,6 +1093,24 @@ export class Ecosystem {
     // Fauna de terra: mortes de fome e, delas, as que tinham comida a até 8 tiles (fome evitável).
     wildStarved: 0,
     wildStarvedNearFood: 0,
+    // Plano novo dos assentamentos (seção 20): como nasceram os lugares, quem morreu cedo, fusões e política.
+    soloFounds: 0,
+    colonies: 0,
+    farmsteads: 0,
+    merged: 0,
+    shortLived: 0,
+    lastWaves: 0,
+    tierDowns: 0,
+    interMarriages: 0,
+    annexations: 0,
+    revolts: 0,
+    capitalMoves: 0,
+    newPeoples: 0,
+    aid: 0,
+    aidRefused: 0,
+    rivalries: 0,
+    visits: 0,
+    festivals: 0,
   };
   readonly population: number[] = [];
   /** Teto de cada espécie neste planeta, proporcional ao habitat. */
@@ -1110,6 +1170,7 @@ export class Ecosystem {
     this.traffic = new Uint16Array(map.width * map.height);
     this.trafficEra = new Uint8Array(map.width * map.height);
     this.mainStreet = new Uint8Array(map.width * map.height);
+    this.wall = new Uint8Array(map.width * map.height);
     this.built = new Uint8Array(map.width * map.height);
     this.treeGrow = new Float32Array(map.width * map.height);
     this.treeVeg = new Float32Array(map.width * map.height);
@@ -1366,6 +1427,7 @@ export class Ecosystem {
     this.job = copy(this.job, (n) => new Int32Array(n));
     this.jobWork = copy(this.jobWork, (n) => new Float32Array(n));
     this.jobWait = copy(this.jobWait, (n) => new Float32Array(n));
+    this.home = copy(this.home, (n) => new Int32Array(n));
     this.act = copy(this.act, (n) => new Uint8Array(n));
     this.goal = copy(this.goal, (n) => new Int32Array(n));
     this.chase = copy(this.chase, (n) => new Int32Array(n));
@@ -1441,6 +1503,7 @@ export class Ecosystem {
     this.jobKind[i] = 0;
     this.jobWork[i] = 0;
     this.jobWait[i] = 0;
+    this.home[i] = -1;
     this.act[i] = 0;
     this.goal[i] = -1;
     this.chase[i] = -1;
@@ -1693,29 +1756,10 @@ export class Ecosystem {
     const score = new Map<Village, number>();
     for (const o of live) score.set(o, this.placeScore(o));
     // Famílias de cada assentamento: cada adulto com os filhos ainda crianças que moram no mesmo lugar.
-    const families = new Map<number, Map<number, number[]>>();
-    const here = new Map<number, number>();
-    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] >= 0) here.set(this.uid[i], i);
-    for (let i = 0; i < this.count; i++) {
-      const vid = this.village[i];
-      if (vid < 0 || !this.alive[i] || this.species[this.kind[i]].kind !== 'sapient') continue;
-      // Casal mora junto e se muda junto (IA local, relações): a família é a do menor `uid` do casal.
-      const head = (k: number) => {
-        const mate = partnerOf(this.bonds, this.uid[k]);
-        const m = mate ? here.get(mate) : undefined;
-        return m !== undefined && this.village[m] === this.village[k] ? Math.min(this.uid[k], mate) : this.uid[k];
-      };
-      const p = this.role[i] === CHILD ? here.get(this.parent[i]) : undefined;
-      const key = p !== undefined && this.village[p] === vid && this.role[p] !== CHILD ? head(p) : head(i);
-      let fams = families.get(vid);
-      if (!fams) families.set(vid, (fams = new Map()));
-      const list = fams.get(key);
-      if (list) list.push(i);
-      else fams.set(key, [i]);
-    }
+    const families = this.familyGroups();
     for (const v of live) {
       const fams = families.get(v.id);
-      if (!fams || v.population < 2) continue;
+      if (!fams || v.population < 1) continue;
       const lack = this.scarcity(v);
       const stay = (score.get(v) ?? 0) + B.MOVE_STAY;
       const reach = B.MOVE_RANGE + B.MOVE_RANGE_ERA * Math.floor(v.tech);
@@ -1729,6 +1773,18 @@ export class Ecosystem {
         options.push({ o, value: (score.get(o) ?? 0) - d / B.MOVE_DIST - foreign });
       }
       options.sort((p, q) => q.value - p.value);
+      // Última leva (RF-AS-08): um lugar minúsculo e em falta se muda inteiro para o melhor lugar ao alcance.
+      if (v.population <= B.LAST_WAVE_POP && (lack > 0 || (v.want ?? 0) >= 2)) {
+        const dest = options.find((c) => !c.o.abandoned && this.scarcity(c.o) === 0 && this.landPath(v.x, v.y, c.o.x, c.o.y))?.o;
+        if (dest) {
+          for (const members of fams.values()) for (const i of members) this.relocate(i, v, dest);
+          v.leftTo = dest.id;
+          this.tally.lastWaves++;
+          this.note(`Os últimos moradores de ${v.name} se mudaram para ${dest.name}`, 'povo', dest, { key: `lastwave-${v.id}` });
+          continue;
+        }
+      }
+      if (v.population < 2) continue;
       // Anos de falta (êxodo): sem o apego, vale qualquer lugar conhecido melhor que este e que não esteja em falta;
       // sem nenhum, parte do povo vai fundar outro lugar (fronteira).
       const exodus = lack > 0 && (v.want ?? 0) >= 3 && v.population >= 10;
@@ -1775,14 +1831,8 @@ export class Ecosystem {
         if (exodus) v.want = 0;
         continue;
       }
-      // Êxodo sem lugar conhecido ao alcance: parte do povo sai para fundar outro lugar.
-      if (exodus && !reachable.length && this.colonizeByLand(v)) {
-        const why = this.lackName(v);
-        this.note(`Sem ${why}, parte do povo de ${v.name} partiu para longe`, 'povo', v, { key: `exodus-${v.id}` });
-        v.want = 0;
-        this.tally.exodus++;
-        if (why === 'lenha') this.tally.exodusFuel++;
-      }
+      // Êxodo sem lugar conhecido melhor ao alcance: sítio, colônia, refúgio e, só longe de tudo, fundar (RF-AS-01).
+      if (exodus && !reachable.length) this.exodusWithoutPlace(v, fams);
     }
   }
 
@@ -1793,6 +1843,18 @@ export class Ecosystem {
     return food >= fuel ? 'comida' : 'lenha';
   }
 
+  /** Afinidade entre dois assentamentos, de −100 a 100 (RF-AS-43). */
+  affinity(a: number, b: number): number {
+    return a === b ? 100 : (this.affinities.get(pairKey(a, b)) ?? 0);
+  }
+
+  /** Soma à afinidade entre dois assentamentos, dentro de −100 a 100. */
+  addAffinity(a: number, b: number, delta: number): void {
+    if (a === b) return;
+    const k = pairKey(a, b);
+    this.affinities.set(k, Math.max(-100, Math.min(100, (this.affinities.get(k) ?? 0) + delta)));
+  }
+
   /** Muda a criatura `i` de `from` para `to`: chega pela borda do destino e vai andando até a praça. */
   private relocate(i: number, from: Village, to: Village): void {
     from.population--;
@@ -1801,7 +1863,7 @@ export class Ecosystem {
     const w = this.map.width;
     for (let t = 0; t < 8; t++) {
       const a = this.civRnd() * Math.PI * 2;
-      const d = this.radius(to) + 1 + this.civRnd() * 2;
+      const d = this.footprint(to) + 1 + this.civRnd() * 2;
       const x = to.x + Math.cos(a) * d;
       const y = to.y + Math.sin(a) * d;
       const tile = this.tileAt(x, Math.floor(y));
@@ -2337,7 +2399,7 @@ export class Ecosystem {
 
   /** Cercado de pasto na borda da área ou logo fora dela (tiles de pasto, 2x2). */
   private addPen(v: Village): boolean {
-    const tiles = this.freeLot(v, true) ?? this.outerLot(v);
+    const tiles = this.fieldLot(v, 5) ?? this.outerLot(v);
     if (!tiles) return false;
     for (const t of tiles) {
       this.road[t] = 5;
@@ -2794,6 +2856,12 @@ export class Ecosystem {
             range = this.radius(v) * (role === ROLE.miner ? 2.5 : 1.8) * (1 + 0.25 * era);
           }
           if (working && role <= ROLE.miner && this.rnd() < 0.3) this.discover(i, v);
+          const scout = this.scoutTarget(i, v);
+          if (scout) {
+            dx = scout.x;
+            dy = scout.y;
+            range = 2;
+          }
           const march = this.soldier(i, v);
           if (!this.alive[i]) return;
           if (march) {
@@ -4570,9 +4638,12 @@ export class Ecosystem {
     return Math.hypot(wrapDx(v.x - x, this.map.width), v.y - y);
   }
 
-  /** Raio da área, que cresce aos poucos com as ruas (RF-VIDA-206). */
+  /**
+   * Território (RF-AS-10): até onde o povo vai trabalhar (mata, caça, pasto e coleta), que cresce com a
+   * gente. Não é a área construída: essa é a pegada (`footprint`), o contorno das casas.
+   */
   radius(v: Village): number {
-    return radiusFor(v.tier, v.growth ?? 0);
+    return Math.min(B.TERRITORY_MAX, B.TERRITORY_BASE + B.TERRITORY_GROWTH * Math.sqrt(Math.max(4, v.population)));
   }
 
   /** Quantas pessoas as casas do assentamento abrigam. */
@@ -4647,9 +4718,9 @@ export class Ecosystem {
 
   private readonly contours = new WeakMap<Village, { key: number; radii: Float32Array }>();
 
-  /** Assentamento cuja área contém o ponto, se houver. */
+  /** Assentamento cuja pegada contém o ponto, se houver (RF-AS-10). */
   settlementAt(x: number, y: number): Village | null {
-    for (const v of this.villages) if (!v.abandoned && this.distance(v, x, y) < this.radius(v)) return v;
+    for (const v of this.villages) if (!v.abandoned && this.distance(v, x, y) < this.footprint(v) + 1) return v;
     return null;
   }
 
@@ -4819,9 +4890,12 @@ export class Ecosystem {
     return best;
   }
 
-  /** Um assentamento novo não pode nascer dentro (nem encostado) da área de outro. */
+  /**
+   * Um assentamento novo não pode nascer dentro (nem encostado) da área de outro, e guarda a
+   * distância da hierarquia (RF-AS-05): 14 tiles de uma aldeia, 22 de uma vila, 30 de uma cidade.
+   */
   canFound(x: number, y: number): boolean {
-    return this.villages.every((v) => v.abandoned || this.distance(v, x + 0.5, y + 0.5) >= this.radius(v) + TIER_RADIUS[0]);
+    return this.villages.every((v) => v.abandoned || this.distance(v, x + 0.5, y + 0.5) >= Math.max(spacingFor(v.tier), this.footprint(v) + B.FOOTPRINT_MIN));
   }
 
   /** Tile plano o bastante para uma casa: nenhum vizinho com desnível acima de SITE_MAX_SLOPE. */
@@ -4936,39 +5010,6 @@ export class Ecosystem {
   /** Ruas pintadas desde a última limpeza anual (RF-VIDA-195). */
   private roadDirty: number[] = [];
 
-  /**
-   * Praça e ruas do nível atual, com hierarquia (RF-VIDA-253): as ruas
-   * principais ganham pedra na Era Medieval (antes, se o assentamento é
-   * rico), as vielas só na Industrial; cidades têm uma avenida larga.
-   */
-  private layStreets(v: Village): void {
-    const cx = Math.floor(v.x);
-    const cy = Math.floor(v.y);
-    const kind = v.tech >= 4 ? 2 : 1;
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const t = this.tileAt(cx + dx, cy + dy);
-        if (t >= 0 && isLand(this.map, t)) this.setRoad(t, 3);
-      }
-    }
-    const seed = plotSeed(v.x, v.y);
-    const laid: number[] = [];
-    // Só o começo da planta, na ordem em que as ruas vão sendo abertas (bloco a bloco, RF-VIDA-207).
-    const order = streetOrder(v.tier, seed, v.growth ?? 0);
-    v.streetLen = Math.min(order.length, v.streetLen ?? B.STREET_START);
-    v.streetPlan = order.length;
-    for (let k = 0; k < v.streetLen; k++) {
-      const p = order[k];
-      const t = this.tileAt(cx + p.x, cy + p.y);
-      if (t < 0 || !isLand(this.map, t) || this.road[t] === 3) continue;
-      if (kind === 2 && this.road[t] === 1) this.road[t] = 0;
-      this.setRoad(t, kind);
-      laid.push(t);
-    }
-    this.pruneRoads(laid);
-    this.rankStreets(v);
-    v.lots = lotsFor(v.tier, seed, v.growth ?? 0);
-  }
 
   /** Assentamento rico: calçamento uma era antes (RF-VIDA-253). */
   rich(v: Village): boolean {
@@ -5216,35 +5257,36 @@ export class Ecosystem {
     }
   }
 
-  /** Lote 2x2 com canto em (x, y) tem rua a até 2 tiles (casa sempre na beira da rua, RF-VIDA-102). */
-  private besideStreet(x: number, y: number): boolean {
-    for (let dy = -2; dy <= 3; dy++) {
-      for (let dx = -2; dx <= 3; dx++) {
-        const t = this.tileAt(x + dx, y + dy);
-        if (t >= 0 && isStreet(this.road[t])) return true;
-      }
-    }
-    return false;
-  }
 
   /** Tiles do lote livre (casas: do centro para fora; plantações: de fora para dentro). */
   private freeLot(v: Village, fromEdge = false): number[] | null {
-    const cx = Math.floor(v.x);
-    const cy = Math.floor(v.y);
-    const n = v.lots.length;
-    for (let k = 0; k < n; k++) {
-      const lot = v.lots[fromEdge ? n - 1 - k : k];
-      const tiles: number[] = [];
-      for (let dy = 0; dy < 2; dy++) {
-        for (let dx = 0; dx < 2; dx++) {
-          const t = this.tileAt(cx + lot.x + dx, cy + lot.y + dy);
-          // Lote em chão plano: nada de casa pendurada num barranco (seção 19.18).
-          if (t < 0 || !isLand(this.map, t) || this.road[t] || this.built[t] || this.depositAt[t] >= 0 || !this.flat(t)) break;
-          tiles.push(t);
-        }
+    // Plano novo (RF-AS-11 e 16): casas pelo valor do solo; roças e cercados no anel de fora.
+    // A busca olha centenas de lotes: o resultado vale por um tempo, enquanto os tiles continuam livres.
+    const key = v.id * 2 + (fromEdge ? 1 : 0);
+    const hit = this.lotCache.get(key);
+    const free = (t: number) => !this.built[t] && (fromEdge ? !this.road[t] : !this.road[t] || this.road[t] === 4);
+    if (hit && this.year < hit.until && (hit.tiles === null || hit.tiles.every(free))) return hit.tiles;
+    const tiles = fromEdge ? this.fieldLot(v) : this.bestLot(v);
+    this.lotCache.set(key, { tiles, until: this.year + (tiles ? 0.5 : 1) });
+    return tiles;
+  }
+
+  /** Último lote achado por assentamento (casa e roça) e até quando vale. */
+  private readonly lotCache = new Map<number, { tiles: number[] | null; until: number }>();
+
+  /** Motivo para uma colônia agora, ou null (RF-AS-03). */
+  private colonyMotive(v: Village, crowded: boolean): ColonyMotive | null {
+    if (crowded) return 'espaço';
+    if ((v.fedShare ?? 1) < 0.85 && !this.freeLot(v, true)) return 'terra';
+    if (v.tech >= 0.5 && this.wanted(v).length) {
+      const reach = this.radius(v) + B.COLONY_REACH;
+      for (const d of this.deposits) {
+        if (d.mine >= 0 || d.amount <= 0) continue;
+        const dist = this.distance(v, d.x + 0.5, d.y + 0.5);
+        if (dist > this.radius(v) + 25 && dist < reach) return 'jazida';
       }
-      if (tiles.length === 4 && (fromEdge || this.besideStreet(cx + lot.x, cy + lot.y))) return tiles;
     }
+    if (v.culture.value === 'comércio' && v.port < 0 && v.tech >= 1 && !this.coastal(v)) return 'porto';
     return null;
   }
 
@@ -5253,10 +5295,14 @@ export class Ecosystem {
     const tiles = this.freeLot(v);
     if (!tiles || (!free && !this.pay(v, kind))) return false;
     const w = this.map.width;
+    // Casa sobre roça (o núcleo cresceu até ela): a roça sai e o anel de roças anda para fora (RF-AS-16).
+    if (tiles.some((t) => this.road[t] === 4)) this.dropFieldAt(v, tiles.find((t) => this.road[t] === 4)!);
     for (const t of tiles) {
       this.built[t] = 1;
       this.onTileChanged(t);
     }
+    v.foot = undefined;
+    this.layAccess(v, tiles[0] % w, Math.floor(tiles[0] / w));
     const built: Building = { x: tiles[0] % w, y: Math.floor(tiles[0] / w), kind, variant: Math.floor(this.civRnd() * 4), era: Math.floor(v.tech) };
     // A casa dos fundadores sai pronta; as demais viram obra e só os construtores no lugar a terminam (seção 19.21).
     if (!free) this.startWork(built, B.WORK_YEARS / 2, true);
@@ -5291,21 +5337,6 @@ export class Ecosystem {
     this.startWork(h, B.WORK_YEARS, false);
     this.note(`${v.name} está reformando casas`, 'povo', v, { key: `reform-${v.id}` });
     return true;
-  }
-
-  /** Abre mais um trecho de rua da planta (um bloco), onde faltam lotes. */
-  private openBlock(v: Village): void {
-    v.streetLen = (v.streetLen ?? 0) + B.STREET_BLOCK;
-    this.layStreets(v);
-  }
-
-  /** Ruas crescem rumo ao nível seguinte (e a área junto), sem engolir outro assentamento. */
-  private growStreets(v: Village): void {
-    const next = Math.min(1, (v.growth ?? 0) + B.STREET_GROW_RATE);
-    const r = radiusFor(v.tier, next);
-    if (v.tier < 2 && this.villages.some((o) => o !== v && !o.abandoned && this.distance(o, v.x, v.y) < r + TIER_RADIUS[0])) return;
-    v.growth = next;
-    this.layStreets(v);
   }
 
   /** Próxima construção especial que o assentamento pode erguer, se houver. */
@@ -5366,6 +5397,25 @@ export class Ecosystem {
         if (u >= 0 && this.road[u] === 4) queue.push(u);
       }
     }
+  }
+
+  /** Tira a roça que tem o tile `t` (até 4 tiles de lavoura ligados). */
+  private dropFieldAt(v: Village, t0: number): void {
+    const w = this.map.width;
+    const queue = [t0];
+    for (let n = 0; queue.length && n < 4; n++) {
+      const t = queue.shift()!;
+      if (this.road[t] !== 4) continue;
+      this.road[t] = 0;
+      this.onTileChanged(t);
+      const x = t % w;
+      const y = Math.floor(t / w);
+      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const u = this.tileAt(x + ox, y + oy);
+        if (u >= 0 && this.road[u] === 4) queue.push(u);
+      }
+    }
+    v.fields = Math.max(0, v.fields - 1);
   }
 
   /** Garante um líder vivo (rei, se for capital de um reino com cidade). */
@@ -5678,7 +5728,7 @@ export class Ecosystem {
     return name;
   }
 
-  foundVillage(s: number, x: number, y: number, settlers: number, from?: Village): Village {
+  foundVillage(s: number, x: number, y: number, settlers: number, from?: Village, how?: Village['foundedBy']): Village {
     const sp = this.species[s];
     const rnd = this.civRnd;
     // Ruínas logo ali: o assentamento novo ocupa a antiga praça e aproveita as ruas e plantações que sobraram.
@@ -5715,6 +5765,8 @@ export class Ecosystem {
       rock: false,
       color: from ? from.color : this.freshColor(),
       abandoned: false,
+      foundedAt: this.year,
+      foundedBy: how ?? (from ? 'colônia' : 'bando'),
     };
     if (!from) village.culture = makeCulture(village.culture.id, village.name, rnd);
     if (ruin) {
@@ -5723,7 +5775,7 @@ export class Ecosystem {
       ruin.decay = 3;
     }
     this.villages.push(village);
-    this.layStreets(village);
+    this.layPlaza(village);
     this.buildHouse(village, 'house', true);
     this.chooseVocation(village, from);
     this.materialOf(village);
@@ -5754,6 +5806,8 @@ export class Ecosystem {
     v.abandoned = true;
     v.abandonedAt = this.year;
     v.decay = 0;
+    this.dropWall(v);
+    if (v.foundedAt !== undefined && this.year - v.foundedAt < 50) this.tally.shortLived++;
     // As casas viram ruína e somem; as ruas e plantações ficam e vão sumindo com o tempo (clearRuins).
     for (const h of v.houses) {
       const size = h.kind === 'port' ? 1 : 2;
@@ -5778,7 +5832,9 @@ export class Ecosystem {
     // Assentamentos do reino de uma capital abandonada ficam independentes.
     for (const o of this.villages) if (o.kingdom === v.id && o !== v) o.kingdom = o.id;
     if (quiet) return;
-    const cause = v.lastCause ? `: o último morador morreu ${v.lastCause}` : '';
+    // Abandono com destino (RF-AS-08): a crônica diz para onde foram os últimos moradores.
+    const to = v.leftTo !== undefined ? this.villages[v.leftTo] : null;
+    const cause = to ? `: os últimos moradores foram para ${to.name}` : v.lastCause ? `: o último morador morreu ${v.lastCause}` : '';
     this.note(`${v.name} foi abandonada${cause}`, 'povo', v, { major: v.tier >= 1 });
   }
 
@@ -5819,38 +5875,6 @@ export class Ecosystem {
     if (stage >= 3) this.note(`As últimas ruínas de ${v.name} sumiram`, 'povo', v);
   }
 
-  /** Sobe de nível quando a população permite. Aldeias e vilas não podem conter outro assentamento. */
-  private growTier(v: Village): void {
-    const target = tierFor(v.population);
-    if (target <= v.tier) return;
-    // Subir de nível exige a planta do nível atual quase completa (RF-VIDA-205); sem ela, o lugar adensa.
-    if ((v.completeness ?? 1) < B.TIER_UP_COMPLETENESS) return;
-    const r = TIER_RADIUS[target];
-    const inside = this.villages.filter((o) => o !== v && !o.abandoned && this.distance(o, v.x, v.y) < r);
-    if (target < 2 && inside.length) return;
-    if (target >= 2) {
-      for (const o of inside) {
-        // Só aldeias e vilas independentes (ou do próprio reino) se juntam; as de outro reino ficam, e a fronteira esquenta.
-        if (o.species !== v.species || o.tier >= 2) continue;
-        if (o.kingdom !== v.kingdom && this.kingdomSize(this.capitalOf(o)) > 1) {
-          const key = this.key(o.kingdom, v.kingdom);
-          this.relations.set(key, (this.relations.get(key) ?? 0) - 10);
-          continue;
-        }
-        if (o.kingdom === v.kingdom) continue;
-        o.kingdom = v.kingdom;
-        o.color = v.color;
-        this.connect(v, o);
-        this.note(`${o.name} passou a fazer parte do reino de ${this.capitalOf(v).name}`, 'povo', o);
-      }
-    }
-    v.tier = target;
-    v.growth = 0;
-    if (target >= 2) v.streetLen = Math.max(v.streetLen ?? 0, B.STREET_START + B.STREET_BLOCK * 3);
-    this.layStreets(v);
-    this.note(`${v.name} virou ${TIER_NAMES[target].toLowerCase()}`, 'povo', v, { major: target >= 2 });
-  }
-
   private updateVillages(dt: number): void {
     this.recountCrews();
     // Adultos de cada assentamento, para escolher líderes.
@@ -5889,10 +5913,10 @@ export class Ecosystem {
       this.develop(v, dt * eraPace, adults[v.id] ?? []);
       if (Math.floor(v.tech) > before) {
         this.note(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`, 'era', v, { major: true });
-        // Cada era nova refaz o calçamento (RF-VIDA-253; antes só a Era Medieval, quando todas as ruas viravam pedra).
-        if (Math.floor(v.tech) >= 2) this.layStreets(v);
+        // Cada era nova refaz o calçamento das ruas que o uso abriu (RF-VIDA-253 e RF-AS-13).
+        if (Math.floor(v.tech) >= 2) this.rankStreets(v);
       }
-      this.growTier(v);
+      this.updateTier(v, false);
       this.updateLeader(v, adults[v.id] ?? []);
       // Assentamentos fundados neste passo ainda não têm contagem.
       if (workers[v.id]) this.produce(v, workers[v.id], adults[v.id].length, dt);
@@ -5919,11 +5943,8 @@ export class Ecosystem {
       if (workRoom && happens(this.civRnd, B.REFORM_RATE * Math.max(1, builders) * (squeezed ? 3 : 1) * rich, yr)) this.reform(v);
       // Era nova: as casas antigas vão sendo trocadas pelo estilo novo, uma a uma.
       if (workRoom && this.outdated(v) && happens(this.civRnd, B.RESTYLE_RATE * Math.max(1, builders), yr)) this.restyle(v);
-      // Ruas sob demanda (RF-VIDA-207): sem lote, abre mais um trecho da planta; com a planta toda aberta e
-      // sem casa para reformar, a planta cresce rumo ao nível seguinte.
-      const planLeft = (v.streetLen ?? 0) < (v.streetPlan ?? 0);
-      if ((needRoom || v.completeness < 1) && !lot && planLeft && happens(this.civRnd, B.STREET_BLOCK_RATE, yr)) this.openBlock(v);
-      else if (squeezed && !planLeft && !this.reformable(v) && (v.growth ?? 0) < 1 && happens(this.civRnd, B.STREET_GROW_RATE * 4, yr)) this.growStreets(v);
+      // As ruas nascem do uso (RF-AS-13): não há planta a abrir. Sem lote ao alcance, o lugar adensa e,
+      // apertado de verdade, organiza uma colônia (abaixo).
       // Lavouras trabalhadas por agricultores enchem o celeiro (cada porção mata a fome de um morador).
       // A colheita vem quase toda no outono (RF-VIDA-290); boi ou cavalo no arado dobram a área de cada agricultor;
       // o moinho faz pão (RF-VIDA-211); o solo cansado rende menos (RF-VIDA-294).
@@ -5941,9 +5962,9 @@ export class Ecosystem {
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
       // Roças desde a Idade da Pedra (uma para cada quatro casas; da Idade do Bronze em diante, uma para cada duas).
       // Só planta o que os agricultores dão conta (mais uma); roça sem ninguém para trabalhar volta a ser campo.
-      // No máximo maxFieldsOf(nível) roças no mapa (pedido do Joab: até 5 na metrópole).
+      // As roças acompanham quem as trabalha, num anel em volta das casas (RF-AS-16; antes, no máximo 5 no mapa).
       const hands = Math.ceil((workers[v.id]?.[ROLE.farmer] ?? 0) * (v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5)) + 1;
-      const room = Math.min(maxFieldsOf(v.tier), Math.ceil(hands / this.fieldHands(v)) + 1);
+      const room = Math.min(B.FIELDS_MAX, Math.ceil(hands / this.fieldHands(v)) + 1);
       if (v.fields < Math.min(room, homes / (Math.floor(v.tech) >= 1 ? 2 : 4)) && (v.population >= 6 || v.tech >= 0.12) && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
       else if (v.fields > room && happens(this.civRnd, B.FIELD_FALLOW_RATE, dt / YEAR_SECONDS)) this.dropField(v);
       // De vez em quando aparece um andarilho do mesmo povo, mais fácil quando o lugar tem pouca gente.
@@ -5962,13 +5983,12 @@ export class Ecosystem {
       if (v.port >= 0 && (v.tech >= 1 || this.knew(v, 'ceramica') || v.tier >= 1) && happens(this.civRnd, B.EXPLORE_RATE * curious, dt / YEAR_SECONDS)) this.explore(v);
       // Caravanas, tributo pedido pela capital e rebanho rumo ao pasto alto (19.6).
       this.sendCaravan(v, yr);
-      // Colonos (RF-VIDA-204): mais em eras avançadas, bem menos com a planta incompleta, e mais quando falta espaço de verdade.
-      const crowded = v.population >= 8 && squeezed && !planLeft && !this.reformable(v) && (v.growth ?? 0) >= 1;
-      const ready = B.COLONY_MIN_FACTOR + (1 - B.COLONY_MIN_FACTOR) * v.completeness ** 2;
-      const pressure = crowded ? B.COLONY_PRESSURE_CROWDED : B.COLONY_PRESSURE_ROOM;
-      // Primeiro o assentamento cresce o quanto pode; só manda colonos quando não há mais lote, reforma nem rua (pedido do Joab).
-      if (crowded && v.tier >= B.COLONY_MIN_TIER && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * ready * pressure, yr) && live < 100) {
-        if (!this.colonizeByLand(v)) this.colonizeBySea(v);
+      // Colônia com motivo (RF-AS-03): só de quem tem gente de sobra, e só quando há motivo fora (espaço, terra
+      // ou jazida). O grupo é organizado: batedores primeiro, a partida depois (`departColony`, uma vez por ano).
+      const crowded = squeezed && !this.reformable(v);
+      if (!v.colony && v.population >= B.COLONY_SOURCE_POP && live < 150 && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * (crowded ? B.COLONY_PRESSURE_CROWDED : 1), yr)) {
+        const motive = this.colonyMotive(v, crowded);
+        if (motive && !this.organizeColony(v, motive) && crowded) this.colonizeBySea(v);
       }
     }
     this.updateWars(dt);
@@ -6633,6 +6653,11 @@ export class Ecosystem {
     if (this.job.length < n) this.job = new Int32Array(n);
     if (this.jobWork.length < n) this.jobWork = new Float32Array(n);
     if (this.jobWait.length < n) this.jobWait = new Float32Array(n);
+    if (this.home.length < n) this.home = new Int32Array(n).fill(-1);
+    // Saves de antes do plano novo dos assentamentos: sem muralha e com os contadores novos zerados.
+    if (!this.wall || this.wall.length !== this.map.width * this.map.height) this.wall = new Uint8Array(this.map.width * this.map.height);
+    const tally = this.tally as Record<string, number>;
+    for (const k of ['soloFounds', 'colonies', 'farmsteads', 'merged', 'shortLived', 'lastWaves', 'tierDowns', 'interMarriages', 'annexations', 'revolts', 'capitalMoves', 'newPeoples', 'aid', 'aidRefused', 'rivalries', 'visits', 'festivals']) tally[k] ||= 0;
     // Saves de antes da fauna nova: sem ação, destino nem parasitas; pasto e medo zerados.
     if (this.act.length < n) this.act = new Uint8Array(n);
     if (this.goal.length < n) this.goal = new Int32Array(n).fill(-1);
@@ -7864,6 +7889,7 @@ export class Ecosystem {
   /** Uma vez por ano: diplomacia, lava esfriando, ruínas sumindo e eventos do mundo. */
   private yearly(): void {
     this.updateClimate();
+    this.communityYear();
     // Rede de ruas: o que escapou da limpeza na hora (ruas de dois assentamentos que se encostam) sai uma vez por ano.
     if (this.roadDirty.length) {
       this.pruneRoads(this.roadDirty);
@@ -8572,7 +8598,7 @@ export class Ecosystem {
       const tile = ny * map.width + tx;
       if (!this.habitable(v.species, tile) || map.vegetation[tile] < this.minFertility(v) || !this.canSettle(v.species, tx, ny, v.tech)) continue;
       if (!this.landPath(v.x, v.y, tx + 0.5, ny + 0.5)) continue;
-      const nv = this.foundVillage(v.species, tx, ny, 0, v);
+      const nv = this.foundVillage(v.species, tx, ny, 0, v, 'família');
       let moved = 0;
       for (let i = 0; i < this.count && moved < 6; i++) {
         if (this.alive[i] && this.village[i] === v.id && i !== v.leader && this.role[i] !== CHILD) {
@@ -8589,6 +8615,989 @@ export class Ecosystem {
       return true;
     }
     return false;
+  }
+
+  // ---- Plano novo dos assentamentos: nascimento (seção 20, fase 1) ----
+
+  /** Famílias de cada assentamento: cada adulto com os filhos crianças do mesmo lugar; o casal junto (chave: menor `uid`). */
+  private familyGroups(): Map<number, Map<number, number[]>> {
+    const families = new Map<number, Map<number, number[]>>();
+    const here = new Map<number, number>();
+    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] >= 0) here.set(this.uid[i], i);
+    const head = (k: number) => {
+      const mate = partnerOf(this.bonds, this.uid[k]);
+      const m = mate ? here.get(mate) : undefined;
+      return m !== undefined && this.village[m] === this.village[k] ? Math.min(this.uid[k], mate) : this.uid[k];
+    };
+    for (let i = 0; i < this.count; i++) {
+      const vid = this.village[i];
+      if (vid < 0 || !this.alive[i] || this.species[this.kind[i]].kind !== 'sapient') continue;
+      const p = this.role[i] === CHILD ? here.get(this.parent[i]) : undefined;
+      const key = p !== undefined && this.village[p] === vid && this.role[p] !== CHILD ? head(p) : head(i);
+      let fams = families.get(vid);
+      if (!fams) families.set(vid, (fams = new Map()));
+      const list = fams.get(key);
+      if (list) list.push(i);
+      else fams.set(key, [i]);
+    }
+    return families;
+  }
+
+  /** O que os batedores veem num sítio (RF-AS-04). */
+  private siteLook(s: number, x: number, y: number, from: Village | null, motive: ColonyMotive): SiteLook {
+    const map = this.map;
+    const R = 8;
+    let land = 0;
+    let veg = 0;
+    let trees = 0;
+    let rock = 0;
+    let level = 0;
+    let water = 0;
+    let road = 0;
+    let elev = 0;
+    let ore = 0;
+    let near = 99;
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        if (dx * dx + dy * dy > R * R) continue;
+        const t = this.tileAt(x + dx, y + dy);
+        if (t < 0) continue;
+        if (isWater(map, t)) {
+          water++;
+          near = Math.min(near, Math.hypot(dx, dy));
+          continue;
+        }
+        land++;
+        veg += map.vegetation[t];
+        elev += map.elevation[t];
+        if (this.standingTree(t)) trees++;
+        if (isRockyBiome(map.biome[t] as Biome)) rock++;
+        if (this.flat(t)) level++;
+        if (isStreet(this.road[t])) road++;
+        const d = this.depositAt[t];
+        if (d >= 0 && this.deposits[d].mine < 0 && this.deposits[d].amount > 0) ore++;
+      }
+    }
+    const center = this.tileAt(x, y);
+    const fertile = land ? veg / land : 0;
+    const coast = water > 0 && water < (land + water) * 0.6 ? 1 : 0;
+    const fit = motive === 'terra' ? fertile : motive === 'jazida' ? (ore ? 1 : 0) : motive === 'porto' ? coast : 0.5;
+    return {
+      water: near <= 3 ? 1 : near <= 6 ? 0.5 : 0,
+      fertile,
+      forest: Math.min(1, trees / (land * 0.3 + 1)),
+      rock: Math.min(1, rock / (land * 0.1 + 1)),
+      flat: land ? level / land : 0,
+      coast,
+      ruin: this.ruinNear(x + 0.5, y + 0.5, 4, s) ? 1 : 0,
+      defense: land && center >= 0 ? Math.max(0, Math.min(1, (map.elevation[center] - elev / land) * 20)) : 0,
+      route: road > 0 ? 1 : 0,
+      motive: fit,
+      dist: from ? this.distance(from, x + 0.5, y + 0.5) : B.SITE_IDEAL_DIST,
+    };
+  }
+
+  /** Sítios bons para um grupo de `v` fundar, os melhores primeiro (RF-AS-04). */
+  private scoutSites(v: Village, motive: ColonyMotive, count: number): { x: number; y: number; value: number }[] {
+    const map = this.map;
+    const out: { x: number; y: number; value: number }[] = [];
+    const base = spacingFor(v.tier) + this.footprint(v);
+    for (let k = 0; k < 28; k++) {
+      const a = (k / 28) * Math.PI * 2 + this.civRnd() * 0.2;
+      const d = base + this.civRnd() * B.COLONY_REACH;
+      const ny = Math.floor(v.y + Math.sin(a) * d);
+      if (ny < 2 || ny >= map.height - 2) continue;
+      const nx = ((Math.floor(v.x + Math.cos(a) * d) % map.width) + map.width) % map.width;
+      const tile = ny * map.width + nx;
+      if (!this.habitable(v.species, tile) || map.vegetation[tile] < this.minFertility(v) || !this.canSettle(v.species, nx, ny, v.tech)) continue;
+      if (!this.landPath(v.x, v.y, nx + 0.5, ny + 0.5)) continue;
+      if (out.some((o) => Math.hypot(wrapDx(o.x - nx, map.width), o.y - ny) < 6)) continue;
+      out.push({ x: nx, y: ny, value: siteValue(this.siteLook(v.species, nx, ny, v, motive)) });
+    }
+    return out.sort((p, q) => q.value - p.value).slice(0, count);
+  }
+
+  /** Começa a juntar uma colônia em `v`: batedores saem para ver os sítios (RF-AS-03). */
+  private organizeColony(v: Village, motive: ColonyMotive): boolean {
+    if (v.colony || v.population < B.COLONY_GROUP_MIN + 6) return false;
+    const sites = this.scoutSites(v, motive, B.COLONY_SCOUTS);
+    if (!sites.length) return false;
+    // Batedores: os adultos mais curiosos e corajosos, nunca o líder.
+    const elder = elderAge(this.species[v.species], Math.floor(v.tech));
+    const pool: { i: number; w: number }[] = [];
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD || this.age[i] >= elder || this.role[i] >= ROLE.soldier) continue;
+      pool.push({ i, w: this.traits[i * TRAIT_COUNT + TRAIT.curiosity] + this.traits[i * TRAIT_COUNT + TRAIT.courage] + this.civRnd() * 4 });
+    }
+    pool.sort((p, q) => q.w - p.w);
+    const scouts = pool.slice(0, 2).map((p) => this.uid[p.i]);
+    v.colony = { motive, sites, until: this.year + B.COLONY_SCOUT_YEARS, scouts };
+    for (const p of pool.slice(0, 2)) this.logThought(p.i, 'mudança', `Saiu de batedor para ver ${sites.length} lugares para uma colônia (${MOTIVE_TEXT[motive]})`);
+    this.note(`${v.name} mandou batedores procurar ${MOTIVE_TEXT[motive]} para uma colônia`, 'povo', v, { key: `scout-${v.id}` });
+    return true;
+  }
+
+  /** Para onde o batedor `i` anda agora: um sítio por vez e depois de volta (deslocamento), ou null. */
+  private scoutTarget(i: number, v: Village): { x: number; y: number } | null {
+    const c = v.colony;
+    if (!c || !c.scouts.includes(this.uid[i])) return null;
+    const left = Math.max(0, Math.min(1, (c.until - this.year) / B.COLONY_SCOUT_YEARS));
+    const k = Math.floor((1 - left) * (c.sites.length + 1));
+    if (k >= c.sites.length) return null;
+    const p = c.sites[k];
+    return { x: wrapDx(p.x + 0.5 - this.x[i], this.map.width), y: p.y + 0.5 - this.y[i] };
+  }
+
+  /** O grupo da colônia parte: escolhe o sítio, junta as famílias que querem ir e funda (RF-AS-03). */
+  private departColony(v: Village, families: Map<number, number[]> | undefined): void {
+    const c = v.colony!;
+    v.colony = undefined;
+    const sites = c.sites
+      .filter((p) => this.canSettle(v.species, p.x, p.y, v.tech))
+      .map((p) => ({ ...p, value: p.value + (this.civRnd() - 0.5) * 0.4 }))
+      .sort((p, q) => q.value - p.value);
+    if (!sites.length || !families) {
+      this.note(`A colônia de ${v.name} desistiu: os lugares que os batedores viram já estavam tomados`, 'povo', v, { key: `colony-off-${v.id}` });
+      return;
+    }
+    const site = sites[0];
+    // Quem quer ir: curiosos e ambiciosos, pouco apegados, e quem passa fome. A família do líder fica.
+    const t = (i: number, k: keyof typeof TRAIT) => this.traits[i * TRAIT_COUNT + TRAIT[k]] / 10;
+    const fams = [...families.values()]
+      .filter((m) => !m.includes(v.leader))
+      .map((m) => {
+        const adults = m.filter((i) => this.role[i] !== CHILD);
+        const will = adults.reduce((n, i) => n + t(i, 'curiosity') + t(i, 'ambition') - t(i, 'attachment') + (this.energy[i] < 0.4 ? 0.5 : 0), 0) / Math.max(1, adults.length);
+        return { m, will: will + (this.civRnd() - 0.5) * 0.6 };
+      })
+      .sort((p, q) => q.will - p.will);
+    const group: number[] = [];
+    let n = 0;
+    for (const f of fams) {
+      if (group.length >= B.COLONY_GROUP_MIN || group.length + f.m.length > B.COLONY_GROUP_MAX || v.population - group.length - f.m.length < v.population * 0.55) {
+        if (group.length >= B.COLONY_GROUP_MIN) break;
+        continue;
+      }
+      group.push(...f.m);
+      n++;
+    }
+    if (group.length < B.COLONY_GROUP_MIN * 0.7) {
+      this.note(`A colônia de ${v.name} não saiu: poucas famílias quiseram ir`, 'povo', v, { key: `colony-off-${v.id}` });
+      return;
+    }
+    const nv = this.foundVillage(v.species, site.x, site.y, 0, v, 'colônia');
+    // O enxoval vai numa carroça com o grupo (o que `foundVillage` separou da origem).
+    const cargo: Cargo[] = [];
+    if (nv.stock.wood >= 1) cargo.push({ good: 'wood', amount: Math.floor(nv.stock.wood) });
+    if (nv.food >= 1) cargo.push({ good: 'food', amount: Math.floor(nv.food) });
+    let leader = -1;
+    for (const i of group) {
+      this.village[i] = nv.id;
+      this.movedAt[i] = this.year;
+      this.home[i] = -1;
+      v.population--;
+      nv.population++;
+      (v.vitalNow ??= emptyVital()).left++;
+      (nv.vitalNow ??= emptyVital()).arrived++;
+      this.logThought(i, 'mudança', `Partiu com a colônia para fundar ${nv.name} (${MOTIVE_TEXT[c.motive]})`);
+      if (this.role[i] !== CHILD && (leader < 0 || t(i, 'charisma') > t(leader, 'charisma'))) leader = i;
+    }
+    if (leader >= 0) {
+      nv.leader = leader;
+      nv.leaderUid = this.uid[leader];
+      this.role[leader] = ROLE.leader;
+    }
+    const path = this.roadPath(v.x, v.y, nv.x, nv.y);
+    if (cargo.length && path && path.length > 1) {
+      nv.stock.wood -= cargo.find((g) => g.good === 'wood')?.amount ?? 0;
+      nv.food -= cargo.find((g) => g.good === 'food')?.amount ?? 0;
+      const crew = group.find((i) => this.role[i] !== CHILD && i !== leader);
+      if (crew === undefined || !this.launchConvoy(v, nv, 'settlers', path, cargo, crew)) {
+        nv.stock.wood += cargo.find((g) => g.good === 'wood')?.amount ?? 0;
+        nv.food += cargo.find((g) => g.good === 'food')?.amount ?? 0;
+      }
+    }
+    this.tally.colonies++;
+    this.note(`${n} famílias de ${v.name} partiram atrás de ${MOTIVE_TEXT[c.motive]} e fundaram ${nv.name}`, 'povo', nv, { major: v.tier >= 1 });
+  }
+
+  /**
+   * Comboio que não é comércio (RF-AS-03, 42 e 45): enxoval de colonos, ajuda a um vizinho com fome
+   * ou visita a parentes. Quem vai é a pessoa `i`, que sai do mapa e volta (ou chega) com a carroça.
+   */
+  private launchConvoy(v: Village, o: Village, kind: 'settlers' | 'aid' | 'visit', path: number[], cargo: Cargo[], i: number): boolean {
+    if (i < 0 || !this.alive[i]) return false;
+    const era = Math.floor(v.tech);
+    const w = this.map.width;
+    const walker = kind === 'visit';
+    const animal = packAnimal(v.material === 'adobe' || v.herd?.kind === 'camel', v.stock.horses);
+    if (kind === 'settlers') {
+      // Quem leva o enxoval já mora no lugar novo.
+      this.village[i] = o.id;
+    }
+    this.caravans.push({
+      id: this.nextCaravan++,
+      kind,
+      home: kind === 'settlers' ? o.id : v.id,
+      target: o.id,
+      path,
+      step: 0,
+      x: (path[0] % w) + 0.5,
+      y: Math.floor(path[0] / w) + 0.5,
+      facing: 1,
+      back: kind === 'settlers',
+      animal,
+      animals: walker ? 0 : 1,
+      cart: walker ? 0 : cartOf(era),
+      cargo,
+      purse: 0,
+      crew: this.embark(i),
+      speed: B.CARAVAN_SPEED * (walker ? 0.8 : 1),
+      wait: 0,
+      tolls: [],
+      era,
+    });
+    return true;
+  }
+
+  /** Família sem lugar melhor conhecido: sítio, colônia, refúgio e, só longe de tudo, fundar sozinha (RF-AS-01). */
+  private exodusWithoutPlace(v: Village, families: Map<number, number[]> | undefined): void {
+    const why = this.lackName(v);
+    v.want = 0;
+    this.tally.exodus++;
+    if (why === 'lenha') this.tally.exodusFuel++;
+    if (why === 'comida' && this.openFarmstead(v)) return;
+    if (v.population >= B.COLONY_GROUP_MIN + 6 && this.organizeColony(v, why === 'comida' ? 'terra' : 'espaço')) return;
+    if (families && this.seekRefuge(v, families, why)) return;
+    const near = this.villages.some((o) => o !== v && !o.abandoned && o.species === v.species && this.distance(o, v.x, v.y) < B.LONE_FOUND_DIST);
+    if (!near && this.colonizeByLand(v)) {
+      this.tally.soloFounds++;
+      this.note(`Sem ${why}, uma família de ${v.name} partiu para longe`, 'povo', v, { key: `exodus-${v.id}` });
+    }
+  }
+
+  /** Refúgio (RF-AS-01 e 08): famílias com falta vão para qualquer lugar do povo ao alcance, mesmo pior. */
+  private seekRefuge(v: Village, families: Map<number, number[]>, why: string): boolean {
+    const reach = (B.MOVE_RANGE + B.MOVE_RANGE_ERA * Math.floor(v.tech)) * 2.5;
+    let best: Village | null = null;
+    let bv = -Infinity;
+    for (const o of this.villages) {
+      if (o === v || o.abandoned || o.species !== v.species || o.population < 3) continue;
+      const d = this.distance(o, v.x, v.y);
+      if (d > reach || !this.landPath(v.x, v.y, o.x, o.y)) continue;
+      const value = this.placeScore(o) - d / B.MOVE_DIST - (this.scarcity(o) > 0 ? 1 : 0) + this.affinity(v.id, o.id) / 50;
+      if (value > bv) {
+        bv = value;
+        best = o;
+      }
+    }
+    if (!best) return false;
+    let moved = 0;
+    for (const m of families.values()) {
+      if (m.includes(v.leader) || !happens(this.civRnd, B.EXODUS_SHARE, 1)) continue;
+      for (const i of m) this.relocate(i, v, best);
+      moved += m.length;
+      this.tally.familyMoves++;
+    }
+    if (!moved) return false;
+    this.note(`Sem ${why}, famílias de ${v.name} buscaram refúgio em ${best.name}`, 'povo', best, { key: `refuge-${v.id}-${best.id}` });
+    return true;
+  }
+
+  /**
+   * Sítio rural (RF-AS-02): uma casa e uma roça a 6 a 15 tiles do núcleo, ligadas a ele por trilha. O
+   * sítio não é um lugar novo: conta na população e no estoque do núcleo, e quem mora nele é do núcleo.
+   */
+  private openFarmstead(v: Village): boolean {
+    const farms = v.houses.filter((h) => h.farm).length;
+    if (farms >= B.FARMSTEADS_MAX || v.population < 8) return false;
+    const map = this.map;
+    const w = map.width;
+    const foot = this.footprint(v);
+    for (let k = 0; k < 20; k++) {
+      const a = this.civRnd() * Math.PI * 2;
+      const d = foot + B.FARMSTEAD_MIN * 0.5 + this.civRnd() * (B.FARMSTEAD_MAX - B.FARMSTEAD_MIN);
+      const x0 = Math.floor(v.x + Math.cos(a) * d);
+      const y0 = Math.floor(v.y + Math.sin(a) * d);
+      if (y0 < 2 || y0 >= map.height - 3) continue;
+      const tiles: number[] = [];
+      for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 4; dx++) tiles.push(this.tileAt(x0 + dx, y0 + dy));
+      if (tiles.some((t) => t < 0 || !isLand(map, t) || this.road[t] || this.built[t] || this.depositAt[t] >= 0 || !this.flat(t))) continue;
+      if (tiles.slice(4).some((t) => map.vegetation[t] < this.minFertility(v))) continue;
+      if (this.villages.some((o) => o !== v && !o.abandoned && this.distance(o, x0 + 2, y0 + 1) < this.footprint(o) + 6)) continue;
+      if (!this.landPath(v.x, v.y, x0 + 1, y0 + 1) || !this.pay(v, 'house')) continue;
+      const lot = [tiles[0], tiles[1], tiles[4], tiles[5]];
+      for (const t of lot) {
+        this.built[t] = 1;
+        this.onTileChanged(t);
+      }
+      const house: Building = { x: x0, y: y0, kind: 'house', variant: Math.floor(this.civRnd() * 4), era: Math.floor(v.tech), farm: true };
+      this.startWork(house, B.WORK_YEARS / 2, true);
+      v.houses.push(house);
+      for (const t of [tiles[2], tiles[3], tiles[6], tiles[7]]) {
+        this.road[t] = 4;
+        this.onTileChanged(t);
+      }
+      v.fields++;
+      this.layAccess(v, x0, y0, Math.ceil(d) + 8);
+      this.tally.farmsteads++;
+      this.note(`Famílias de ${v.name} abriram um sítio a ${Math.round(d)} tiles do centro`, 'povo', { x: x0 + 1, y: y0 + 1 }, { key: `farmstead-${v.id}` });
+      void w;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Sítios que viraram aldeia (RF-AS-02): casas de sítio com FARMSTEAD_FREE_POP moradores juntos, longe do
+   * núcleo, se emancipam como um lugar novo do mesmo povo e do mesmo reino.
+   */
+  private freeFarmsteads(v: Village): void {
+    const w = this.map.width;
+    const farms = v.houses.filter((h) => h.farm && !h.site && this.distance(v, h.x + 1, h.y + 1) >= B.FARMSTEAD_FREE_DIST);
+    if (farms.length < 2) return;
+    const seed = farms[0];
+    const group = farms.filter((h) => Math.hypot(wrapDx(h.x - seed.x, w), h.y - seed.y) < 8);
+    const keys = new Set(group.map((h) => h.y * w + h.x));
+    const people: number[] = [];
+    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] === v.id && keys.has(this.home[i])) people.push(i);
+    if (people.length < B.FARMSTEAD_FREE_POP) return;
+    const cx = Math.floor(group.reduce((n, h) => n + h.x + 1, 0) / group.length);
+    const cy = Math.floor(group.reduce((n, h) => n + h.y + 1, 0) / group.length);
+    // A praça do lugar novo fica num tile livre perto do meio do sítio.
+    let px = -1;
+    let py = -1;
+    for (let r = 0; r < 4 && px < 0; r++) {
+      for (let dy = -r; dy <= r && px < 0; dy++) {
+        for (let dx = -r; dx <= r && px < 0; dx++) {
+          const t = this.tileAt(cx + dx, cy + dy);
+          if (t >= 0 && isLand(this.map, t) && !this.built[t] && this.road[t] !== 4) {
+            px = cx + dx;
+            py = cy + dy;
+          }
+        }
+      }
+    }
+    if (px < 0) return;
+    const nv = this.foundVillage(v.species, px, py, 0, v, 'sítio');
+    // `foundVillage` ergueu uma cabana dos fundadores: as casas do sítio já bastam.
+    for (const h of nv.houses.splice(0)) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) this.built[this.tileAt(h.x + dx, h.y + dy)] = 0;
+    for (const h of group) {
+      v.houses.splice(v.houses.indexOf(h), 1);
+      h.farm = false;
+      nv.houses.push(h);
+    }
+    nv.stock.wood += 0;
+    v.foot = undefined;
+    nv.foot = undefined;
+    for (const i of people) {
+      this.village[i] = nv.id;
+      v.population--;
+      nv.population++;
+    }
+    this.note(`O sítio de ${v.name} cresceu e virou a aldeia ${nv.name}`, 'povo', nv, { major: false });
+  }
+
+  /**
+   * Fusão (RF-AS-06): quando o núcleo de uma cidade encosta numa aldeia ou vila do mesmo reino (ou livre),
+   * ela vira um bairro da cidade, com nome de bairro. De outro povo, vira um bairro estrangeiro.
+   */
+  private mergeVillages(): void {
+    for (const v of this.villages) {
+      if (v.abandoned || v.tier < 2) continue;
+      for (const o of this.villages) {
+        if (o === v || o.abandoned || o.species !== v.species || o.tier >= 2) continue;
+        if (this.distance(o, v.x, v.y) > this.footprint(v) + this.footprint(o) + 2) continue;
+        const free = o.kingdom === o.id && this.kingdomSize(o) <= 1;
+        if (o.kingdom !== v.kingdom && !free) {
+          // De outro reino: a fronteira esquenta, como antes.
+          const key = this.key(o.kingdom, v.kingdom);
+          this.relations.set(key, (this.relations.get(key) ?? 0) - 10);
+          continue;
+        }
+        if (this.warOf(o.kingdom) || this.villages.some((p) => p !== o && !p.abandoned && p.kingdom === o.id)) continue;
+        this.mergeInto(o, v);
+      }
+    }
+  }
+
+  /** Junta `o` em `v`: gente, casas, roças, cercados, minas, estoque e porto; `o` some como lugar à parte. */
+  private mergeInto(o: Village, v: Village): void {
+    for (let i = 0; i < this.count; i++) {
+      if (!this.alive[i] || this.village[i] !== o.id) continue;
+      this.village[i] = v.id;
+      v.population++;
+    }
+    o.population = 0;
+    for (const h of o.houses) {
+      h.quarter = o.name;
+      v.houses.push(h);
+    }
+    o.houses.length = 0;
+    v.fields += o.fields;
+    o.fields = 0;
+    if (o.pens?.length) v.pens = [...(v.pens ?? []), ...o.pens];
+    o.pens = undefined;
+    for (const id of o.mines) {
+      this.deposits[id].mine = v.id;
+      v.mines.push(id);
+    }
+    o.mines.length = 0;
+    for (const g of Object.keys(o.stock) as (keyof Stock)[]) {
+      const a = v.stock[g];
+      const b = o.stock[g];
+      if (typeof a === 'number' && typeof b === 'number') (v.stock as unknown as Record<string, number>)[g] = a + b;
+    }
+    v.food += o.food;
+    if (v.port < 0 && o.port >= 0) v.port = o.port;
+    o.port = -1;
+    for (const b of this.boats) if (b.village === o.id) b.village = v.id;
+    for (const c of this.caravans) {
+      if (c.home === o.id) c.home = v.id;
+      if (c.target === o.id) c.target = v.id;
+    }
+    for (let k = this.agreements.length - 1; k >= 0; k--) if (this.agreements[k].a === o.id || this.agreements[k].b === o.id) this.agreements.splice(k, 1);
+    (v.quarters ??= []).push({ name: o.name, culture: o.culture.id, foreign: o.culture !== v.culture });
+    o.abandoned = true;
+    o.abandonedAt = this.year;
+    o.decay = 3;
+    o.mergedInto = v.id;
+    v.foot = undefined;
+    o.foot = undefined;
+    this.tally.merged++;
+    const foreign = o.culture !== v.culture ? `, um bairro do povo ${o.culture.name}` : '';
+    this.note(`${o.name} foi engolida pelo crescimento de ${v.name} e virou o bairro ${o.name}${foreign}`, 'povo', v, { major: true });
+  }
+
+  /** Degrau político de cada centro (RF-AS-48), uma vez por ano. */
+  private updatePolities(): void {
+    const members = new Map<number, Village[]>();
+    for (const v of this.villages) {
+      if (v.abandoned) continue;
+      const list = members.get(v.kingdom);
+      if (list) list.push(v);
+      else members.set(v.kingdom, [v]);
+    }
+    for (const v of this.villages) {
+      if (v.abandoned) continue;
+      if (v.kingdom !== v.id) {
+        v.polity = undefined;
+        continue;
+      }
+      const list = members.get(v.id) ?? [v];
+      const cities = list.filter((o) => o !== v && o.tier >= 2).length;
+      const before = v.polity;
+      v.polity = polityOf(v.tier, list.length, cities >= 2 && list.length >= 10 ? 1 : 0);
+      if (before && before !== v.polity && (v.polity === 'reino' || v.polity === 'império')) {
+        this.note(`${v.name} é agora a capital ${v.polity === 'império' ? 'de um império' : 'de um reino'} com ${list.length} lugares`, 'povo', v, { major: true });
+      }
+    }
+  }
+
+  /** Reino ou império de verdade (RF-AS-48): só esses contam como reino e ganham o nome no rótulo. */
+  isRealm(v: Village): boolean {
+    const k = this.villages[v.kingdom];
+    const p = k.polity ?? polityOf(k.tier, this.kingdomSize(k), 0);
+    return p === 'reino' || p === 'império';
+  }
+
+  /** Nome da unidade política de `v`: "Reino de X", "Império de X", "Chefia de X" ou "Aldeia livre". */
+  polityName(v: Village): string {
+    const k = this.villages[v.kingdom];
+    const p = k.polity ?? polityOf(k.tier, this.kingdomSize(k), 0);
+    return p === 'livre' ? POLITY_NAMES.livre : `${POLITY_NAMES[p]} de ${k.name}`;
+  }
+
+  // ---- Plano novo dos assentamentos: forma e degraus (seção 20, fase 2) ----
+
+  /** Pegada: raio das casas do núcleo (sem sítios nem porto) mais a folga (RF-AS-10). */
+  footprint(v: Village): number {
+    if (v.foot !== undefined) return v.foot;
+    let r = 0;
+    for (const h of v.houses) {
+      if (h.farm || h.kind === 'port') continue;
+      const d = this.distance(v, h.x + 1, h.y + 1);
+      if (d > r) r = d;
+    }
+    v.foot = Math.max(B.FOOTPRINT_MIN, r + B.FOOTPRINT_PAD);
+    return v.foot;
+  }
+
+  /** Nome do degrau, com o acampamento de tendas antes da aldeia de casas fixas. */
+  tierName(v: Village): string {
+    return this.camp(v) ? 'Acampamento' : TIER_NAMES[v.tier];
+  }
+
+  /** Ainda é um acampamento: pouca gente na Idade da Pedra e sem roça (RF-AS seção 4). */
+  camp(v: Village): boolean {
+    return v.tier === 0 && v.population < B.CAMP_POP && v.fields === 0 && Math.floor(v.tech) === 0;
+  }
+
+  /** O que o assentamento tem para o degrau (RF-AS seção 4). */
+  private tierCheck(v: Village): TierCheck {
+    const built = new Set<BuildingKind>();
+    for (const h of v.houses) if (!h.site) built.add(h.kind);
+    const center = this.tileAt(v.x, Math.floor(v.y));
+    let water = Math.floor(v.tech) >= 1 || this.knew(v, 'ceramica');
+    if (!water) {
+      for (let dy = -3; dy <= 3 && !water; dy++) for (let dx = -3; dx <= 3 && !water; dx++) {
+        const t = this.tileAt(v.x + dx, Math.floor(v.y) + dy);
+        if (t >= 0 && isWater(this.map, t)) water = true;
+      }
+    }
+    void center;
+    const capital = v.kingdom === v.id && (v.polity === 'reino' || v.polity === 'império');
+    return { population: v.population, built, capital, market: v.market ?? 0, water };
+  }
+
+  /** Funções que faltam para o próximo degrau (para o painel). */
+  nextTierMissing(v: Village): string[] {
+    if (v.tier >= 3) return [];
+    return missingFunctions(v.tier + 1, this.tierCheck(v));
+  }
+
+  /**
+   * Melhor lote 2x2 para uma casa pelo valor do solo (RF-AS-11 e 12): perto da praça pelo caminho, com
+   * frente para a rua, água e vizinhos; no núcleo as casas podem encostar, na periferia ficam com folga.
+   */
+  private bestLot(v: Village): number[] | null {
+    const foot = this.footprint(v);
+    const reach = Math.ceil(foot + B.LOT_REACH);
+    const core = Math.max(3.5, foot * B.CORE_SHARE);
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    const map = this.map;
+    const near = this.villages.filter((o) => o !== v && !o.abandoned && this.distance(o, v.x, v.y) < reach + this.footprint(o) + 4);
+    let best: number[] | null = null;
+    let bv = -Infinity;
+    const tiles = [0, 0, 0, 0];
+    for (let oy = -reach; oy <= reach; oy++) {
+      for (let ox = -reach; ox <= reach; ox++) {
+        const lx = cx + ox;
+        const ly = cy + oy;
+        const d = this.distance(v, lx + 1, ly + 1);
+        if (d > reach || d < 2.4) continue;
+        let ok = true;
+        let field = 0;
+        let water = false;
+        for (let k = 0; k < 4 && ok; k++) {
+          const t = this.tileAt(lx + (k & 1), ly + (k >> 1));
+          tiles[k] = t;
+          if (t < 0 || !isLand(map, t) || this.built[t] || this.depositAt[t] >= 0 || this.wall[t] || !this.flat(t)) ok = false;
+          else if (this.road[t] === 4) field++;
+          else if (this.road[t]) ok = false;
+          else if (!water && this.nearWater(t)) water = true;
+        }
+        if (!ok) continue;
+        if (near.some((o) => this.distance(o, lx + 1, ly + 1) < this.footprint(o))) continue;
+        // Anel em volta do lote: casas vizinhas e rua na frente.
+        let neighbors = 0;
+        let front = false;
+        let street = false;
+        for (let ry = -1; ry <= 2; ry++) {
+          for (let rx = -1; rx <= 2; rx++) {
+            if (rx >= 0 && rx <= 1 && ry >= 0 && ry <= 1) continue;
+            const t = this.tileAt(lx + rx, ly + ry);
+            if (t < 0) continue;
+            if (this.built[t]) neighbors++;
+            if (isStreet(this.road[t]) && (rx === -1 || rx === 2) !== (ry === -1 || ry === 2)) front = true;
+          }
+        }
+        if (d > core && neighbors > 0) continue;
+        if (!front) {
+          for (let ry = -2; ry <= 3 && !street; ry++) {
+            for (let rx = -2; rx <= 3 && !street; rx++) {
+              const t = this.tileAt(lx + rx, ly + ry);
+              if (t >= 0 && isStreet(this.road[t])) street = true;
+            }
+          }
+          if (!street) continue;
+        }
+        const value =
+          -B.LAND_DIST * d +
+          B.LAND_CLUSTER * Math.min(neighbors, 6) +
+          (front ? B.LAND_FRONT : 0) +
+          (water ? B.LAND_WATER : 0) -
+          1.5 * field +
+          ((Math.imul(lx * 73856093 + ly, 19349663) >>> 0) % 100) * 0.001;
+        if (value > bv) {
+          bv = value;
+          best = [...tiles];
+        }
+      }
+    }
+    return best;
+  }
+
+  /** Lote 2x2 para roça ou cercado (RF-AS-16): no anel logo fora das casas, encostado nas outras roças. */
+  private fieldLot(v: Village, kind: 4 | 5 = 4): number[] | null {
+    const foot = this.footprint(v);
+    const reach = Math.ceil(foot + B.FIELD_RING + (kind === 5 ? 3 : 0));
+    const inner = foot - 0.5 + (kind === 5 ? 2 : 0);
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    const map = this.map;
+    const near = this.villages.filter((o) => o !== v && !o.abandoned && this.distance(o, v.x, v.y) < reach + this.footprint(o) + 4);
+    let best: number[] | null = null;
+    let bv = -Infinity;
+    for (let oy = -reach; oy <= reach; oy++) {
+      for (let ox = -reach; ox <= reach; ox++) {
+        const lx = cx + ox;
+        const ly = cy + oy;
+        const d = this.distance(v, lx + 1, ly + 1);
+        if (d > reach || d < inner) continue;
+        const tiles: number[] = [];
+        let veg = 0;
+        for (let k = 0; k < 4; k++) {
+          const t = this.tileAt(lx + (k & 1), ly + (k >> 1));
+          if (t < 0 || !isLand(map, t) || this.road[t] || this.built[t] || this.depositAt[t] >= 0 || this.wall[t]) break;
+          tiles.push(t);
+          veg += map.vegetation[t];
+        }
+        if (tiles.length < 4) continue;
+        if (near.some((o) => this.distance(o, lx + 1, ly + 1) < this.footprint(o) + 1)) continue;
+        // Faixas: encostar em roça (ou cercado) do mesmo tipo e numa trilha vale mais.
+        let strip = 0;
+        let trail = false;
+        for (let ry = -1; ry <= 2; ry++) {
+          for (let rx = -1; rx <= 2; rx++) {
+            if (rx >= 0 && rx <= 1 && ry >= 0 && ry <= 1) continue;
+            const t = this.tileAt(lx + rx, ly + ry);
+            if (t < 0) continue;
+            if (this.road[t] === kind) strip++;
+            if (isStreet(this.road[t])) trail = true;
+            if (this.built[t]) strip -= 0.5;
+          }
+        }
+        const value = -0.6 * Math.abs(d - (inner + 2)) + 0.5 * Math.min(strip, 4) + (trail ? 0.8 : 0) + veg * 0.6;
+        if (value > bv) {
+          bv = value;
+          best = tiles;
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Caminho de acesso (RF-AS-13): da casa nova até a rede mais perto, por tiles livres, pintado como
+   * trilha. Sem rede ao alcance, o caminho vai até a praça (que sempre existe).
+   */
+  private layAccess(v: Village, x: number, y: number, reach = B.ACCESS_REACH): void {
+    const map = this.map;
+    const w = map.width;
+    const start: number[] = [];
+    for (let ry = -1; ry <= 2; ry++) {
+      for (let rx = -1; rx <= 2; rx++) {
+        const corner = (rx === -1 || rx === 2) && (ry === -1 || ry === 2);
+        if (corner || (rx >= 0 && rx <= 1 && ry >= 0 && ry <= 1)) continue;
+        const t = this.tileAt(x + rx, y + ry);
+        if (t < 0) continue;
+        if (isStreet(this.road[t])) return;
+        if (isLand(map, t) && !this.built[t] && !this.road[t] && this.depositAt[t] < 0) start.push(t);
+      }
+    }
+    const prev = new Map<number, number>();
+    const dist = new Map<number, number>();
+    let queue = start;
+    for (const t of start) {
+      prev.set(t, -1);
+      dist.set(t, 0);
+    }
+    let goal = -1;
+    for (let step = 0; step < reach * 2 && queue.length && goal < 0; step++) {
+      const next: number[] = [];
+      for (const t of queue) {
+        const tx = t % w;
+        const ty = (t - tx) / w;
+        for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const n = this.tileAt(tx + ox, ty + oy);
+          if (n < 0 || prev.has(n)) continue;
+          if (isStreet(this.road[n])) {
+            prev.set(n, t);
+            goal = n;
+            break;
+          }
+          if (!isLand(map, n) || this.built[n] || this.road[n] || this.depositAt[n] >= 0 || this.wall[n]) continue;
+          prev.set(n, t);
+          dist.set(n, (dist.get(t) ?? 0) + 1);
+          next.push(n);
+        }
+        if (goal >= 0) break;
+      }
+      queue = next;
+    }
+    if (goal < 0) return;
+    const laid: number[] = [];
+    for (let t = prev.get(goal)!; t >= 0; t = prev.get(t)!) {
+      if (!this.road[t]) {
+        this.road[t] = TRAIL;
+        this.roadDirty.push(t);
+        this.onTileChanged(t);
+        laid.push(t);
+      }
+    }
+    if (laid.length) this.pruneRoads(laid);
+    void v;
+  }
+
+  /** Praça do assentamento: 3x3 tiles no centro (RF-VIDA-100). As ruas nascem depois, do uso (RF-AS-13). */
+  private layPlaza(v: Village): void {
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t >= 0 && isLand(this.map, t) && !this.built[t]) {
+          this.road[t] = 3;
+          this.onTileChanged(t);
+        }
+      }
+    }
+    v.streetLen = 0;
+    v.streetPlan = 0;
+    v.lots = [];
+  }
+
+  /**
+   * Casa por família (RF-AS-17): uma vez por ano cada família ganha uma casa (a do líder, a melhor e mais
+   * perto da praça; os agricultores preferem os sítios). Casa sem família por IDLE_HOUSE_YEARS anos fica
+   * vazia e começa a cair; com o dobro, desaba.
+   */
+  private assignHomes(v: Village, families: Map<number, number[]> | undefined): void {
+    const w = this.map.width;
+    const era = Math.floor(v.tech);
+    const homes = v.houses.filter((h) => h.kind === 'house' && !h.site);
+    const room = new Map<Building, number>();
+    for (const h of homes) room.set(h, 4 + era + (h.level ?? 0) * B.LEVEL_HOUSING);
+    const byCenter = [...homes].sort((p, q) => this.distance(v, p.x + 1, p.y + 1) - this.distance(v, q.x + 1, q.y + 1));
+    const used = new Set<Building>();
+    const fams = [...(families?.entries() ?? [])].sort((p, q) => (q[1].includes(v.leader) ? 1 : 0) - (p[1].includes(v.leader) ? 1 : 0) || q[1].length - p[1].length);
+    for (const [key, members] of fams) {
+      const farmer = members.some((i) => this.role[i] === ROLE.farmer || this.role[i] === ROLE.shepherd);
+      const order = farmer ? [...byCenter.filter((h) => h.farm), ...byCenter.filter((h) => !h.farm)] : byCenter.filter((h) => !h.farm).concat(byCenter.filter((h) => h.farm));
+      let pick: Building | null = null;
+      for (const h of order) {
+        const left = room.get(h)!;
+        if (left >= members.length || (left > 0 && !pick)) {
+          pick = h;
+          if (left >= members.length) break;
+        }
+      }
+      if (!pick) {
+        for (const i of members) this.home[i] = -1;
+        continue;
+      }
+      room.set(pick, room.get(pick)! - members.length);
+      if (!used.has(pick)) pick.owner = key;
+      used.add(pick);
+      const tile = pick.y * w + pick.x;
+      for (const i of members) this.home[i] = tile;
+    }
+    for (const h of homes) {
+      if (used.has(h)) {
+        h.idle = 0;
+        continue;
+      }
+      h.owner = undefined;
+      h.idle = (h.idle ?? 0) + 1;
+      if (h.idle >= B.IDLE_HOUSE_YEARS) h.empty = true;
+      if (h.idle >= B.IDLE_HOUSE_YEARS * 2 && homes.length > 2) {
+        const at = v.houses.indexOf(h);
+        if (at >= 0) {
+          this.raze(v, at);
+          this.note(`Uma casa abandonada caiu em ${v.name}`, 'povo', v, { key: `idle-${v.id}` });
+        }
+      }
+    }
+  }
+
+  /** Núcleo sem árvore nativa (RF-AS-12): de vila em diante, as árvores entre as casas viram lenha. */
+  private clearCore(v: Village): void {
+    if (v.tier < 1) return;
+    const map = this.map;
+    const r = Math.ceil(this.footprint(v) * B.CORE_SHARE + 1);
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t < 0 || this.road[t] || this.built[t] || !isLand(map, t)) continue;
+        const decor = decorAt(map, t);
+        if (!isTree(decor) && decor !== Decor.Stump && decor !== Decor.Sapling) continue;
+        if (isTree(decor)) {
+          this.put(v, 'wood', B.WOOD_PER_TREE);
+          this.treesCut++;
+        } else {
+          map.felled![t] = 0;
+          this.stumps.delete(t);
+        }
+        map.bare ??= new Uint8Array(map.width * map.height);
+        map.bare[t] = 1;
+        this.onTileChanged(t);
+      }
+    }
+  }
+
+  /**
+   * Muralha que segue a pegada (RF-AS-18): paliçada de madeira na vila (Bronze em diante) e muralha de
+   * pedra na cidade (Ferro em diante), contornando as casas do núcleo, com portão onde a rua cruza.
+   * Quem constrói fora dela forma o subúrbio; a metrópole ergue um segundo anel quando ele enche.
+   */
+  private updateWall(v: Village): void {
+    const era = Math.floor(v.tech);
+    if (v.tier < 1 || era < 1) return;
+    if (v.wallAt !== undefined && this.year - v.wallAt < B.WALL_REVIEW_YEARS) return;
+    v.wallAt = this.year;
+    const stone = v.tier >= 2 && era >= 2;
+    const N = 64;
+    const radii = new Float32Array(N);
+    const inner = v.houses.filter((h) => !h.farm && h.kind !== 'port');
+    const old = v.walls ?? [];
+    // Casas fora do anel atual: o subúrbio. A metrópole cerca o subúrbio cheio com um segundo anel.
+    const ringed = old.length > 0;
+    if (ringed) {
+      const outside = inner.filter((h) => !this.insideWall(v, h.x + 1, h.y + 1)).length;
+      if (v.tier < 3 || outside < inner.length * 0.3) {
+        if (stone && old.some((t) => this.wall[t] === WALL.palisade)) {
+          if (!this.payWall(v, old.length, true)) return;
+          for (const t of old) if (this.wall[t] === WALL.palisade) this.wall[t] = WALL.stone;
+          for (const t of old) this.onTileChanged(t);
+          this.note(`${v.name} trocou a paliçada por uma muralha de pedra`, 'povo', v, { major: true });
+        }
+        return;
+      }
+    }
+    for (const h of inner) {
+      const dx = wrapDx(h.x + 1 - v.x, this.map.width);
+      const dy = h.y + 1 - v.y;
+      const k = Math.floor(((Math.atan2(dy, dx) / (Math.PI * 2) + 1) % 1) * N) % N;
+      radii[k] = Math.max(radii[k], Math.hypot(dx, dy) + 1.5);
+    }
+    const ring = new Float32Array(N);
+    for (let k = 0; k < N; k++) {
+      let m = 0;
+      for (let d = -3; d <= 3; d++) m = Math.max(m, radii[(k + d + N) % N]);
+      ring[k] = Math.max(3, m) + B.WALL_PAD;
+    }
+    const R = Math.ceil(Math.max(...ring)) + 1;
+    const cx = Math.floor(v.x);
+    const cy = Math.floor(v.y);
+    const tiles: number[] = [];
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        const t = this.tileAt(cx + dx, cy + dy);
+        if (t < 0 || !isLand(this.map, t) || this.built[t] || this.wall[t]) continue;
+        const ax = cx + dx + 0.5 - v.x;
+        const ay = cy + dy + 0.5 - v.y;
+        const k = Math.floor(((Math.atan2(ay, ax) / (Math.PI * 2) + 1) % 1) * N) % N;
+        const d = Math.hypot(ax, ay);
+        if (d < ring[k] || d >= ring[k] + 1) continue;
+        if (this.road[t] === 4 || this.road[t] === 5 || this.road[t] === 3) continue;
+        tiles.push(t);
+      }
+    }
+    if (tiles.length < 8 || !this.payWall(v, tiles.length, stone)) return;
+    for (const t of tiles) {
+      this.wall[t] = isStreet(this.road[t]) ? WALL.gate : stone ? WALL.stone : WALL.palisade;
+      this.onTileChanged(t);
+    }
+    v.walls = [...old, ...tiles];
+    this.note(
+      ringed ? `${v.name} cercou o subúrbio com um segundo anel de muralha` : stone ? `${v.name} ergueu uma muralha de pedra com portões` : `${v.name} se cercou com uma paliçada`,
+      'povo',
+      v,
+      { major: v.tier >= 2 },
+    );
+  }
+
+  /** O ponto está do lado de dentro da muralha de `v` (sem muralha, tudo é dentro). */
+  insideWall(v: Village, x: number, y: number): boolean {
+    if (!v.walls?.length) return true;
+    const dx = wrapDx(x - v.x, this.map.width);
+    const dy = y - v.y;
+    const d = Math.hypot(dx, dy);
+    const a = Math.atan2(dy, dx);
+    let wall = Infinity;
+    const w = this.map.width;
+    for (const t of v.walls) {
+      const tx = wrapDx((t % w) + 0.5 - v.x, w);
+      const ty = Math.floor(t / w) + 0.5 - v.y;
+      let da = Math.abs(Math.atan2(ty, tx) - a);
+      if (da > Math.PI) da = Math.PI * 2 - da;
+      if (da < 0.12) wall = Math.min(wall, Math.hypot(tx, ty));
+    }
+    return d < wall;
+  }
+
+  /** Paga a muralha do estoque: madeira na paliçada, pedra na muralha. */
+  private payWall(v: Village, tiles: number, stone: boolean): boolean {
+    const st = this.store(v);
+    if (stone) {
+      const need = tiles * B.WALL_STONE;
+      if (st.stone < need) return false;
+      this.spend(v, 'stone', need);
+    } else {
+      const need = tiles * B.WALL_WOOD;
+      if (st.wood < need) return false;
+      this.spend(v, 'wood', need);
+    }
+    return true;
+  }
+
+  /** Tira a muralha de um assentamento (abandono ou fusão). */
+  private dropWall(v: Village): void {
+    for (const t of v.walls ?? []) {
+      this.wall[t] = 0;
+      this.onTileChanged(t);
+    }
+    v.walls = undefined;
+  }
+
+  /**
+   * Degrau por população e funções (RF-AS seção 4): sobe um degrau quando a gente e as funções
+   * permitem; desce quando fica abaixo do que o degrau pede por TIER_DOWN_YEARS anos.
+   */
+  private updateTier(v: Village, yearly: boolean): void {
+    const check = this.tierCheck(v);
+    const target = tierAllowed(check);
+    if (target > v.tier) {
+      v.tier++;
+      v.lowYears = 0;
+      if (v.tier >= 2) this.rankStreets(v);
+      this.note(`${v.name} virou ${TIER_NAMES[v.tier].toLowerCase()}`, 'povo', v, { major: v.tier >= 2 });
+      return;
+    }
+    if (!yearly) return;
+    if (belowTier(v.tier, check)) {
+      v.lowYears = (v.lowYears ?? 0) + 1;
+      if (v.lowYears >= B.TIER_DOWN_YEARS) {
+        v.tier--;
+        v.lowYears = 0;
+        this.tally.tierDowns++;
+        this.note(`${v.name} encolheu e voltou a ser ${TIER_NAMES[v.tier].toLowerCase()}`, 'povo', v, { major: v.tier >= 1 });
+      }
+    } else v.lowYears = 0;
+  }
+
+  /**
+   * Um ano do plano novo dos assentamentos (seção 20): colônias que partem, casas por família, núcleo
+   * sem árvore, muralhas, sítios que se emancipam, degraus que sobem ou descem, fusões e política.
+   */
+  private communityYear(): void {
+    const families = this.familyGroups();
+    for (const v of this.villages) {
+      if (v.abandoned || v.population <= 0) continue;
+      if (v.colony && this.year >= v.colony.until) this.departColony(v, families.get(v.id));
+      this.assignHomes(v, families.get(v.id));
+      this.clearCore(v);
+      this.updateWall(v);
+      this.freeFarmsteads(v);
+      this.updateTier(v, true);
+    }
+    this.mergeVillages();
+    this.updatePolities();
   }
 
   /** Vegetação mínima para fundar: a partir da Idade do Ferro, poços e irrigação abrem o deserto. */
@@ -9341,7 +10350,7 @@ export class Ecosystem {
   /** Caravanas e barcos mercantes de um assentamento na estrada ou no mar (rebanhos não contam). */
   caravansOf(v: Village): number {
     let n = 0;
-    for (const c of this.caravans) if (c.home === v.id && c.kind !== 'flock') n++;
+    for (const c of this.caravans) if (c.home === v.id && (c.kind === 'trade' || c.kind === 'tribute')) n++;
     for (const b of this.boats) if (b.village === v.id && b.purpose === 'trade' && b.sunk < 0) n++;
     return n;
   }
@@ -9349,7 +10358,7 @@ export class Ecosystem {
   /** Comércio no mundo todo (para o limite CARAVANS_MAX). */
   private tradeInMotion(): number {
     let n = 0;
-    for (const c of this.caravans) if (c.kind !== 'flock') n++;
+    for (const c of this.caravans) if (c.kind === 'trade' || c.kind === 'tribute') n++;
     for (const b of this.boats) if (b.purpose === 'trade' && b.sunk < 0) n++;
     return n;
   }
@@ -9764,7 +10773,7 @@ export class Ecosystem {
   private raided(c: Caravan, t: number): boolean {
     const home = this.villages[c.home];
     const foes = this.enemies.get(home.kingdom);
-    if (!foes?.size || c.kind === 'flock') return false;
+    if (!foes?.size || c.kind === 'flock' || c.kind === 'visit') return false;
     const w = this.map.width;
     const x = (t % w) + 0.5;
     const y = Math.floor(t / w) + 0.5;
@@ -9842,6 +10851,33 @@ export class Ecosystem {
   /** A caravana chegou ao fim do caminho. Retorna se a viagem acabou. */
   private arrived(c: Caravan): boolean {
     const home = this.villages[c.home];
+    // Enxoval dos colonos (RF-AS-03): chega ao lugar novo, descarrega e quem levou fica morando lá.
+    if (c.kind === 'settlers') {
+      this.unload(home, c.cargo, 0);
+      this.disembark(home, c.crew, c.x, c.y);
+      return true;
+    }
+    // Ajuda (RF-AS-45) e visita (RF-AS-42): entrega ou fica um pouco, e volta para casa.
+    if (c.kind === 'aid' || c.kind === 'visit') {
+      if (!c.back) {
+        const o = this.villages[c.target];
+        if (!o.abandoned) {
+          if (c.kind === 'aid') {
+            this.unload(o, c.cargo, 0);
+            this.addAffinity(home.id, o.id, B.AFFINITY_AID);
+            this.note(`A ajuda de ${home.name} chegou a ${o.name}`, 'economia', o, { key: `aid-in-${o.id}` });
+          } else this.addAffinity(home.id, o.id, 1);
+        }
+        c.cargo = [];
+        c.back = true;
+        c.path.reverse();
+        c.step = 0;
+        c.wait = c.kind === 'visit' ? 2 : 0.5;
+        return false;
+      }
+      this.disembark(home, c.crew, c.x, c.y);
+      return true;
+    }
     if (c.kind === 'flock') {
       if (!c.back) {
         // No pasto alto até o outono.
@@ -10204,6 +11240,7 @@ export class Ecosystem {
     }
     if (h.kind === 'port') v.port = -1;
     v.houses.splice(k, 1);
+    v.foot = undefined;
     if (!land) return;
     this.ruins.push({ x: h.x + size / 2, y: h.y + size, age: 0 });
   }
@@ -10788,7 +11825,7 @@ export class Ecosystem {
     if (this.expedition.has(i)) return 'em campanha de guerra';
     const role = ROLES[this.role[i]];
     const d = this.distance(v, this.x[i], this.y[i]);
-    const inside = d <= this.radius(v);
+    const inside = d <= this.footprint(v) + 1;
     const tile = this.tileOf(i);
     if (this.role[i] === CHILD) return moving ? 'brincando' : 'em casa';
     if (this.age[i] >= elderAge(sp, Math.floor(v.tech)) && this.role[i] < ROLE.leader) return 'descansando';

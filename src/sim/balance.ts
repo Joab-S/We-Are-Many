@@ -26,7 +26,7 @@ export const FIELD_YIELD = 3;
  * (FIELD_HANDS × (1 + FIELD_HANDS_TIER × nível) agricultores por roça), já que o mapa continua com no máximo 5.
  * Antes o teto era fixo e um assentamento não passava de 40 a 60 moradores.
  */
-export const FIELD_HANDS_TIER = 1;
+export const FIELD_HANDS_TIER = 0.5;
 /** Rendimento de cada agricultor por era (Pedra … Industrial): ferramentas, rotação, adubo e máquinas. Antes era o mesmo em todas. */
 export const ERA_YIELD = [1, 1.2, 1.45, 1.75, 2.4];
 /**
@@ -639,3 +639,140 @@ export const PRESENCE_BUILD = true;
 export const BUILD_REACH = 2.4;
 export const JOB_SLOTS_BUILD = 4;
 export const BUILD_LABOR = 1;
+
+// ---- Plano novo dos assentamentos (REQUISITOS-VIDA.md, seção 20, RF-AS) ----
+
+/** Fase 1, nascimento: menor distância (tiles) entre um lugar novo e uma aldeia, vila, cidade ou metrópole (RF-AS-05). */
+export const SPACING = [14, 22, 30, 30];
+/** Colônia organizada (RF-AS-03): moradores mínimos da origem, pessoas no grupo e anos de batedores antes de partir. */
+export const COLONY_SOURCE_POP = 30;
+export const COLONY_GROUP_MIN = 12;
+export const COLONY_GROUP_MAX = 30;
+export const COLONY_SCOUT_YEARS = 1;
+/** Sítios candidatos que os batedores visitam e alcance da busca (tiles além do espaçamento). */
+export const COLONY_SCOUTS = 3;
+export const COLONY_REACH = 40;
+/** Nota do sítio (RF-AS-04): pesos de cada fator. */
+export const SITE_W_WATER = 1.2;
+export const SITE_W_FERTILE = 1.5;
+export const SITE_W_FOREST = 0.5;
+export const SITE_W_ROCK = 0.4;
+export const SITE_W_FLAT = 0.8;
+export const SITE_W_COAST = 0.5;
+export const SITE_W_RUIN = 1.2;
+export const SITE_W_DEFENSE = 0.3;
+export const SITE_W_ROUTE = 0.4;
+export const SITE_W_MOTIVE = 1.5;
+/** Distância ideal da origem (tiles) e quanto a nota cai por tile fora dela. */
+export const SITE_IDEAL_DIST = 30;
+export const SITE_DIST_COST = 0.03;
+/** Sítio rural (RF-AS-02): distância do núcleo, famílias por sítio, chance por ano quando falta roça e sítios por assentamento. */
+export const FARMSTEAD_MIN = 6;
+export const FARMSTEAD_MAX = 15;
+export const FARMSTEAD_FAMILIES = 3;
+export const FARMSTEAD_RATE = 0.4;
+export const FARMSTEADS_MAX = 6;
+/** Sítio que se emancipa: moradores e distância mínima do núcleo. */
+export const FARMSTEAD_FREE_POP = 25;
+export const FARMSTEAD_FREE_DIST = 12;
+/** Família sozinha só funda longe de qualquer lugar conhecido (RF-AS-01). */
+export const LONE_FOUND_DIST = 40;
+/** Lugar pequeno e em falta: com até tantos moradores, a última leva se muda (RF-AS-08). */
+export const LAST_WAVE_POP = 4;
+
+/**
+ * Fase 2, degraus (RF-AS seção 4): moradores mínimos de aldeia, vila, cidade e metrópole. Abaixo de
+ * CAMP_POP, sem casa de verdade, a aldeia ainda é um acampamento de tendas.
+ */
+export const TIER_POPULATION_NEW = [0, 40, 120, 400];
+export const CAMP_POP = 10;
+/** Descida de nível: fração do limiar e anos seguidos abaixo dela (ou sem as funções do nível). */
+export const TIER_DOWN_SHARE = 0.7;
+export const TIER_DOWN_YEARS = 20;
+/** Metrópole sem ser capital: precisa ser a cidade de referência de pelo menos tantos lugares. */
+export const METROPOLIS_MARKET = 5;
+/** Pegada (RF-AS-10): raio mínimo e folga em volta das casas; alcance da busca de lote além da pegada. */
+export const FOOTPRINT_MIN = 4;
+export const FOOTPRINT_PAD = 2;
+export const LOT_REACH = 4;
+/** Valor do solo (RF-AS-11): custo por tile de distância, bônus por vizinho construído, por água e por frente de rua. */
+export const LAND_DIST = 1;
+export const LAND_CLUSTER = 0.6;
+export const LAND_WATER = 1.5;
+export const LAND_FRONT = 1.2;
+/** Núcleo denso (RF-AS-12): parte da pegada onde as casas podem encostar umas nas outras. */
+export const CORE_SHARE = 0.55;
+/** Caminho de acesso de uma casa nova até a rede (tiles). */
+export const ACCESS_REACH = 10;
+/** Roças (RF-AS-16): distância da borda das casas e teto de roças no mapa. */
+export const FIELD_RING = 6;
+export const FIELDS_MAX = 24;
+/** Casa sem família (RF-AS-17): anos até ficar vazia e começar a cair. */
+export const IDLE_HOUSE_YEARS = 10;
+/** Muralha (RF-AS-18): folga além das casas do núcleo, anos entre revisões e custo por tile (madeira na paliçada, pedra na muralha). */
+export const WALL_PAD = 1.5;
+export const WALL_REVIEW_YEARS = 15;
+export const WALL_WOOD = 0.6;
+export const WALL_STONE = 0.8;
+
+/**
+ * Fase 3, jornadas (RF-AS-20 a 31): segundos de gesto por tarefa, quanto cada necessidade sobe por
+ * segundo e a partir de quanto ela vira prioridade.
+ */
+export const TASK_SECONDS = 1.6;
+export const NEED_REST = 0.02;
+export const NEED_SOCIAL = 0.015;
+export const NEED_FAITH = 0.01;
+export const NEED_URGENT = 0.75;
+/** Folga do modo agregado: só os assentamentos a até tantos tiles da tela rodam as jornadas. */
+export const JOURNEY_MARGIN = 20;
+/** Festa da colheita: duração (fração do ano) no fim do outono. */
+export const FESTIVAL_SPAN = 0.06;
+
+/** Fase 4, ruas por uso (RF-AS-13): desgaste para virar trilha e rua, decaimento por ano e anos sem uso até sumir. */
+export const TRAIL_WEAR = 40;
+export const ROAD_WEAR = 160;
+export const WEAR_FADE = 0.75;
+export const WEAR_IDLE = 8;
+export const ROAD_FORGET_YEARS = 30;
+/** Viagens de cada casa até a praça e de cada roça até o celeiro por ano (tráfego do modo agregado). */
+export const HOME_TRIPS = 12;
+export const FIELD_TRIPS = 8;
+
+/** Fase 5, relações (RF-AS-40 a 53). */
+export const AFFINITY_RANGE = 60;
+export const AFFINITY_FADE = 0.06;
+export const AFFINITY_KIN = 0.8;
+export const AFFINITY_TRADE = 3;
+export const AFFINITY_PEOPLE = 1;
+export const AFFINITY_FAITH = 0.8;
+export const AFFINITY_RIVAL = 4;
+export const AFFINITY_GRUDGE = 3;
+export const AFFINITY_AID = 12;
+export const AFFINITY_REFUSE = 10;
+export const AFFINITY_FEAST = 4;
+/** Casamento entre lugares: visitantes por ano e alcance. */
+export const VISITORS = 4;
+export const VISIT_RANGE = 40;
+/** Cidade de referência: alcance e custo da distância. */
+export const MARKET_RANGE = 50;
+/** Ajuda: parte do excedente que vai para quem pede e anos para cobrar a dívida. */
+export const AID_SHARE = 0.3;
+export const DEBT_YEARS = 25;
+/** Rivalidade por recurso: chance por ano de incidente quando os territórios se sobrepõem. */
+export const RIVALRY_RATE = 0.15;
+/** Lealdade: margem e anos para mudar de lado; limiar e anos para a revolta. */
+export const LOYALTY_MARGIN = 0.15;
+export const LOYALTY_YEARS = 10;
+export const LOYALTY_REVOLT = 0.2;
+/** Capital que se move: quanto maior a outra cidade precisa ser, por quantos anos. */
+export const CAPITAL_MOVE_SHARE = 1.5;
+export const CAPITAL_MOVE_YEARS = 30;
+/** Deriva cultural: por ano quando isolado, de volta por ano quando convive, e o limiar de um povo novo. */
+export const DRIFT_RATE = 1;
+export const DRIFT_BACK = 1.5;
+export const DRIFT_LIMIT = 150;
+/** Território de trabalho (RF-AS-10): raio base, quanto cresce com a raiz da população e o teto (antes: raio fixo por nível, 8 a 25). */
+export const TERRITORY_BASE = 5;
+export const TERRITORY_GROWTH = 1.7;
+export const TERRITORY_MAX = 34;
