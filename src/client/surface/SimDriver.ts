@@ -1,3 +1,5 @@
+import { EventBus } from './EventBus';
+
 /**
  * Relógio da simulação da superfície (Game Loop com passo fixo, Game
  * Programming Patterns): o tempo real do quadro, vezes a velocidade, entra
@@ -5,21 +7,32 @@
  * `alpha` (a fração do próximo passo já passada) para interpolar as
  * criaturas entre o passo anterior e o atual.
  *
- * As ações do jogador chegam como comandos numa fila e são aplicadas na
- * fronteira entre dois passos: antes do próximo passo, ou no fim do quadro
- * quando nenhum passo roda (pausa ou velocidade baixa). Cada comando entra
- * num log com o número do passo (base para replay).
+ * As ações do jogador (e a vista da câmera) chegam como comandos numa fila e
+ * são aplicadas na fronteira entre dois passos: antes do próximo passo, ou no
+ * fim do quadro quando nenhum passo roda (pausa ou velocidade baixa). Cada
+ * comando entra num log com o número do passo (base para replay: a semente
+ * mais esse log refazem o mesmo mundo).
+ *
+ * Depois dos passos de cada quadro, os eventos do motor são drenados e
+ * entregues pelo despachante `bus` (Observer do lado do cliente) a quem
+ * assinou: avisos, janelas.
  */
 
-/** O que o relógio precisa do mundo: dar um passo e as posições das criaturas (para interpolar). */
-export interface SimTarget {
-  step(h: number): void;
+/** As posições das criaturas que o relógio lê do mundo para interpolar. */
+export interface SimView {
   readonly count: number;
   readonly x: Float32Array;
   readonly y: Float32Array;
   readonly uid: Uint32Array;
   /** Ano do mundo: se mudou sem o relógio saber (passos dados por fora), não interpola. */
   readonly year: number;
+}
+
+/** O que o relógio precisa do motor (a fachada `Engine` cumpre): dar um passo, a vista e a fila de eventos. */
+export interface SimTarget<E = never> {
+  step(h: number): void;
+  readonly view: SimView;
+  drainEvents?(): E[];
 }
 
 /**
@@ -46,7 +59,7 @@ export interface LoggedCommand<C> {
   cmd: C;
 }
 
-export class SimDriver<C> {
+export class SimDriver<C, E extends { kind: string } = never> {
   /** Índice em SPEEDS. */
   speed = 1;
   /** Passos dados desde o começo (o relógio do log). */
@@ -61,13 +74,15 @@ export class SimDriver<C> {
   private prevY = new Float32Array(0);
   private prevUid = new Uint32Array(0);
   private prevCount = 0;
-  /** Ano do mundo logo depois do último passo dado aqui (ver SimTarget.year). */
+  /** Ano do mundo logo depois do último passo dado aqui (ver SimView.year). */
   private stamp = NaN;
-  /** Medidas do último quadro: passos, tempo deles (ms) e tempo de jogo descartado pelo teto. */
-  readonly stats = { steps: 0, stepMs: 0, dropped: 0, totalSteps: 0, totalMs: 0 };
+  /** Medidas do último quadro: passos, tempo deles (ms), tempo de jogo descartado pelo teto e eventos entregues. */
+  readonly stats = { steps: 0, stepMs: 0, dropped: 0, totalSteps: 0, totalMs: 0, events: 0, totalEvents: 0 };
+  /** Despachante dos eventos do motor (drenados a cada quadro, depois dos passos). */
+  readonly bus = new EventBus<E>();
 
   constructor(
-    private readonly target: SimTarget,
+    private readonly target: SimTarget<E>,
     private readonly apply: (cmd: C) => void,
     readonly opts: { step?: number; maxSteps?: number; logLimit?: number; wrapWidth?: number; now?: () => number } = {},
   ) {}
@@ -122,7 +137,7 @@ export class SimDriver<C> {
       const t0 = now();
       this.target.step(h);
       this.stats.stepMs += now() - t0;
-      this.stamp = this.target.year;
+      this.stamp = this.target.view.year;
       this.acc -= h;
       this.tick++;
       n++;
@@ -138,7 +153,16 @@ export class SimDriver<C> {
     this.stats.steps = n;
     this.stats.totalSteps += n;
     this.stats.totalMs += this.stats.stepMs;
+    this.dispatch();
     return n;
+  }
+
+  /** Drena os eventos do motor (dos passos e dos comandos deste quadro) e os entrega pelo `bus`. */
+  private dispatch(): void {
+    const events = this.target.drainEvents?.() ?? [];
+    this.stats.events = events.length;
+    this.stats.totalEvents += events.length;
+    for (const e of events) this.bus.emit(e);
   }
 
   /** Aplica os comandos da fila agora (fronteira de passo) e os guarda no log. */
@@ -157,7 +181,7 @@ export class SimDriver<C> {
 
   /** Copia as posições de agora para o passo anterior (antes de cada passo). */
   private snapshot(): void {
-    const t = this.target;
+    const t = this.target.view;
     const n = t.count;
     if (this.prevX.length < n) {
       const cap = Math.max(n, this.prevX.length * 2, 256);
@@ -173,29 +197,32 @@ export class SimDriver<C> {
 
   /** Vale interpolar a criatura `i`: o slot é o mesmo indivíduo do passo anterior e o mundo não andou por fora. */
   private interpolates(i: number): boolean {
-    return i < this.prevCount && this.prevUid[i] === this.target.uid[i] && this.target.year === this.stamp;
+    const t = this.target.view;
+    return i < this.prevCount && this.prevUid[i] === t.uid[i] && t.year === this.stamp;
   }
 
   /** Coluna para desenhar a criatura `i`, entre o passo anterior e o atual. */
   x(i: number): number {
-    const x = this.target.x[i];
+    const t = this.target.view;
+    const x = t.x[i];
     if (!this.interpolates(i)) return x;
     const px = this.prevX[i];
     let d = x - px;
     // Atravessou a borda leste-oeste: interpola pelo lado curto.
     const w = this.opts.wrapWidth;
     if (w && Math.abs(d) > w / 2) d -= Math.sign(d) * w;
-    if (Math.abs(d) > JUMP || Math.abs(this.target.y[i] - this.prevY[i]) > JUMP) return x;
+    if (Math.abs(d) > JUMP || Math.abs(t.y[i] - this.prevY[i]) > JUMP) return x;
     const v = px + d * this.alpha;
     return w ? ((v % w) + w) % w : v;
   }
 
   /** Linha para desenhar a criatura `i`. */
   y(i: number): number {
-    const y = this.target.y[i];
+    const t = this.target.view;
+    const y = t.y[i];
     if (!this.interpolates(i)) return y;
     const py = this.prevY[i];
-    let dx = this.target.x[i] - this.prevX[i];
+    let dx = t.x[i] - this.prevX[i];
     const w = this.opts.wrapWidth;
     if (w && Math.abs(dx) > w / 2) dx -= Math.sign(dx) * w;
     if (Math.abs(dx) > JUMP || Math.abs(y - py) > JUMP) return y;

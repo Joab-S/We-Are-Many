@@ -230,21 +230,24 @@ export class Selection {
     return out;
   }
 
-  /**
-   * Uma vez por quadro, antes do mouse: a câmera que segue (pela posição
-   * desenhada, `at`) e o lugar da pessoa aberta na ficha, que mantém o modo
-   * completo da simulação (RF-AS-30 e 31).
-   */
+  /** Uma vez por quadro, antes do mouse: a câmera que segue a criatura fixada, pela posição desenhada (`at`). */
   track(at: { x(i: number): number; y(i: number): number }): void {
     const view = this.view;
-    const eco = this.eco;
     const i = this.creature;
     if (this.follow && i >= 0) {
       view.center.x = at.x(i);
       view.center.y = view.mapHeight - at.y(i);
     }
+  }
+
+  /**
+   * Lugar da pessoa aberta na ficha (-1 nenhum), que mantém o modo completo da simulação mesmo fora da
+   * tela (RF-AS-30 e 31). Vai para o motor no comando de vista, como o foco da câmera.
+   */
+  pinnedVillage(): number {
     const p = this.pinned;
-    eco.pinned = p && 'creature' in p && eco.alive[p.creature] ? eco.village[p.creature] : -1;
+    const eco = this.eco;
+    return p && 'creature' in p && eco.alive[p.creature] ? eco.village[p.creature] : -1;
   }
 
   /** Quem seria escolhido num clique agora ganha contorno (RF-VIDA-330); só com a mão vazia. */
