@@ -17,25 +17,55 @@ const { BOATS } = constantsModule;
 const { elderAge } = helpersModule;
 const { isWater, isLand, NEIGHBORS4 } = tilesModule;
 
+/** Desvios do caminho a pé, em fração da distância para o lado da reta (ver `landPath`). */
+const DETOUR_SIDES = [0.35, -0.35, 0.7, -0.7];
+
+/** A linha reta entre dois pontos é toda de terra, sem penhasco no meio. */
+function straightWalk(eco: Ecosystem, ax: number, ay: number, bx: number, by: number): boolean {
+  const dx = wrapDx(bx - ax, eco.map.width);
+  const dy = by - ay;
+  const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
+  let prev = -1;
+  for (let k = 0; k <= n; k++) {
+    const t = eco.tileAt(Math.floor(ax + (dx * k) / n), Math.floor(ay + (dy * k) / n));
+    if (t < 0 || !isLand(eco.map, t)) return false;
+    if (prev >= 0 && Math.abs(eco.map.elevation[t] - eco.map.elevation[prev]) > B.MAX_CLIMB * 1.5) return false;
+    prev = t;
+  }
+  return true;
+}
+
 export const portsPart = {
-  /** Vegetação mínima para fundar: a partir da Idade do Ferro, poços e irrigação abrem o deserto. */
-  minFertility(this: Ecosystem, v: Village): number {
-    return v.tech >= 2 ? 0 : 0.2;
+  /**
+   * Vegetação mínima no centro para fundar (SITE_CENTER_GREEN), de `v` ou de quem tem a técnica `v`. A partir da
+   * Idade do Ferro, poços e irrigação abrem o deserto, mas só onde há água no subsolo (SITE_WELL_MOISTURE no `tile`,
+   * onda 3); sem tile, vale a regra antiga (nenhuma vegetação da Idade do Ferro em diante).
+   */
+  minFertility(this: Ecosystem, v: Village | number, tile = -1): number {
+    const tech = typeof v === 'number' ? v : v.tech;
+    if (tech < 2) return B.SITE_CENTER_GREEN;
+    return tile < 0 || this.map.moisture[tile] >= B.SITE_WELL_MOISTURE ? 0 : B.SITE_CENTER_GREEN;
   },
 
-  /** Se a linha reta entre dois pontos é toda de terra, sem penhasco no meio (dá para ir a pé). */
-  landPath(this: Ecosystem, ax: number, ay: number, bx: number, by: number): boolean {
+  /**
+   * Se dá para ir a pé de um ponto ao outro: a linha reta é toda de terra, sem penhasco no meio. Com `detour`
+   * (onda 3), uma baía ou um lago no meio do caminho não fecha a passagem: tenta contornar por um ponto ao lado
+   * da reta (a um terço e a dois terços da distância, para cada lado), em duas retas.
+   */
+  landPath(this: Ecosystem, ax: number, ay: number, bx: number, by: number, detour = false): boolean {
+    if (straightWalk(this, ax, ay, bx, by)) return true;
+    if (!detour) return false;
     const dx = wrapDx(bx - ax, this.map.width);
     const dy = by - ay;
-    const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
-    let prev = -1;
-    for (let k = 0; k <= n; k++) {
-      const t = this.tileAt(Math.floor(ax + (dx * k) / n), Math.floor(ay + (dy * k) / n));
-      if (t < 0 || !isLand(this.map, t)) return false;
-      if (prev >= 0 && Math.abs(this.map.elevation[t] - this.map.elevation[prev]) > B.MAX_CLIMB * 1.5) return false;
-      prev = t;
+    const d = Math.hypot(dx, dy);
+    if (d < 4) return false;
+    for (const k of DETOUR_SIDES) {
+      const mx = ax + dx / 2 - (dy / d) * d * k;
+      const my = ay + dy / 2 + (dx / d) * d * k;
+      if (my < 1 || my >= this.map.height - 1) continue;
+      if (straightWalk(this, ax, ay, mx, my) && straightWalk(this, mx, my, bx, by)) return true;
     }
-    return true;
+    return false;
   },
 
   // Portos e barcos ----------------------------------------------------------

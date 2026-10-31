@@ -147,6 +147,8 @@ export const lifecyclePart = {
     for (let k = 0; k < settlers; k++) {
       this.spawn(s, x + (rnd() - 0.5) * 3, y + (rnd() - 0.5) * 3, village.id, sp.maturity + rnd() * 10);
     }
+    // O campo de notas dos sítios em volta muda (Dirty Flag): a captação dali agora é dividida.
+    this.siteDirty(village.x, village.y, this.catchRadius(0));
     this.emit({ kind: 'found', year: this.year, village: id, from: from?.id ?? -1, how: village.foundedBy!, x: village.x, y: village.y });
     return village;
   },
@@ -188,6 +190,7 @@ export const lifecyclePart = {
     v.mines.length = 0;
     // Assentamentos do reino de uma capital abandonada ficam independentes.
     for (const o of this.villages) if (o.kingdom === v.id && o !== v) o.kingdom = o.id;
+    this.siteDirty(v.x, v.y, this.catchRadius(v));
     this.emit({ kind: 'abandon', year: this.year, village: v.id, to: v.leftTo ?? -1 });
     if (quiet) return;
     // Abandono com destino (RF-AS-08): a crônica diz para onde foram os últimos moradores.

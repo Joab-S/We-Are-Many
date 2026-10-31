@@ -87,7 +87,8 @@ export const coloniesPart = {
   },
 
   /** O que os batedores veem num sítio (RF-AS-04). */
-  siteLook(this: Ecosystem, s: number, x: number, y: number, from: Village | null, motive: ColonyMotive): SiteLook {
+  siteLook(this: Ecosystem, s: number, x: number, y: number, from: Village | null, motive: ColonyMotive, tech = from ? from.tech : 0): SiteLook {
+    void tech;
     const map = this.map;
     const R = 8;
     let land = 0;

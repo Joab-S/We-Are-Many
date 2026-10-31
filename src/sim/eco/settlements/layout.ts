@@ -292,6 +292,29 @@ export const layoutPart = {
   },
 
   /**
+   * Filtro rápido de um lugar novo, igual em todas as entradas de fundação (onda 3): o centro é habitável, está
+   * na faixa de temperatura da espécie (com folga de SITE_TEMP_MARGIN K), tem verde (SITE_CENTER_GREEN; com poço
+   * sobre água no subsolo, ou numa praça ou rua antiga, não precisa) e respeita o espaçamento (`canFound`).
+   * Devolve o porquê ou null. Não lê a área em volta: isso é `siteProblem`, mais caro, só para os melhores.
+   */
+  siteQuick(this: Ecosystem, s: number, x: number, y: number, tech = 0): string | null {
+    const map = this.map;
+    const center = this.tileAt(Math.floor(x), Math.floor(y));
+    if (center < 0 || !isLand(map, center) || !this.habitable(s, center)) return 'o lugar não é habitável para eles';
+    const sp = this.species[s];
+    const temp = temperatureAt(map, center);
+    if (temp < sp.tempMin - B.SITE_TEMP_MARGIN || temp > sp.tempMax + B.SITE_TEMP_MARGIN) return temp < sp.tempMin ? 'é frio demais para eles' : 'é quente demais para eles';
+    if (!this.road[center] && map.vegetation[center] < this.minFertility(tech, center)) return 'o chão é pelado: nada verde onde as casas ficariam';
+    if (!this.canFound(Math.floor(x), Math.floor(y))) return 'é perto demais de outro assentamento';
+    return null;
+  },
+
+  /** Por que o lugar não serve para fundar (filtro rápido e exame da área), ou null: o veto único das entradas de fundação. */
+  siteFilter(this: Ecosystem, s: number, x: number, y: number, tech = 0): string | null {
+    return this.siteQuick(s, x, y, tech) ?? this.siteProblem(s, x, y, tech);
+  },
+
+  /**
    * Por que o lugar (x, y) não serve para a espécie `s` fundar um
    * assentamento, ou null se serve (seção 19.18). Antes de se estabelecer, o
    * povo olha a área em volta (SITE_RADIUS): nada de lava ou chão em brasa
