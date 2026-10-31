@@ -222,15 +222,19 @@ export const societyPart = {
     return ROLE[role];
   },
 
-  /** Índice de quem tem esse `uid` (-1 se morreu ou não existe); o mapa é refeito uma vez por ano. */
+  /**
+   * Índice de quem tem esse `uid` (-1 se morreu ou não existe), pelo cache anual `uidCache`: quem nasceu
+   * ou desembarcou depois da última recontagem do ano ainda não aparece (o índice exato, `uidIndex`, é o
+   * de `findUid`).
+   */
   indexOfUid(this: Ecosystem, uid: number): number {
     if (!uid) return -1;
     if (this.uidYear !== Math.floor(this.year)) {
       this.uidYear = Math.floor(this.year);
-      this.uidIndex.clear();
-      for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidIndex.set(this.uid[k], k);
+      this.uidCache.clear();
+      for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidCache.set(this.uid[k], k);
     }
-    const k = this.uidIndex.get(uid);
+    const k = this.uidCache.get(uid);
     return k !== undefined && this.alive[k] && this.uid[k] === uid ? k : -1;
   },
 

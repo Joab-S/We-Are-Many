@@ -14,6 +14,10 @@ export const savePart = {
   /** Depois de carregar um save de antes das ações presenciais: os vetores novos nascem zerados, do tamanho dos demais. */
   fixAfterLoad(this: Ecosystem): void {
     const n = this.x.length;
+    // Índice uid -> índice: refeito dos vetores (em saves antigos, `uidIndex` era o cache anual, que agora é `uidCache`).
+    this.uidIndex.clear();
+    for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidIndex.set(this.uid[k], k);
+    if (!this.uidCache.size) this.uidYear = -1;
     if (this.jobKind.length < n) this.jobKind = new Uint8Array(n);
     if (this.job.length < n) this.job = new Int32Array(n);
     if (this.jobWork.length < n) this.jobWork = new Float32Array(n);
@@ -84,7 +88,10 @@ export const savePart = {
    */
   restore(this: Ecosystem, c: number, who: Identity | undefined, back = false): void {
     if (!who) return;
+    // O lugar troca de dono: o índice uid -> índice segue o uid de volta.
+    this.uidIndex.delete(this.uid[c]);
     this.uid[c] = who.uid;
+    this.uidIndex.set(who.uid, c);
     this.parent[c] = who.parent;
     this.family[c] = who.family;
     this.bornAt[c] = who.bornAt;

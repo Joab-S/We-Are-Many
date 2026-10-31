@@ -230,8 +230,13 @@ export class Ecosystem {
   readonly bonds = new Map<number, Bond[]>();
   /** Ofícios de cada assentamento no último ano (índice em ROLES), para a IA saber o que já está cheio. */
   roleCount = new Map<number, number[]>();
-  /** Cache de `uid` -> índice, refeito uma vez por ano (vai no save junto com o ano, então volta coerente). */
+  /**
+   * `uid` -> índice de cada criatura viva (Object Pool com handle: o índice é reaproveitado depois da
+   * morte, o `uid` não). Mantido por `spawn`, `kill` e `restore`; refeito dos vetores depois de carregar.
+   */
   readonly uidIndex = new Map<number, number>();
+  /** Cache anual de `uid` -> índice que `indexOfUid` usa: refeito uma vez por ano (vai no save junto com o ano, então volta coerente). */
+  readonly uidCache = new Map<number, number>();
   uidYear = -1;
   /** Tiles que ninguém alcançou, e o ano até o qual saem do quadro de serviços. */
   readonly jobBlocked = new Map<number, number>();

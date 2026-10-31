@@ -284,6 +284,7 @@ export const entitiesPart = {
     this.alive[i] = 1;
     this.village[i] = village;
     this.uid[i] = ++this.nextUid;
+    this.uidIndex.set(this.uid[i], i);
     this.parent[i] = 0;
     this.family[i] = ++this.nextFamily;
     this.bornAt[i] = age === 0 ? village : -1;
@@ -341,6 +342,7 @@ export const entitiesPart = {
   kill(this: Ecosystem, i: number, quiet = false, cause: Exit = 'outra'): void {
     if (!this.alive[i]) return;
     this.alive[i] = 0;
+    this.uidIndex.delete(this.uid[i]);
     const s = this.kind[i];
     if (cause !== 'partiu') {
       this.diary.delete(this.uid[i]);

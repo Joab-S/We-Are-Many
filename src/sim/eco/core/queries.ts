@@ -17,10 +17,10 @@ const { ACT } = constantsModule;
 const { elderAge } = helpersModule;
 
 export const queriesPart = {
-  /** Índice da criatura viva com esse `uid`, ou -1. */
+  /** Índice da criatura viva com esse `uid`, ou -1 (pelo índice uid -> índice, sem varrer a população). */
   findUid(this: Ecosystem, uid: number): number {
-    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.uid[i] === uid) return i;
-    return -1;
+    const k = this.uidIndex.get(uid);
+    return k !== undefined && this.alive[k] && this.uid[k] === uid ? k : -1;
   },
 
   /** Todas as criaturas a até `radius` de um ponto, da mais perto para a mais longe (RF-VIDA-331). */
@@ -59,13 +59,11 @@ export const queriesPart = {
   },
 
   familyOf(this: Ecosystem, i: number): { parent: number; children: number[] } {
-    let parent = -1;
+    // O pai ou a mãe pelo índice uid -> índice; os filhos ainda pela varredura (só a ficha da criatura pergunta).
+    const parent = this.parent[i] ? this.findUid(this.parent[i]) : -1;
     const children: number[] = [];
-    for (let j = 0; j < this.count; j++) {
-      if (!this.alive[j]) continue;
-      if (this.parent[i] && this.uid[j] === this.parent[i]) parent = j;
-      if (this.parent[j] === this.uid[i]) children.push(j);
-    }
+    const me = this.uid[i];
+    for (let j = 0; j < this.count; j++) if (this.alive[j] && this.parent[j] === me) children.push(j);
     return { parent, children };
   },
 
