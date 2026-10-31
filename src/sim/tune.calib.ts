@@ -3,8 +3,8 @@
  * numa semente, com as constantes de TUNE já trocadas no código pelo vitest.tune.config.ts, e a distância às
  * metas. Escreve em SAIDA (JSON) os indicadores, a distância, a parte de cada meta e os valores que o módulo
  * de fato viu (para conferir que a troca valeu). Variáveis: TUNE (JSON nome → valor), SEMENTE (índice: a semente
- * é 1000 + 37 × SEMENTE, como na longa), ANOS, RAIO, YEAR_SPAN, METAS (JSON com a lista de `Goal`; sem ela, as
- * metas da calibração longa) e SAIDA.
+ * é 1000 + 37 × SEMENTE, como na longa), ANOS, RAIO, YEAR_SPAN, METAS (JSON com uma lista de `Goal`, somada às
+ * metas da calibração longa a menos que METAS_LONGA seja 0) e SAIDA.
  */
 import { it } from 'vitest';
 import * as B from './balance';
@@ -31,7 +31,8 @@ it('avaliação do ajuste', async () => {
   const years = Number(env.ANOS ?? 200);
   const radius = Number(env.RAIO ?? 1);
   const yearSpan = Number(env.YEAR_SPAN ?? YEAR_SECONDS);
-  const goals: Goal[] = env.METAS ? JSON.parse(env.METAS) : goalsFrom(LONG_TARGETS);
+  const extra: Goal[] = env.METAS ? JSON.parse(env.METAS) : [];
+  const goals: Goal[] = [...(env.METAS_LONGA !== '0' ? goalsFrom(LONG_TARGETS) : []), ...extra];
   const applied: Record<string, number | null> = {};
   for (const name of Object.keys(tune)) applied[name] = seen(name);
   const t0 = performance.now();

@@ -6,7 +6,8 @@ import { MOVE_W } from '../ai/tuning';
 import { LONG_TARGETS, type Indicators } from './calibrate';
 import { goalLoss, goalMiss, goalsFrom } from './tuneGoals';
 import { formatNumber, readConstant, writeConstant } from '../../tools/tune/constants.mjs';
-import plan from '../../tools/tune/assentamentos.json';
+import shortPlan from '../../tools/tune/assentamentos.json';
+import longPlan from '../../tools/tune/assentamentos-longo.json';
 
 describe('ajuste automático: metas', () => {
   it('dentro da faixa não custa; fora, a distância na escala da borda', () => {
@@ -58,8 +59,8 @@ describe('ajuste automático: constantes no código', () => {
     expect(() => writeConstant(balanceSource, 'PLANT_PER_FELL', 1)).toThrow();
   });
 
-  it('todo parâmetro do plano de exemplo existe e começa dentro da faixa', () => {
-    for (const q of plan.parametros) {
+  it('todo parâmetro dos planos de exemplo existe e começa dentro da faixa', () => {
+    for (const q of [...shortPlan.parametros, ...longPlan.parametros]) {
       const v = readConstant(balanceSource, q.nome) ?? readConstant(tuningSource, q.nome);
       expect(v, q.nome).not.toBeNull();
       expect(v!, q.nome).toBeGreaterThanOrEqual(q.min);

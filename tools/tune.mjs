@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { availableParallelism, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { CMAES } from './tune/cmaes.mjs';
 import { formatNumber, readConstant, TUNE_FILES, whereIs, writeConstant } from './tune/constants.mjs';
 
@@ -26,28 +26,36 @@ function loadPlan(path) {
   if (!Array.isArray(p.parametros) || !p.parametros.length) throw new Error('plano: faltam "parametros"');
   const sources = Object.fromEntries(TUNE_FILES.map((f) => [f, readFileSync(join(ROOT, f), 'utf8')]));
   const home = whereIs(p.parametros.map((q) => q.nome), ROOT);
+  // Fase seguinte de um ajuste: parte dos valores escolhidos por outra rodada (a pasta de saída dela ou o melhor.json).
+  let from = {};
+  if (p.partirDe) {
+    const at = resolve(dirname(path), p.partirDe);
+    from = JSON.parse(readFileSync(at.endsWith('.json') ? at : join(at, 'melhor.json'), 'utf8')).valores;
+  }
   const params = p.parametros.map((q) => {
     const now = readConstant(sources[home[q.nome]], q.nome);
     if (!(q.max > q.min)) throw new Error(`plano: ${q.nome} precisa de min < max`);
     if (q.log && q.min <= 0) throw new Error(`plano: ${q.nome} com escala log precisa de min > 0`);
-    return { name: q.nome, min: q.min, max: q.max, log: !!q.log, int: !!q.inteiro, now, start: q.inicio ?? now, file: home[q.nome] };
+    return { name: q.nome, min: q.min, max: q.max, log: !!q.log, int: !!q.inteiro, now, start: q.inicio ?? from[q.nome] ?? now, file: home[q.nome] };
   });
   const name = path.replace(/^.*\//, '').replace(/\.json$/, '');
   return {
     name,
     mode: p.modo ?? 'cmaes',
     params,
-    years: p.anos ?? 200,
+    years: p.anos ?? 300,
     radius: p.raio ?? 1,
     seeds: p.sementes ?? [0, 1, 2, 3, 4, 5],
-    perEval: p.porAvaliacao ?? 2,
-    parallel: p.paralelo ?? Math.max(1, availableParallelism() - 1),
+    perEval: p.porAvaliacao ?? 3,
+    parallel: p.paralelo ?? availableParallelism(),
     generations: p.geracoes ?? 10,
     lambda: p.populacao,
     sigma: p.sigma ?? 0.25,
     seed: p.semente ?? 1,
-    goals: p.metas ? p.metas.map((m) => ({ key: m.chave, min: m.min, max: m.max, weight: m.peso, scale: m.escala })) : null,
-    validate: p.validar ?? { anos: p.anos ?? 200, sementes: p.sementes ?? [0, 1, 2, 3, 4, 5] },
+    // Metas: as da lista, mais as da calibração longa quando `metasDaLonga` (o padrão quando não há lista).
+    goals: (p.metas ?? []).map((m) => ({ key: m.chave, min: m.min, max: m.max, weight: m.peso, scale: m.escala })),
+    longGoals: p.metasDaLonga ?? !p.metas,
+    validate: p.validar ?? { anos: 1000, sementes: [0, 1, 2, 3, 4, 5] },
     out: resolve(ROOT, p.saida ?? join('tools/tune/saida', name)),
   };
 }
@@ -99,7 +107,7 @@ class Evaluator {
 
   key(values, seed, years) {
     const sorted = Object.keys(values).sort().map((k) => [k, values[k]]);
-    return createHash('sha1').update(JSON.stringify([this.code, sorted, seed, years, this.plan.radius, this.plan.goals])).digest('hex');
+    return createHash('sha1').update(JSON.stringify([this.code, sorted, seed, years, this.plan.radius, this.plan.goals, this.plan.longGoals])).digest('hex');
   }
 
   /** Uma avaliação (valores, semente, anos): do cache ou de um processo novo. */
@@ -119,8 +127,8 @@ class Evaluator {
       this.running++;
       const file = join(tmpdir(), `ajuste-${process.pid}-${job.key.slice(0, 16)}.json`);
       const env = { ...process.env, TUNE: JSON.stringify(job.values), SEMENTE: String(job.seed), ANOS: String(job.years), RAIO: String(this.plan.radius), SAIDA: file };
-      if (this.plan.goals) env.METAS = JSON.stringify(this.plan.goals);
-      else delete env.METAS;
+      env.METAS = JSON.stringify(this.plan.goals);
+      env.METAS_LONGA = this.plan.longGoals ? '1' : '0';
       const child = spawn(process.execPath, [VITEST, 'run', '--config', 'vitest.tune.config.ts'], { cwd: ROOT, env, stdio: ['ignore', 'ignore', 'pipe'] });
       let err = '';
       child.stderr.on('data', (d) => (err = (err + d).slice(-4000)));
