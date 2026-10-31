@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateSurface, type PlanetParams } from '../procgen/surface';
 import * as B from './balance';
-import { Ecosystem, isLand, type Village } from './ecosystem';
+import { Ecosystem, isLand, YEAR_SECONDS, type Village } from './ecosystem';
 import { nativeSpecies } from './species';
 import { BOND } from '../ai/relations';
 import { CHILD } from './roles';
@@ -208,6 +208,30 @@ describe('migração por utilidade', () => {
       expect(eco.movedAt[i]).toBe(eco.year);
       expect(eco.diary.get(eco.uid[i])?.some((t) => t.kind === 'mudança')).toBe(true);
     }
+  });
+});
+
+describe('quem anda sozinho só funda em grupo', () => {
+  /** Anda `years` anos de passos de 0,25 s (o mundo pequeno, sem fauna, é rápido). */
+  const run = (eco: Ecosystem, years: number) => {
+    for (let t = 0; t < years * YEAR_SECONDS; t += 0.25) eco.step(0.25);
+  };
+
+  it('um solitário num lugar bom não funda; com o grupo mínimo junto, funda e todos entram', () => {
+    const { eco, s, spot } = world();
+    const at = spot();
+    const one = eco.introduceOne(s, at.x + 0.5, at.y + 0.5);
+    expect(one).toBeGreaterThanOrEqual(0);
+    run(eco, 2);
+    expect(eco.villages.length).toBe(0);
+    const group = [one];
+    for (let k = 1; k < B.LONER_GROUP_MIN; k++) group.push(eco.introduceOne(s, eco.x[one] + 0.4 * k, eco.y[one]));
+    expect(group.every((i) => i >= 0)).toBe(true);
+    for (let k = 0; k < 10 && !eco.villages.length; k++) run(eco, 1);
+    expect(eco.villages.length).toBe(1);
+    const v = eco.villages[0];
+    expect(v.population).toBeGreaterThanOrEqual(B.LONER_GROUP_MIN);
+    for (const i of group) if (eco.alive[i]) expect(eco.village[i]).toBe(v.id);
   });
 });
 

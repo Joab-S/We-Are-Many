@@ -141,7 +141,7 @@ export const peopleDecidePart = {
       }
       case 'sapient': {
         // Sozinho (solto pelo jogador): procura um assentamento do seu povo ou funda um.
-        const lone = this.village[i] < 0 ? this.loner(i) : undefined;
+        const lone = this.village[i] < 0 ? this.loner(i, dt) : undefined;
         const v = this.village[i] >= 0 ? this.villages[this.village[i]] : null;
         const era = Math.floor(v?.tech ?? 0);
         const veg = map.vegetation[tile];

@@ -219,6 +219,16 @@ export const FISSION_SHARE = 0.3;
 export const FISSION_KEEN = 2;
 /** Grupo mínimo (pessoas, famílias inteiras) para uma família de um lugar em falta partir sozinha para longe (`colonizeByLand`). */
 export const LONE_GROUP_MIN = 6;
+/**
+ * Quem anda sozinho (`loner`, andarilho ou solto pelo jogador) não funda vila de uma pessoa: procura outros
+ * solitários do povo a até LONER_SEEK tiles e só funda com LONER_GROUP_MIN juntos (a até LONER_MEET tiles do
+ * guia, o de menor uid). Num lugar bom, o grupo funda com LONER_FOUND_RATE por ano (RF-VIDA-300; antes, 25% a
+ * cada decisão).
+ */
+export const LONER_GROUP_MIN = 3;
+export const LONER_SEEK = 40;
+export const LONER_MEET = 4;
+export const LONER_FOUND_RATE = 4;
 /** Epidemias por ano numa cidade grande sem saneamento, por 100 moradores (RF-VIDA-284). */
 export const EPIDEMIC_RATE = 0.02;
 /** Parte dos moradores que uma epidemia atinge. */

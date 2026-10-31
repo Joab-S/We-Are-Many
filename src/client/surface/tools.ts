@@ -2,6 +2,7 @@ import type { Ecosystem } from '../../sim/ecosystem';
 import { ORE_NAMES, ORES, type Ore } from '../../sim/economy';
 import { WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
 import { EARTH_ID, habitatOf, type Species } from '../../sim/species';
+import { LONER_GROUP_MIN } from '../../sim/balance';
 import type { ChronicleKind } from '../../sim/ecosystem';
 import { POLITICS_LABELS, POLITICS_PAIR, type EngineCommand, type PoliticsAction, type TerraformTool } from '../../sim/api/commands';
 import { BODY_NAMES, SPRITES } from './art';
@@ -314,7 +315,7 @@ export function buildTools(knownSpecies: Iterable<Species>): Tool[] {
       icon: `sprite:${bodyOf(sp)}:gatherer`,
       tint: [200, 160, 90],
       skin: sp.color,
-      tip: `Solta um(a) ${sp.name.toLowerCase()} por clique. Sozinho, ele procura um assentamento do seu povo ou funda um novo; para nascerem filhos, precisa de pelo menos dois.`,
+      tip: `Solta um(a) ${sp.name.toLowerCase()} por clique. Sozinho, ele procura um assentamento do seu povo ou outros como ele: só funda um novo com ${LONER_GROUP_MIN} juntos. Para nascerem filhos, precisa de pelo menos dois.`,
       mode: 'click' as const,
       act: introduce(sp),
     }));
