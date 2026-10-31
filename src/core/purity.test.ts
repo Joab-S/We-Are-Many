@@ -75,7 +75,7 @@ describe('motor puro sem three.js, DOM ou cliente', () => {
     expect(files.has('core/shipControl.ts')).toBe(true);
     expect(files.has('core/lru.ts')).toBe(true);
     // O motor da superfície e a fronteira dele com o cliente.
-    for (const f of ['sim/ecosystem.ts', 'sim/eco/war/war.ts', 'sim/api/commands.ts', 'sim/api/events.ts', 'save/snapshot.ts', 'ai/utility.ts', 'procgen/surface.ts']) {
+    for (const f of ['sim/ecosystem.ts', 'sim/eco/war/war.ts', 'sim/api/commands.ts', 'sim/api/events.ts', 'sim/api/engine.ts', 'save/snapshot.ts', 'ai/utility.ts', 'procgen/surface.ts']) {
       expect(files.has(f), f).toBe(true);
     }
   });
