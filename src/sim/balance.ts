@@ -884,3 +884,5 @@ export const BRONZE_AFTER_IRON = 0.8;
 export const STEAM_COAL = 1.5;
 /** Defesa pelo relevo (`homeGround`): quem luta no próprio território vale 1 + DEFENSE_RELIEF × relevo (0 plano, 1 serra). */
 export const DEFENSE_RELIEF = 0.5;
+/** Densidade na costa: o porto abriga PORT_HOUSING + era moradores (cais, armazéns e casas de pescadores; antes, nenhum). */
+export const PORT_HOUSING = 3;

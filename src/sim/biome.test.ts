@@ -8,6 +8,7 @@ import { fullNeeds, herdFor } from './needs';
 import { TECH_BY_ID } from './progress';
 import { domesticable, earthCatalog, herdFormsOf, nativeSpecies } from './species';
 import { usefulness } from './trade';
+import { buildingType } from './buildingTypes';
 import { ROLE } from './roles';
 
 /**
@@ -373,6 +374,11 @@ describe('defesa pelo relevo e densidade na costa', () => {
     expect(eco.strength(i)).toBeCloseTo(flat * (1 + B.DEFENSE_RELIEF), 5);
     eco.x[i] = (v.x + eco.radius(v) + 5) % eco.map.width;
     expect(eco.homeGround(i, v)).toBe(1);
+  });
+
+  it('o porto abriga gente (cais e casas de pescadores)', () => {
+    expect(buildingType('port').housing(0, 0, false)).toBe(B.PORT_HOUSING);
+    expect(buildingType('port').housing(3, 0, false)).toBe(B.PORT_HOUSING + 3);
   });
 });
 

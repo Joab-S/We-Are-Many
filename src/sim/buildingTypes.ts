@@ -69,7 +69,8 @@ export const BUILDING_TYPES: Readonly<Record<BuildingKind, BuildingType>> = {
     cost: (era) => (era >= 3 ? { wood: 1, stone: 4, gold: 0 } : { wood: 4, stone: 0, gold: 0 }),
     housing: (era, level, empty) => (empty ? 0 : 4 + era + level * B.LEVEL_HOUSING),
   },
-  port: { name: 'Porto', canBuild: never, cost: () => ({ wood: 12, stone: 0, gold: 0 }), housing: () => 0 },
+  // O porto traz cais, armazéns e casas de pescadores: a costa com porto é mais densa (bioma e sociedade).
+  port: { name: 'Porto', canBuild: never, cost: () => ({ wood: 12, stone: 0, gold: 0 }), housing: (era) => B.PORT_HOUSING + era },
   granary: { name: 'Celeiro', canBuild: (c) => c.era >= 1 || c.techs.has('ceramica') || c.tier >= 1, cost: special, housing: two },
   smithy: { name: 'Ferraria', canBuild: (c) => c.metal && (c.techs.has('fundicao') || c.era >= 1), cost: special, housing: two },
   market: { name: 'Mercado', canBuild: (c) => c.tier >= 1 || c.culture.value === 'comércio', cost: special, housing: two },
