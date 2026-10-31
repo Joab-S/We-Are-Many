@@ -199,6 +199,20 @@ describe('água graduada no exame da área', () => {
     expect(eco.siteProblem(s, 210, 32, 2)).toContain('água');
   });
 
+  it('o lugar fundado na nascente tem água: não passa sede e tira barro (wet)', () => {
+    for (const [moist, wet] of [
+      [B.SITE_SPRING_MOISTURE + 0.05, true],
+      [B.SITE_SPRING_MOISTURE - 0.2, false],
+    ] as const) {
+      const { map, eco, s } = flatWorld(128, 64, 0.5);
+      paint(map, 0, 0, 127, 63, (i) => (map.moisture[i] = moist));
+      const v = eco.foundVillage(s, 64, 32, 6);
+      eco.updateNeeds(v, 4);
+      expect(v.wet).toBe(wet);
+      expect(v.needs!.water === 1).toBe(wet);
+    }
+  });
+
   it('o poço sobre água no subsolo também alivia o verde que falta (poços abrem o deserto)', () => {
     const { map, eco, s } = flatWorld(128, 64, B.SITE_MIN_FOOD * 0.7);
     paint(map, 0, 0, 127, 63, (i) => (map.moisture[i] = B.SITE_SPRING_MOISTURE + 0.05));

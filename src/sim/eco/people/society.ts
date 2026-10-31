@@ -60,7 +60,12 @@ export const societyPart = {
     };
     const pop = Math.max(1, v.population);
     const era = Math.floor(v.tech);
-    if (v.wet === undefined) v.wet = this.nearWater(this.tileAt(v.x, Math.floor(v.y))) || this.coastal(v);
+    // Água por perto: rio, lago ou mar em volta, ou a nascente do solo encharcado no centro (a mesma régua da água doce
+    // dos sítios, `waterGrade`). Antes a nascente não contava, e o lugar fundado nela vivia com sede e sem barro.
+    if (v.wet === undefined) {
+      const center = this.tileAt(v.x, Math.floor(v.y));
+      v.wet = this.nearWater(center) || this.coastal(v) || (center >= 0 && this.map.moisture[center] >= B.SITE_SPRING_MOISTURE);
+    }
     const n = v.needs ?? fullNeeds();
     v.fedShare = ratio('_fed');
     n.food = 0.6 * v.fedShare + 0.4 * Math.min(1, v.food / (pop * B.CONSUME_FOOD));
