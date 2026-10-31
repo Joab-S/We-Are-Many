@@ -53,6 +53,12 @@ describe('jornadas num povo de verdade', () => {
     // sorteada entre as melhores, então 3 de 4 dependia da semente.
     const hungry = adults.slice(0, 8);
     big.food = Math.max(big.food, 20);
+    // Sem festa, enterro, alarme nem caravana na praça neste instante: esses eventos chamam todo mundo antes
+    // da fome, e cair num deles depende da história da semente.
+    big.festivalUntil = undefined;
+    big.funeral = undefined;
+    big.alarmUntil = undefined;
+    big.curiousUntil = undefined;
     for (const i of hungry) {
       eco.energy[i] = 0.3;
       eco.day[i] = DAY.none;
