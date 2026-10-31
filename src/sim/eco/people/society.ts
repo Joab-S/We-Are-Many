@@ -222,6 +222,8 @@ export const societyPart = {
       // Soldados e guardas só largam as armas na fome brava.
       if ((from === 'soldier' || from === 'guard') && n[need] >= B.SEVERE_NEED) continue;
       if (!calm && sector && n[sector] < n[need] + 0.15) continue;
+      // Comida antes da lenha: quem cuida da comida só vai para a mata com a comida garantida.
+      if (need === 'fuel' && sector === 'food' && n.food < B.FUEL_SPARES_FOOD) continue;
       if (calm && sector === need) continue;
       if (from !== role) this.logThought(i, 'ofício', `Trocou ${ROLE_NAMES[from].toLowerCase()} por ${ROLE_NAMES[role].toLowerCase()}: ${calm ? 'é o forte do lugar' : `o lugar precisava de ${NEED_NAMES[need]}`}`);
       this.role[i] = target;

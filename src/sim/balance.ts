@@ -618,6 +618,13 @@ export const LABOR_CRISIS_MAX = 0.6;
 export const CHILD_NEED = 0.65;
 /** Atendimento abaixo do qual até soldados e guardas largam as armas para buscar comida ou lenha. */
 export const SEVERE_NEED = 0.4;
+/**
+ * Comida antes da lenha (calibração conjunta, 4B): na falta de lenha, quem planta, colhe, caça, pesca ou cria só vira
+ * lenhador com o atendimento de comida a partir disto. Antes, a crise de lenha levava até 60% dos adultos para a mata
+ * com o celeiro vazio, e a fome vinha no ano seguinte: na longa de 1000 anos, a fome caiu de 0,89 para 0,58 por 100
+ * por ano e o povo subiu de 2000 para 2900.
+ */
+export const FUEL_SPARES_FOOD = 0.9;
 
 // Guerras com motivo (seção 19.7, Etapa F).
 
