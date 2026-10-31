@@ -9,7 +9,18 @@ import { happens } from '../../stochastic';
 import { CHILD } from '../../roles';
 import { pairKey } from '../../community';
 import { emptyVital } from '../../people';
+import { BOND } from '../../../ai/relations';
+import { chooseMove, moveWhy, type MoveAction, type MoveContext, type PlaceView } from '../../../ai/decisions/move';
 import type { Village } from '../types';
+
+/** Um lugar conhecido ao alcance e o custo de ir até lá (viagem e diferença de povo e de reino), em pontos da nota. */
+interface Known {
+  o: Village;
+  cost: number;
+}
+
+/** Lugares que a família compara de cada vez (os melhores pela nota): a escolha fica barata e o porquê, curto. */
+const MOVE_OPTIONS = 5;
 
 export const migrationPart = {
   /**
@@ -55,12 +66,14 @@ export const migrationPart = {
   },
 
   /**
-   * Migração por nota (evolução dos povos, etapa 2; antes RF-VIDA-281): uma vez por ano, cada família de
-   * cada assentamento pensa em se mudar com chance MOVE_THINK (bem mais na falta) e compara a nota de onde
-   * mora (com o apego ao lugar) com a dos lugares do seu povo que conhece, descontada a distância e a
-   * diferença de povo e de reino. Escolhe entre as melhores com sorteio ponderado, então duas famílias no
-   * mesmo aperto podem decidir diferente. Na falta, sem lugar melhor por perto, parte do povo sai para
-   * fundar outro lugar (êxodo), como antes; agora isso só acontece quando nenhum lugar conhecido é melhor.
+   * Migração por nota (evolução dos povos, etapa 2; antes RF-VIDA-281), decidida pela IA de quando sair
+   * (src/ai/decisions/move.ts): uma vez por ano, depois do ano da economia (as necessidades já são as deste
+   * ano), cada família pensa em se mudar com chance MOVE_THINK (bem mais na falta) e escolhe entre ficar e
+   * os lugares do seu povo que conhece, com caminho por terra, pela nota de cada um (descontadas a viagem e a
+   * diferença de povo e de reino), a pressão social, os laços que tem lá, o apego e os anos desde a última
+   * mudança (histerese). A cada família que chega, a nota do destino e a da origem são refeitas: o lugar que
+   * lota deixa de atrair (sem estouro de manada). Na falta, sem lugar melhor por perto, parte do povo sai
+   * para fundar outro lugar (êxodo); isso só acontece quando nenhum lugar conhecido é melhor.
    */
   migrate(this: Ecosystem): void {
     const live = this.villages.filter((o) => !o.abandoned && o.population > 0);
@@ -72,72 +85,77 @@ export const migrationPart = {
       const fams = families.get(v.id);
       if (!fams || v.population < 1) continue;
       const lack = this.scarcity(v);
-      const stay = (score.get(v) ?? 0) + B.MOVE_STAY;
       const reach = B.MOVE_RANGE + B.MOVE_RANGE_ERA * Math.floor(v.tech);
-      // Lugares conhecidos: do mesmo povo e espécie, a pé, com nota de quem já mora lá menos a viagem e a diferença.
-      const options: { o: Village; value: number }[] = [];
+      // Lugares conhecidos: do mesmo povo e espécie, a pé e com caminho por terra. O caminho é conferido
+      // antes de escolher (antes, a lista era cortada nos 4 melhores e só então se via quem dava para alcançar).
+      const known: Known[] = [];
       for (const o of live) {
         if (o === v || o.species !== v.species) continue;
         const d = this.distance(o, v.x, v.y);
-        if (d > reach) continue;
-        const foreign = o.culture !== v.culture ? B.MOVE_FOREIGN : o.kingdom !== v.kingdom ? B.MOVE_OTHER_KINGDOM : 0;
-        options.push({ o, value: (score.get(o) ?? 0) - d / B.MOVE_DIST - foreign });
+        if (d > reach || !this.landPath(v.x, v.y, o.x, o.y)) continue;
+        known.push({ o, cost: d / B.MOVE_DIST + (o.culture !== v.culture ? B.MOVE_FOREIGN : o.kingdom !== v.kingdom ? B.MOVE_OTHER_KINGDOM : 0) });
       }
-      options.sort((p, q) => q.value - p.value);
+      const value = (c: Known) => (score.get(c.o) ?? 0) - c.cost;
       // Última leva (RF-AS-08): um lugar minúsculo e em falta se muda inteiro para o melhor lugar ao alcance.
       if (v.population <= B.LAST_WAVE_POP && (lack > 0 || (v.want ?? 0) >= 2)) {
-        const dest = options.find((c) => !c.o.abandoned && this.scarcity(c.o) === 0 && this.landPath(v.x, v.y, c.o.x, c.o.y))?.o;
+        const dest = [...known].sort((p, q) => value(q) - value(p)).find((c) => !c.o.abandoned && this.scarcity(c.o) === 0)?.o;
         if (dest) {
           for (const members of fams.values()) for (const i of members) this.relocate(i, v, dest);
           this.emit({ kind: 'migrate', year: this.year, family: -1, from: v.id, to: dest.id, people: [...fams.values()].reduce((n, m) => n + m.length, 0), cause: 'lastWave' });
           v.leftTo = dest.id;
           this.tally.lastWaves++;
           this.note(`Os últimos moradores de ${v.name} se mudaram para ${dest.name}`, 'povo', dest, { key: `lastwave-${v.id}` });
+          score.set(dest, this.placeScore(dest));
           continue;
         }
       }
       if (v.population < 2) continue;
-      // Anos de falta (êxodo): sem o apego, vale qualquer lugar conhecido melhor que este e que não esteja em falta;
-      // sem nenhum, parte do povo vai fundar outro lugar (fronteira).
+      // Anos de falta (êxodo): ficar perde o costume e a histerese, e valem só os lugares melhores que este e
+      // que não estejam em falta; sem nenhum, parte do povo vai fundar outro lugar (fronteira).
       const exodus = lack > 0 && (v.want ?? 0) >= 3 && v.population >= 10;
       const here = score.get(v) ?? 0;
-      const better = options.filter((c) => (exodus ? c.value > here && this.scarcity(c.o) === 0 : c.value > stay)).slice(0, 4);
-      const reachable = better.filter((c) => this.landPath(v.x, v.y, c.o.x, c.o.y));
-      const think = exodus ? B.EXODUS_SHARE : Math.min(0.9, B.MOVE_THINK * (1 + B.MOVE_LACK * lack));
+      const targets = exodus ? known.filter((c) => value(c) > here && this.scarcity(c.o) === 0) : known;
+      // Fissão por pressão: com o lugar apertado para as instituições que tem, os batedores procuram sítios e
+      // cada família pode escolher fundar; a pressão também faz mais famílias pensarem em sair.
+      // A pressão que empurra a fissão: a social (gente demais para as instituições) e a da terra (com fome e
+      // sem terra para mais roça perto). Os batedores procuram espaço ou terra, a que mais aperta.
+      const social = this.socialPressure(v);
+      const land = this.landPressure(v);
+      const pressure = social + land;
+      const motive = land > social ? 'terra' : 'espaço';
+      const split = !exodus && this.canSplit(v, motive);
+      const sites = split && pressure >= B.PRESSURE_SCOUT ? this.scoutSites(v, motive, B.COLONY_SCOUTS) : [];
+      const think = exodus ? B.EXODUS_SHARE : Math.min(0.9, B.MOVE_THINK * (1 + B.MOVE_LACK * lack) + B.MOVE_PRESS_THINK * Math.max(0, pressure - B.PRESSURE_SCOUT));
       const leader = this.leaderOf(v);
       let movedAny = 0;
       let to: Village | null = null;
-      if (reachable.length) {
-        for (const members of fams.values()) {
+      const volunteers: number[] = [];
+      let ready = 0;
+      if (targets.length || sites.length) {
+        for (const [key, members] of fams) {
           if (members.includes(leader) || !happens(this.civRnd, think, 1)) continue;
-          // Sorteio ponderado entre ficar e as opções: quanto maior a vantagem, mais provável (no êxodo, ficar não conta).
-          const base = exodus ? here : stay;
-          let total = exodus ? 0 : 1;
-          const weights = reachable.map((c) => {
-            const w = Math.exp((c.value - base) / B.MOVE_TEMPER) - 1;
-            total += w;
-            return w;
-          });
-          let r = this.civRnd() * total - (exodus ? 0 : 1);
-          if (r < 0) continue;
-          let pick = reachable[0];
-          for (let k = 0; k < reachable.length; k++) {
-            r -= weights[k];
-            if (r <= 0) {
-              pick = reachable[k];
-              break;
-            }
+          const pick = this.thinkMove(v, members, targets, score, lack, exodus, sites, pressure);
+          if (pick?.kind === 'found') {
+            // Quem escolheu fundar espera o grupo: a colônia sai quando houver famílias bastantes.
+            volunteers.push(key);
+            ready += members.length;
+            continue;
           }
-          const dest = pick.o;
+          if (pick?.kind !== 'migrate') continue;
+          const dest = this.villages[pick.to];
           if (dest.abandoned) continue;
           for (const i of members) this.relocate(i, v, dest);
           this.emit({ kind: 'migrate', year: this.year, family: this.family[members[0]] ?? -1, from: v.id, to: dest.id, people: members.length, cause: 'move' });
           movedAny += members.length;
           this.tally.familyMoves++;
           to = dest;
+          // A chegada muda as duas notas (casa sobrando, pressão): a próxima família já vê o destino mais cheio.
+          score.set(dest, this.placeScore(dest));
+          score.set(v, this.placeScore(v));
           if (v.population <= 0) break;
         }
       }
+      if (ready >= B.COLONY_GROUP_MIN * B.FISSION_READY) this.organizeColony(v, motive, sites, volunteers);
       if (movedAny && to) {
         const why = lack > 0 ? this.lackName(v) : to.tier > v.tier ? 'trabalho na cidade' : 'uma vida melhor';
         this.note(`Famílias de ${v.name} se mudaram para ${to.name} em busca de ${why}`, 'povo', to, { key: `migra-${v.id}-${to.id}` });
@@ -145,8 +163,62 @@ export const migrationPart = {
         continue;
       }
       // Êxodo sem lugar conhecido melhor ao alcance: sítio, colônia, refúgio e, só longe de tudo, fundar (RF-AS-01).
-      if (exodus && !reachable.length) this.exodusWithoutPlace(v, fams);
+      if (exodus && !targets.length) this.exodusWithoutPlace(v, fams);
     }
+  },
+
+  /**
+   * A família `members` de `v` pensa em se mudar (src/ai/decisions/move.ts): monta o que ela sabe (a nota de
+   * cada lugar ao alcance, a pressão, os laços que tem em cada um, há quanto tempo chegou e os sítios que os
+   * batedores viram) e escolhe. Quem decide sair anota o porquê no diário. Devolve a escolha (null: nenhuma opção).
+   */
+  thinkMove(this: Ecosystem, v: Village, members: number[], known: Known[], score: Map<Village, number>, lack: number, exodus: boolean, sites: { value: number }[] = [], pressure?: number): MoveAction | null {
+    const adults = members.filter((i) => this.role[i] !== CHILD);
+    if (!adults.length) return null;
+    const ties = this.tiesByPlace(members);
+    let yearsHere = Infinity;
+    for (const i of adults) if (this.movedAt[i] >= 0) yearsHere = Math.min(yearsHere, this.year - this.movedAt[i]);
+    const places: PlaceView[] = known
+      .map((c) => ({ id: c.o.id, value: (score.get(c.o) ?? 0) - c.cost, pressure: this.socialPressure(c.o), friends: ties.get(c.o.id) ?? 0, affinity: this.affinity(v.id, c.o.id) }))
+      .sort((p, q) => q.value - p.value)
+      .slice(0, MOVE_OPTIONS);
+    const ctx: MoveContext = {
+      traits: this.traits,
+      adults,
+      here: { value: score.get(v) ?? 0, pressure: pressure ?? this.socialPressure(v), friends: ties.get(v.id) ?? 0, lack },
+      places,
+      sites: sites.map((p, index) => ({ index, value: p.value })),
+      yearsHere,
+      exodus,
+    };
+    const choice = chooseMove(ctx, this.mindRnd);
+    if (!choice) return null;
+    const pick = choice.pick.action;
+    if (pick.kind !== 'stay') {
+      const name = (a: MoveAction) => (a.kind === 'stay' ? 'ficar' : a.kind === 'migrate' ? `ir para ${this.villages[a.to].name}` : 'fundar um lugar novo');
+      const why = moveWhy(choice, name);
+      for (const i of adults) this.logThought(i, 'mudança', why.charAt(0).toUpperCase() + why.slice(1));
+    }
+    return pick;
+  },
+
+  /**
+   * Laços da família por lugar (amigos, cônjuges e pais dos adultos, pelo uid): quantos moram em cada
+   * assentamento, sem contar a própria família (que vai junto).
+   */
+  tiesByPlace(this: Ecosystem, members: number[]): Map<number, number> {
+    const out = new Map<number, number>();
+    const add = (j: number) => {
+      if (j < 0 || members.includes(j)) return;
+      const vid = this.village[j];
+      if (vid >= 0) out.set(vid, (out.get(vid) ?? 0) + 1);
+    };
+    for (const i of members) {
+      if (this.role[i] === CHILD) continue;
+      for (const b of this.bonds.get(this.uid[i]) ?? []) if (b.kind === BOND.friend || b.kind === BOND.partner) add(this.findUid(b.uid));
+      if (this.parent[i]) add(this.findUid(this.parent[i]));
+    }
+    return out;
   },
 
   /** O que mais falta no assentamento em falta: comida (gente com fome) ou lenha. */

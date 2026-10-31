@@ -338,8 +338,12 @@ export interface Village {
   /** Lugar de onde vieram os fundadores (a deriva cultural de um lugar livre conta a partir dele, RF-AS-52). */
   mother?: number;
   foundedBy?: 'bando' | 'colônia' | 'sítio' | 'refúgio' | 'cisma' | 'família' | 'mar';
-  /** Colônia em formação: motivo, sítios que os batedores visitam e quando o grupo parte (RF-AS-03). */
-  colony?: { motive: ColonyMotive; sites: { x: number; y: number; value: number }[]; until: number; scouts: number[] };
+  /**
+   * Colônia em formação: motivo, sítios que os batedores visitam e quando o grupo parte (RF-AS-03). Agente 3B:
+   * `cause` diz por que ela sai (pressão social, fome ou um recurso de fora) e `volunteers` são as famílias
+   * (a chave de `familyGroups`) que escolheram fundar e vão primeiro.
+   */
+  colony?: { motive: ColonyMotive; sites: { x: number; y: number; value: number }[]; until: number; scouts: number[]; cause?: FoundCause; volunteers?: number[] };
   /** Ano em que a última colônia partiu daqui (COLONY_COOLDOWN). */
   colonyAt?: number;
   /** Bairros que vieram de aldeias engolidas pela cidade (RF-AS-06). */
@@ -378,6 +382,9 @@ export interface Village {
   /** Anos seguidos de pressão acima de PRESSURE_FISSION sem sítio livre para a fissão (circunscrição); 0 ao nascer. */
   circumscribed?: number;
 }
+
+/** Por que um grupo saiu para fundar (agente 3B): pressão social (fissão), fome ou um recurso de fora (jazida, porto). */
+export type FoundCause = 'pressão' | 'fome' | 'recurso';
 
 /** Quem a pessoa é, guardado quando ela embarca e devolvido quando desembarca. */
 export interface Identity {

@@ -344,12 +344,13 @@ export const lifecyclePart = {
       if (v.port >= 0 && (v.tech >= 1 || this.knew(v, 'ceramica') || v.tier >= 1) && happens(this.civRnd, B.EXPLORE_RATE * curious, dt / YEAR_SECONDS)) this.explore(v);
       // Caravanas, tributo pedido pela capital e rebanho rumo ao pasto alto (19.6).
       this.sendCaravan(v, yr);
-      // Colônia com motivo (RF-AS-03): só de quem tem gente de sobra, e só quando há motivo fora (espaço, terra
-      // ou jazida). O grupo é organizado: batedores primeiro, a partida depois (`departColony`, uma vez por ano).
+      // Colônia com motivo (RF-AS-03): só de quem tem gente de sobra, e só quando há motivo fora (espaço ou
+      // jazida). O grupo é organizado: batedores primeiro, a partida depois (`departColony`, uma vez por ano).
+      // A fome não manda colônia daqui (agente 3B): quem tem fome migra, e só no êxodo, sem lugar melhor, sai atrás de terra.
       const crowded = this.crowded(v, lot, needRoom);
       if (!v.colony && v.population >= B.COLONY_SOURCE_POP && live < 150 && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * (crowded ? B.COLONY_PRESSURE_CROWDED : 1), yr)) {
         const motive = this.colonyMotive(v, crowded);
-        if (motive && !this.organizeColony(v, motive) && crowded) this.colonizeBySea(v);
+        if (motive && motive !== 'terra' && !this.organizeColony(v, motive) && crowded) this.colonizeBySea(v);
       }
     }
     this.updateWars(dt);

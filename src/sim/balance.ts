@@ -181,6 +181,27 @@ export const PRESSURE_STABILITY_MAX = 0.25;
  * atrai até encher para as instituições que tem, e não sem fim.
  */
 export const MOVE_PRESSURE = 0.5;
+/**
+ * Fissão por pressão: com a pressão acima de PRESSURE_SCOUT os batedores procuram sítios e as famílias podem
+ * escolher fundar (src/ai/decisions/move.ts); a pressão acima dele também faz mais famílias pensarem em sair
+ * (MOVE_PRESS_THINK por ponto, por ano, somado a MOVE_THINK). Acima de PRESSURE_FISSION, sem sítio nenhum, o
+ * lugar está circunscrito. A colônia sai quando as famílias que querem ir somam FISSION_READY × COLONY_GROUP_MIN
+ * pessoas, e leva até FISSION_SHARE do povo (no mínimo COLONY_GROUP_MAX).
+ */
+export const PRESSURE_SCOUT = 0.7;
+export const PRESSURE_FISSION = 1;
+/**
+ * Pressão da terra (`landPressure`): com menos de HUNGER_LEVEL comendo bem e sem lote para mais roça ao
+ * alcance, LAND_PRESSURE × a fome soma à pressão social na fissão (a colônia sai atrás de terra).
+ */
+export const LAND_PRESSURE = 2;
+export const MOVE_PRESS_THINK = 0.4;
+export const FISSION_READY = 0.7;
+export const FISSION_SHARE = 0.3;
+/** Peso a mais, na vontade de ir com a colônia, das famílias que escolheram fundar. */
+export const FISSION_KEEN = 2;
+/** Grupo mínimo (pessoas, famílias inteiras) para uma família de um lugar em falta partir sozinha para longe (`colonizeByLand`). */
+export const LONE_GROUP_MIN = 6;
 /** Epidemias por ano numa cidade grande sem saneamento, por 100 moradores (RF-VIDA-284). */
 export const EPIDEMIC_RATE = 0.02;
 /** Parte dos moradores que uma epidemia atinge. */

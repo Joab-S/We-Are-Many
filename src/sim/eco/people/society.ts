@@ -124,6 +124,17 @@ export const societyPart = {
   },
 
   /**
+   * Pressão da terra (agente 3B): gente com fome num lugar sem terra para mais roça ao alcance (Malthus e
+   * Boserup). Soma à pressão social na vontade de fundar e na circunscrição, não na estabilidade: é o aperto
+   * de quem cresceu até o limite da terra, diferente da fome de um ano ruim, que manda migrar.
+   */
+  landPressure(this: Ecosystem, v: Village): number {
+    const fed = v.fedShare ?? 1;
+    if (fed >= B.HUNGER_LEVEL || v.population < B.COLONY_GROUP_MIN || this.freeLot(v, true)) return 0;
+    return (B.LAND_PRESSURE * (B.HUNGER_LEVEL - fed)) / B.HUNGER_LEVEL;
+  },
+
+  /**
    * Divisão do trabalho pela falta (RF-VIDA-214): uma parte dos adultos dos
    * setores mais folgados muda para o setor da necessidade mais mal
    * atendida, com peso extra para a vocação.

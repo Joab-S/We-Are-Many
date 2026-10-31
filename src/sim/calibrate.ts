@@ -133,6 +133,14 @@ export interface Indicators {
   newPeoples: number;
   aid: number;
   rivalries: number;
+  /**
+   * Quando sair e fissão (agente 3B): parte das fundações por pressão social contra as por fome (as por recurso
+   * não entram na conta), quantas foram por fome, fissões e o tamanho médio da origem na hora da fissão (alvo 100 a 300).
+   */
+  pressureShare: number;
+  famineFounds: number;
+  fissions: number;
+  fissionPop: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -332,6 +340,10 @@ export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = Y
       newPeoples: eco.tally.newPeoples,
       aid: eco.tally.aid,
       rivalries: eco.tally.rivalries,
+      pressureShare: eco.tally.foundPressure / Math.max(1, eco.tally.foundPressure + eco.tally.foundFamine),
+      famineFounds: eco.tally.foundFamine,
+      fissions: eco.tally.fissions,
+      fissionPop: eco.tally.fissions ? eco.tally.fissionPop / eco.tally.fissions : 0,
     },
   };
 }
@@ -500,6 +512,10 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   mercenaries: 'Mercenários contratados',
   retreats: 'Exércitos que voltaram sem comida',
   cavalry: 'Soldados montados (média por ano)',
+  pressureShare: 'Parte das fundações por pressão (contra as por fome)',
+  famineFounds: 'Fundações por fome',
+  fissions: 'Fissões por pressão',
+  fissionPop: 'Tamanho médio da origem na fissão (alvo 100 a 300)',
 };
 
 /** Linhas da tabela do relatório: média, mediana, faixa de 10% a 90% e, quando há meta, se ficou dentro. */

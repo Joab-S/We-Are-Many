@@ -3,6 +3,8 @@ import { generateSurface, type PlanetParams } from '../procgen/surface';
 import * as B from './balance';
 import { Ecosystem, isLand, type Village } from './ecosystem';
 import { nativeSpecies } from './species';
+import { BOND } from '../ai/relations';
+import { CHILD } from './roles';
 
 /**
  * Quando sair e fissão (agente 3B): pressão social, instituições, circunscrição e grupo mínimo. Mundo
@@ -84,5 +86,126 @@ describe('pressão social: (pop/DUNBAR)² / (1 + instituições)', () => {
     const mid = eco.placeScore(v);
     v.population = 600;
     expect(eco.placeScore(v)).toBeLessThan(mid);
+  });
+});
+
+/**
+ * Um lugar de verdade: `n` adultos (cada um a sua família) e `couples` casais com um filho cada, pelos laços
+ * de cônjuge e pelo pai da criança, como a vida social e o nascimento fazem.
+ */
+function town(eco: Ecosystem, s: number, at: { x: number; y: number }, n: number, couples = 0): Village {
+  // O teto da espécie num planeta pequeno é baixo: aqui o que importa é o lugar, não o planeta.
+  eco.caps[s] = 100000;
+  const v = eco.foundVillage(s, at.x, at.y, n);
+  const here = eco.residents(v.id).slice();
+  for (let k = 0; k < couples && 2 * k + 1 < here.length; k++) {
+    const a = here[2 * k];
+    const b = here[2 * k + 1];
+    eco.bonds.set(eco.uid[a], [{ uid: eco.uid[b], value: 90, kind: BOND.partner }]);
+    eco.bonds.set(eco.uid[b], [{ uid: eco.uid[a], value: 90, kind: BOND.partner }]);
+    const kid = eco.spawn(s, v.x, v.y, v.id, 1);
+    if (kid >= 0) eco.parent[kid] = eco.uid[a];
+  }
+  return v;
+}
+
+describe('fissão por pressão: quem sai, quando e com quem', () => {
+  it('lugar cheio demais para as instituições: famílias escolhem fundar e a colônia leva famílias inteiras', () => {
+    const { eco, s, spot } = world();
+    const v = town(eco, s, spot(), 200, 30);
+    expect(eco.socialPressure(v)).toBeGreaterThan(B.PRESSURE_FISSION);
+    for (let k = 0; k < 8 && !v.colony; k++) {
+      eco.year += 1;
+      eco.migrate();
+    }
+    expect(v.colony?.cause).toBe('pressão');
+    expect(v.colony?.volunteers?.length).toBeGreaterThan(0);
+    const families = eco.familyGroups().get(v.id)!;
+    const before = v.population;
+    const leader = eco.leaderOf(v);
+    eco.departColony(v, families);
+    expect(eco.tally.fissions).toBe(1);
+    expect(eco.tally.fissionPop).toBe(before);
+    const nv = eco.villages[eco.villages.length - 1];
+    expect(nv.mother).toBe(v.id);
+    expect(nv.population).toBeGreaterThanOrEqual(B.COLONY_GROUP_MIN);
+    // Ninguém de uma família ficou para trás: o casal e o filho moram juntos, aqui ou lá.
+    for (const members of families.values()) expect(new Set(members.map((i) => eco.village[i])).size).toBe(1);
+    if (leader >= 0) expect(eco.village[leader]).toBe(v.id);
+    // A origem fica com a maior parte do povo.
+    expect(v.population).toBeGreaterThan(before * 0.55 - 1);
+    expect(eco.drainEvents().some((e) => e.kind === 'fission' && e.from === v.id && e.to === nv.id)).toBe(true);
+  });
+
+  it('sem pressão ninguém funda, mesmo com sítio bom por perto', () => {
+    const { eco, s, spot } = world();
+    const v = town(eco, s, spot(), 50, 10);
+    expect(eco.socialPressure(v)).toBeLessThan(B.PRESSURE_SCOUT);
+    for (let k = 0; k < 8; k++) {
+      eco.year += 1;
+      eco.migrate();
+    }
+    expect(v.colony).toBeUndefined();
+    expect(eco.tally.fissions).toBe(0);
+  });
+
+  it('a família de um lugar em falta só parte para longe com o grupo mínimo, e sempre inteira', () => {
+    const { eco, s, spot } = world();
+    const few = town(eco, s, spot(), 3);
+    expect(eco.colonizeByLand(few, eco.familyGroups().get(few.id))).toBe(false);
+    const v = town(eco, s, spot(), 30, 6);
+    const families = eco.familyGroups().get(v.id)!;
+    const villages = eco.villages.length;
+    let ok = false;
+    for (let k = 0; k < 5 && !ok; k++) ok = eco.colonizeByLand(v, families);
+    expect(ok).toBe(true);
+    const nv = eco.villages[villages];
+    expect(nv.population).toBeGreaterThanOrEqual(B.LONE_GROUP_MIN);
+    for (const members of families.values()) expect(new Set(members.map((i) => eco.village[i])).size).toBe(1);
+  });
+});
+
+describe('migração por utilidade', () => {
+  it('com fome em casa, famílias inteiras vão para o lugar com comida', () => {
+    const { eco, s, spot } = world();
+    const a = town(eco, s, spot(), 40, 8);
+    // O lugar com comida fica perto, com caminho por terra.
+    let b: Village | null = null;
+    for (let d = 16; d <= 40 && !b; d += 4) {
+      for (const [ox, oy] of [
+        [d, 0],
+        [-d, 0],
+        [0, d],
+        [0, -d],
+      ]) {
+        const x = Math.floor(a.x) + ox;
+        const y = Math.floor(a.y) + oy;
+        const t = eco.tileAt(x, y);
+        if (t >= 0 && isLand(eco.map, t) && eco.canFound(x, y) && eco.landPath(a.x, a.y, x + 0.5, y + 0.5)) {
+          b = town(eco, s, { x, y }, 12);
+          break;
+        }
+      }
+    }
+    expect(b).not.toBeNull();
+    a.fedShare = 0.2;
+    a.needs = { food: 0.2, water: 1, fuel: 1, material: 1, cloth: 1, tools: 1 };
+    b!.fedShare = 1;
+    b!.food = 60;
+    const families = eco.familyGroups().get(a.id)!;
+    const before = b!.population;
+    for (let k = 0; k < 6 && b!.population === before; k++) {
+      eco.year += 1;
+      eco.migrate();
+    }
+    expect(b!.population).toBeGreaterThan(before);
+    for (const members of families.values()) expect(new Set(members.map((i) => eco.village[i])).size).toBe(1);
+    // Quem chegou guarda o ano da mudança (a histerese da próxima decisão) e o porquê no diário.
+    const moved = [...families.values()].flat().filter((i) => eco.village[i] === b!.id && eco.role[i] !== CHILD);
+    expect(moved.length).toBeGreaterThan(0);
+    for (const i of moved) {
+      expect(eco.movedAt[i]).toBe(eco.year);
+      expect(eco.diary.get(eco.uid[i])?.some((t) => t.kind === 'mudança')).toBe(true);
+    }
   });
 });
