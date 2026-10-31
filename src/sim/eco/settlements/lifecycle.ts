@@ -123,6 +123,7 @@ export const lifecyclePart = {
       foundedAt: this.year,
       foundedBy: how ?? (from ? 'colônia' : 'bando'),
       mother: from?.id,
+      lifeway: 'sedentario',
     };
     if (!from) village.culture = makeCulture(village.culture.id, village.name, rnd);
     if (ruin) {
@@ -312,7 +313,8 @@ export const lifecyclePart = {
         const w = workers[v.id];
         const plough = v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' && this.knew(v, 'arado') ? 1 : 0.5;
         // Cada roça no mapa é um lote grande, maior quanto maior o lugar (o mapa tem no máximo 5 roças).
-        const worked = Math.min(v.fields * this.fieldHands(v), Math.ceil(w[ROLE.farmer] * plough) + 1);
+        // No modo intensivo cada roça leva mais braços (`intensity`).
+        const worked = Math.min(v.fields * this.fieldHands(v) * this.intensity(v), Math.ceil(w[ROLE.farmer] * plough) + 1);
         const mill = v.houses.some((h) => h.kind === 'windmill') ? 1 + (this.knew(v, 'moinhoagua') ? 0.45 : 0.3) * Math.min(1, w[ROLE.miller]) : 1;
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
@@ -325,7 +327,8 @@ export const lifecyclePart = {
       // Só planta o que os agricultores dão conta (mais uma); roça sem ninguém para trabalhar volta a ser campo.
       // As roças acompanham quem as trabalha, num anel em volta das casas (RF-AS-16; antes, no máximo 5 no mapa).
       const hands = Math.ceil((workers[v.id]?.[ROLE.farmer] ?? 0) * (v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5)) + 1;
-      const room = Math.min(B.FIELDS_MAX, Math.ceil(hands / this.fieldHands(v)) + 1);
+      // O nômade não planta (`plants`): as roças que tinha voltam a ser campo, uma a uma.
+      const room = this.plants(v) ? Math.min(B.FIELDS_MAX, Math.ceil(hands / this.fieldHands(v)) + 1) : 0;
       if (v.fields < Math.min(room, homes / (Math.floor(v.tech) >= 1 ? 2 : 4)) && (v.population >= 6 || v.tech >= 0.12) && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
       else if (v.fields > room && happens(this.civRnd, B.FIELD_FALLOW_RATE, dt / YEAR_SECONDS)) this.dropField(v);
       // De vez em quando aparece um andarilho do mesmo povo, mais fácil quando o lugar tem pouca gente.

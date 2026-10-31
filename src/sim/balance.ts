@@ -831,3 +831,22 @@ export const RELIEF_HIGH_SPAN = 0.4;
 export const RELIEF_RUGGED = 0.12;
 /** Comida guardada no inverno gelado (abaixo de 0 °C) estraga menos: o perecimento multiplica por isto. */
 export const FROZEN_SPOIL = 0.4;
+/**
+ * Modo de vida (`lifewayFor`): nômade com a roça da área abaixo de NOMAD_FARM e menos de NOMAD_DENSITY moradores por
+ * 100 tiles do território; intensivo com arado, irrigação ou moinho, roça a partir de INTENSIVE_FARM e densidade a
+ * partir de INTENSIVE_DENSITY. As margens seguram o modo de agora (sair dele pede passar o limiar mais a margem).
+ */
+export const NOMAD_FARM = 0.4;
+export const NOMAD_DENSITY = 4.5;
+export const INTENSIVE_FARM = 0.7;
+export const INTENSIVE_DENSITY = 5;
+export const LIFEWAY_MARGIN = 0.08;
+export const LIFEWAY_DENSITY_MARGIN = 0.5;
+/** Captação relativa pelo modo de vida (`lifewayReach`, para a nota do sítio): o nômade anda mais, o intensivo trabalha perto. */
+export const NOMAD_REACH = 1.5;
+export const INTENSIVE_REACH = 0.8;
+/** O intensivo põe mais braços em cada roça (FIELD_HANDS × (1 + INTENSIVE_HANDS)) e tira mais dela (adubo, rotação, canteiros). */
+export const INTENSIVE_HANDS = 0.5;
+export const INTENSIVE_YIELD = 1.15;
+/** Coleta esgotada para o nômade: vegetação da área abaixo desta parte do que ela aguenta conta como falta (a família pensa em mudar o acampamento). */
+export const NOMAD_FORAGE = 0.45;

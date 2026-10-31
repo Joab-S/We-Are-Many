@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Biome } from '../procgen/biomes';
 import { generateSurface, type PlanetParams, type SurfaceMap } from '../procgen/surface';
 import * as B from './balance';
-import { areaYield, BIOME_YIELD, latitudeAmp, seasonWeight } from './biomeYield';
+import { areaYield, BIOME_YIELD, latitudeAmp, lifewayFor, lifewayReach, seasonWeight } from './biomeYield';
 import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
 import { nativeSpecies } from './species';
 
@@ -147,6 +147,57 @@ describe('perecimento', () => {
     map.heat[t] = -80;
     eco.yearClock = 0.85 * YEAR_SECONDS;
     expect(eco.spoilOf(v)).toBeCloseTo(0.6 * B.FROZEN_SPOIL, 5);
+  });
+});
+
+describe('modo de vida', () => {
+  const none = new Set<string>();
+  it('nômade na terra que não dá roça e com pouca gente; intensivo com técnica, terra boa e gente apertada', () => {
+    expect(lifewayFor({ farm: 0.15, density: 3, techs: none, now: 'sedentario' })).toBe('nomade');
+    // Gente demais para andar atrás da coleta: fixa-se mesmo na terra pobre.
+    expect(lifewayFor({ farm: 0.15, density: 8, techs: none, now: 'sedentario' })).toBe('sedentario');
+    expect(lifewayFor({ farm: 1.4, density: 3, techs: none, now: 'sedentario' })).toBe('sedentario');
+    expect(lifewayFor({ farm: 1.4, density: 7, techs: none, now: 'sedentario' })).toBe('sedentario');
+    for (const t of ['arado', 'irrigacao', 'moinho']) expect(lifewayFor({ farm: 1.4, density: 7, techs: new Set([t]), now: 'sedentario' })).toBe('intensivo');
+    // Terra pobre não intensifica, nem com arado.
+    expect(lifewayFor({ farm: 0.5, density: 7, techs: new Set(['arado']), now: 'sedentario' })).toBe('sedentario');
+  });
+
+  it('o modo de agora segura a mudança (histerese) e o nômade capta mais longe', () => {
+    const edge = B.NOMAD_FARM + B.LIFEWAY_MARGIN / 2;
+    expect(lifewayFor({ farm: edge, density: 3, techs: none, now: 'nomade' })).toBe('nomade');
+    expect(lifewayFor({ farm: edge, density: 3, techs: none, now: 'sedentario' })).toBe('sedentario');
+    const plough = new Set(['arado']);
+    const tight = B.INTENSIVE_DENSITY - B.LIFEWAY_DENSITY_MARGIN / 2;
+    expect(lifewayFor({ farm: 1.2, density: tight, techs: plough, now: 'intensivo' })).toBe('intensivo');
+    expect(lifewayFor({ farm: 1.2, density: tight, techs: plough, now: 'sedentario' })).toBe('sedentario');
+    expect(lifewayReach('nomade')).toBeGreaterThan(lifewayReach('sedentario'));
+    expect(lifewayReach('sedentario')).toBeGreaterThan(lifewayReach('intensivo'));
+  });
+
+  it('o nômade não planta e sente falta quando a coleta se esgota; o intensivo põe mais braços na roça', () => {
+    const { eco } = world();
+    const v = eco.villages[0];
+    const area = eco.sampleArea(v);
+    v.population = Math.min(v.population, 6);
+    v.area = { ...area, farm: 0.1, irrigated: 0.1, forage: 0.9 };
+    eco.updateLifeway(v);
+    expect(eco.lifewayOf(v)).toBe('nomade');
+    expect(eco.plants(v)).toBe(false);
+    expect(eco.forageLack(v)).toBe(0);
+    v.area = { ...v.area, forage: 0.1 };
+    expect(eco.forageLack(v)).toBeGreaterThan(0.5);
+    v.needs = { food: 1, water: 1, fuel: 1, material: 1, cloth: 1, tools: 1 };
+    v.fedShare = 1;
+    expect(eco.scarcity(v)).toBeGreaterThan(0.5);
+    // A mesma terra pobre num lugar sedentário não pesa na falta.
+    v.lifeway = 'sedentario';
+    expect(eco.forageLack(v)).toBe(0);
+    const farm = eco.farmYield(v);
+    expect(eco.intensity(v)).toBe(1);
+    v.lifeway = 'intensivo';
+    expect(eco.intensity(v)).toBeCloseTo(1 + B.INTENSIVE_HANDS, 5);
+    expect(eco.farmYield(v)).toBeCloseTo(farm * B.INTENSIVE_YIELD, 5);
   });
 });
 

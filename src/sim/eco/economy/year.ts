@@ -37,6 +37,7 @@ export const economyYearPart = {
       this.roleCount.set(v.id, count);
       // O bioma da área primeiro: a mata cortada, a roça aberta e o território que cresceu mudam o que a terra dá.
       this.updateArea(v);
+      this.updateLifeway(v);
       this.updateNeeds(v, people[v.id]?.length ?? 0);
       this.updateStability(v);
       this.socialize(v, residents[v.id]);
@@ -127,7 +128,8 @@ export const economyYearPart = {
     // Comida: conta quem passou fome de verdade (celeiro vazio com todo mundo comendo não é falta).
     const food = Math.max(0, B.HUNGER_LEVEL - (v.fedShare ?? n.food)) / B.HUNGER_LEVEL;
     const fuel = Math.max(0, B.SCARCITY_LEVEL - n.fuel) / B.SCARCITY_LEVEL;
-    return Math.max(food, fuel);
+    // O nômade sente falta quando a coleta em volta se esgota: é a hora de mudar o acampamento.
+    return Math.max(food, fuel, this.forageLack(v));
   },
 
   /** O que passou do teto se perde (sobra que não cabe no armazém). */

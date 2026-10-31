@@ -209,3 +209,49 @@ export function areaYield(map: SurfaceMap, x: number, y: number, r: number): Are
     main,
   };
 }
+
+// Modo de vida ---------------------------------------------------------------------------------------
+
+/**
+ * Modo de vida do assentamento: o nômade não planta e muda o acampamento quando a coleta se esgota; o
+ * sedentário vive das roças, do rebanho e da pesca; o intensivo, com arado, irrigação ou moinho e gente
+ * apertada na terra, cultiva cada roça com mais braços e tira mais dela (Boserup).
+ */
+export type Lifeway = 'nomade' | 'sedentario' | 'intensivo';
+export const LIFEWAYS: readonly Lifeway[] = ['nomade', 'sedentario', 'intensivo'];
+export const LIFEWAY_NAMES: Record<Lifeway, string> = { nomade: 'Nômade', sedentario: 'Sedentário', intensivo: 'Intensivo' };
+
+/** O que decide o modo de vida: o bioma (a roça que a área dá), a técnica e a densidade. */
+export interface LifewayContext {
+  /** Roça média da área, com irrigação quando o lugar a conhece (`AreaYield.farm` ou `irrigated`). */
+  farm: number;
+  /** Moradores por 100 tiles do território. */
+  density: number;
+  techs: ReadonlySet<string>;
+  /** O modo de agora: mudar de modo pede passar a margem (histerese), para o lugar não oscilar a cada ano. */
+  now: Lifeway;
+}
+
+/** Técnicas que intensificam a lavoura (Boserup): com uma delas, gente apertada na terra boa vira intensiva. */
+export const INTENSIFYING: readonly string[] = ['arado', 'irrigacao', 'moinho'];
+
+/** Modo de vida pelo bioma, pela técnica e pela densidade. */
+export function lifewayFor(c: LifewayContext): Lifeway {
+  const was = (l: Lifeway) => (c.now === l ? 1 : 0);
+  // Terra que não dá roça (deserto sem irrigação, tundra, montanha) e pouca gente: coleta, caça e rebanho, mudando o acampamento.
+  if (c.farm < B.NOMAD_FARM + was('nomade') * B.LIFEWAY_MARGIN && c.density < B.NOMAD_DENSITY + was('nomade') * B.LIFEWAY_DENSITY_MARGIN) return 'nomade';
+  const intensify = INTENSIFYING.some((t) => c.techs.has(t));
+  const farm = B.INTENSIVE_FARM - was('intensivo') * B.LIFEWAY_MARGIN;
+  if (intensify && c.farm >= farm && c.density >= B.INTENSIVE_DENSITY - was('intensivo') * B.LIFEWAY_DENSITY_MARGIN) return 'intensivo';
+  return 'sedentario';
+}
+
+/** Alcance relativo da captação (coleta, caça, pasto) pelo modo de vida: o nômade anda mais, o intensivo trabalha perto. */
+export function lifewayReach(l: Lifeway): number {
+  return l === 'nomade' ? B.NOMAD_REACH : l === 'intensivo' ? B.INTENSIVE_REACH : 1;
+}
+
+/** Moradores por 100 tiles de um território de raio `r`. */
+export function densityOf(population: number, r: number): number {
+  return (100 * population) / (Math.PI * Math.max(1, r) * Math.max(1, r));
+}
