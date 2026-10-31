@@ -3,6 +3,7 @@ import { bvToTemperature, temperatureToRgb } from '../../core/astro';
 import { AU_PER_PC } from '../../core/units';
 import { loadChunk } from '../../universe/loader';
 import { selectNodes, type IndexedManifest, type ManifestNode } from '../../universe/manifest';
+import { findStar, indexChunk, nearbyStars, nearestStar, type StarChunk, type StarHit } from '../../universe/starIndex';
 
 /** Estrela do catálogo em coordenadas de mundo (UA, double). */
 export interface CatalogStar {
@@ -17,7 +18,11 @@ interface LoadedChunk {
   data: Float32Array;
   points: THREE.Points;
   centerAu: THREE.Vector3;
+  /** Grade de busca do chunk (universe/starIndex.ts). */
+  index: StarChunk;
 }
+
+const toStar = (h: StarHit): CatalogStar & { distAu: number } => ({ id: h.id, pos: new THREE.Vector3(h.x, h.y, h.z), absmag: h.absmag, ci: h.ci, distAu: h.distAu });
 
 const vertexShader = /* glsl */ `
   #include <common>
@@ -70,6 +75,9 @@ export class StarField {
   private readonly material: THREE.ShaderMaterial;
   private readonly chunks = new Map<string, LoadedChunk>();
   private readonly pending = new Set<string>();
+  /** Grades dos chunks carregados, na ordem de chegada (a mesma do Map). */
+  private indexes: StarChunk[] = [];
+  private seq = 0;
   private lastSelect = 0;
   private disposed = false;
 
@@ -115,72 +123,19 @@ export class StarField {
     for (const c of this.chunks.values()) c.points.position.subVectors(c.centerAu, shipAu);
   }
 
-  /** Estrela do catálogo mais próxima do ponto, entre os chunks carregados. */
+  /** Estrela do catálogo mais próxima do ponto, entre os chunks carregados (busca pela grade de cada chunk). */
   nearest(shipAu: THREE.Vector3, skipId?: number): (CatalogStar & { distAu: number }) | null {
-    let best: (CatalogStar & { distAu: number }) | null = null;
-    let bestSq = Infinity;
-    const tmp = new THREE.Vector3();
-    for (const c of this.chunks.values()) {
-      const d = c.data;
-      const cx = c.centerAu.x;
-      const cy = c.centerAu.y;
-      const cz = c.centerAu.z;
-      for (let i = 0; i < d.length; i += 6) {
-        const dx = cx + d[i] * AU_PER_PC - shipAu.x;
-        const dy = cy + d[i + 1] * AU_PER_PC - shipAu.y;
-        const dz = cz + d[i + 2] * AU_PER_PC - shipAu.z;
-        const sq = dx * dx + dy * dy + dz * dz;
-        if (sq < bestSq && d[i + 5] !== skipId) {
-          bestSq = sq;
-          tmp.set(dx, dy, dz).add(shipAu);
-          best = { id: d[i + 5], pos: tmp.clone(), absmag: d[i + 3], ci: d[i + 4], distAu: Math.sqrt(sq) };
-        }
-      }
-    }
-    return best;
+    const h = nearestStar(this.indexes, shipAu.x, shipAu.y, shipAu.z, skipId);
+    return h ? toStar(h) : null;
   }
 
   /**
    * As `k` estrelas carregadas mais próximas, da mais perto para a mais
-   * longe, numa única passada pelos chunks (usado pelo radar e pelo GUIA).
+   * longe (usado pelo radar e pelo GUIA). Só visita as células da grade que
+   * podem ter algo mais perto que a k-ésima já achada.
    */
   nearby(shipAu: THREE.Vector3, k: number, skipId?: number, maxAu = Infinity): (CatalogStar & { distAu: number })[] {
-    const ids: number[] = [];
-    const sqs: number[] = [];
-    const where: [Float32Array, number, THREE.Vector3][] = [];
-    let worst = maxAu === Infinity ? Infinity : maxAu * maxAu;
-    for (const c of this.chunks.values()) {
-      const d = c.data;
-      const cx = c.centerAu.x - shipAu.x;
-      const cy = c.centerAu.y - shipAu.y;
-      const cz = c.centerAu.z - shipAu.z;
-      for (let i = 0; i < d.length; i += 6) {
-        const dx = cx + d[i] * AU_PER_PC;
-        const dy = cy + d[i + 1] * AU_PER_PC;
-        const dz = cz + d[i + 2] * AU_PER_PC;
-        const sq = dx * dx + dy * dy + dz * dz;
-        if (sq >= worst || d[i + 5] === skipId) continue;
-        // Inserção ordenada numa lista curta.
-        let j = sqs.length;
-        while (j > 0 && sqs[j - 1] > sq) j--;
-        sqs.splice(j, 0, sq);
-        ids.splice(j, 0, d[i + 5]);
-        where.splice(j, 0, [d, i, c.centerAu]);
-        if (sqs.length > k) {
-          sqs.pop();
-          ids.pop();
-          where.pop();
-        }
-        if (sqs.length === k) worst = sqs[k - 1];
-      }
-    }
-    return where.map(([d, i, center], n) => ({
-      id: ids[n],
-      pos: new THREE.Vector3(d[i], d[i + 1], d[i + 2]).multiplyScalar(AU_PER_PC).add(center),
-      absmag: d[i + 3],
-      ci: d[i + 4],
-      distAu: Math.sqrt(sqs[n]),
-    }));
+    return nearbyStars(this.indexes, shipAu.x, shipAu.y, shipAu.z, k, skipId, maxAu).map(toStar);
   }
 
   /** Estrelas carregadas que têm nome próprio no catálogo, para a busca do GUIA. */
@@ -199,16 +154,8 @@ export class StarField {
 
   /** Procura uma estrela pelo id entre os chunks carregados. */
   find(id: number): CatalogStar | null {
-    for (const c of this.chunks.values()) {
-      const d = c.data;
-      for (let i = 0; i < d.length; i += 6) {
-        if (d[i + 5] === id) {
-          const pos = new THREE.Vector3(d[i], d[i + 1], d[i + 2]).multiplyScalar(AU_PER_PC).add(c.centerAu);
-          return { id, pos, absmag: d[i + 3], ci: d[i + 4] };
-        }
-      }
-    }
-    return null;
+    const h = findStar(this.indexes, id);
+    return h ? { id, pos: new THREE.Vector3(h.x, h.y, h.z), absmag: h.absmag, ci: h.ci } : null;
   }
 
   private async load(id: string): Promise<void> {
@@ -243,7 +190,9 @@ export class StarField {
       // por frustum: chunks atrás da nave ou fora do campo de visão nem são desenhados.
       geometry.computeBoundingSphere();
       const centerAu = new THREE.Vector3(...node.c).multiplyScalar(AU_PER_PC);
-      this.chunks.set(id, { node, data, points, centerAu });
+      const index = indexChunk(data, centerAu.x, centerAu.y, centerAu.z, this.seq++);
+      this.chunks.set(id, { node, data, points, centerAu, index });
+      this.indexes = [...this.chunks.values()].map((c) => c.index);
       this.group.add(points);
     } catch (err) {
       console.warn(err);
@@ -256,6 +205,7 @@ export class StarField {
     this.group.remove(chunk.points);
     chunk.points.geometry.dispose();
     this.chunks.delete(id);
+    this.indexes = [...this.chunks.values()].map((c) => c.index);
   }
 
   dispose(): void {
