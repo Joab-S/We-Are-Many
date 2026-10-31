@@ -5,37 +5,20 @@
 
 import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
-import { happens } from '../../stochastic';
-import { classify, temperatureAt } from '../../../procgen/surface';
+import * as stochasticModule from '../../stochastic';
+import * as surfaceModule from '../../../procgen/surface';
 import type { DeathCause } from '../../people';
-import { wrapDx } from '../../settlement';
-import {
-  BITE,
-  BREED_LENGTH,
-  BREED_START,
-  DECISIONS_PER_YEAR,
-  ECO_CELL,
-  ecologyOf,
-  EDIBLE,
-  FOOD_MIN,
-  GRAZE_COST,
-  HUNGRY,
-  HUNT_SUCCESS,
-  hunts,
-  METABOLISM_YEAR,
-  ration,
-  appetite,
-  PARASITE_RATE,
-  PARASITE_RECOVERY,
-  SATED,
-  STARVING,
-  THERMAL_YEAR,
-  type Ecology,
-} from '../../fauna';
+import * as settlementModule from '../../settlement';
+import * as faunaModule from '../../fauna';
+import type { Ecology } from '../../fauna';
 import * as constantsModule from '../constants';
 import type { EcoCells } from '../cells';
 
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
+// Cópias locais dos valores importados (eco/*, fauna, superfície; o porquê está em ecosystem.ts).
+const { BITE, BREED_LENGTH, BREED_START, DECISIONS_PER_YEAR, ECO_CELL, ecologyOf, EDIBLE, FOOD_MIN, GRAZE_COST, HUNGRY, HUNT_SUCCESS, hunts, METABOLISM_YEAR, ration, appetite, PARASITE_RATE, PARASITE_RECOVERY, SATED, STARVING, THERMAL_YEAR } = faunaModule;
+const { wrapDx } = settlementModule;
+const { classify, temperatureAt } = surfaceModule;
+const { happens } = stochasticModule;
 const { RELICT, THIRST_COST, ACT, STRIKE, CHASE_TRIES, CHASE_LIMIT, GOAL_TRIES } = constantsModule;
 
 export const faunaDecidePart = {

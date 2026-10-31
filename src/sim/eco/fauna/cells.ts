@@ -4,36 +4,23 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import { browseOf, floraOf, woody, type Flora } from '../../flora';
+import * as floraModule from '../../flora';
+import type { Flora } from '../../flora';
 import { windAt } from '../../climate';
-import { type Biome, temperatureAt, vegetationCap } from '../../../procgen/surface';
-import { wrapDx } from '../../settlement';
-import {
-  CARCASS_YEARS,
-  CARRION_RATIO,
-  COAST_YIELD,
-  ECO_CELL,
-  ecologyOf,
-  FEAR_DECAY_YEAR,
-  FORAGE_USE,
-  GRAZE_COST,
-  GRAZE_MAX,
-  hunts,
-  INSECT_YIELD,
-  BROWSE_YIELD,
-  isLandAnimal,
-  LAND_BUDGET,
-  METABOLISM_YEAR,
-  ration,
-  PREDATOR_RATIO,
-  REGROW_YEAR,
-  type Ecology,
-} from '../../fauna';
+import * as surfaceModule from '../../../procgen/surface';
+import type { Biome } from '../../../procgen/surface';
+import * as settlementModule from '../../settlement';
+import * as faunaModule from '../../fauna';
+import type { Ecology } from '../../fauna';
 import * as constantsModule from '../constants';
 import * as tilesModule from '../tiles';
 import { EcoCells } from '../cells';
 
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
+// Cópias locais dos valores importados (eco/*, fauna, superfície; o porquê está em ecosystem.ts).
+const { CARCASS_YEARS, CARRION_RATIO, COAST_YIELD, ECO_CELL, ecologyOf, FEAR_DECAY_YEAR, FORAGE_USE, GRAZE_COST, GRAZE_MAX, hunts, INSECT_YIELD, BROWSE_YIELD, isLandAnimal, LAND_BUDGET, METABOLISM_YEAR, ration, PREDATOR_RATIO, REGROW_YEAR } = faunaModule;
+const { wrapDx } = settlementModule;
+const { temperatureAt, vegetationCap } = surfaceModule;
+const { browseOf, floraOf, woody } = floraModule;
 const { MIN_WILD } = constantsModule;
 const { isWater, isLand } = tilesModule;
 
@@ -386,7 +373,10 @@ export const faunaCellsPart = {
       for (const s of preys) p += c.N[k * S + s] * need[s];
       c.prey[k] = p;
     }
-    const wants = (e: Ecology) => [e.forage, e.insects, Math.max(e.fish, e.plankton), e.carrion, e.fruit];
+    // Peso de cada comida na dieta, por espécie (pasto, insetos, costa, carniça, ramagem), montado uma vez por recálculo, não por célula.
+    const wants = eco.map((e) => (e ? [e.forage, e.insects, Math.max(e.fish, e.plankton), e.carrion, e.fruit] : null));
+    const res = [0, 0, 0, 0, 0];
+    const D = [0, 0, 0, 0, 0];
     const total = new Array(S).fill(0);
     const K = new Float32Array(S);
     const preyHere = new Float32Array(S);
@@ -406,13 +396,17 @@ export const faunaCellsPart = {
       }
       let carrion = 0;
       for (const s of preys) carrion += preyHere[s] * need[s] * CARRION_RATIO;
-      const res = [c.fprod[k], c.iprod[k], c.wprod[k], carrion, c.bprod[k]];
+      res[0] = c.fprod[k];
+      res[1] = c.iprod[k];
+      res[2] = c.wprod[k];
+      res[3] = carrion;
+      res[4] = c.bprod[k];
       // Parte de cada um: nicho × peso na dieta × porte (bicho grande disputa melhor o pasto).
-      const D = [0, 0, 0, 0, 0];
+      D.fill(0);
       for (let s = 0; s < S; s++) {
         if (!eco[s]) continue;
         const u = c.suit[k * S + s] * clout[s];
-        const wv = wants(eco[s]!);
+        const wv = wants[s]!;
         for (let r = 0; r < 5; r++) D[r] += u * wv[r];
       }
       K.fill(0);
@@ -420,7 +414,7 @@ export const faunaCellsPart = {
         if (!eco[s]) continue;
         const u = c.suit[k * S + s];
         if (u <= 0.02) continue;
-        const wv = wants(eco[s]!);
+        const wv = wants[s]!;
         // A parte de cada comida rende na proporção do peso dela na dieta (como na hora de comer).
         for (let r = 0; r < 5; r++) if (D[r] > 0) K[s] += (res[r] * u * clout[s] * wv[r] * Math.min(1, wv[r])) / D[r];
       }

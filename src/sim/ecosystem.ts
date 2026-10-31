@@ -630,6 +630,9 @@ export class Ecosystem {
 
   readonly contours = new WeakMap<Village, { key: number; radii: Float32Array }>();
 
+  /** Técnicas de cada lugar como conjunto (cache de `knows`, refeito quando a lista muda; WeakMap fica fora do save). */
+  readonly knowsCache = new WeakMap<Village, { techs: string[] | undefined; n: number; set: ReadonlySet<string> }>();
+
   /** Contador de alterações em tiles para atualizar o cache do contorno na hora. */
   mapVersionKey = 0;
 

@@ -5,12 +5,14 @@
 
 import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
-import { classify, decorAt, isTree, temperatureAt, vegetationCap } from '../../../procgen/surface';
-import { ROLE } from '../../roles';
+import * as surfaceModule from '../../../procgen/surface';
+import * as rolesModule from '../../roles';
 import type { Village } from '../types';
 import * as tilesModule from '../tiles';
 
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
+// Cópias locais dos valores importados (eco/*, superfície, papéis...; o porquê está em ecosystem.ts).
+const { classify, decorAt, isTree, temperatureAt, vegetationCap } = surfaceModule;
+const { ROLE } = rolesModule;
 const { isLand } = tilesModule;
 
 export const growthPart = {

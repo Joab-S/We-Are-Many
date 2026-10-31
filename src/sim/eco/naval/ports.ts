@@ -15,7 +15,7 @@ import * as tilesModule from '../tiles';
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
 const { BOATS } = constantsModule;
 const { elderAge } = helpersModule;
-const { isWater, isLand } = tilesModule;
+const { isWater, isLand, NEIGHBORS4 } = tilesModule;
 
 export const portsPart = {
   /** Vegetação mínima para fundar: a partir da Idade do Ferro, poços e irrigação abrem o deserto. */
@@ -111,7 +111,7 @@ export const portsPart = {
       if (d >= maxDist) continue;
       const x = t % w;
       const y = (t - x) / w;
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [ox, oy] of NEIGHBORS4) {
         const ny = y + oy;
         if (ny < 0 || ny >= map.height) continue;
         const nt = ny * w + ((x + ox + w) % w);
@@ -165,7 +165,7 @@ export const portsPart = {
       if (d < 6) return false;
       const x = t % w;
       const y = (t - x) / w;
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [ox, oy] of NEIGHBORS4) {
         const l = this.tileAt(x + ox, y + oy);
         if (l < 0 || isWater(map, l) || !this.habitable(v.species, l) || map.vegetation[l] < this.minFertility(v)) continue;
         const lx = l % w;

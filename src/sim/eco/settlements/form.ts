@@ -14,7 +14,7 @@ import type { Building, Village } from '../types';
 import * as tilesModule from '../tiles';
 
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
-const { isLand } = tilesModule;
+const { isLand, NEIGHBORS4 } = tilesModule;
 
 export const formPart = {
   /**
@@ -171,7 +171,7 @@ export const formPart = {
       for (const t of queue) {
         const tx = t % w;
         const ty = (t - tx) / w;
-        for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (const [ox, oy] of NEIGHBORS4) {
           const n = this.tileAt(tx + ox, ty + oy);
           if (n < 0 || prev.has(n)) continue;
           if (isStreet(this.road[n])) {

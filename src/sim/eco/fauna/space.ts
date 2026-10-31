@@ -4,15 +4,20 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import { happens } from '../../stochastic';
-import { Biome } from '../../../procgen/surface';
-import { wrapDx } from '../../settlement';
+import * as stochasticModule from '../../stochastic';
+import * as surfaceModule from '../../../procgen/surface';
+import * as settlementModule from '../../settlement';
 import { EARTH_ID } from '../../species';
-import { BREED_LENGTH, BREED_START, ECO_CELL, ecologyOf, refreshEcology, hunts, appetite, type Ecology } from '../../fauna';
+import * as faunaModule from '../../fauna';
+import type { Ecology } from '../../fauna';
 import * as constantsModule from '../constants';
 import type { EcoCells } from '../cells';
 
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
+// Cópias locais dos valores importados (eco/*, fauna, superfície; o porquê está em ecosystem.ts).
+const { BREED_LENGTH, BREED_START, ECO_CELL, ecologyOf, refreshEcology, hunts, appetite } = faunaModule;
+const { wrapDx } = settlementModule;
+const { Biome } = surfaceModule;
+const { happens } = stochasticModule;
 const { RELICT, MATE_RANGE } = constantsModule;
 
 export const faunaSpacePart = {
@@ -323,16 +328,22 @@ export const faunaSpacePart = {
     const sp = this.species[s];
     const range = this.population[s] < this.caps[s] * 0.2 ? MATE_RANGE * 2 : MATE_RANGE;
     let bd = Infinity;
-    let best: { x: number; y: number } | undefined;
-    this.forEachNear(this.x[i], this.y[i], range, (j, dx, dy) => {
-      if (j === i || this.kind[j] !== s || this.age[j] < sp.maturity) return;
+    let bx = 0;
+    let by = 0;
+    const near = this.gatherNear(this.x[i], this.y[i], range);
+    for (let q = 0; q < near.n; q++) {
+      const j = near.i[q];
+      if (j === i || this.kind[j] !== s || this.age[j] < sp.maturity) continue;
+      const dx = near.dx[q];
+      const dy = near.dy[q];
       const d = dx * dx + dy * dy;
       if (d < bd) {
         bd = d;
-        best = { x: dx, y: dy };
+        bx = dx;
+        by = dy;
       }
-    });
-    return bd < 9 ? undefined : best;
+    }
+    return bd < 9 || bd === Infinity ? undefined : { x: bx, y: by };
   },
 };
 export type FaunaSpacePart = typeof faunaSpacePart;

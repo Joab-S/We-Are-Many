@@ -48,8 +48,17 @@ export const techPart = {
   },
 
   /** Técnicas conhecidas (seção 19.10). */
+  /**
+   * Técnicas que o lugar conhece, como conjunto. Guardado por lugar (`knowsCache`) até a lista mudar: as
+   * técnicas só entram por `push` e saem trocando a lista inteira, então a lista e o tamanho bastam para
+   * saber se o conjunto ainda vale. O conjunto entregue nunca é alterado depois.
+   */
   knows(this: Ecosystem, v: Village): ReadonlySet<string> {
-    return new Set(v.techs ?? []);
+    const c = this.knowsCache.get(v);
+    if (c && c.techs === v.techs && c.n === (v.techs?.length ?? 0)) return c.set;
+    const set = new Set(v.techs ?? []);
+    this.knowsCache.set(v, { techs: v.techs, n: v.techs?.length ?? 0, set });
+    return set;
   },
 
   knew(this: Ecosystem, v: Village, id: string): boolean {

@@ -11,7 +11,7 @@ import type { Raft } from '../types';
 import * as tilesModule from '../tiles';
 
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
-const { isWater, isLand } = tilesModule;
+const { isWater, isLand, NEIGHBORS4 } = tilesModule;
 
 export const raftsPart = {
   /**
@@ -69,7 +69,7 @@ export const raftsPart = {
     this.searchSea(start, 20000, B.RAFT_RANGE, (t) => {
       const x = t % w;
       const y = (t - x) / w;
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [ox, oy] of NEIGHBORS4) {
         const l = this.tileAt(x + ox, y + oy);
         if (l < 0 || !this.canStand(s, l) || !this.habitable(s, l)) continue;
         const d = Math.hypot(wrapDx(gx - ((l % w) + 0.5), w), gy - (Math.floor(l / w) + 0.5));

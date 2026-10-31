@@ -20,7 +20,7 @@ import * as tilesModule from '../tiles';
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
 const { ERAS, BUILDINGS, BUILDING_NAMES } = constantsModule;
 const { canBuild } = helpersModule;
-const { isLand } = tilesModule;
+const { isLand, NEIGHBORS4 } = tilesModule;
 
 export const buildingsPart = {
   setRoad(this: Ecosystem, i: number, kind: number): void {
@@ -407,7 +407,7 @@ export const buildingsPart = {
       this.onTileChanged(t);
       const x = t % w;
       const y = Math.floor(t / w);
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [ox, oy] of NEIGHBORS4) {
         const u = this.tileAt(x + ox, y + oy);
         if (u >= 0 && this.road[u] === 4) queue.push(u);
       }
@@ -425,7 +425,7 @@ export const buildingsPart = {
       this.onTileChanged(t);
       const x = t % w;
       const y = Math.floor(t / w);
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [ox, oy] of NEIGHBORS4) {
         const u = this.tileAt(x + ox, y + oy);
         if (u >= 0 && this.road[u] === 4) queue.push(u);
       }

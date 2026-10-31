@@ -16,7 +16,7 @@ import * as tilesModule from '../tiles';
 
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
 const { YEAR_SECONDS, BOATS, HERD_NAMES } = constantsModule;
-const { isLand } = tilesModule;
+const { isLand, NEIGHBORS4 } = tilesModule;
 
 export const warPart = {
   // Relações, comércio e guerra ---------------------------------------------
@@ -200,7 +200,7 @@ export const warPart = {
       const x = t % w;
       const y = (t - x) / w;
       if (Math.hypot(wrapDx(x - target.x, w), y - target.y) > reach) return false;
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [ox, oy] of NEIGHBORS4) {
         const l = this.tileAt(x + ox, y + oy);
         if (l >= 0 && isLand(this.map, l)) {
           found = t;
