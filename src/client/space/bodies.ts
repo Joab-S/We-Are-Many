@@ -5,6 +5,7 @@ import { EARTH_RADIUS_KM, KM_PER_AU } from '../../core/units';
 import { compressOrbit, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
 import { nativeLifeLevel } from '../../sim/species';
 import { generateSurface, mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '../../procgen/surface';
+import { markShared } from './dispose';
 
 /**
  * Corpos desenhados em 3D perto da nave: a estrela local e, no Sistema Solar,
@@ -63,7 +64,8 @@ export function getGlowTexture(): THREE.Texture {
     grad.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = grad;
     g.fillRect(0, 0, 128, 128);
-    glowTexture = new THREE.CanvasTexture(c);
+    // Compartilhada por todos os brilhos (Flyweight): disposeObject não a libera junto com um corpo.
+    glowTexture = markShared(new THREE.CanvasTexture(c));
     glowTexture.colorSpace = THREE.SRGBColorSpace;
   }
   return glowTexture;
