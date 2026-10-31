@@ -140,11 +140,8 @@ export function earthParams(radius = 0.4): PlanetParams {
   return { id: 'sol-3', name: 'Terra', radiusEarth: radius, temperatureK: 288, water: 0.6, life: 0.85 };
 }
 
-/**
- * Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, rodando
- * `years` anos em passos de 0,25 s.
- */
-export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecosystem; indicators: Indicators } {
+/** Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, ainda sem rodar (`placed` é quantas couberam). */
+export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: ReturnType<typeof generateSurface>; placed: number } {
   const params = earthParams(radius);
   const map = generateSurface(params);
   const eco = new Ecosystem(map, seed);
@@ -164,6 +161,15 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       placed++;
     }
   }
+  return { eco, map, placed };
+}
+
+/**
+ * Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, rodando
+ * `years` anos em passos de 0,25 s.
+ */
+export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecosystem; indicators: Indicators } {
+  const { eco, map, placed } = seedWorld(seed, radius);
   let wars = 0;
   let cavalry = 0;
   let caravans = 0;
