@@ -98,9 +98,14 @@ No cliente, o `SimDriver` drena a fila depois dos passos de cada quadro (e dos c
 
 ### Vista de leitura
 
-`EngineView` é o subconjunto que o cliente lê: os arrays SoA das criaturas (`x`, `y`, `kind`, `alive`, `village`, `role`, `uid`...), `species`, `villages`, `chronicle`, `wars`, `boats`, `caravans`, `effects`, as ruas e casas por tile, `map`, `year`, e as consultas `pick`, `pickAll`, `findUid`, `activityOf`, `tierName`, `polityName`, `settlementAt`. É só leitura por contrato. O TypeScript não tem array tipado readonly, mas quem muda o mundo é só `apply`.
+`EngineView` é o subconjunto que o cliente lê: os arrays SoA das criaturas (`x`, `y`, `kind`, `alive`, `village`, `role`, `uid`...), `species`, `villages`, `chronicle`, `wars`, `boats`, `caravans`, `effects`, as ruas e casas por tile, `map`, `year`, e as consultas `pick`, `pickAll`, `findUid`, `activityOf`, `tierName`, `polityName`, `settlementAt`, `siteField` e `siteAt`. É só leitura por contrato. O TypeScript não tem array tipado readonly, mas quem muda o mundo é só `apply`.
 
-Hoje a vista é o próprio `Ecosystem`, visto por uma interface menor. Dois avisos ficam fora da fila por serem síncronos e quentes (`EngineHooks`): `tileChanged`, o tile que mudou (dezenas de milhares por passo quando a mata cresce; a tela só marca o que repintar), e `species`, a variante nova que entra no catálogo.
+As duas consultas de onde assentar servem à camada de depuração do campo de sítios e devolvem dado puro, pronto para o `postMessage`:
+
+- `siteField()` dá `{ cols, rows, cell, score, version }`: a nota de cada célula de 16×16 tiles (`SITE_NONE` no mar) e uma versão que sobe só quando alguma nota muda. A fachada guarda uma cópia das notas e compara a cada chamada (Dirty Flag por comparação, algumas mil células), então o motor não precisou de contador. Antes de o campo existir (mundo sem povos), dá null; a consulta não cria o campo.
+- `siteAt(x, y, from?)` dá o que os batedores veem no tile (`siteLook`), a nota (`siteValue`), a parte de cada fator nela (`parts`, que somam a nota), a nota mínima das colônias e o veto (`siteFilter`). Quem funda é o lugar `from` ou, sem ele, o lugar vivo mais perto, com o motivo `espaço`. As partes saem da própria `siteValue` (a nota menos a nota com o fator no neutro), sem repetir a fórmula. O exame lê os rótulos dos corpos d'água; se eles estão sujos, a consulta os refaz e depois devolve os antigos, para não adiantar o que o passo faria.
+
+Hoje a vista é um objeto próprio (`LiveView`, em `engine.ts`) que lê o `Ecosystem` vivo campo a campo, sem cópia, e troca de mundo no `restore`. Antes ela era o próprio `Ecosystem`; ficou separada para a fachada ter consultas suas sem mexer no motor. Dois avisos ficam fora da fila por serem síncronos e quentes (`EngineHooks`): `tileChanged`, o tile que mudou (dezenas de milhares por passo quando a mata cresce; a tela só marca o que repintar), e `species`, a variante nova que entra no catálogo.
 
 ### O que o cliente ainda acessa direto do Ecosystem
 
