@@ -104,15 +104,6 @@ export const FISHING_CAST_RATE = 3;
 
 // Crescimento controlado (seção 19.3) ------------------------------------------
 
-/** Fração da chance de colonos quando a planta está incompleta (completa = 1). */
-export const COLONY_MIN_FACTOR = 0.2;
-/** Moradores a partir dos quais um assentamento pensa em mandar colonos mesmo com lote livre. */
-export const COLONY_MIN_POP = 40;
-/**
- * Nível mínimo para mandar colonos, e só quando o assentamento não tem mais lote, reforma nem rua para crescer
- * (antes: qualquer nível, a partir de COLONY_MIN_POP moradores, mesmo com espaço; o povo se espalhava em aldeias pequenas).
- */
-export const COLONY_MIN_TIER = 1;
 /** Completude mínima da planta para subir de nível. */
 export const TIER_UP_COMPLETENESS = 0.7;
 /** Reformas por ano por construtor (casa que melhora de padrão). */
@@ -164,8 +155,10 @@ export const MOVE_WAR = 0.4;
 export const EPIDEMIC_RATE = 0.02;
 /** Parte dos moradores que uma epidemia atinge. */
 export const EPIDEMIC_SHARE = 0.06;
-/** Peso da chance de colonos quando ainda há espaço (lote, reforma ou rua para crescer) e quando não há. */
-export const COLONY_PRESSURE_ROOM = 0.2;
+/**
+ * Peso da chance de colonos quando o lugar está lotado (`crowded`: sem lote nem reforma). Antes havia também
+ * COLONY_PRESSURE_ROOM (com espaço), COLONY_MIN_POP, COLONY_MIN_TIER e COLONY_MIN_FACTOR, que ninguém lia mais.
+ */
 export const COLONY_PRESSURE_CROWDED = 2;
 
 // Economia local: estoque próprio, tetos, consumo e perecimento (seção 19.4) ------
@@ -668,11 +661,9 @@ export const SITE_W_MOTIVE = 1.5;
 /** Distância ideal da origem (tiles) e quanto a nota cai por tile fora dela. */
 export const SITE_IDEAL_DIST = 30;
 export const SITE_DIST_COST = 0.03;
-/** Sítio rural (RF-AS-02): distância do núcleo, famílias por sítio, chance por ano quando falta roça e sítios por assentamento. */
+/** Sítio rural (RF-AS-02): distância do núcleo e sítios por assentamento (FARMSTEAD_FAMILIES e FARMSTEAD_RATE não eram lidos e saíram). */
 export const FARMSTEAD_MIN = 6;
 export const FARMSTEAD_MAX = 15;
-export const FARMSTEAD_FAMILIES = 3;
-export const FARMSTEAD_RATE = 0.4;
 export const FARMSTEADS_MAX = 6;
 /** Sítio que se emancipa: moradores e distância mínima do núcleo. */
 export const FARMSTEAD_FREE_POP = 25;

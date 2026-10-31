@@ -22,12 +22,13 @@ export const migrationPart = {
    */
   rates(this: Ecosystem, v: Village): { name: string; perYear: number }[] {
     const homes = v.houses.filter((h) => h.kind === 'house').length;
-    const crowded = v.population >= 8 && v.population >= v.houses.length * 4 && !this.freeLot(v);
+    const crowded = this.crowded(v);
     const curious = v.culture.value === 'comércio' || v.culture.value === 'conhecimento' ? 2 : 1;
     return [
       { name: 'casa nova', perYear: v.population > homes * 3 ? B.HOUSE_RATE : 0 },
       { name: 'andarilho', perYear: B.WANDERER_RATE[v.population <= 3 ? 0 : v.population < 10 ? 1 : v.population < 30 ? 2 : 3] },
-      { name: 'colonos', perYear: crowded && v.tier >= B.COLONY_MIN_TIER ? B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * B.COLONY_PRESSURE_CROWDED : 0 },
+      // A mesma taxa da colônia em `updateVillages`: de quem tem gente de sobra, maior quando está lotado.
+      { name: 'colonos', perYear: !v.colony && v.population >= B.COLONY_SOURCE_POP ? B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * (crowded ? B.COLONY_PRESSURE_CROWDED : 1) : 0 },
       { name: 'porto', perYear: v.port < 0 && v.tech >= 0.5 ? B.PORT_RATE : 0 },
       { name: 'exploração', perYear: v.port >= 0 && v.tech >= 1 ? B.EXPLORE_RATE * curious : 0 },
       { name: 'colheita (× ano normal)', perYear: this.harvest(v) },

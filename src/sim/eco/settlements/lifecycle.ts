@@ -344,7 +344,7 @@ export const lifecyclePart = {
       this.sendCaravan(v, yr);
       // Colônia com motivo (RF-AS-03): só de quem tem gente de sobra, e só quando há motivo fora (espaço, terra
       // ou jazida). O grupo é organizado: batedores primeiro, a partida depois (`departColony`, uma vez por ano).
-      const crowded = squeezed && !this.reformable(v);
+      const crowded = this.crowded(v, lot, needRoom);
       if (!v.colony && v.population >= B.COLONY_SOURCE_POP && live < 150 && happens(this.civRnd, B.COLONY_RATE * (1 + 0.25 * Math.floor(v.tech)) * (crowded ? B.COLONY_PRESSURE_CROWDED : 1), yr)) {
         const motive = this.colonyMotive(v, crowded);
         if (motive && !this.organizeColony(v, motive) && crowded) this.colonizeBySea(v);

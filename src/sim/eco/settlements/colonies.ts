@@ -60,6 +60,16 @@ export const coloniesPart = {
     return false;
   },
 
+  /**
+   * Lotado: mais gente do que as casas planejadas abrigam, sem lote livre nem casa para reformar. É o único
+   * predicado de "lotado" (a colônia em `updateVillages` e as taxas do painel `?debug`). Quem chama e já tem
+   * as contas do passo passa o lote livre que procurou (`lot`) e se falta casa (`needRoom`); sem elas, conta agora.
+   */
+  crowded(this: Ecosystem, v: Village, lot?: number[] | null, needRoom?: boolean): boolean {
+    if (!(needRoom ?? v.population > this.housing(v, true) - 3)) return false;
+    return !(lot === undefined ? this.freeLot(v) : lot) && !this.reformable(v);
+  },
+
   // ---- Plano novo dos assentamentos: nascimento (seção 20, fase 1) ----
 
   /** Famílias de cada assentamento: cada adulto com os filhos crianças do mesmo lugar; o casal junto (chave: menor `uid`). */
