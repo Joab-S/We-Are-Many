@@ -15,11 +15,14 @@ import { SETTLEMENT_TABS, type CompareKey, type PeriodSpan, type SettlementTab }
 import { SpriteAtlas, SpriteLayer } from './sprites';
 import { SpriteCollector } from './SpriteCollector';
 import { MapRaster } from './MapRaster';
+import { keyLabel, pressed } from './keys';
 import { SimDriver, SPEEDS } from './SimDriver';
 import { CreatureGrid } from './spatial';
 import { Viewport } from './Viewport';
 import { BrushFx } from './fx';
+import { Trails } from './trails';
 import { WeatherView } from './weatherView';
+import { SiteView, siteLegend } from './siteView';
 import { Selection } from './selection';
 import { MapOverlay } from './overlay';
 import { BrushHistory } from './history';
@@ -75,7 +78,10 @@ export class SurfaceMode {
   private gridKey = '';
   private applied = 0;
   private readonly fx = new BrushFx();
+  /** Setas das colônias e das famílias que se mudam (eventos do motor). */
+  private readonly trails = new Trails();
   private weather!: WeatherView;
+  private sites!: SiteView;
   private sel!: Selection;
   private overlay!: MapOverlay;
   private readonly history = new BrushHistory();
@@ -88,7 +94,7 @@ export class SurfaceMode {
   private minimap!: Minimap;
   private toast!: Toast;
   private labels!: Labels;
-  private readonly settings: SurfaceSettings = { showMinor: false, showLabels: true, showTerritory: true, layer: 'kingdoms', geoView: 'none' };
+  private readonly settings: SurfaceSettings = { showMinor: false, showLabels: true, showTerritory: true, layer: 'kingdoms', geoView: 'none', showSites: false };
   private readonly input: Input;
   private readonly root: HTMLDivElement;
   private tools: Tool[] = [];
@@ -202,6 +208,7 @@ export class SurfaceMode {
     this.sprites = new SpriteLayer(this.atlas, 12000);
     this.grid = new CreatureGrid(map.width, map.height);
     this.weather = new WeatherView(eco);
+    this.sites = new SiteView(() => this.engine.view, this.settings);
     this.icons = new IconCache(this.atlas);
     this.tools = buildTools(state.knownSpecies.values());
 
@@ -305,6 +312,7 @@ export class SurfaceMode {
   // Interface ----------------------------------------------------------------
 
   private buildUi(): void {
+    const key = keyLabel;
     this.root.innerHTML = `
       <canvas class="wb-terr" data-terr></canvas>
       <div class="wb-labels" data-l></div>
@@ -339,6 +347,7 @@ export class SurfaceMode {
       <div class="wb-crowd" data-crowd hidden></div>
       <div class="wb-boxsel" data-box hidden></div>
       <div class="wb-toast" data-toast hidden></div>
+      <div class="wb-legend" data-legend hidden>${siteLegend()}</div>
       <div class="wb-dock">
         <div class="wb-tip" data-tip></div>
         <div class="wb-tabs">${TABS.map(([id, label]) => `<button data-tab="${id}" title="${plain(label)}">${svgIcon(TAB_ICONS[id])}</button>`).join('')}</div>
@@ -350,9 +359,10 @@ export class SurfaceMode {
           <span><kbd>Esquerdo</kbd> usa a ferramenta; de mão vazia arrasta o mapa e um clique fixa a ficha do que está embaixo. Clicar de novo no mesmo ponto passa para a próxima criatura</span>
           <span>Clique no nome, na praça ou num prédio para abrir a janela do assentamento · <kbd>Shift</kbd> + arrastar escolhe um grupo · <kbd>F</kbd> segue a criatura escolhida</span>
           <span><kbd>Direito</kbd><kbd>WASD</kbd> movem o mapa · <kbd>Roda</kbd> zoom</span>
-          <span><kbd>Espaço</kbd> pausa · <kbd>1</kbd>–<kbd>5</kbd> velocidade</span>
-          <span><kbd>[</kbd><kbd>]</kbd> tamanho do pincel · <kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz o último traço de terreno ou clima · <kbd>Esc</kbd> fecha o que abriu por último, guarda a ferramenta ou volta à órbita</span>
-          <span><kbd>C</kbd> crônica · <kbd>R</kbd> reinos · <kbd>E</kbd> espécies · <kbd>I</kbd> itens · <kbd>P</kbd> painel · <kbd>T</kbd> territórios · <kbd>H</kbd> esta ajuda</span>
+          <span><kbd>${key('pause')}</kbd> pausa · <kbd>1</kbd>–<kbd>${SPEEDS.length}</kbd> velocidade</span>
+          <span><kbd>${key('brushDown')}</kbd><kbd>${key('brushUp')}</kbd> tamanho do pincel · <kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz o último traço de terreno ou clima · <kbd>Esc</kbd> fecha o que abriu por último, guarda a ferramenta ou volta à órbita</span>
+          <span><kbd>${key('chronicle')}</kbd> crônica · <kbd>${key('kingdoms')}</kbd> reinos · <kbd>${key('species')}</kbd> espécies · <kbd>${key('items')}</kbd> itens · <kbd>${key('panel')}</kbd> painel · <kbd>${key('territory')}</kbd> territórios · <kbd>${key('help')}</kbd> esta ajuda</span>
+          <span><kbd>${key('sites')}</kbd> notas dos sítios (depuração de onde assentar): a nota de cada célula e, na ficha, a nota do ponto fator por fator e por que ali não dá para fundar</span>
           <span>Cada reino tem uma cor: a área dos assentamentos e a faixa do nome mostram de quem é. Borda cheia é a capital; tracejada, os outros assentamentos do reino.</span>
           <span>No minimapa, clique ou arraste para levar a câmera.</span>
         </div>
@@ -366,9 +376,12 @@ export class SurfaceMode {
     this.toast = new Toast(q('[data-toast]'));
     this.windows = new Windows(root, this.icons, this.settings, this.state.knownSpecies, this.params.id);
     this.vwin = new SettlementView(root, this.icons);
-    // Consumidores da fila de eventos do motor (Observer): avisos dos acontecimentos e a janela do assentamento.
+    // Consumidores da fila de eventos do motor (Observer): avisos dos acontecimentos, a janela do assentamento e as
+    // setas das colônias e das famílias que se mudam.
     bindNotices(this.driver.bus, () => this.engine.view, (t) => this.toast.notice(t));
     this.driver.bus.onAny((e) => this.vwin.onEvent(e));
+    this.driver.bus.on('colony', (e) => this.trails.colony(e, this.engine.view));
+    this.driver.bus.on('migrate', (e) => this.trails.migrate(e, this.engine.view));
     this.sel = new Selection(eco, view, q('[data-crowd]'), {
       openSettlement: (id) => this.openSettlement(id),
       refreshInfo: () => this.info.refresh(this.eco),
@@ -382,11 +395,11 @@ export class SurfaceMode {
           else this.sel.setHighlight(null);
         }),
     });
-    this.info = new InfoCard(q('[data-i]'), view, this.sel, this.weather, { say: (t) => this.toast.say(t), redraw });
+    this.info = new InfoCard(q('[data-i]'), view, this.sel, this.weather, this.sites, { say: (t) => this.toast.say(t), redraw });
     this.panel = new SidePanel(root, this.settings, () => this.driver.speed, () => this.raster.version);
     this.minimap = new Minimap(q<HTMLCanvasElement>('[data-mini]'), view, () => this.raster.canvas());
     this.labels = new Labels(q('[data-l]'));
-    this.overlay = new MapOverlay(q<HTMLCanvasElement>('[data-terr]'), eco, view, this.sel, this.settings, this.weather, this.fx);
+    this.overlay = new MapOverlay(q<HTMLCanvasElement>('[data-terr]'), eco, view, this.sel, this.settings, this.weather, this.fx, this.sites, this.trails);
     const mode = this;
     this.toolbar = new Toolbar(
       root,
@@ -574,6 +587,16 @@ export class SurfaceMode {
     this.overlays.set('help', !el.hidden, () => this.toggleHelp());
   }
 
+  /** Liga ou desliga a camada de depuração dos sítios (as notas no mapa, a legenda e o bloco da ficha). */
+  private toggleSites(): void {
+    const s = this.settings;
+    s.showSites = !s.showSites;
+    this.root.querySelector<HTMLElement>('[data-legend]')!.hidden = !s.showSites;
+    this.info.refresh(this.eco);
+    this.windows.refresh(this.eco);
+    this.dirty = true;
+  }
+
   /** Esconde o painel lateral (o minimapa fica). */
   private fold(): void {
     this.folded = !this.folded;
@@ -603,6 +626,7 @@ export class SurfaceMode {
     else if (opt === 'minor') s.showMinor = !s.showMinor;
     else if (opt === 'labels') s.showLabels = !s.showLabels;
     else if (opt === 'territory') s.showTerritory = !s.showTerritory;
+    else if (opt === 'sites') this.toggleSites();
     else if (opt.startsWith('layer:')) {
       s.layer = opt.slice(6) as SurfaceSettings['layer'];
       s.showTerritory = true;
@@ -668,7 +692,10 @@ export class SurfaceMode {
     }
     const steps = this.driver.update(dt);
     this.vwin.onSteps(steps);
-    if (!this.driver.paused) this.weather.step(dt, view);
+    if (!this.driver.paused) {
+      this.weather.step(dt, view);
+      this.trails.step(dt);
+    }
     this.raster.flush(view);
 
     // Parado e sem mudanças, não redesenha.
@@ -676,7 +703,7 @@ export class SurfaceMode {
     // Seleção, destaque e janela do assentamento pulsam: redesenha mesmo parado.
     const sel = this.sel;
     const marked = !!sel.pinned || !!sel.highlight || this.vwin.open !== null || sel.hoverPick >= 0;
-    if (!this.driver.paused || steps || this.dirty || sig !== this.lastView || eco.effects.length || marked || this.fx.active || this.raster.pending) {
+    if (!this.driver.paused || steps || this.dirty || sig !== this.lastView || eco.effects.length || marked || this.fx.active || (this.trails.active && !this.driver.paused) || this.raster.pending) {
       this.lastView = sig;
       this.dirty = false;
       this.render();
@@ -702,25 +729,20 @@ export class SurfaceMode {
       this.onExit();
       return false;
     }
-    if (input.hit('Space')) this.driver.setSpeed(this.driver.speed ? 0 : 1);
+    // As teclas de um aperto vêm da tabela (keys.ts, padrão Command).
+    if (pressed(input, 'pause')) this.driver.setSpeed(this.driver.speed ? 0 : 1);
     for (let k = 0; k < SPEEDS.length; k++) if (input.hit(`Digit${k + 1}`)) this.driver.setSpeed(k);
-    if (input.hit('KeyH')) this.toggleHelp();
-    if (input.hit('KeyT')) {
+    if (pressed(input, 'help')) this.toggleHelp();
+    if (pressed(input, 'territory')) {
       this.settings.showTerritory = !this.settings.showTerritory;
       this.dirty = true;
     }
-    if (input.hit('KeyP')) this.fold();
-    if (input.hit('KeyF')) this.sel.toggleFollow();
-    if (input.hit('BracketLeft')) this.toolbar.stepBrush(-2);
-    if (input.hit('BracketRight')) this.toolbar.stepBrush(2);
-    for (const [code, win] of [
-      ['KeyC', 'chronicle'],
-      ['KeyR', 'kingdoms'],
-      ['KeyE', 'species'],
-      ['KeyI', 'items'],
-    ] as const) {
-      if (input.hit(code)) this.openWindow(win);
-    }
+    if (pressed(input, 'sites')) this.toggleSites();
+    if (pressed(input, 'panel')) this.fold();
+    if (pressed(input, 'follow')) this.sel.toggleFollow();
+    if (pressed(input, 'brushDown')) this.toolbar.stepBrush(-2);
+    if (pressed(input, 'brushUp')) this.toolbar.stepBrush(2);
+    for (const win of ['chronicle', 'kingdoms', 'species', 'items'] as const) if (pressed(input, win)) this.openWindow(win);
     const pan = 300 / view.zoom;
     view.center.x += ((input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0)) * pan * dt;
     view.center.y += ((input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0)) * pan * dt;

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { generateSurface } from '../../procgen/surface';
+import * as B from '../balance';
 import { earthParams } from '../calibrate';
 import { Ecosystem, isLand } from '../ecosystem';
 import { worldFingerprint } from '../fingerprint';
 import { nativeSpecies } from '../species';
 import { viewCommand } from './commands';
-import { createEngine, ecosystemOf, type Engine } from './engine';
+import { createEngine, ecosystemOf, SITE_NONE, type Engine } from './engine';
 import source from './engine.ts?raw';
 
 const params = earthParams(0.2);
@@ -115,6 +116,104 @@ describe('fachada do motor (src/sim/api/engine.ts)', () => {
     b.apply({ kind: 'terraform', tool: 'lower', x: (land % map.width) + 0.5, y: Math.floor(land / map.width) + 0.5, r: 1, power: 1, target: 288, limit: true });
     expect(n).toBeGreaterThan(0);
   });
+
+  it('campo de sítios pela vista: dado puro, com a versão subindo só quando alguma nota muda', () => {
+    const e = engine(5);
+    const eco = ecosystemOf(e);
+    run(e, 2);
+    const f = e.view.siteField()!;
+    expect(f).not.toBeNull();
+    const map = e.view.map;
+    expect(f.cols).toBe(Math.ceil(map.width / f.cell));
+    expect(f.rows).toBe(Math.ceil(map.height / f.cell));
+    expect(f.score.length).toBe(f.cols * f.rows);
+    // Uma célula de mar aberto (sem terra) tem a nota de "nenhum".
+    const sea = [...Array(f.score.length).keys()].find((k) => eco.sites!.raw[k * 8 + 5] === 0);
+    if (sea !== undefined) expect(f.score[sea]).toBe(SITE_NONE);
+    expect(f.score).toEqual(eco.sites!.score);
+    // Sem passo, nada muda: a mesma versão.
+    expect(e.view.siteField()!.version).toBe(f.version);
+    const before = f.version;
+    let changed = false;
+    for (let k = 0; k < 40 && !changed; k++) {
+      run(e, 0.25);
+      changed = e.view.siteField()!.version !== before;
+    }
+    expect(changed).toBe(true);
+    expect(e.view.siteField()!.score).toEqual(eco.sites!.score);
+    // Vai por postMessage.
+    const copy = structuredClone(e.view.siteField()!);
+    expect(copy.score).toEqual(eco.sites!.score);
+    // O retrato restaurado é outro campo: a versão sobe.
+    const v = e.view.siteField()!.version;
+    e.restore(e.snapshot());
+    expect(e.view.siteField()!.version).toBeGreaterThan(v);
+  }, 30000);
+
+  it('siteAt: a nota por partes soma a nota única de fundar, com o veto do lugar', () => {
+    const e = engine(5);
+    const eco = ecosystemOf(e);
+    run(e, 2);
+    const v = e.view.villages.find((it) => !it.abandoned)!;
+    const map = e.view.map;
+    let checked = 0;
+    for (let d = 6; d <= 40; d += 2) {
+      for (const [ox, oy] of [
+        [d, 0],
+        [-d, 0],
+        [0, d],
+        [0, -d],
+      ]) {
+        const x = (Math.floor(v.x) + ox + map.width) % map.width;
+        const y = Math.floor(v.y) + oy;
+        if (y < 2 || y >= map.height - 2 || !isLand(map, y * map.width + x)) continue;
+        const r = e.view.siteAt(x, y, v.id)!;
+        expect(r.from).toBe(v.id);
+        expect(r.value).toBeCloseTo(eco.siteScore(v.species, x, y, v, r.motive, v.tech), 9);
+        const sum = Object.values(r.parts).reduce((a, b) => a + b, 0);
+        expect(sum).toBeCloseTo(r.value, 9);
+        expect(r.parts.water).toBeCloseTo(B.SITE_W_WATER * r.look.water, 9);
+        expect(r.problem).toBe(eco.siteFilter(v.species, x, y, v.tech));
+        expect(JSON.parse(JSON.stringify(r))).toEqual(r);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(4);
+    // Sem `from`, quem funda é o lugar vivo mais perto.
+    expect(e.view.siteAt(Math.floor(v.x) + 3, Math.floor(v.y))!.from).toBeGreaterThanOrEqual(0);
+    // Fora do mapa (linha), nada.
+    expect(e.view.siteAt(0, -5)).toBeNull();
+  }, 30000);
+
+  it('as consultas de sítio não mexem no mundo (nem nos rótulos da água ainda por refazer)', () => {
+    const a = engine(6);
+    const b = engine(6);
+    const eco = ecosystemOf(b);
+    const map = b.view.map;
+    run(a, 1);
+    run(b, 1);
+    // Rótulos sujos: a consulta leria a água de novo; depois dela, ficam como estavam.
+    const f = eco.sites!;
+    const land = [...Array(map.width * map.height).keys()].find((t) => isLand(map, t))!;
+    const label = f.water[land];
+    const dirty = f.waterDirty;
+    f.water[land] = 2;
+    f.waterDirty = true;
+    const v = b.view.villages[0];
+    b.view.siteAt(Math.floor(v.x) + 8, Math.floor(v.y));
+    expect(f.waterDirty).toBe(true);
+    expect(f.water[land]).toBe(2);
+    f.water[land] = label;
+    f.waterDirty = dirty;
+    // A cada passo, a vista lê o campo e examina sítios; o mundo segue igual ao que ninguém olhou.
+    for (let k = 0; k < 40; k++) {
+      a.step(0.25);
+      b.step(0.25);
+      b.view.siteField();
+      for (const it of b.view.villages) b.view.siteAt(Math.floor(it.x) + 9, Math.floor(it.y) + 3);
+    }
+    expect(worldFingerprint(ecosystemOf(b))).toBe(worldFingerprint(ecosystemOf(a)));
+  }, 30000);
 
   it('não importa nada do cliente nem do three.js', () => {
     const imports = [...source.matchAll(/from '([^']+)'/g)].map((m) => m[1]);
