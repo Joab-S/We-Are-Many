@@ -519,8 +519,15 @@ export const GATHER_REACH = 10;
 export const HUNT_FOOD = 2;
 export const HUNT_EAT = 0.15;
 
-/** Madeira de uma árvore cortada. */
-export const WOOD_PER_TREE = 2;
+/**
+ * Madeira de uma árvore cortada. Calibração conjunta (4B): 4 (antes 2). Com o corte presencial (PRESENCE_WOOD) o
+ * lenhador anda até a árvore no passo de gente (WALK_PACE, uns 4 tiles por ano de ação) e, no lugar grande, a mata
+ * fica além da borda: cada lenhador derrubava 0,3 árvore por ano, a lenha nunca bastava e o lugar com comida farta
+ * mandava embora um terço do povo de três em três anos (êxodo por lenha, 80% dos êxodos). A árvore do mapa vale um
+ * bosque, como a roça do mapa vale um lote grande. Na longa de 500 anos: êxodos de 1030 para 500, mediana de 24 para
+ * 50 moradores e parte do povo em cidades de 0,10 para 0,58.
+ */
+export const WOOD_PER_TREE = 4;
 /** Árvores que um lenhador derruba por ano com a mata logo na borda do assentamento. */
 export const CUT_RATE = 1.2;
 /** Alcance do corte e da pedreira além da borda (tiles), +REACH_PER_ERA por era (estradas, carroças). */
