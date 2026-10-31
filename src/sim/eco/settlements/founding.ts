@@ -4,6 +4,8 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
+import * as B from '../../balance';
+import { happens } from '../../stochastic';
 import { mulberry32 } from '../../../core/rng';
 import { temperatureAt } from '../../../procgen/surface';
 import { CHILD, pickRole } from '../../roles';
@@ -12,9 +14,11 @@ import { plotSeed, wrapDx } from '../../settlement';
 import { ecologyOf } from '../../fauna';
 import type { Village } from '../types';
 import * as tilesModule from '../tiles';
+import * as constantsModule from '../constants';
 
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
 const { isWater, NEIGHBORS4 } = tilesModule;
+const { YEAR_SECONDS } = constantsModule;
 
 export const foundingPart = {
   /** Direção de um tile mais verde (e no clima da espécie) a até `range` tiles, se houver. */
@@ -61,13 +65,16 @@ export const foundingPart = {
 
   /**
    * Um inteligente sem assentamento anda até o assentamento mais perto do
-   * seu povo (até 40 tiles) e se junta a ele. Sem nenhum por perto, prefere
-   * reocupar ruínas próximas; senão funda um novo, mas só num lugar onde dá
-   * para viver sozinho (verde ou com água, e no clima da espécie), andando
-   * até um lugar assim se onde está não serve. Devolve a direção para andar
+   * seu povo (até 40 tiles) e se junta a ele. Sem nenhum por perto, procura
+   * outros solitários do povo e só funda junto com eles (agente 3B: ninguém
+   * funda vila de uma pessoa; LONER_GROUP_MIN juntos). O grupo segue o guia
+   * (o de menor uid), que prefere reocupar ruínas próximas; senão funda num
+   * lugar onde dá para viver (verde ou com água, e no clima da espécie),
+   * andando até um lugar assim se onde está não serve. `dt` é o tempo desde a
+   * última decisão (a fundação tem taxa por ano). Devolve a direção para andar
    * enquanto não chega.
    */
-  loner(this: Ecosystem, i: number): { x: number; y: number } | undefined {
+  loner(this: Ecosystem, i: number, dt: number): { x: number; y: number } | undefined {
     const s = this.kind[i];
     const w = this.map.width;
     let best: Village | null = null;
@@ -87,11 +94,45 @@ export const foundingPart = {
       return undefined;
     }
     if (best) return { x: wrapDx(best.x - this.x[i], w), y: best.y - this.y[i] };
+    // Outros solitários do povo: os que estão juntos (a até LONER_MEET) e o mais perto de todos.
+    const mates: number[] = [];
+    let near = -1;
+    let nd = Infinity;
+    let ndx = 0;
+    let ndy = 0;
+    const meet = B.LONER_MEET * B.LONER_MEET;
+    this.forEachNear(this.x[i], this.y[i], B.LONER_SEEK, (j, dx, dy) => {
+      if (j === i || this.kind[j] !== s || this.village[j] >= 0) return;
+      const d = dx * dx + dy * dy;
+      if (d <= meet) mates.push(j);
+      if (d < nd) {
+        nd = d;
+        near = j;
+        ndx = dx;
+        ndy = dy;
+      }
+    });
+    if (mates.length + 1 < B.LONER_GROUP_MIN) {
+      // Sozinho ou em dupla: vai ao encontro do solitário mais perto; sem ninguém à vista, anda para um lugar
+      // melhor (onde outros também vão parar). Não funda.
+      if (near >= 0 && nd > meet / 4) return { x: ndx, y: ndy };
+      return this.betterSite(i) ?? this.greener(i, 25);
+    }
+    // O grupo anda junto atrás do guia, o de menor uid.
+    let guide = i;
+    for (const j of mates) if (this.uid[j] < this.uid[guide]) guide = j;
+    if (guide !== i) {
+      const dx = wrapDx(this.x[guide] - this.x[i], w);
+      const dy = this.y[guide] - this.y[i];
+      return dx * dx + dy * dy > 2.25 ? { x: dx, y: dy } : undefined;
+    }
     const found = (tx: number, ty: number) => {
       const v = this.foundVillage(s, tx, ty, 0);
       this.join(i, v);
+      for (const j of mates) if (this.alive[j] && this.village[j] < 0) this.join(j, v);
       const ruin = v.ruinOf !== undefined ? this.villages[v.ruinOf] : null;
-      this.note(ruin ? `Um ${name} solitário fundou ${v.name} sobre as ruínas de ${ruin.name}` : `Um ${name} solitário fundou ${v.name}`, 'povo', v, { major: true });
+      const who = `${v.population} ${name}s que andavam sozinhos`;
+      this.note(ruin ? `${who} fundaram ${v.name} sobre as ruínas de ${ruin.name}` : `${who} se juntaram e fundaram ${v.name}`, 'povo', v, { major: true });
     };
     // Ruínas por perto: vai até a antiga praça e recomeça ali.
     const ruin = this.ruinNear(this.x[i], this.y[i], 30, s);
@@ -106,7 +147,7 @@ export const foundingPart = {
     const ty = Math.floor(this.y[i]);
     const tile = this.tileAt(tx, ty);
     if (tile >= 0 && this.goodSite(s, tile)) {
-      if (this.civRnd() < 0.25 && this.canFound(tx, ty)) found(tx, ty);
+      if (happens(this.civRnd, B.LONER_FOUND_RATE, dt / YEAR_SECONDS) && this.canFound(tx, ty)) found(tx, ty);
       return undefined;
     }
     // Sem lugar bom à vista (no meio do deserto, por exemplo): anda para onde é mais verde.
@@ -169,7 +210,10 @@ export const foundingPart = {
     return best;
   },
 
-  /** Um adulto do povo de `v` chega andando de fora da área; ao entrar, se junta (ver `loner`). */
+  /**
+   * Um adulto do povo de `v` chega andando de fora da área; ao entrar, se junta (ver `loner`). Se o lugar
+   * acabar antes, ele é mais um solitário: procura outros e só funda em grupo.
+   */
   wanderer(this: Ecosystem, v: Village): void {
     const sp = this.species[v.species];
     for (let t = 0; t < 12; t++) {

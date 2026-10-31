@@ -44,6 +44,16 @@ export type EngineEvent =
   | { kind: 'farmstead'; year: number; village: number; x: number; y: number }
   /** Uma família (`family`, o sobrenome; -1 o lugar inteiro) que se mudou de um lugar para outro. */
   | { kind: 'migrate'; year: number; family: number; from: number; to: number; people: number; cause: MigrateCause }
+  /**
+   * Fissão (agente 3B): o lugar `from`, com `population` moradores e a pressão social `pressure`, cresceu demais
+   * para as instituições que tem e se dividiu; `people` partiram e fundaram `to`. Vem junto com o `colony` da partida.
+   */
+  | { kind: 'fission'; year: number; from: number; to: number; people: number; population: number; pressure: number }
+  /**
+   * Circunscrição (agente 3B, Carneiro): o lugar passou `years` anos com pressão acima do limiar e sem sítio
+   * livre para a fissão. Daí vêm a guerra por terra e as instituições.
+   */
+  | { kind: 'circumscribed'; year: number; village: number; pressure: number; years: number }
   /** Êxodo: o lugar passou anos em falta e parte do povo sai sem lugar melhor conhecido. */
   | { kind: 'exodus'; year: number; village: number; lack: 'comida' | 'lenha' }
   /** O lugar ficou vazio; `to` é para onde foram os últimos moradores (-1 sem destino). */
@@ -93,6 +103,7 @@ export function eventVillages(e: EngineEvent): number[] {
       return e.from >= 0 ? [e.village, e.from] : [e.village];
     case 'colony':
     case 'migrate':
+    case 'fission':
       return [e.from, e.to].filter((id) => id >= 0);
     case 'abandon':
       return e.to >= 0 ? [e.village, e.to] : [e.village];

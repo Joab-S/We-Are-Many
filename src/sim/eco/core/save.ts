@@ -21,6 +21,9 @@ export const savePart = {
     // Saves de antes do handle do líder: o uid do líder guardado sai do índice (se ele ainda vive ali).
     for (const v of this.villages) {
       if (v.leaderUid === undefined && v.leader >= 0 && this.alive[v.leader] && this.village[v.leader] === v.id) v.leaderUid = this.uid[v.leader];
+      // Saves de antes da pressão social e da circunscrição: o ano seguinte recalcula a pressão.
+      v.pressure ??= 0;
+      v.circumscribed ??= 0;
     }
     if (this.jobKind.length < n) this.jobKind = new Uint8Array(n);
     if (this.job.length < n) this.job = new Int32Array(n);
@@ -44,7 +47,7 @@ export const savePart = {
     this.wearTiles = new Set();
     for (let t = 0; t < this.wear.length; t++) if (this.wear[t] > 0) this.wearTiles.add(t);
     const tally = this.tally as Record<string, number>;
-    for (const k of ['soloFounds', 'colonies', 'farmsteads', 'merged', 'shortLived', 'lastWaves', 'tierDowns', 'interMarriages', 'annexations', 'revolts', 'capitalMoves', 'newPeoples', 'aid', 'aidRefused', 'rivalries', 'visits', 'festivals']) tally[k] ||= 0;
+    for (const k of ['soloFounds', 'colonies', 'farmsteads', 'merged', 'shortLived', 'lastWaves', 'tierDowns', 'interMarriages', 'annexations', 'revolts', 'capitalMoves', 'newPeoples', 'aid', 'aidRefused', 'rivalries', 'visits', 'festivals', 'foundPressure', 'foundLand', 'foundFamine', 'foundResource', 'fissions', 'fissionPop', 'circumYears', 'circumscribed', 'landHunger']) tally[k] ||= 0;
     // Saves de antes da fauna nova: sem ação, destino nem parasitas; pasto e medo zerados.
     if (this.act.length < n) this.act = new Uint8Array(n);
     if (this.goal.length < n) this.goal = new Int32Array(n).fill(-1);

@@ -19,7 +19,7 @@ it('calibração longa', async () => {
   const yearSpan = Number(env.YEAR_SPAN ?? YEAR_SECONDS);
   for (let k = first; k < first + seeds; k++) runs.push(runWorld(1000 + k * 37, years, radius, yearSpan).indicators);
   const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2)).replace('.', ',');
-  const keys: (keyof Indicators)[] = ['people', 'peopleTrend', 'settlements', 'founded', 'exodus', 'medianPop', 'biggest', 'cities', 'metropoles', 'cityShare', 'kingdoms', 'bigKingdoms', 'hunger', 'foodNeed', 'era', 'migrants', 'familyMoves', 'supplied', 'warsDeclared', 'retreats'];
+  const keys: (keyof Indicators)[] = ['people', 'peopleTrend', 'settlements', 'founded', 'exodus', 'medianPop', 'biggest', 'cities', 'metropoles', 'cityShare', 'kingdoms', 'bigKingdoms', 'hunger', 'foodNeed', 'era', 'migrants', 'familyMoves', 'supplied', 'warsDeclared', 'retreats', 'pressureShare', 'landFounds', 'famineFounds', 'fissions', 'fissionPop', 'circumscribed', 'landHungerWars'];
   const text = `# Calibração longa: evolução dos povos
 
 > Gerado por \`npm run calibrar:longa\`. ${seeds} sementes, ${years} anos, Terra com raio ${fmt(radius)} (1 é a Terra do jogo, 1024×512), 6 aldeias semeadas.

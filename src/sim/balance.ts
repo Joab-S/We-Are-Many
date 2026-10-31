@@ -104,15 +104,6 @@ export const FISHING_CAST_RATE = 3;
 
 // Crescimento controlado (seção 19.3) ------------------------------------------
 
-/** Fração da chance de colonos quando a planta está incompleta (completa = 1). */
-export const COLONY_MIN_FACTOR = 0.2;
-/** Moradores a partir dos quais um assentamento pensa em mandar colonos mesmo com lote livre. */
-export const COLONY_MIN_POP = 40;
-/**
- * Nível mínimo para mandar colonos, e só quando o assentamento não tem mais lote, reforma nem rua para crescer
- * (antes: qualquer nível, a partir de COLONY_MIN_POP moradores, mesmo com espaço; o povo se espalhava em aldeias pequenas).
- */
-export const COLONY_MIN_TIER = 1;
 /** Completude mínima da planta para subir de nível. */
 export const TIER_UP_COMPLETENESS = 0.7;
 /** Reformas por ano por construtor (casa que melhora de padrão). */
@@ -152,7 +143,7 @@ export const MOVE_OTHER_KINGDOM = 0.15;
 export const MOVE_TEMPER = 0.25;
 /** No êxodo (anos de falta), parte das famílias que sai para o melhor lugar conhecido ao alcance; sem nenhum, funda outro lugar. */
 export const EXODUS_SHARE = 0.35;
-/** Pesos da nota de um lugar: comida, lenha, casa sobrando, tamanho (log da população), nível, estabilidade e guerra. */
+/** Pesos da nota de um lugar: comida, lenha, casa sobrando, tamanho (log da população), nível, estabilidade e guerra (a pressão, abaixo). */
 export const MOVE_FOOD = 1.5;
 export const MOVE_FUEL = 0.5;
 export const MOVE_ROOM = 0.4;
@@ -160,12 +151,94 @@ export const MOVE_CITY_PULL = 0.25;
 export const MOVE_TIER_PULL = 0.1;
 export const MOVE_STABLE = 0.3;
 export const MOVE_WAR = 0.4;
+
+// ---- Quando sair e fissão (agente 3B, proposta de assentamentos 3.2 e 3.3) ----
+
+/**
+ * Pressão social: (pop/DUNBAR)² / (1 + instituições). O tamanho pesa ao quadrado; as instituições somam
+ * INST_ORG × o nível do pilar organização (0 a 1), INST_TIER por degrau (aldeia 0 ... metrópole 3),
+ * INST_TEMPLE com templo, INST_POLITY pelo degrau político do reino, INST_WRITING com escrita, INST_COIN com
+ * moeda e até INST_CIRCUM pela circunscrição (sem para onde ir, o lugar se organiza). Uma aldeia da Pedra
+ * pesa 1 perto de 160 moradores; uma cidade com templo, escrita e reino, perto de 380.
+ */
+export const DUNBAR = 150;
+export const INST_ORG = 1;
+export const INST_TIER = 1;
+export const INST_TEMPLE = 0.5;
+export const INST_POLITY = { livre: 0, chefia: 0.3, reino: 1, império: 1.5 } as const;
+export const INST_WRITING = 0.5;
+export const INST_COIN = 0.5;
+export const INST_CIRCUM = 1;
+/** Anos de circunscrição para o efeito cheio nas instituições (e na guerra por terra). */
+export const CIRCUM_FULL = 20;
+/**
+ * Circunscrição (Carneiro): com CIRCUM_NOTE anos seguidos o lugar vira notícia; cada ano rende até
+ * CIRCUM_ORG_POINTS pontos no pilar organização (sem para onde ir, o lugar se organiza). O reino com um
+ * lugar circunscrito, mais forte que o vizinho em LAND_WAR_FORCE vezes e com a relação abaixo de
+ * LAND_WAR_REL, planeja guerra por terra com chance LAND_WAR_CIRCUM por ano (vezes o aperto, de 0 a 1).
+ */
+export const CIRCUM_NOTE = 5;
+export const CIRCUM_ORG_POINTS = 1;
+export const LAND_WAR_CIRCUM = 0.15;
+export const LAND_WAR_FORCE = 1;
+export const LAND_WAR_REL = 30;
+/**
+ * Reus: quem domina e saqueia é quem tem fartura e força, não quem passa fome. A fartura do próprio reino
+ * (0 a 1) vezes a vantagem de força (de 1× a 3×, de 0 a 1) soma REUS_LOOT à chance de saque e REUS_DOMINION à de domínio.
+ */
+export const REUS_LOOT = 0.04;
+export const REUS_DOMINION = 0.06;
+/** Estabilidade: a pressão acima de PRESSURE_CALM tira PRESSURE_STABILITY por ponto, até PRESSURE_STABILITY_MAX. */
+export const PRESSURE_CALM = 0.6;
+export const PRESSURE_STABILITY = 0.15;
+export const PRESSURE_STABILITY_MAX = 0.25;
+/**
+ * Nota do lugar (`placeScore`): a pressão de lá, vezes MOVE_PRESSURE, sai da nota. O prêmio de tamanho
+ * (MOVE_CITY_PULL e MOVE_TIER_PULL) cresce com o log da população; a pressão, com o quadrado, então a cidade
+ * atrai até encher para as instituições que tem, e não sem fim.
+ */
+export const MOVE_PRESSURE = 0.5;
+/**
+ * Fissão por pressão: com a pressão acima de PRESSURE_SCOUT os batedores procuram sítios e as famílias podem
+ * escolher fundar (src/ai/decisions/move.ts); a pressão acima dele também faz mais famílias pensarem em sair
+ * (MOVE_PRESS_THINK por ponto, por ano, somado a MOVE_THINK). Acima de PRESSURE_FISSION, sem sítio nenhum, o
+ * lugar está circunscrito. A colônia se organiza quando FISSION_CORE famílias escolhem fundar no mesmo ano (o
+ * núcleo: na partida, as mais dispostas completam o grupo) e leva até FISSION_SHARE do povo (no mínimo COLONY_GROUP_MAX).
+ */
+export const PRESSURE_SCOUT = 0.7;
+export const PRESSURE_FISSION = 1;
+/**
+ * Pressão da terra (`landPressure`): com menos de HUNGER_LEVEL comendo bem e sem lote para mais roça ao
+ * alcance, LAND_PRESSURE × a fome soma à pressão social na fissão (a colônia sai atrás de terra).
+ */
+export const LAND_PRESSURE = 4;
+export const MOVE_PRESS_THINK = 0.4;
+export const FISSION_CORE = 2;
+export const FISSION_SHARE = 0.3;
+/** Peso a mais, na vontade de ir com a colônia, das famílias que escolheram fundar. */
+export const FISSION_KEEN = 2;
+/** Êxodo (agente 3B): a partir de quantos moradores o lugar em falta manda colônia atrás de terra antes de buscar refúgio. */
+export const FAMINE_COLONY_POP = 60;
+/** Grupo mínimo (pessoas, famílias inteiras) para uma família de um lugar em falta partir sozinha para longe (`colonizeByLand`). */
+export const LONE_GROUP_MIN = 6;
+/**
+ * Quem anda sozinho (`loner`, andarilho ou solto pelo jogador) não funda vila de uma pessoa: procura outros
+ * solitários do povo a até LONER_SEEK tiles e só funda com LONER_GROUP_MIN juntos (a até LONER_MEET tiles do
+ * guia, o de menor uid). Num lugar bom, o grupo funda com LONER_FOUND_RATE por ano (RF-VIDA-300; antes, 25% a
+ * cada decisão).
+ */
+export const LONER_GROUP_MIN = 3;
+export const LONER_SEEK = 40;
+export const LONER_MEET = 4;
+export const LONER_FOUND_RATE = 4;
 /** Epidemias por ano numa cidade grande sem saneamento, por 100 moradores (RF-VIDA-284). */
 export const EPIDEMIC_RATE = 0.02;
 /** Parte dos moradores que uma epidemia atinge. */
 export const EPIDEMIC_SHARE = 0.06;
-/** Peso da chance de colonos quando ainda há espaço (lote, reforma ou rua para crescer) e quando não há. */
-export const COLONY_PRESSURE_ROOM = 0.2;
+/**
+ * Peso da chance de colonos quando o lugar está lotado (`crowded`: sem lote nem reforma). Antes havia também
+ * COLONY_PRESSURE_ROOM (com espaço), COLONY_MIN_POP, COLONY_MIN_TIER e COLONY_MIN_FACTOR, que ninguém lia mais.
+ */
 export const COLONY_PRESSURE_CROWDED = 2;
 
 // Economia local: estoque próprio, tetos, consumo e perecimento (seção 19.4) ------
@@ -668,11 +741,9 @@ export const SITE_W_MOTIVE = 1.5;
 /** Distância ideal da origem (tiles) e quanto a nota cai por tile fora dela. */
 export const SITE_IDEAL_DIST = 30;
 export const SITE_DIST_COST = 0.03;
-/** Sítio rural (RF-AS-02): distância do núcleo, famílias por sítio, chance por ano quando falta roça e sítios por assentamento. */
+/** Sítio rural (RF-AS-02): distância do núcleo e sítios por assentamento (FARMSTEAD_FAMILIES e FARMSTEAD_RATE não eram lidos e saíram). */
 export const FARMSTEAD_MIN = 6;
 export const FARMSTEAD_MAX = 15;
-export const FARMSTEAD_FAMILIES = 3;
-export const FARMSTEAD_RATE = 0.4;
 export const FARMSTEADS_MAX = 6;
 /** Sítio que se emancipa: moradores e distância mínima do núcleo. */
 export const FARMSTEAD_FREE_POP = 25;

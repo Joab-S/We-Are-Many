@@ -148,6 +148,25 @@ describe('save: ida e volta', () => {
     expect(a.map.vegetation).toEqual(b.map.vegetation);
   }, 60000);
 
+  it('save antigo, sem a pressão social nem a circunscrição dos lugares, carrega com zero', () => {
+    const s = game();
+    const data = structuredClone(snapshotGame(s, space, seeds));
+    const villages = data.ecosystems.get('sol-3')!.fields.villages as { pressure?: number; circumscribed?: number }[];
+    expect(villages.length).toBeGreaterThan(0);
+    for (const v of villages) {
+      delete v.pressure;
+      delete v.circumscribed;
+    }
+    const eco = restoreGame(data, base).state.ecosystems.get('sol-3')!;
+    for (const v of eco.villages) {
+      expect(v.pressure).toBe(0);
+      expect(v.circumscribed).toBe(0);
+    }
+    // E o mundo segue: o ano seguinte recalcula a pressão.
+    run(eco, 12);
+    expect(eco.villages.some((v) => !v.abandoned && v.population > 0 && (v.pressure ?? 0) > 0)).toBe(true);
+  }, 60000);
+
   it('salvar não altera o jogo em andamento', () => {
     const s = game();
     const eco = s.ecosystems.get('sol-3')!;

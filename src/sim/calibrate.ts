@@ -133,6 +133,19 @@ export interface Indicators {
   newPeoples: number;
   aid: number;
   rivalries: number;
+  /**
+   * Quando sair e fissão (agente 3B): parte das fundações por pressão (social ou da terra) contra as por fome
+   * (as por recurso não entram na conta), quantas foram pela pressão da terra e quantas por fome, fissões (pela
+   * pressão social) e o tamanho médio da origem na hora da fissão (alvo 100 a 300).
+   */
+  pressureShare: number;
+  landFounds: number;
+  famineFounds: number;
+  fissions: number;
+  fissionPop: number;
+  /** Lugares que chegaram a ficar circunscritos (CIRCUM_NOTE anos sem sítio livre) e guerras por terra que nasceram disso. */
+  circumscribed: number;
+  landHungerWars: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -332,6 +345,13 @@ export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = Y
       newPeoples: eco.tally.newPeoples,
       aid: eco.tally.aid,
       rivalries: eco.tally.rivalries,
+      pressureShare: (eco.tally.foundPressure + eco.tally.foundLand) / Math.max(1, eco.tally.foundPressure + eco.tally.foundLand + eco.tally.foundFamine),
+      landFounds: eco.tally.foundLand,
+      famineFounds: eco.tally.foundFamine,
+      fissions: eco.tally.fissions,
+      fissionPop: eco.tally.fissions ? eco.tally.fissionPop / eco.tally.fissions : 0,
+      circumscribed: eco.tally.circumscribed,
+      landHungerWars: eco.tally.landHunger,
     },
   };
 }
@@ -500,6 +520,13 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   mercenaries: 'Mercenários contratados',
   retreats: 'Exércitos que voltaram sem comida',
   cavalry: 'Soldados montados (média por ano)',
+  pressureShare: 'Parte das fundações por pressão, social ou da terra (contra as por fome)',
+  landFounds: 'Fundações pela pressão da terra',
+  famineFounds: 'Fundações por fome',
+  fissions: 'Fissões por pressão',
+  fissionPop: 'Tamanho médio da origem na fissão (alvo 100 a 300)',
+  circumscribed: 'Lugares que ficaram circunscritos (sem terra livre para a fissão)',
+  landHungerWars: 'Guerras por terra de reinos circunscritos',
 };
 
 /** Linhas da tabela do relatório: média, mediana, faixa de 10% a 90% e, quando há meta, se ficou dentro. */

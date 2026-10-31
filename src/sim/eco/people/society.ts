@@ -21,6 +21,8 @@ import * as helpersModule from '../helpers';
 
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
 const { elderAge } = helpersModule;
+/** Posição do pilar organização nos níveis do assentamento (`v.levels`). */
+const ORGANIZATION = P.PILLARS.indexOf('organizacao');
 
 export const societyPart = {
   /**
@@ -89,9 +91,72 @@ export const societyPart = {
       target -= Math.min(0.2, this.distance(capital, v.x, v.y) / 300);
       if (capital.culture !== v.culture) target -= 0.1;
     }
+    // Pressão social (agente 3B): gente demais para as instituições que o lugar tem azeda o convívio.
+    v.pressure = this.socialPressure(v);
+    target -= Math.min(B.PRESSURE_STABILITY_MAX, B.PRESSURE_STABILITY * Math.max(0, v.pressure - B.PRESSURE_CALM));
     target = Math.max(0, Math.min(1, target));
     const s = v.stability ?? target;
     v.stability = s + (target - s) * B.STABILITY_PULL;
+  },
+
+  /**
+   * Instituições que seguram gente junta (pressão social, agente 3B): o pilar organização, o degrau, o templo,
+   * o degrau político do reino, a escrita, a moeda e a circunscrição (sem para onde ir, o lugar se organiza:
+   * Carneiro). Pesos INST_* em balance.ts.
+   */
+  institutions(this: Ecosystem, v: Village): number {
+    let inst = B.INST_ORG * (v.levels?.[ORGANIZATION] ?? 0) + B.INST_TIER * v.tier;
+    if (this.has(v, 'temple')) inst += B.INST_TEMPLE;
+    const polity = this.villages[v.kingdom]?.polity;
+    if (polity) inst += B.INST_POLITY[polity];
+    if (this.knew(v, 'escrita')) inst += B.INST_WRITING;
+    if (this.knew(v, 'moeda')) inst += B.INST_COIN;
+    return inst + B.INST_CIRCUM * Math.min(1, (v.circumscribed ?? 0) / B.CIRCUM_FULL);
+  },
+
+  /**
+   * Pressão social (pop/DUNBAR)² / (1 + instituições): o tamanho pesa ao quadrado, as instituições aliviam.
+   * Acima de PRESSURE_FISSION o lugar quer se dividir; `population` permite medir com outra gente (quem chega).
+   */
+  socialPressure(this: Ecosystem, v: Village, population = v.population): number {
+    const d = population / B.DUNBAR;
+    return (d * d) / (1 + this.institutions(v));
+  },
+
+  /**
+   * Pressão da terra (agente 3B): gente com fome num lugar sem terra para mais roça ao alcance (Malthus e
+   * Boserup). Soma à pressão social na vontade de fundar e na circunscrição, não na estabilidade: é o aperto
+   * de quem cresceu até o limite da terra, diferente da fome de um ano ruim, que manda migrar.
+   */
+  landPressure(this: Ecosystem, v: Village): number {
+    const fed = v.fedShare ?? 1;
+    if (fed >= B.HUNGER_LEVEL || v.population < B.COLONY_GROUP_MIN || this.freeLot(v, true)) return 0;
+    return (B.LAND_PRESSURE * (B.HUNGER_LEVEL - fed)) / B.HUNGER_LEVEL;
+  },
+
+  /**
+   * Circunscrição (Carneiro, agente 3B): pressão acima de PRESSURE_FISSION, o lugar podendo mandar um grupo
+   * e nenhum sítio livre para a fissão. Cada ano assim soma um (`cramp`); com sítio ou sem aperto, desce um.
+   */
+  circumscribe(this: Ecosystem, v: Village, pressure: number, canSplit: boolean, hasSite: boolean): void {
+    if (pressure >= B.PRESSURE_FISSION && canSplit && !hasSite) this.cramp(v);
+    else if ((pressure < B.PRESSURE_FISSION || hasSite) && v.circumscribed) v.circumscribed--;
+  },
+
+  /**
+   * Mais um ano apertado e sem para onde ir: o lugar se organiza (pontos no pilar organização e, por
+   * `institutions`, mais gente aguentada junto) e o reino passa a olhar para a terra do vizinho (`intent`).
+   */
+  cramp(this: Ecosystem, v: Village): void {
+    const years = (v.circumscribed = (v.circumscribed ?? 0) + 1);
+    this.tally.circumYears++;
+    const pts = (v.pts ??= P.emptyPoints());
+    pts[ORGANIZATION] += B.CIRCUM_ORG_POINTS * Math.min(1, years / B.CIRCUM_FULL);
+    if (years !== B.CIRCUM_NOTE) return;
+    this.tally.circumscribed++;
+    const pressure = v.pressure ?? this.socialPressure(v);
+    this.emit({ kind: 'circumscribed', year: this.year, village: v.id, pressure, years });
+    this.note(`${v.name} está apertada e sem terra livre por perto: o povo se organiza e olha para os vizinhos`, 'povo', v, { key: `circum-${v.id}` });
   },
 
   /**

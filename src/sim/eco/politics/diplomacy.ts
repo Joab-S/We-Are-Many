@@ -33,11 +33,14 @@ export const diplomacyPart = {
     }
     const capitals = this.villages.filter((v) => !v.abandoned && v.kingdom === v.id);
     const members = new Map<number, Village[]>();
+    // Aperto de cada reino (agente 3B): o lugar mais circunscrito, de 0 a 1.
+    const cramped = new Map<number, number>();
     for (const v of this.villages) {
       if (v.abandoned) continue;
       const list = members.get(v.kingdom) ?? [];
       list.push(v);
       members.set(v.kingdom, list);
+      if (v.circumscribed) cramped.set(v.kingdom, Math.max(cramped.get(v.kingdom) ?? 0, Math.min(1, v.circumscribed / B.CIRCUM_FULL)));
     }
     // Soldados por reino e por assentamento, contados uma vez; um cavalo por soldado montado (RF-VIDA-223).
     const soldiers = new Map<number, number>();
@@ -131,8 +134,8 @@ export const diplomacyPart = {
         const ma = members.get(a.id) ?? [a];
         const mb = members.get(b.id) ?? [b];
         const sides = [
-          { att: a, def: b, target: pb, fAtt: fa, fDef: fb, lack: lackA, rich: richB, own: ma, other: mb },
-          { att: b, def: a, target: pa, fAtt: fb, fDef: fa, lack: lackB, rich: richA, own: mb, other: ma },
+          { att: a, def: b, target: pb, fAtt: fa, fDef: fb, lack: lackA, rich: richB, plenty: richA, cramped: cramped.get(a.id) ?? 0, own: ma, other: mb },
+          { att: b, def: a, target: pa, fAtt: fb, fDef: fa, lack: lackB, rich: richA, plenty: richB, cramped: cramped.get(b.id) ?? 0, own: mb, other: ma },
         ];
         if (this.polRnd() < 0.5) sides.reverse();
         for (const side of sides) {
@@ -231,14 +234,15 @@ export const diplomacyPart = {
   /**
    * Motivo de guerra de `side.att` contra `side.def` neste ano (seção 19.7), ou null. A chance de cada um
    * é vezes (1 + agressividade do reino). Só nasce a intenção: a declaração espera o preparo (updatePlans).
+   * `plenty` é a fartura do próprio reino e `cramped` o aperto do lugar mais circunscrito dele (agente 3B).
    */
   intent(
     this: Ecosystem,
-    side: { att: Village; def: Village; target: Village; fAtt: number; fDef: number; lack: number; rich: number; own: Village[]; other: Village[] },
+    side: { att: Village; def: Village; target: Village; fAtt: number; fDef: number; lack: number; rich: number; plenty?: number; cramped?: number; own: Village[]; other: Village[] },
     rel: number,
     border: boolean,
     warlike: boolean,
-  ): { motive: WarMotive; target: Village; good?: LootGood } | null {
+  ): { motive: WarMotive; target: Village; good?: LootGood; cramped?: boolean } | null {
     const { att, def, target, fAtt, fDef } = side;
     const m = Math.max(0, 1 + this.warMood(att.kingdom));
     const rnd = this.polRnd;
@@ -246,25 +250,30 @@ export const diplomacyPart = {
     if (border && rel <= B.EXTERMINATION_RELATION && fAtt >= 2 * Math.max(1, fDef) && happens(rnd, B.EXTERMINATION_RATE * m, 1)) return { motive: 'extermination', target };
     if ((this.vengeance.get(`${att.id}>${def.id}`) ?? 0) > this.year && rel < 10 && happens(rnd, B.REVENGE_WAR * m, 1)) return { motive: 'revenge', target };
     if (att.culture.value === 'fé' && def.culture.belief !== att.culture.belief && rel < 10 && happens(rnd, B.FAITH_WAR * m * (1 - att.culture.tolerance), 1)) return { motive: 'faith', target };
-    // Falta de comida ou lenha: o reino em falta, mais forte, vai atrás da fartura do vizinho.
+    // Circunscrição (Carneiro, agente 3B): apertado e sem sítio livre, o reino vai atrás da terra do vizinho.
+    const cramp = side.cramped ?? 0;
+    if (border && cramp > 0 && fAtt >= B.LAND_WAR_FORCE * Math.max(1, fDef) && rel < B.LAND_WAR_REL && rnd() < B.LAND_WAR_CIRCUM * cramp * w * m) return { motive: 'land', target, cramped: true };
+    // Falta de comida ou lenha: o reino em falta, mais forte, vai atrás da fartura do vizinho. Reus: quem tem
+    // fartura e força também saqueia (sustenta o bando); a fartura própria vezes a vantagem de força soma à chance.
     const greed = side.lack * side.rich;
-    if (greed > 0 && fAtt > fDef && rel < 20 && rnd() < B.RESOURCE_WAR * greed * w * m) {
-      return { motive: 'loot', target, good: this.kingdomLackName(side.own) === 'comida' ? 'food' : 'wood' };
+    const reus = (side.plenty ?? 0) * Math.max(0, Math.min(1, (fAtt / Math.max(1, fDef) - 1) / 2));
+    if ((greed > 0 || reus > 0) && fAtt > fDef && rel < 20 && rnd() < (B.RESOURCE_WAR * greed + B.REUS_LOOT * reus * side.rich) * w * m) {
+      return { motive: 'loot', target, good: greed > 0 && this.kingdomLackName(side.own) !== 'comida' ? 'wood' : 'food' };
     }
     // Cobiça: cavalos, ferro ou ouro que faltam ao mais forte e sobram no vizinho.
     const want = fAtt > fDef && rel < 0 ? this.covet(side.own, side.other) : null;
     if (want && rnd() < B.COVET_WAR * want.want * w * m) return { motive: 'loot', target: want.from, good: want.good };
     // Domínio: um reino forte e avançado sobre um vizinho bem mais fraco.
     const strong = fAtt >= 2 * Math.max(1, fDef) && Math.floor(att.tech) >= 2;
-    if (strong && rel < 0 && rnd() < 0.04 * m) return { motive: 'dominion', target };
+    if (strong && rel < 0 && rnd() < (0.04 + B.REUS_DOMINION * (side.plenty ?? 0)) * m) return { motive: 'dominion', target };
     // Território: relação ruim demais.
     if (rel < (warlike ? -20 : -35) && rnd() < 0.15 * w * m) return { motive: 'land', target };
     return null;
   },
 
   /** Um reino passa a se preparar para atacar (RF-VIDA-241): os ferreiros e as profissões se voltam para a guerra. */
-  makePlan(this: Ecosystem, att: Village, def: Village, plan: { motive: WarMotive; target: Village; good?: LootGood }): void {
-    this.plans.set(att.id, { enemy: def.id, target: plan.target.id, motive: plan.motive, good: plan.good, since: this.year, belief: 1 + (this.polRnd() - 0.5) * 2 * B.BELIEF_NOISE });
+  makePlan(this: Ecosystem, att: Village, def: Village, plan: { motive: WarMotive; target: Village; good?: LootGood; cramped?: boolean }): void {
+    this.plans.set(att.id, { enemy: def.id, target: plan.target.id, motive: plan.motive, good: plan.good, since: this.year, belief: 1 + (this.polRnd() - 0.5) * 2 * B.BELIEF_NOISE, cramped: plan.cramped });
     this.tally.plans++;
     this.note(`${att.name} começou a se preparar para a guerra contra ${def.name} (${WAR_MOTIVES[plan.motive]})`, 'guerra', att, { key: `prep-${att.id}-${def.id}` });
   },
@@ -302,8 +311,9 @@ export const diplomacyPart = {
       if (mine < this.wantedAdvantage(plan.motive, k) * Math.max(1, force(plan.enemy) * plan.belief)) continue;
       this.plans.delete(k);
       this.tally.prepYears += this.year - plan.since;
-      if (this.declareWar(att, def, target, members, plan.motive, plan.good)) {
+      if (this.declareWar(att, def, target, members, plan.motive, plan.good, plan.cramped)) {
         if (loot && (plan.good === 'food' || plan.good === 'wood')) this.tally.greedWars++;
+        if (plan.cramped) this.tally.landHunger++;
         this.callAllies(att, def, members);
       }
     }
@@ -479,7 +489,7 @@ export const diplomacyPart = {
   },
 
   /** Declara guerra se houver caminho por terra ou, sem ele, por mar, e o teto do planeta deixar (RF-VIDA-241). Retorna se começou. */
-  declareWar(this: Ecosystem, att: Village, def: Village, target: Village, members: Map<number, Village[]>, motive: WarMotive = 'land', good?: LootGood): boolean {
+  declareWar(this: Ecosystem, att: Village, def: Village, target: Village, members: Map<number, Village[]>, motive: WarMotive = 'land', good?: LootGood, cramped = false): boolean {
     let naval = false;
     const home = (members.get(att.id) ?? []).reduce((p, q) => (this.distance(q, target.x, target.y) < this.distance(p, target.x, target.y) ? q : p), att);
     if (!this.landPath(home.x, home.y, target.x, target.y)) {
@@ -501,7 +511,9 @@ export const diplomacyPart = {
               ? `Guerra santa! ${att.name} atacou ${def.name} em nome da fé ${att.culture.belief}${sea}`
               : motive === 'dominion'
                 ? `Guerra! ${att.name} atacou ${def.name} para dominar ${this.prizeName(target)}${sea}`
-                : `Guerra! ${att.name} atacou ${def.name} para tomar ${this.prizeName(target)}${sea}`;
+                : cramped
+                  ? `Guerra! Sem terra para crescer, ${att.name} atacou ${def.name} para tomar ${this.prizeName(target)}${sea}`
+                  : `Guerra! ${att.name} atacou ${def.name} para tomar ${this.prizeName(target)}${sea}`;
     this.note(text, 'guerra', target, { major: true });
     this.effect('swords', target.x, target.y - 3, 30, 1);
     return true;

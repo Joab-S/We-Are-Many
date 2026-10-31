@@ -410,6 +410,17 @@ export class Ecosystem {
     rivalries: 0,
     visits: 0,
     festivals: 0,
+    // Quando sair e fissão (agente 3B): fundações por pressão, por fome e por recurso; fissões e a soma do
+    // tamanho da origem na hora; anos-lugar de circunscrição, lugares que ficaram circunscritos e guerras por terra.
+    foundPressure: 0,
+    foundLand: 0,
+    foundFamine: 0,
+    foundResource: 0,
+    fissions: 0,
+    fissionPop: 0,
+    circumYears: 0,
+    circumscribed: 0,
+    landHunger: 0,
   };
   readonly population: number[] = [];
   /** Teto de cada espécie neste planeta, proporcional ao habitat. */
@@ -747,12 +758,14 @@ export class Ecosystem {
       this.pruneRoads(this.roadDirty);
       this.roadDirty = [];
     }
-    this.migrate();
-    this.epidemics();
     this.linkRoads();
     // Estradas novas mudam por onde passa mais gente: vilas e cidades revêem ruas principais e avenida a cada 10 anos.
     for (const v of this.villages) if (!v.abandoned && v.tier >= 1 && (Math.floor(this.year) + v.id) % 10 === 0) this.rankStreets(v);
     this.economyYear();
+    // Quem sai decide com as necessidades, a estabilidade e a pressão deste ano (antes, a migração vinha antes da
+    // economia e decidia com as do ano anterior).
+    this.migrate();
+    this.epidemics();
     for (const k of this.crises) this.succession(this.villages[k]);
     this.crises.clear();
     this.diplomacy();
