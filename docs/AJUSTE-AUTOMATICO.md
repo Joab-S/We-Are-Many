@@ -6,7 +6,7 @@ Documento técnico · 31/10/2026
 
 ## O problema
 
-- **Cada avaliação é cara.** Um mundo da calibração longa na Terra do jogo leva de 1 a 2 minutos por semente em 200 a 300 anos, e uns 5 minutos em 1000 anos.
+- **Cada avaliação é cara.** Um mundo da calibração longa na Terra do jogo leva uns 3 minutos por semente em 300 anos, e uns 12 minutos em 1000 anos (medido na calibração conjunta, com uns 4000 moradores no fim).
 - **A nota tem ruído.** Com o mesmo código, só a semente já muda muito o resultado: na calibração longa, os moradores no fim foram de 1810 a 5634 entre três sementes.
 - **Os parâmetros interagem.** A nota mínima do sítio, a colônia da fome e o modo de vida mexem na mesma coisa, a comida de quem está em falta. Ajustar um de cada vez anda em zigue-zague.
 - **São poucos parâmetros de cada vez,** de 5 a 20, contínuos ou inteiros, cada um com uma faixa razoável.
@@ -52,22 +52,21 @@ plano.json ─► tools/tune.mjs (CMA-ES) ─┬─► vitest + vitest.tune.conf
 ## Uso
 
 ```bash
-# 0. (opcional) Quais parâmetros pesam? Cada um no mínimo e no máximo, o resto como está (2n + 1 configurações).
-#    Numa cópia do plano com "modo": "sensibilidade".
+# 0. Quais parâmetros pesam? Cada um no mínimo e no máximo, o resto como está (2n + 1 configurações).
+#    Numa cópia do plano com "modo": "sensibilidade" (exemplo: tools/tune/conjunta-sensibilidade.json).
 
-# 1. Fase curta: 300 anos, metas de taxa (fome, povo, era, contagem de lugares), largando dos valores de agora.
-npm run calibrar:ajustar -- tools/tune/assentamentos.json
-
-# 2. Fase longa: 1000 anos, metas da calibração longa (mais povo e era), largando do que a fase curta escolheu
-#    ("partirDe") com passo menor.
+# 1. O ajuste de verdade: 1000 anos, metas da calibração longa (mais povo, era e lugares que não morrem cedo),
+#    largando dos valores de agora.
 npm run calibrar:ajustar -- tools/tune/assentamentos-longo.json
 
-# 3. Escrever os valores escolhidos no código, conferir e medir a calibração longa.
+# 2. Escrever os valores escolhidos no código, conferir e medir a calibração longa.
 node tools/tune.mjs aplicar tools/tune/saida/assentamentos-longo
 npx vitest run && npm run calibrar:longa
 ```
 
-O relatório de cada fase (`tools/tune/saida/<plano>/relatorio.md`) é refeito a cada geração. Os planos de exemplo (`tools/tune/assentamentos.json` e `assentamentos-longo.json`) foram feitos para o problema da onda 3: o povo que encolhe e a fome que sobe. Os campos:
+A fase curta (`tools/tune/assentamentos.json`, 300 anos, só metas de taxa: fome, povo, era e as partes de lugares pequenos, que morrem cedo e de uma família só) serve para explorar rápido quando os valores estão longe do bom, como logo depois de uma mudança grande no código. Para encadear as duas, ponha `"partirDe": "saida/assentamentos"` no plano longo e baixe o `sigma` para uns 0,1.
+
+O relatório de cada fase (`tools/tune/saida/<plano>/relatorio.md`) é refeito a cada geração. Os planos de exemplo ajustam as oito constantes que a sensibilidade da calibração conjunta (agente 4B, em `docs/CALIBRACAO-LONGA.md`) mostrou que pesam, e miram o que ficou fora da meta: fome, lugares vivos e fundados, lugares que morrem cedo e metrópoles. Os campos:
 
 | Campo | O que é | Padrão |
 | --- | --- | --- |
@@ -85,22 +84,22 @@ O relatório de cada fase (`tools/tune/saida/<plano>/relatorio.md`) é refeito a
 
 ## Custo
 
-O ajuste roda poucas vezes, na máquina de quem desenvolve, e pode levar horas sem ninguém olhando. Por isso os padrões preferem resultado confiável a rapidez: todas as CPUs, 3 sementes por candidato, 300 anos na fase curta, validação em 1000 anos.
+O ajuste roda poucas vezes, na máquina de quem desenvolve, e pode levar horas sem ninguém olhando. Por isso os padrões preferem resultado confiável a rapidez: todas as CPUs, 3 sementes por candidato e validação em 1000 anos.
 
 | Fase | Mundos | Tempo de simulação (1 núcleo) | Numa máquina de 8 núcleos |
 | --- | --- | --- | --- |
-| Sensibilidade (8 parâmetros, 300 anos, 3 sementes) | 17 × 3 = 51 | ~1,5 h | ~15 min |
-| Fase curta (8 parâmetros, 16 gerações, 300 anos) | 11 × 3 × 16 = 528 | ~15 h | ~2 h |
-| Fase longa (10 gerações, 1000 anos) | 11 × 3 × 10 = 330 | ~28 h | ~3,5 h |
-| Validação de cada fase (3 finalistas, 1000 anos, 6 sementes) | 18 | ~1,5 h | ~15 min |
+| Sensibilidade (8 parâmetros, 300 anos, 3 sementes) | 17 × 3 = 51 | ~2,5 h | ~20 min |
+| Fase curta (8 parâmetros, 12 gerações, 300 anos) | 11 × 3 × 12 = 396 | ~18 h | ~2,5 h |
+| Fase longa (8 parâmetros, 10 gerações, 1000 anos) | 11 × 3 × 10 = 330 | ~66 h | ~8 h |
+| Validação de cada fase (3 finalistas, 1000 anos, 6 sementes) | 18 | ~3,5 h | ~30 min |
 
-Os tempos por mundo vêm da calibração longa de hoje: 1,5 a 2 minutos em 300 anos e uns 5 minutos em 1000 anos. Cada processo do vitest soma uns 3 segundos de partida.
+Os tempos por mundo vêm da calibração conjunta: uns 3 minutos em 300 anos e uns 12 em 1000 anos. Cada processo do vitest soma uns 3 segundos de partida. A rodada interrompida (queda de energia, limite de tempo de um terminal) continua do cache: é só rodar o mesmo plano de novo.
 
-Para gastar menos: rode a sensibilidade primeiro e leve para o CMA-ES só os parâmetros que pesam (com 5 parâmetros, a geração tem 8 candidatos em vez de 10). A fase longa pode ficar com menos gerações, porque já parte perto.
+Para gastar menos: rode a sensibilidade primeiro e leve para o CMA-ES só os parâmetros que pesam (com 5 parâmetros, a geração tem 8 candidatos em vez de 10).
 
 ## Limites
 
 - **O ajuste é tão bom quanto as metas.** Se uma meta estiver errada ou faltar, o otimizador explora a brecha (por exemplo, menos fome com menos gente). Por isso o exemplo pede um mínimo de moradores junto com a fome baixa.
 - **Defeito não se resolve com número.** O ajuste acha o melhor equilíbrio do código como ele está. Se a ablação mostra um defeito (um lugar nômade que nunca volta a plantar, por exemplo), ele é corrigido antes, no código.
-- **Horizonte curto não garante o longo.** Uma rodada de 300 anos não mede bem as metas de 1000 anos (maior lugar, metrópoles, cidades). Por isso existem a fase longa e a validação em 1000 anos, e o resultado escolhido ainda passa pela calibração longa completa antes de entrar no código.
+- **Horizonte curto não garante o longo.** Uma rodada de 300 anos não mede bem as metas de 1000 anos (maior lugar, metrópoles, cidades), e as metas de contagem (lugares vivos e fundados) não valem ao mesmo tempo nos dois horizontes. Na calibração conjunta, o CMA-ES em 300 anos achou candidatos bem melhores ali (distância 0,25 contra 2,12), e na validação em 1000 anos os dois finalistas perderam para os valores de agora (2,55 e 2,76 contra 1,60): nota mínima mais baixa dá mais povo cedo e quase o dobro de fundações em 1000 anos. Por isso o ajuste de verdade é o de 1000 anos, e o resultado escolhido ainda passa pela calibração longa completa antes de entrar no código.
 - **Por ora, só constantes numéricas.** A tabela de biomas (`src/sim/biomeYield.ts`) é feita de chamadas `row(...)` e ainda não dá para ajustar por nome.
