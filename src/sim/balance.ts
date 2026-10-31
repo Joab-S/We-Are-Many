@@ -829,3 +829,5 @@ export const SEASON_AMP_MAX = 1.25;
 export const RELIEF_LOW = 0.15;
 export const RELIEF_HIGH_SPAN = 0.4;
 export const RELIEF_RUGGED = 0.12;
+/** Comida guardada no inverno gelado (abaixo de 0 °C) estraga menos: o perecimento multiplica por isto. */
+export const FROZEN_SPOIL = 0.4;

@@ -5,7 +5,10 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import { areaYield, biomeYield, type AreaYield } from '../../biomeYield';
+import * as B from '../../balance';
+import { areaYield, biomeYield, seasonWeight, type AreaYield } from '../../biomeYield';
+import { temperatureAt } from '../../../procgen/surface';
+import { FREEZE_K } from '../../weather';
 import type { Village } from '../types';
 
 export const biomePart = {
@@ -28,6 +31,30 @@ export const biomePart = {
   farmYield(this: Ecosystem, v: Village): number {
     const a = this.areaOf(v);
     return this.knew(v, 'irrigacao') ? a.irrigated : a.farm;
+  },
+
+  /**
+   * Peso da estação de agora no lugar para um vetor de estações (`SEASON_HARVEST`, `SEASON_FUEL`): a amplitude
+   * cresce com a latitude e com o bioma (`AreaYield.amp`). O ano soma o mesmo; muda só a época.
+   */
+  seasonWeightOf(this: Ecosystem, v: Village, base: readonly number[]): number {
+    return seasonWeight(base, this.season(), this.areaOf(v).amp);
+  },
+
+  /** Temperatura de agora no centro do lugar (K): a do clima vivo, com a estação; sem ele, a média do tile. */
+  tempNowAt(this: Ecosystem, v: Village): number {
+    const t = this.tileAt(v.x, Math.floor(v.y));
+    if (t < 0) return 288;
+    return this.weatherAt(t)?.temp ?? temperatureAt(this.map, t);
+  },
+
+  /**
+   * Quanto a comida guardada estraga no lugar, sobre o perecimento de base: a média do bioma (o frio e o seco
+   * conservam) e, no inverno gelado, o celeiro que congela (`FROZEN_SPOIL`). É o motivo de armazenar no frio.
+   */
+  spoilOf(this: Ecosystem, v: Village): number {
+    const frozen = this.season() === 3 && this.tempNowAt(v) < FREEZE_K ? B.FROZEN_SPOIL : 1;
+    return this.areaOf(v).spoil * frozen;
   },
 
   /** Cultivo típico do lugar (o do bioma que mais aparece na área). */

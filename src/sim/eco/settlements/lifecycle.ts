@@ -13,7 +13,7 @@ import { BOND, partnerOf } from '../../../ai/relations';
 import { LEADER } from '../../../ai/tuning';
 import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../../../ai/decisions/leader';
 import { completeness, missingText } from '../../plan';
-import { seasonOf, welfare } from '../../needs';
+import { welfare } from '../../needs';
 import { TIER_RADIUS } from '../../settlement';
 import { alienName } from '../../species';
 import type { Village } from '../types';
@@ -316,7 +316,8 @@ export const lifecyclePart = {
         const mill = v.houses.some((h) => h.kind === 'windmill') ? 1 + (this.knew(v, 'moinhoagua') ? 0.45 : 0.3) * Math.min(1, w[ROLE.miller]) : 1;
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
-        const season = B.SEASON_HARVEST[seasonOf(this.actionPhase())];
+        // A colheita vem na estação do lugar: concentrada no outono longe do equador, espalhada no ano no trópico.
+        const season = this.seasonWeightOf(v, B.SEASON_HARVEST);
         this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * B.ERA_YIELD[Math.min(B.ERA_YIELD.length - 1, Math.floor(v.tech))] * this.harvest(v) * this.farmYield(v) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
       }
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Biome } from '../procgen/biomes';
 import { generateSurface, type PlanetParams, type SurfaceMap } from '../procgen/surface';
-import { areaYield, BIOME_YIELD } from './biomeYield';
-import { Ecosystem, isLand } from './ecosystem';
+import * as B from './balance';
+import { areaYield, BIOME_YIELD, latitudeAmp, seasonWeight } from './biomeYield';
+import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
 import { nativeSpecies } from './species';
 
 /**
@@ -103,6 +104,49 @@ describe('bioma: rendimento por área (BIOME_YIELD)', () => {
     for (let t = 0; t < hill.elevation.length; t++) hill.elevation[t] = (t * 7919) % 5 === 0 ? 0.25 : 0.5;
     hill.elevation[32 * 64 + 32] = 0.55;
     expect(areaYield(hill, 32, 32, 10).relief).toBeGreaterThan(0.5);
+  });
+});
+
+describe('estações pela latitude', () => {
+  it('a amplitude cresce do equador ao polo, e o ano soma o mesmo em qualquer amplitude', () => {
+    expect(latitudeAmp(0)).toBeLessThan(latitudeAmp(0.5));
+    expect(latitudeAmp(0.5)).toBeLessThan(latitudeAmp(1));
+    for (const amp of [0, 0.3, 1, B.SEASON_AMP_MAX]) {
+      let year = 0;
+      for (let s = 0; s < 4; s++) {
+        const w = seasonWeight(B.SEASON_HARVEST, s, amp);
+        expect(w).toBeGreaterThanOrEqual(0);
+        year += w;
+      }
+      expect(year).toBeCloseTo(4, 5);
+    }
+    // Sem amplitude, a colheita do outono é igual à da primavera; com a de base, é o vetor SEASON_HARVEST.
+    expect(seasonWeight(B.SEASON_HARVEST, 2, 0)).toBe(seasonWeight(B.SEASON_HARVEST, 0, 0));
+    expect(seasonWeight(B.SEASON_HARVEST, 2, 1)).toBeCloseTo(B.SEASON_HARVEST[2], 5);
+  });
+
+  it('o mesmo bioma tem estação mais marcada perto do polo, e a mata tropical quase não tem estação', () => {
+    const map = flatMap(Biome.Grass, { size: 96 });
+    const equator = areaYield(map, 48, 48, 6).amp;
+    const north = areaYield(map, 48, 6, 6).amp;
+    expect(north).toBeGreaterThan(equator * 2);
+    expect(north).toBeLessThanOrEqual(B.SEASON_AMP_MAX);
+    expect(areaYield(flatMap(Biome.Jungle, { size: 96 }), 48, 48, 6).amp).toBeLessThan(equator);
+  });
+});
+
+describe('perecimento', () => {
+  it('a comida estraga pelo bioma da área e quase não estraga no celeiro gelado do inverno', () => {
+    const { eco, map } = world();
+    const v = eco.villages[0];
+    v.area = { ...eco.sampleArea(v), spoil: 0.6 };
+    const t = Math.floor(v.y) * map.width + Math.floor(v.x);
+    // Verão: só o bioma. Inverno com o centro bem abaixo de 0 °C: o celeiro congela.
+    eco.yearClock = 0.5 * YEAR_SECONDS;
+    expect(eco.spoilOf(v)).toBeCloseTo(0.6, 5);
+    map.heat[t] = -80;
+    eco.yearClock = 0.85 * YEAR_SECONDS;
+    expect(eco.spoilOf(v)).toBeCloseTo(0.6 * B.FROZEN_SPOIL, 5);
   });
 });
 

@@ -61,7 +61,7 @@ export const productionPart = {
     if (this.scale(v) === 0 && v.population <= 6 && w[ROLE.leader] && v.food < 6 && v.forest > 0.2) {
       this.book(v, '_gather', this.put(v, 'food', w[ROLE.leader] * B.GATHER_RATE * 0.6 * yr * this.harvest(v)), 0);
     }
-    if (w[ROLE.gatherer]) this.gather(v, w[ROLE.gatherer] * B.GATHER_RATE * yr * this.harvest(v) * B.SEASON_HARVEST[season] ** 0.5);
+    if (w[ROLE.gatherer]) this.gather(v, w[ROLE.gatherer] * B.GATHER_RATE * yr * this.harvest(v) * this.seasonWeightOf(v, B.SEASON_HARVEST) ** 0.5);
     // Minas: o minério sai da jazida (limitada) para o estoque do assentamento que a explora.
     const mines = v.mines.map((id) => this.deposits[id]);
     if (mines.length && w[ROLE.miner]) {
