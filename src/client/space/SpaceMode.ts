@@ -3,7 +3,9 @@ import { AU_PER_PC } from '../../core/units';
 import { createProbeState } from '../../explore/probes';
 import { createNavState } from '../../nav/guide';
 import { planetOffset, SOL_PLANETS, type PlanetData } from '../../nav/planets';
+import type { ViewSnapshot } from '../../save/snapshot';
 import { Input } from '../input';
+import type { GameMode } from '../mode';
 import type { AdaptiveResolution } from '../quality';
 import type { GameRenderer } from '../renderer';
 import type { GameState } from '../state';
@@ -19,7 +21,7 @@ import { SpaceHud } from './SpaceHud';
 import { StarField } from './starField';
 import { SystemManager } from './SystemManager';
 
-/** Passo máximo do laço do espaço, em segundos. */
+/** Passo máximo do laço do espaço, em segundos (ver mode.ts). */
 export const SPACE_MAX_DT = 0.25;
 const MANUAL_KEYS = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyQ', 'KeyE'];
 
@@ -42,7 +44,7 @@ export interface SpaceCallbacks {
  * - SpaceHud: HUD em DOM, com atualização estrangulada;
  * - StarField, GuideHud e ProbeControl, como antes.
  */
-export class SpaceMode {
+export class SpaceMode implements GameMode {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(70, 1, 1e-6, 1e10);
   private readonly input: Input;
@@ -116,7 +118,15 @@ export class SpaceMode {
 
     this.resize();
     window.addEventListener('resize', this.resize);
+  }
+
+  start(): void {
+    this.lastTime = performance.now();
     this.raf = requestAnimationFrame(this.frame);
+  }
+
+  snapshotView(): ViewSnapshot {
+    return { mode: 'space' };
   }
 
   private readonly resize = (): void => {
@@ -132,7 +142,7 @@ export class SpaceMode {
     this.shipView.resize(w / h);
   };
 
-  /** Um quadro do espaço: passo variável, limitado a SPACE_MAX_DT. */
+  /** Um quadro do espaço: passo variável, limitado a SPACE_MAX_DT (ver mode.ts). */
   private readonly frame = (now: number): void => {
     this.raf = requestAnimationFrame(this.frame);
     if (window.innerWidth !== this.lastW || window.innerHeight !== this.lastH || (window.devicePixelRatio || 1) !== this.lastDpr) {
