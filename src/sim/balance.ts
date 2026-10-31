@@ -875,3 +875,10 @@ export const DOMESTIC_FEAR = 0.8;
 export const DOMESTIC_BIG = 250;
 /** Região onde o lugar procura bicho para domesticar: o território mais estes tiles (antes, a domesticação valia com qualquer herbívoro vivo no planeta). */
 export const DOMESTIC_REACH = 20;
+/**
+ * Preço por utilidade (`usefulness`, trade.ts): o bem que a técnica do lugar ainda não usa vale USELESS_GOOD do preço;
+ * o cobre e o estanho, depois da siderurgia, BRONZE_AFTER_IRON; o carvão, com o vapor, STEAM_COAL.
+ */
+export const USELESS_GOOD = 0.4;
+export const BRONZE_AFTER_IRON = 0.8;
+export const STEAM_COAL = 1.5;

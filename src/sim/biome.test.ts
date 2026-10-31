@@ -7,6 +7,7 @@ import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
 import { fullNeeds, herdFor } from './needs';
 import { TECH_BY_ID } from './progress';
 import { domesticable, earthCatalog, herdFormsOf, nativeSpecies } from './species';
+import { usefulness } from './trade';
 
 /**
  * Bioma, flora e sociedade (agente 3C): regras pequenas, cada uma conferida sem depender da história
@@ -324,6 +325,34 @@ describe('domesticação (Diamond)', () => {
     v.herd = undefined;
     eco.domesticate(v);
     expect(v.herd).toBeUndefined();
+  });
+});
+
+describe('preço por utilidade na era', () => {
+  it('minério que o lugar não sabe fundir vale menos; o bronze perde para o ferro; o carvão vale mais com o vapor', () => {
+    const none = new Set<string>();
+    const bronze = new Set(['ceramica', 'fundicao']);
+    const iron = new Set(['ceramica', 'fundicao', 'siderurgia']);
+    expect(usefulness('copper', none)).toBe(B.USELESS_GOOD);
+    expect(usefulness('copper', bronze)).toBe(1);
+    expect(usefulness('copper', iron)).toBe(B.BRONZE_AFTER_IRON);
+    expect(usefulness('iron', bronze)).toBe(B.USELESS_GOOD);
+    expect(usefulness('iron', iron)).toBe(1);
+    expect(usefulness('coal', iron)).toBe(1);
+    expect(usefulness('coal', new Set([...iron, 'aco', 'vapor']))).toBe(B.STEAM_COAL);
+    expect(usefulness('clay', none)).toBe(B.USELESS_GOOD);
+    expect(usefulness('food', none)).toBe(1);
+    expect(usefulness('tools', none)).toBe(1);
+  });
+
+  it('o preço local aplica a utilidade', () => {
+    const { eco } = world();
+    const v = eco.villages[0];
+    v.techs = ['ceramica'];
+    v.stock.iron = 0;
+    const before = eco.priceAt(v, 'iron');
+    v.techs = ['ceramica', 'fundicao', 'siderurgia'];
+    expect(eco.priceAt(v, 'iron')).toBeCloseTo(before / B.USELESS_GOOD, 5);
   });
 });
 
