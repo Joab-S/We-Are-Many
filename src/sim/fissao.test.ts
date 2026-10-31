@@ -172,6 +172,22 @@ describe('fissão por pressão: quem sai, quando e com quem', () => {
     expect(eco.drainEvents().some((e) => e.kind === 'fission' && e.from === v.id && e.to === nv.id)).toBe(true);
   });
 
+  it('os batedores da fissão usam a régua dela, mais baixa que a da colônia pequena', () => {
+    const { eco, s, spot } = world();
+    const v = town(eco, s, lush(eco, spot()), 200, 30);
+    expect(eco.socialPressure(v)).toBeGreaterThan(B.PRESSURE_SCOUT);
+    const mins: (number | undefined)[] = [];
+    const scout = eco.scoutSites;
+    eco.scoutSites = (o, motive, count, min) => {
+      mins.push(min);
+      return scout.call(eco, o, motive, count, min);
+    };
+    eco.year += 1;
+    eco.migrate();
+    expect(mins).toEqual([B.SITE_MIN_FISSION]);
+    expect(B.SITE_MIN_FISSION).toBeLessThan(B.SITE_MIN_VALUE);
+  });
+
   it('sem pressão ninguém funda, mesmo com sítio bom por perto', () => {
     const { eco, s, spot } = world();
     const v = town(eco, s, spot(), 50, 10);

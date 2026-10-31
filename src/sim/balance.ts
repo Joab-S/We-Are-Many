@@ -828,6 +828,14 @@ export const SITE_VETO_K = 4;
  */
 export const SITE_MIN_VALUE = 4.2;
 export const SITE_MIN_SOLO = 5;
+/**
+ * Nota mínima do sítio para a fissão por pressão (calibração conjunta, 4B): o grupo da fissão é grande (até
+ * FISSION_SHARE do povo, no mínimo COLONY_GROUP_MAX) e leva enxoval, então aguenta um sítio pior que a colônia pequena
+ * (SITE_MIN_VALUE, pensada para que a fundação ruim não morra cedo). Com a mesma régua, quase todo lugar grande ficava
+ * sem sítio: na longa de 500 anos, de 394 anos de lugar com pressão para os batedores, 273 sem sítio e 17 com, e
+ * uma fissão só. Com 3,4, na longa de 1000 anos, 27 fissões nas três sementes (5, 12 e 10).
+ */
+export const SITE_MIN_FISSION = 3.4;
 /** Campo de notas (mapa de influência): anos de uma volta completa pelas células e células sujas refeitas por passo, além da fatia da volta. */
 export const SITE_FIELD_YEARS = 2;
 export const SITE_DIRTY_PER_STEP = 8;
