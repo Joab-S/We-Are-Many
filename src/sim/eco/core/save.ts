@@ -21,6 +21,9 @@ export const savePart = {
     // Saves de antes do handle do líder: o uid do líder guardado sai do índice (se ele ainda vive ali).
     for (const v of this.villages) {
       if (v.leaderUid === undefined && v.leader >= 0 && this.alive[v.leader] && this.village[v.leader] === v.id) v.leaderUid = this.uid[v.leader];
+      // Saves de antes da pressão social e da circunscrição: o ano seguinte recalcula a pressão.
+      v.pressure ??= 0;
+      v.circumscribed ??= 0;
     }
     if (this.jobKind.length < n) this.jobKind = new Uint8Array(n);
     if (this.job.length < n) this.job = new Int32Array(n);

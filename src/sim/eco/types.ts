@@ -372,6 +372,11 @@ export interface Village {
   funeral?: { tile: number; until: number; family: number };
   alarmUntil?: number;
   curiousUntil?: number;
+  // ---- Quando sair e fissão (agente 3B, proposta de assentamentos 3.2 e 3.3) ----
+  /** Pressão social do ano, (pop/DUNBAR)² / (1 + instituições) (`socialPressure`); 0 ao nascer e em saves antigos. */
+  pressure?: number;
+  /** Anos seguidos de pressão acima de PRESSURE_FISSION sem sítio livre para a fissão (circunscrição); 0 ao nascer. */
+  circumscribed?: number;
 }
 
 /** Quem a pessoa é, guardado quando ela embarca e devolvido quando desembarca. */

@@ -21,6 +21,8 @@ import * as helpersModule from '../helpers';
 
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
 const { elderAge } = helpersModule;
+/** Posição do pilar organização nos níveis do assentamento (`v.levels`). */
+const ORGANIZATION = P.PILLARS.indexOf('organizacao');
 
 export const societyPart = {
   /**
@@ -89,9 +91,36 @@ export const societyPart = {
       target -= Math.min(0.2, this.distance(capital, v.x, v.y) / 300);
       if (capital.culture !== v.culture) target -= 0.1;
     }
+    // Pressão social (agente 3B): gente demais para as instituições que o lugar tem azeda o convívio.
+    v.pressure = this.socialPressure(v);
+    target -= Math.min(B.PRESSURE_STABILITY_MAX, B.PRESSURE_STABILITY * Math.max(0, v.pressure - B.PRESSURE_CALM));
     target = Math.max(0, Math.min(1, target));
     const s = v.stability ?? target;
     v.stability = s + (target - s) * B.STABILITY_PULL;
+  },
+
+  /**
+   * Instituições que seguram gente junta (pressão social, agente 3B): o pilar organização, o degrau, o templo,
+   * o degrau político do reino, a escrita, a moeda e a circunscrição (sem para onde ir, o lugar se organiza:
+   * Carneiro). Pesos INST_* em balance.ts.
+   */
+  institutions(this: Ecosystem, v: Village): number {
+    let inst = B.INST_ORG * (v.levels?.[ORGANIZATION] ?? 0) + B.INST_TIER * v.tier;
+    if (this.has(v, 'temple')) inst += B.INST_TEMPLE;
+    const polity = this.villages[v.kingdom]?.polity;
+    if (polity) inst += B.INST_POLITY[polity];
+    if (this.knew(v, 'escrita')) inst += B.INST_WRITING;
+    if (this.knew(v, 'moeda')) inst += B.INST_COIN;
+    return inst + B.INST_CIRCUM * Math.min(1, (v.circumscribed ?? 0) / B.CIRCUM_FULL);
+  },
+
+  /**
+   * Pressão social (pop/DUNBAR)² / (1 + instituições): o tamanho pesa ao quadrado, as instituições aliviam.
+   * Acima de PRESSURE_FISSION o lugar quer se dividir; `population` permite medir com outra gente (quem chega).
+   */
+  socialPressure(this: Ecosystem, v: Village, population = v.population): number {
+    const d = population / B.DUNBAR;
+    return (d * d) / (1 + this.institutions(v));
   },
 
   /**

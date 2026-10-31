@@ -143,7 +143,7 @@ export const MOVE_OTHER_KINGDOM = 0.15;
 export const MOVE_TEMPER = 0.25;
 /** No êxodo (anos de falta), parte das famílias que sai para o melhor lugar conhecido ao alcance; sem nenhum, funda outro lugar. */
 export const EXODUS_SHARE = 0.35;
-/** Pesos da nota de um lugar: comida, lenha, casa sobrando, tamanho (log da população), nível, estabilidade e guerra. */
+/** Pesos da nota de um lugar: comida, lenha, casa sobrando, tamanho (log da população), nível, estabilidade e guerra (a pressão, abaixo). */
 export const MOVE_FOOD = 1.5;
 export const MOVE_FUEL = 0.5;
 export const MOVE_ROOM = 0.4;
@@ -151,6 +151,36 @@ export const MOVE_CITY_PULL = 0.25;
 export const MOVE_TIER_PULL = 0.1;
 export const MOVE_STABLE = 0.3;
 export const MOVE_WAR = 0.4;
+
+// ---- Quando sair e fissão (agente 3B, proposta de assentamentos 3.2 e 3.3) ----
+
+/**
+ * Pressão social: (pop/DUNBAR)² / (1 + instituições). O tamanho pesa ao quadrado; as instituições somam
+ * INST_ORG × o nível do pilar organização (0 a 1), INST_TIER por degrau (aldeia 0 ... metrópole 3),
+ * INST_TEMPLE com templo, INST_POLITY pelo degrau político do reino, INST_WRITING com escrita, INST_COIN com
+ * moeda e até INST_CIRCUM pela circunscrição (sem para onde ir, o lugar se organiza). Uma aldeia da Pedra
+ * pesa 1 perto de 160 moradores; uma cidade com templo, escrita e reino, perto de 380.
+ */
+export const DUNBAR = 150;
+export const INST_ORG = 1;
+export const INST_TIER = 1;
+export const INST_TEMPLE = 0.5;
+export const INST_POLITY = { livre: 0, chefia: 0.3, reino: 1, império: 1.5 } as const;
+export const INST_WRITING = 0.5;
+export const INST_COIN = 0.5;
+export const INST_CIRCUM = 1;
+/** Anos de circunscrição para o efeito cheio nas instituições (e na guerra por terra). */
+export const CIRCUM_FULL = 20;
+/** Estabilidade: a pressão acima de PRESSURE_CALM tira PRESSURE_STABILITY por ponto, até PRESSURE_STABILITY_MAX. */
+export const PRESSURE_CALM = 0.6;
+export const PRESSURE_STABILITY = 0.15;
+export const PRESSURE_STABILITY_MAX = 0.25;
+/**
+ * Nota do lugar (`placeScore`): a pressão de lá, vezes MOVE_PRESSURE, sai da nota. O prêmio de tamanho
+ * (MOVE_CITY_PULL e MOVE_TIER_PULL) cresce com o log da população; a pressão, com o quadrado, então a cidade
+ * atrai até encher para as instituições que tem, e não sem fim.
+ */
+export const MOVE_PRESSURE = 0.5;
 /** Epidemias por ano numa cidade grande sem saneamento, por 100 moradores (RF-VIDA-284). */
 export const EPIDEMIC_RATE = 0.02;
 /** Parte dos moradores que uma epidemia atinge. */

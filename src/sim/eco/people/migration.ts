@@ -38,7 +38,9 @@ export const migrationPart = {
   /**
    * Nota de um assentamento como lugar para morar (evolução dos povos, etapa 2): comida, casa sobrando,
    * o tamanho (mais ofícios, mercado e proteção: as luzes da cidade), a guerra e a estabilidade.
-   * Quem decide compara a nota do próprio lugar com a dos outros que conhece (`migrate`).
+   * Quem decide compara a nota do próprio lugar com a dos outros que conhece (`migrate`). O prêmio de
+   * tamanho cresce com o log da população e a pressão social (agente 3B) com o quadrado: a cidade atrai
+   * até encher para as instituições que tem, e a nota cai a cada família que chega.
    */
   placeScore(this: Ecosystem, o: Village): number {
     const n = o.needs;
@@ -47,7 +49,7 @@ export const migrationPart = {
     const fuel = n?.fuel ?? 1;
     const free = this.housing(o) - o.population;
     const room = Math.max(-1, Math.min(1, free / (3 + o.population * 0.15)));
-    const size = B.MOVE_CITY_PULL * Math.log2(1 + o.population / 20) + B.MOVE_TIER_PULL * this.scale(o);
+    const size = B.MOVE_CITY_PULL * Math.log2(1 + o.population / 20) + B.MOVE_TIER_PULL * this.scale(o) - B.MOVE_PRESSURE * this.socialPressure(o);
     const war = this.warOf(o.kingdom) ? B.MOVE_WAR : 0;
     return B.MOVE_FOOD * food + B.MOVE_FUEL * Math.min(1, fuel / 0.8) + B.MOVE_ROOM * room + size + B.MOVE_STABLE * (o.stability ?? 1) - war;
   },

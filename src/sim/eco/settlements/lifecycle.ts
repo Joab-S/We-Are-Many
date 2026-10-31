@@ -123,6 +123,8 @@ export const lifecyclePart = {
       foundedAt: this.year,
       foundedBy: how ?? (from ? 'colônia' : 'bando'),
       mother: from?.id,
+      pressure: 0,
+      circumscribed: 0,
     };
     if (!from) village.culture = makeCulture(village.culture.id, village.name, rnd);
     if (ruin) {
