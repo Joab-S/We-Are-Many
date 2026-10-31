@@ -145,7 +145,8 @@ export const layoutPart = {
     // Currais (pastos 2x2).
     for (const p of v.pens ?? []) addDisk(p.x + 1, p.y + 1, 2.8);
     // Plantações (roças, road === 4) e ruas internas coladas em construções/roças/praça.
-    const scanR = Math.ceil(base) + 4;
+    // Até a casa mais longe (sítios rurais ficam além do território), para as roças dela entrarem no contorno.
+    const scanR = Math.ceil(Math.max(base, this.houseReach(v))) + 4;
     for (let dy = -scanR; dy <= scanR; dy++) {
       for (let dx = -scanR; dx <= scanR; dx++) {
         if (dx * dx + dy * dy > scanR * scanR) continue;
@@ -238,6 +239,13 @@ export const layoutPart = {
     return radii;
   },
 
+  /** Distância do centro até a casa mais longe (o sítio rural pode ficar além do território). */
+  houseReach(this: Ecosystem, v: Village): number {
+    let far = 0;
+    for (const h of v.houses) far = Math.max(far, this.distance(v, h.x + 1, h.y + 1));
+    return far;
+  },
+
   /** Assentamento cujo contorno real contém o ponto (x, y), se houver. */
   villageAt(this: Ecosystem, x: number, y: number): Village | null {
     const mw = this.map.width;
@@ -248,7 +256,7 @@ export const layoutPart = {
       const dx = wrapDx(x - v.x, mw);
       const dy = y - v.y;
       const d = Math.hypot(dx, dy);
-      if (d > this.radius(v) + 7) continue;
+      if (d > Math.max(this.radius(v), this.houseReach(v)) + 7) continue;
       for (const h of v.houses) {
         const s = h.kind === 'port' ? 1 : 2;
         if (Math.abs(wrapDx(x - (h.x + s * 0.5), mw)) <= s * 0.5 && Math.abs(y - (h.y + s * 0.5)) <= s * 0.5) return v;
