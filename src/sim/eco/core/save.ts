@@ -73,6 +73,8 @@ export const savePart = {
     if (this.cells && !(this.cells instanceof EcoCells)) Object.setPrototypeOf(this.cells, EcoCells.prototype);
     if (this.weather && !this.weather.base) this.weather = null;
     if (this.weather && !(this.weather instanceof Weather)) Object.setPrototypeOf(this.weather, Weather.prototype);
+    // Saves de antes do Double Buffer da umidade: a volta anterior começa igual à de agora.
+    if (this.weather && !this.weather.humidPrev) (this.weather as { humidPrev: Float32Array }).humidPrev = this.weather.humid.slice();
     this.tally.wildfires ??= 0;
     if (this.cells) Object.setPrototypeOf(this.cells, EcoCells.prototype);
     this.tally.wildStarved = this.tally.wildStarved || 0;
