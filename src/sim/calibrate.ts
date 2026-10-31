@@ -134,10 +134,12 @@ export interface Indicators {
   aid: number;
   rivalries: number;
   /**
-   * Quando sair e fissão (agente 3B): parte das fundações por pressão social contra as por fome (as por recurso
-   * não entram na conta), quantas foram por fome, fissões e o tamanho médio da origem na hora da fissão (alvo 100 a 300).
+   * Quando sair e fissão (agente 3B): parte das fundações por pressão (social ou da terra) contra as por fome
+   * (as por recurso não entram na conta), quantas foram pela pressão da terra e quantas por fome, fissões (pela
+   * pressão social) e o tamanho médio da origem na hora da fissão (alvo 100 a 300).
    */
   pressureShare: number;
+  landFounds: number;
   famineFounds: number;
   fissions: number;
   fissionPop: number;
@@ -343,7 +345,8 @@ export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = Y
       newPeoples: eco.tally.newPeoples,
       aid: eco.tally.aid,
       rivalries: eco.tally.rivalries,
-      pressureShare: eco.tally.foundPressure / Math.max(1, eco.tally.foundPressure + eco.tally.foundFamine),
+      pressureShare: (eco.tally.foundPressure + eco.tally.foundLand) / Math.max(1, eco.tally.foundPressure + eco.tally.foundLand + eco.tally.foundFamine),
+      landFounds: eco.tally.foundLand,
       famineFounds: eco.tally.foundFamine,
       fissions: eco.tally.fissions,
       fissionPop: eco.tally.fissions ? eco.tally.fissionPop / eco.tally.fissions : 0,
@@ -517,7 +520,8 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   mercenaries: 'Mercenários contratados',
   retreats: 'Exércitos que voltaram sem comida',
   cavalry: 'Soldados montados (média por ano)',
-  pressureShare: 'Parte das fundações por pressão (contra as por fome)',
+  pressureShare: 'Parte das fundações por pressão, social ou da terra (contra as por fome)',
+  landFounds: 'Fundações pela pressão da terra',
   famineFounds: 'Fundações por fome',
   fissions: 'Fissões por pressão',
   fissionPop: 'Tamanho médio da origem na fissão (alvo 100 a 300)',

@@ -47,7 +47,7 @@ export const savePart = {
     this.wearTiles = new Set();
     for (let t = 0; t < this.wear.length; t++) if (this.wear[t] > 0) this.wearTiles.add(t);
     const tally = this.tally as Record<string, number>;
-    for (const k of ['soloFounds', 'colonies', 'farmsteads', 'merged', 'shortLived', 'lastWaves', 'tierDowns', 'interMarriages', 'annexations', 'revolts', 'capitalMoves', 'newPeoples', 'aid', 'aidRefused', 'rivalries', 'visits', 'festivals', 'foundPressure', 'foundFamine', 'foundResource', 'fissions', 'fissionPop', 'circumYears', 'circumscribed', 'landHunger']) tally[k] ||= 0;
+    for (const k of ['soloFounds', 'colonies', 'farmsteads', 'merged', 'shortLived', 'lastWaves', 'tierDowns', 'interMarriages', 'annexations', 'revolts', 'capitalMoves', 'newPeoples', 'aid', 'aidRefused', 'rivalries', 'visits', 'festivals', 'foundPressure', 'foundLand', 'foundFamine', 'foundResource', 'fissions', 'fissionPop', 'circumYears', 'circumscribed', 'landHunger']) tally[k] ||= 0;
     // Saves de antes da fauna nova: sem ação, destino nem parasitas; pasto e medo zerados.
     if (this.act.length < n) this.act = new Uint8Array(n);
     if (this.goal.length < n) this.goal = new Int32Array(n).fill(-1);

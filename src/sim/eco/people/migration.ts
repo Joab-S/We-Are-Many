@@ -121,10 +121,9 @@ export const migrationPart = {
       const exodus = lack > 0 && (v.want ?? 0) >= 3 && v.population >= 10;
       const here = score.get(v) ?? 0;
       const targets = exodus ? known.filter((c) => value(c) > here && this.scarcity(c.o) === 0) : known;
-      // Fissão por pressão: com o lugar apertado para as instituições que tem, os batedores procuram sítios e
-      // cada família pode escolher fundar; a pressão também faz mais famílias pensarem em sair.
-      // A pressão que empurra a fissão: a social (gente demais para as instituições) e a da terra (com fome e
-      // sem terra para mais roça perto). Os batedores procuram espaço ou terra, a que mais aperta.
+      // Fissão por pressão: a social (gente demais para as instituições que o lugar tem) mais a da terra (com
+      // fome e sem terra para mais roça perto). Com ela alta, os batedores procuram espaço ou terra (a que mais
+      // aperta), cada família pode escolher fundar, e mais famílias pensam em sair.
       const social = this.socialPressure(v);
       const land = this.landPressure(v);
       const pressure = social + land;
@@ -170,7 +169,7 @@ export const migrationPart = {
         if (exodus) v.want = 0;
         continue;
       }
-      // Êxodo sem lugar conhecido melhor ao alcance: sítio, colônia, refúgio e, só longe de tudo, fundar (RF-AS-01).
+      // Êxodo sem lugar conhecido melhor ao alcance: sítio, refúgio, colônia e, só longe de tudo, um grupo para longe (RF-AS-01).
       if (exodus && !targets.length) this.exodusWithoutPlace(v, fams);
     }
   },

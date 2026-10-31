@@ -211,7 +211,7 @@ export const coloniesPart = {
    * Começa a juntar uma colônia em `v`: batedores saem para ver os sítios (RF-AS-03). Na fissão por pressão
    * (agente 3B) os sítios já vieram dos batedores e as famílias que escolheram fundar (`volunteers`) vão primeiro.
    */
-  organizeColony(this: Ecosystem, v: Village, motive: ColonyMotive, found?: { x: number; y: number; value: number }[], volunteers?: number[]): boolean {
+  organizeColony(this: Ecosystem, v: Village, motive: ColonyMotive, found?: { x: number; y: number; value: number }[], volunteers?: number[], why?: FoundCause): boolean {
     if (!this.canSplit(v, motive)) return false;
     const sites = found ?? this.scoutSites(v, motive, B.COLONY_SCOUTS);
     if (!sites.length) return false;
@@ -225,8 +225,8 @@ export const coloniesPart = {
     }
     pool.sort((p, q) => q.w - p.w);
     const scouts = pool.slice(0, 2).map((p) => this.uid[p.i]);
-    // Por que sai: pressão (quem escolheu fundar, ou o lugar lotado), fome (terra) ou um recurso de fora.
-    const cause: FoundCause = volunteers?.length || motive === 'espaço' ? 'pressão' : motive === 'terra' ? 'fome' : 'recurso';
+    // Por que sai: a pressão (social ou da terra) de quem escolheu fundar, o lugar lotado, a fome ou um recurso de fora.
+    const cause: FoundCause = why ?? (volunteers?.length ? (motive === 'terra' ? 'terra' : 'pressão') : motive === 'espaço' ? 'pressão' : motive === 'terra' ? 'fome' : 'recurso');
     v.colony = { motive, sites, until: this.year + B.COLONY_SCOUT_YEARS, scouts, cause, volunteers };
     for (const p of pool.slice(0, 2)) this.logThought(p.i, 'mudança', `Saiu de batedor para ver ${sites.length} lugares para uma colônia (${MOTIVE_TEXT[motive]})`);
     this.note(`${v.name} mandou batedores procurar ${MOTIVE_TEXT[motive]} para uma colônia`, 'povo', v, { key: `scout-${v.id}` });
@@ -259,17 +259,19 @@ export const coloniesPart = {
       .sort((p, q) => q.value - p.value);
     if (!sites.length || !families) {
       // Os sítios da fissão foram tomados antes da partida: o lugar continua apertado e sem para onde ir.
-      if (c.cause === 'pressão' && c.volunteers?.length) this.cramp(v);
+      if ((c.cause === 'pressão' || c.cause === 'terra') && c.volunteers?.length) this.cramp(v);
       this.note(`A colônia de ${v.name} desistiu: os lugares que os batedores viram já estavam tomados`, 'povo', v, { key: `colony-off-${v.id}` });
       return;
     }
     const site = sites[0];
     const t = (i: number, k: keyof typeof TRAIT) => this.traits[i * TRAIT_COUNT + TRAIT[k]] / 10;
-    const fission = c.cause === 'pressão' && !!c.volunteers?.length;
+    // Fissão: as famílias que escolheram fundar pela pressão (social ou da terra) saem juntas, e mais gente.
+    const split = (c.cause === 'pressão' || c.cause === 'terra') && !!c.volunteers?.length;
+    const fission = split && c.cause === 'pressão';
     const keen = new Set(c.volunteers ?? []);
     let want = B.COLONY_GROUP_MIN;
     let max = B.COLONY_GROUP_MAX;
-    if (fission) {
+    if (split) {
       max = Math.max(B.COLONY_GROUP_MAX, Math.round(v.population * B.FISSION_SHARE));
       let ready = 0;
       for (const key of keen) ready += families.get(key)?.length ?? 0;
@@ -316,6 +318,7 @@ export const coloniesPart = {
     this.tally.colonies++;
     const cause = c.cause ?? (c.motive === 'terra' ? 'fome' : c.motive === 'espaço' ? 'pressão' : 'recurso');
     if (cause === 'pressão') this.tally.foundPressure++;
+    else if (cause === 'terra') this.tally.foundLand++;
     else if (cause === 'fome') this.tally.foundFamine++;
     else this.tally.foundResource++;
     this.emit({ kind: 'colony', year: this.year, phase: 'depart', from: v.id, to: nv.id, people: group.length, by: 'land' });
@@ -375,14 +378,19 @@ export const coloniesPart = {
   exodusWithoutPlace(this: Ecosystem, v: Village, families: Map<number, number[]> | undefined): void {
     const why = this.lackName(v);
     v.want = 0;
-    this.tally.exodus++;
-    if (why === 'lenha') this.tally.exodusFuel++;
-    this.emit({ kind: 'exodus', year: this.year, village: v.id, lack: why });
+    // O sítio rural não tira ninguém do lugar: é mais roça, e não conta como êxodo.
     if (why === 'comida' && this.openFarmstead(v)) return;
-    if (families && this.seekRefuge(v, families, why)) return;
-    if (this.organizeColony(v, why === 'comida' ? 'terra' : 'espaço')) return;
+    // Só é êxodo quando alguém sai (antes contavam também os anos em que ninguém achou para onde ir).
+    const exodus = () => {
+      this.tally.exodus++;
+      if (why === 'lenha') this.tally.exodusFuel++;
+      this.emit({ kind: 'exodus', year: this.year, village: v.id, lack: why });
+    };
+    if (families && this.seekRefuge(v, families, why)) return exodus();
+    if (this.organizeColony(v, why === 'comida' ? 'terra' : 'espaço', undefined, undefined, 'fome')) return exodus();
     const near = this.villages.some((o) => o !== v && !o.abandoned && o.species === v.species && this.distance(o, v.x, v.y) < B.LONE_FOUND_DIST);
     if (!near && this.colonizeByLand(v, families)) {
+      exodus();
       this.tally.soloFounds++;
       this.note(`Sem ${why}, uma família de ${v.name} partiu para longe`, 'povo', v, { key: `exodus-${v.id}` });
     }

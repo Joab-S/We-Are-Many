@@ -110,6 +110,24 @@ function town(eco: Ecosystem, s: number, at: { x: number; y: number }, n: number
   return v;
 }
 
+/** Um lugar de `n` moradores a 16 a 40 tiles de `a`, com caminho por terra até lá (null se não houver). */
+function neighbour(eco: Ecosystem, s: number, a: Village, n: number): Village | null {
+  for (let d = 16; d <= 40; d += 4) {
+    for (const [ox, oy] of [
+      [d, 0],
+      [-d, 0],
+      [0, d],
+      [0, -d],
+    ]) {
+      const x = Math.floor(a.x) + ox;
+      const y = Math.floor(a.y) + oy;
+      const t = eco.tileAt(x, y);
+      if (t >= 0 && isLand(eco.map, t) && eco.canFound(x, y) && eco.landPath(a.x, a.y, x + 0.5, y + 0.5)) return town(eco, s, { x, y }, n);
+    }
+  }
+  return null;
+}
+
 describe('fissão por pressão: quem sai, quando e com quem', () => {
   it('lugar cheio demais para as instituições: famílias escolhem fundar e a colônia leva famílias inteiras', () => {
     const { eco, s, spot } = world();
@@ -166,28 +184,36 @@ describe('fissão por pressão: quem sai, quando e com quem', () => {
   });
 });
 
+describe('êxodo', () => {
+  it('só conta como êxodo quando alguém sai; a família com fome busca refúgio antes de fundar', () => {
+    const { eco, s, spot } = world();
+    // Sozinha no mundo, pequena demais para colônia ou grupo e sem ninguém para receber: ninguém sai, e não é êxodo.
+    const alone = town(eco, s, spot(), B.LONE_GROUP_MIN - 2);
+    alone.needs = { food: 0.2, water: 1, fuel: 1, material: 1, cloth: 1, tools: 1 };
+    alone.fedShare = 0.2;
+    // Sem roça possível (o sítio rural não tira ninguém e também não conta).
+    alone.houses.push(...Array.from({ length: B.FARMSTEADS_MAX }, (_, k) => ({ x: Math.floor(alone.x) + k, y: Math.floor(alone.y) - 3, kind: 'house' as const, variant: 0, era: 0, farm: true })));
+    const villages = eco.villages.length;
+    eco.exodusWithoutPlace(alone, eco.familyGroups().get(alone.id));
+    expect(eco.tally.exodus).toBe(0);
+    // Com um lugar do povo ao alcance, parte das famílias vai para lá: isso é êxodo, e ninguém funda.
+    expect(neighbour(eco, s, alone, 20)).not.toBeNull();
+    let moved = false;
+    for (let k = 0; k < 6 && !moved; k++) {
+      eco.exodusWithoutPlace(alone, eco.familyGroups().get(alone.id));
+      moved = eco.tally.exodus > 0;
+    }
+    expect(moved).toBe(true);
+    expect(eco.villages.length).toBe(villages + 1);
+  });
+});
+
 describe('migração por utilidade', () => {
   it('com fome em casa, famílias inteiras vão para o lugar com comida', () => {
     const { eco, s, spot } = world();
     const a = town(eco, s, spot(), 40, 8);
     // O lugar com comida fica perto, com caminho por terra.
-    let b: Village | null = null;
-    for (let d = 16; d <= 40 && !b; d += 4) {
-      for (const [ox, oy] of [
-        [d, 0],
-        [-d, 0],
-        [0, d],
-        [0, -d],
-      ]) {
-        const x = Math.floor(a.x) + ox;
-        const y = Math.floor(a.y) + oy;
-        const t = eco.tileAt(x, y);
-        if (t >= 0 && isLand(eco.map, t) && eco.canFound(x, y) && eco.landPath(a.x, a.y, x + 0.5, y + 0.5)) {
-          b = town(eco, s, { x, y }, 12);
-          break;
-        }
-      }
-    }
+    const b = neighbour(eco, s, a, 12);
     expect(b).not.toBeNull();
     a.fedShare = 0.2;
     a.needs = { food: 0.2, water: 1, fuel: 1, material: 1, cloth: 1, tools: 1 };

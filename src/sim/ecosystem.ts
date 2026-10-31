@@ -413,6 +413,7 @@ export class Ecosystem {
     // Quando sair e fissão (agente 3B): fundações por pressão, por fome e por recurso; fissões e a soma do
     // tamanho da origem na hora; anos-lugar de circunscrição, lugares que ficaram circunscritos e guerras por terra.
     foundPressure: 0,
+    foundLand: 0,
     foundFamine: 0,
     foundResource: 0,
     fissions: 0,

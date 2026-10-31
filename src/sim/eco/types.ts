@@ -385,8 +385,12 @@ export interface Village {
   circumscribed?: number;
 }
 
-/** Por que um grupo saiu para fundar (agente 3B): pressão social (fissão), fome ou um recurso de fora (jazida, porto). */
-export type FoundCause = 'pressão' | 'fome' | 'recurso';
+/**
+ * Por que um grupo saiu para fundar (agente 3B): pressão social (fissão, ou o lugar lotado sem lote nem reforma),
+ * pressão da terra (com fome e sem terra para mais roça perto), fome (êxodo sem lugar melhor) ou um recurso de
+ * fora (jazida, porto).
+ */
+export type FoundCause = 'pressão' | 'terra' | 'fome' | 'recurso';
 
 /** Quem a pessoa é, guardado quando ela embarca e devolvido quando desembarca. */
 export interface Identity {
