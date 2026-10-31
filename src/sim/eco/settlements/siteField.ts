@@ -32,6 +32,8 @@ const SPAN = 2;
 
 /** Fila da busca dos corpos d'água (rascunho do módulo, reaproveitado). */
 let floodQueue = new Int32Array(0);
+/** Um lugar novo, para o raio de captação de quem ainda vai fundar: o território que terá com SITE_CATCH_POP moradores. */
+const NEW_PLACE = { population: B.SITE_CATCH_POP } as Village;
 
 /**
  * Campo de notas dos sítios (mapa de influência, RF-AS-04): dados puros, sem métodos (vai no save por reflexão e
@@ -55,12 +57,12 @@ export class SiteField {
   readonly score: Float32Array;
   /** Corpo d'água de cada tile: 0 terra, 1 lago (água doce), 2 mar (SITE_SEA_SIZE tiles ou mais). */
   readonly water: Uint8Array;
-  /** O terreno mudou desde o último rótulo dos corpos d'água (refeito na próxima consulta e a cada volta). */
+  /** A água do mapa mudou desde o último rótulo dos corpos d'água (refeito na próxima consulta ou passo). */
   waterDirty = true;
   /** Dirty Flag por célula (DIRTY_RAW, DIRTY_SCORE) e a fila das sujas, na ordem em que sujaram. */
   readonly dirty: Uint8Array;
   readonly queue: number[] = [];
-  /** Próxima célula da volta anual e voltas completas. */
+  /** Próxima célula da volta e voltas completas. */
   cursor = 0;
   passes = 0;
 
@@ -100,8 +102,7 @@ export const siteFieldPart = {
   catchRadius(this: Ecosystem, of: Village | number, kind: CatchKind = 'food'): number {
     const v = typeof of === 'number' ? null : of;
     const era = Math.max(0, Math.floor(v ? v.tech : (of as number)));
-    // Lugar novo: o território que terá quando juntar SITE_CATCH_POP moradores.
-    const core = this.radius(v ?? ({ population: B.SITE_CATCH_POP } as Village));
+    const core = this.radius(v ?? NEW_PLACE);
     if (kind === 'food') return core + B.GATHER_REACH * B.SITE_LIFEWAY_GATHER[Math.min(era, B.SITE_LIFEWAY_GATHER.length - 1)];
     return core + (kind === 'wood' ? B.WOOD_REACH : B.STONE_REACH) * (1 + B.REACH_PER_ERA * era);
   },

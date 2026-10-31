@@ -236,6 +236,21 @@ describe('melhor de N (chooseSite)', () => {
   });
 });
 
+describe('quem anda sozinho (loner)', () => {
+  it('o solitário num lugar sem água doce anda para a célula boa mais perto, pelo campo de notas', () => {
+    const { map, eco, s } = flatWorld(256, 64, 0.5);
+    paint(map, 0, 0, 255, 63, (i) => (map.moisture[i] = 0.3));
+    paint(map, 110, 0, 140, 63, (i) => (map.moisture[i] = 0.75));
+    const i = eco.introduceOne(s, 95.5, 32.5);
+    expect(eco.goodSite(s, 32 * map.width + 95)).toBe(false);
+    const dir = eco.betterSite(i)!;
+    expect(dir).toBeDefined();
+    expect(dir.x).toBeGreaterThan(10);
+    const t = Math.floor(32.5 + dir.y) * map.width + Math.floor(95.5 + dir.x);
+    expect(eco.goodSite(s, t)).toBe(true);
+  });
+});
+
 describe('filtro único e caminho a pé', () => {
   it('o filtro rápido pede a faixa de temperatura da espécie, verde no centro (ou poço sobre água no subsolo) e espaço', () => {
     const { map, eco, s } = flatWorld();
