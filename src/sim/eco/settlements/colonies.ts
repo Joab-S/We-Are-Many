@@ -258,6 +258,8 @@ export const coloniesPart = {
       .map((p) => ({ ...p, value: p.value + (this.civRnd() - 0.5) * 0.4 }))
       .sort((p, q) => q.value - p.value);
     if (!sites.length || !families) {
+      // Os sítios da fissão foram tomados antes da partida: o lugar continua apertado e sem para onde ir.
+      if (c.cause === 'pressão' && c.volunteers?.length) this.cramp(v);
       this.note(`A colônia de ${v.name} desistiu: os lugares que os batedores viram já estavam tomados`, 'povo', v, { key: `colony-off-${v.id}` });
       return;
     }

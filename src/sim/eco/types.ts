@@ -84,6 +84,8 @@ export interface WarPlan {
   since: number;
   /** Quanto ele acha que o inimigo vale (1 = a força de verdade), fixo no plano. */
   belief: number;
+  /** Guerra por terra de um reino circunscrito, sem sítio livre para crescer (agente 3B). */
+  cramped?: boolean;
 }
 
 export interface Boat {

@@ -171,6 +171,23 @@ export const INST_COIN = 0.5;
 export const INST_CIRCUM = 1;
 /** Anos de circunscrição para o efeito cheio nas instituições (e na guerra por terra). */
 export const CIRCUM_FULL = 20;
+/**
+ * Circunscrição (Carneiro): com CIRCUM_NOTE anos seguidos o lugar vira notícia; cada ano rende até
+ * CIRCUM_ORG_POINTS pontos no pilar organização (sem para onde ir, o lugar se organiza). O reino com um
+ * lugar circunscrito, mais forte que o vizinho em LAND_WAR_FORCE vezes e com a relação abaixo de
+ * LAND_WAR_REL, planeja guerra por terra com chance LAND_WAR_CIRCUM por ano (vezes o aperto, de 0 a 1).
+ */
+export const CIRCUM_NOTE = 5;
+export const CIRCUM_ORG_POINTS = 1;
+export const LAND_WAR_CIRCUM = 0.15;
+export const LAND_WAR_FORCE = 1;
+export const LAND_WAR_REL = 30;
+/**
+ * Reus: quem domina e saqueia é quem tem fartura e força, não quem passa fome. A fartura do próprio reino
+ * (0 a 1) vezes a vantagem de força (de 1× a 3×, de 0 a 1) soma REUS_LOOT à chance de saque e REUS_DOMINION à de domínio.
+ */
+export const REUS_LOOT = 0.04;
+export const REUS_DOMINION = 0.06;
 /** Estabilidade: a pressão acima de PRESSURE_CALM tira PRESSURE_STABILITY por ponto, até PRESSURE_STABILITY_MAX. */
 export const PRESSURE_CALM = 0.6;
 export const PRESSURE_STABILITY = 0.15;

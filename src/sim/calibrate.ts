@@ -141,6 +141,9 @@ export interface Indicators {
   famineFounds: number;
   fissions: number;
   fissionPop: number;
+  /** Lugares que chegaram a ficar circunscritos (CIRCUM_NOTE anos sem sítio livre) e guerras por terra que nasceram disso. */
+  circumscribed: number;
+  landHungerWars: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -344,6 +347,8 @@ export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = Y
       famineFounds: eco.tally.foundFamine,
       fissions: eco.tally.fissions,
       fissionPop: eco.tally.fissions ? eco.tally.fissionPop / eco.tally.fissions : 0,
+      circumscribed: eco.tally.circumscribed,
+      landHungerWars: eco.tally.landHunger,
     },
   };
 }
@@ -516,6 +521,8 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   famineFounds: 'Fundações por fome',
   fissions: 'Fissões por pressão',
   fissionPop: 'Tamanho médio da origem na fissão (alvo 100 a 300)',
+  circumscribed: 'Lugares que ficaram circunscritos (sem terra livre para a fissão)',
+  landHungerWars: 'Guerras por terra de reinos circunscritos',
 };
 
 /** Linhas da tabela do relatório: média, mediana, faixa de 10% a 90% e, quando há meta, se ficou dentro. */

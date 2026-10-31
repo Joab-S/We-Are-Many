@@ -125,6 +125,8 @@ export const migrationPart = {
       const motive = land > social ? 'terra' : 'espaço';
       const split = !exodus && this.canSplit(v, motive);
       const sites = split && pressure >= B.PRESSURE_SCOUT ? this.scoutSites(v, motive, B.COLONY_SCOUTS) : [];
+      // Apertado e sem sítio livre: circunscrição (guerra por terra e instituições, Carneiro).
+      this.circumscribe(v, pressure, split, sites.length > 0);
       const think = exodus ? B.EXODUS_SHARE : Math.min(0.9, B.MOVE_THINK * (1 + B.MOVE_LACK * lack) + B.MOVE_PRESS_THINK * Math.max(0, pressure - B.PRESSURE_SCOUT));
       const leader = this.leaderOf(v);
       let movedAny = 0;

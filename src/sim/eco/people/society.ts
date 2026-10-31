@@ -135,6 +135,31 @@ export const societyPart = {
   },
 
   /**
+   * Circunscrição (Carneiro, agente 3B): pressão acima de PRESSURE_FISSION, o lugar podendo mandar um grupo
+   * e nenhum sítio livre para a fissão. Cada ano assim soma um (`cramp`); com sítio ou sem aperto, desce um.
+   */
+  circumscribe(this: Ecosystem, v: Village, pressure: number, canSplit: boolean, hasSite: boolean): void {
+    if (pressure >= B.PRESSURE_FISSION && canSplit && !hasSite) this.cramp(v);
+    else if ((pressure < B.PRESSURE_FISSION || hasSite) && v.circumscribed) v.circumscribed--;
+  },
+
+  /**
+   * Mais um ano apertado e sem para onde ir: o lugar se organiza (pontos no pilar organização e, por
+   * `institutions`, mais gente aguentada junto) e o reino passa a olhar para a terra do vizinho (`intent`).
+   */
+  cramp(this: Ecosystem, v: Village): void {
+    const years = (v.circumscribed = (v.circumscribed ?? 0) + 1);
+    this.tally.circumYears++;
+    const pts = (v.pts ??= P.emptyPoints());
+    pts[ORGANIZATION] += B.CIRCUM_ORG_POINTS * Math.min(1, years / B.CIRCUM_FULL);
+    if (years !== B.CIRCUM_NOTE) return;
+    this.tally.circumscribed++;
+    const pressure = v.pressure ?? this.socialPressure(v);
+    this.emit({ kind: 'circumscribed', year: this.year, village: v.id, pressure, years });
+    this.note(`${v.name} está apertada e sem terra livre por perto: o povo se organiza e olha para os vizinhos`, 'povo', v, { key: `circum-${v.id}` });
+  },
+
+  /**
    * Divisão do trabalho pela falta (RF-VIDA-214): uma parte dos adultos dos
    * setores mais folgados muda para o setor da necessidade mais mal
    * atendida, com peso extra para a vocação.

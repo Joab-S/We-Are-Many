@@ -5,6 +5,7 @@ import { Ecosystem, isLand, type Village } from './ecosystem';
 import { nativeSpecies } from './species';
 import { BOND } from '../ai/relations';
 import { CHILD } from './roles';
+import { PILLARS } from './progress';
 
 /**
  * Quando sair e fissão (agente 3B): pressão social, instituições, circunscrição e grupo mínimo. Mundo
@@ -207,5 +208,60 @@ describe('migração por utilidade', () => {
       expect(eco.movedAt[i]).toBe(eco.year);
       expect(eco.diary.get(eco.uid[i])?.some((t) => t.kind === 'mudança')).toBe(true);
     }
+  });
+});
+
+describe('circunscrição (Carneiro) e Reus', () => {
+  const ORG = PILLARS.indexOf('organizacao');
+
+  it('apertado e sem sítio livre, o lugar fica circunscrito, vira notícia e se organiza', () => {
+    const { eco, s, spot } = world();
+    const v = place(eco, s, spot(), 300);
+    eco.drainEvents();
+    const org = v.pts![ORG];
+    for (let k = 0; k < B.CIRCUM_NOTE; k++) eco.circumscribe(v, 2, true, false);
+    expect(v.circumscribed).toBe(B.CIRCUM_NOTE);
+    expect(eco.tally.circumscribed).toBe(1);
+    expect(eco.tally.circumYears).toBe(B.CIRCUM_NOTE);
+    expect(v.pts![ORG]).toBeGreaterThan(org);
+    expect(eco.drainEvents().filter((e) => e.kind === 'circumscribed' && e.village === v.id).length).toBe(1);
+    // Sem poder mandar um grupo agora (colônia saindo, intervalo), nada muda; com sítio livre ou sem aperto, desce.
+    eco.circumscribe(v, 2, false, false);
+    expect(v.circumscribed).toBe(B.CIRCUM_NOTE);
+    eco.circumscribe(v, 2, true, true);
+    eco.circumscribe(v, 0.2, true, false);
+    expect(v.circumscribed).toBe(B.CIRCUM_NOTE - 2);
+  });
+
+  it('o reino circunscrito planeja guerra por terra contra o vizinho; sem aperto, não por isso', () => {
+    const { eco, s, spot } = world();
+    const a = place(eco, s, spot(), 100);
+    const b = place(eco, s, spot(), 100);
+    const side = (cramped: number) => ({ att: a, def: b, target: b, fAtt: 10, fDef: 5, lack: 0, rich: 0, plenty: 0, cramped, own: [a], other: [b] });
+    let land = 0;
+    let calm = 0;
+    for (let k = 0; k < 400; k++) {
+      if (eco.intent(side(1), 0, true, false)?.cramped) land++;
+      if (eco.intent(side(0), 0, true, false)?.cramped) calm++;
+    }
+    expect(land).toBeGreaterThan(20);
+    expect(calm).toBe(0);
+  });
+
+  it('Reus: com fartura e força, o reino saqueia e domina mais que o forte sem fartura', () => {
+    const { eco, s, spot } = world();
+    const a = place(eco, s, spot(), 100);
+    const b = place(eco, s, spot(), 100);
+    a.tech = 2.5;
+    const side = (plenty: number) => ({ att: a, def: b, target: b, fAtt: 30, fDef: 5, lack: 0, rich: 0.8, plenty, cramped: 0, own: [a], other: [b] });
+    const raids = (plenty: number) => {
+      let n = 0;
+      for (let k = 0; k < 1000; k++) {
+        const m = eco.intent(side(plenty), -5, true, false)?.motive;
+        if (m === 'loot' || m === 'dominion') n++;
+      }
+      return n;
+    };
+    expect(raids(1)).toBeGreaterThan(raids(0) * 1.5);
   });
 });
