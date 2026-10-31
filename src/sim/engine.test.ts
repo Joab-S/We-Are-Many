@@ -64,6 +64,55 @@ describe('índice de moradores (Spatial Partition com Dirty Flag)', () => {
   }, 60000);
 });
 
+describe('handles com uid (Object Pool)', () => {
+  it('um filho nascido no lugar do líder morto não vira líder', () => {
+    const { eco } = seedWorld(7);
+    run(eco, YEAR_SECONDS * 4);
+    const v = eco.villages.find((o) => !o.abandoned && eco.leaderOf(o) >= 0 && o.population >= 3)!;
+    expect(v).toBeDefined();
+    const old = eco.leaderOf(v);
+    const oldUid = eco.uid[old];
+    eco.kill(old, true);
+    // A lista livre é LIFO: o próximo a nascer ganha o lugar (índice) do líder.
+    const child = eco.spawn(v.species, v.x, v.y, v.id, 0);
+    expect(child).toBe(old);
+    expect(eco.village[child]).toBe(v.id);
+    expect(v.leader).toBe(old);
+    expect(eco.leaderOf(v)).toBe(-1);
+    // A próxima volta dos assentamentos escolhe um adulto, nunca o recém-nascido.
+    run(eco, 1);
+    const now = eco.leaderOf(v);
+    expect(now).toBeGreaterThanOrEqual(0);
+    expect(now).not.toBe(child);
+    expect(v.leaderUid).toBe(eco.uid[now]);
+    expect(v.leaderUid).not.toBe(oldUid);
+  }, 60000);
+
+  it('a presa perseguida vale pelo uid: o bicho que nasce no lugar dela não é perseguido', () => {
+    const { eco } = seedWorld(7);
+    run(eco, YEAR_SECONDS);
+    const herb = eco.species.findIndex((sp) => sp.kind === 'herbivore');
+    const pred = eco.species.findIndex((sp) => sp.kind === 'predator');
+    let hunter = -1;
+    let prey = -1;
+    for (let i = 0; i < eco.count && (hunter < 0 || prey < 0); i++) {
+      if (!eco.alive[i]) continue;
+      if (eco.kind[i] === pred && hunter < 0) hunter = i;
+      else if (eco.kind[i] === herb && prey < 0) prey = i;
+    }
+    expect(hunter).toBeGreaterThanOrEqual(0);
+    expect(prey).toBeGreaterThanOrEqual(0);
+    eco.chase[hunter] = prey;
+    eco.chaseUid[hunter] = eco.uid[prey];
+    expect(eco.prey(hunter)).toBe(prey);
+    eco.kill(prey, true);
+    const other = eco.spawn(herb, eco.x[prey], eco.y[prey], -1, 1);
+    expect(other).toBe(prey);
+    expect(eco.chase[hunter]).toBe(other);
+    expect(eco.prey(hunter)).toBe(-1);
+  }, 60000);
+});
+
 describe('relógios (Game Loop)', () => {
   it('com o ano do jogo cabem dois anos de ação em cada ano exibido, e as compensações seguem a razão', () => {
     const { eco } = seedWorld(7);

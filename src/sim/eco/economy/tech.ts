@@ -139,7 +139,7 @@ export const techPart = {
       temple: this.has(v, 'temple'),
       monument: this.has(v, 'statue') || this.has(v, 'wonder'),
       luxuryJoy: !!v.luxuryJoy,
-      leader: v.leader >= 0 && !!this.alive[v.leader],
+      leader: this.leaderOf(v) >= 0,
       tier: this.scale(v),
       stability: v.stability ?? 1,
       linked: !!v.linked,

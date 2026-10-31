@@ -229,7 +229,8 @@ export const relationsPart = {
       const k = pairKey(v.id, o.id);
       const owes = this.debts.get(k);
       const owed = owes !== undefined && owes.creditor === v.id;
-      const leader = o.leader >= 0 && this.alive[o.leader] ? this.traits[o.leader * TRAIT_COUNT + TRAIT.kindness] / 10 : 0;
+      const ol = this.leaderOf(o);
+      const leader = ol >= 0 ? this.traits[ol * TRAIT_COUNT + TRAIT.kindness] / 10 : 0;
       const will = owed ? 1 : 0.35 + this.affinity(v.id, o.id) / 100 + 0.25 * leader + (o.kingdom === v.kingdom ? 0.25 : 0);
       if (this.civRnd() > will) {
         this.addAffinity(v.id, o.id, -B.AFFINITY_REFUSE);
@@ -293,7 +294,8 @@ export const relationsPart = {
   loyaltyTo(this: Ecosystem, v: Village, k: Village): number {
     const trade = Math.min(1, (this.pairTrades.get(pairKey(v.id, k.id)) ?? 0) / 3 + (v.ref === k.id ? 0.4 : 0));
     const strong = Math.min(1, this.kingdomSize(k) / 6 + k.tier / 4);
-    const king = k.leader >= 0 && this.alive[k.leader] ? this.traits[k.leader * TRAIT_COUNT + TRAIT.charisma] / 10 : 0;
+    const kl = this.leaderOf(k);
+    const king = kl >= 0 ? this.traits[kl * TRAIT_COUNT + TRAIT.charisma] / 10 : 0;
     return loyaltyScore({
       affinity: this.affinity(v.id, k.id),
       trade,

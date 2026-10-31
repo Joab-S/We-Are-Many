@@ -457,9 +457,10 @@ export const diplomacyPart = {
       let hired = 0;
       const era = Math.floor(source.tech);
       const here = this.residents(source.id);
+      const leader = this.leaderOf(source);
       for (let k = 0; k < here.length && hired < n; k++) {
         const i = here[k];
-        if (!this.alive[i] || this.village[i] !== source.id || i === source.leader || this.role[i] === CHILD) continue;
+        if (!this.alive[i] || this.village[i] !== source.id || i === leader || this.role[i] === CHILD) continue;
         if (this.age[i] >= elderAge(this.species[this.kind[i]], era)) continue;
         this.moveTo(i, source, camp);
         this.role[i] = ROLE.soldier;

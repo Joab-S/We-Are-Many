@@ -110,7 +110,7 @@ export const faunaDecidePart = {
     if (plants) consider(ACT.eat, want * (foodHere >= FOOD_MIN ? 1 : 0.8) * fearHere * Math.max(e.forage, e.fruit, e.insects, e.fish, e.plankton));
     // Predador só caça com fome (abaixo de HUNGRY - 0,1).
     // Quem também come planta ou inseto (raposa, urso) prefere isso a uma caçada sem presa à vista.
-    if (hunts(e) && en < HUNGRY) consider(ACT.hunt, (0.55 + 0.45 * hunger) * e.meat * (this.chase[i] >= 0 || !plants ? 1 : 0.6));
+    if (hunts(e) && en < HUNGRY) consider(ACT.hunt, (0.55 + 0.45 * hunger) * e.meat * (this.prey(i) >= 0 || !plants ? 1 : 0.6));
     let carcass = -1;
     // Necrófagos enxergam carcaças longe; caçadores voltam à carne da caça que está perto.
     // Como no pasto: começa com fome e segue até saciar, sem beliscar a carcaça de barriga cheia.
@@ -284,14 +284,15 @@ export const faunaDecidePart = {
     const map = this.map;
     const w = map.width;
     const helpers = e.pack ? Math.min(4, this.kin(i, 6).n) : 0;
-    let prey = this.chase[i];
-    if (prey >= 0 && (!this.alive[prey] || this.kind[prey] === this.kind[i])) prey = -1;
+    let prey = this.prey(i);
+    if (prey >= 0 && this.kind[prey] === this.kind[i]) prey = -1;
     if (prey >= 0) {
       const dx = wrapDx(this.x[prey] - this.x[i], w);
       const dy = this.y[prey] - this.y[i];
       // Longe demais ou perseguição comprida: desiste (e descansa um pouco antes de tentar outra).
       if (dx * dx + dy * dy > 30 * 30 || ++this.effort[i] > CHASE_LIMIT) {
         this.chase[i] = -1;
+        this.chaseUid[i] = 0;
         this.effort[i] = 0;
         // Guarda a presa que escapou para não voltar logo atrás dela.
         this.goal[i] = prey;
@@ -307,6 +308,7 @@ export const faunaDecidePart = {
       this.effort[i] = Math.max(0, CHASE_LIMIT - CHASE_TRIES - Math.ceil(d / Math.max(0.05, step)));
     }
     this.chase[i] = prey;
+    this.chaseUid[i] = prey >= 0 ? this.uid[prey] : 0;
     if (prey < 0) {
       // Sem presa à vista: vai para a célula próxima onde há mais caça, sem ficar rodando num lugar vazio.
       const here = c.of(this.x[i], this.y[i], w);
@@ -362,6 +364,7 @@ export const faunaDecidePart = {
       this.leaveCarcass(prey, kg);
       this.kill(prey, false, 'predador');
       this.chase[i] = -1;
+      this.chaseUid[i] = 0;
       this.effort[i] = 0;
       const k = this.carcasses.length - 1;
       if (k >= 0) {
@@ -384,6 +387,12 @@ export const faunaDecidePart = {
         this.headTo(prey, dx * 4, dy * 4, this.pace(pe, this.species[this.kind[prey]]) * 1.6);
       }
     }
+  },
+
+  /** A presa que o bicho persegue, viva e com o mesmo `uid` de quando foi escolhida, ou -1 (o índice é reaproveitado). */
+  prey(this: Ecosystem, i: number): number {
+    const j = this.chase[i];
+    return j >= 0 && this.alive[j] && this.uid[j] === this.chaseUid[i] ? j : -1;
   },
 
   /** Sem destino: segue mais ou menos na mesma direção (explora em vez de rodar no lugar). */

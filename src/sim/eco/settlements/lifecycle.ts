@@ -25,11 +25,21 @@ const { YEAR_SECONDS, ERAS, KINGDOM_COLORS, RUIN_YEARS } = constantsModule;
 const { hsl, elderAge } = helpersModule;
 
 export const lifecyclePart = {
+  /**
+   * O líder vivo de `v`, ou -1. O índice da criatura é reaproveitado depois da morte (Object Pool com
+   * lista livre), então `v.leader` sozinho não basta: só vale se o lugar ainda tem o `uid` do líder
+   * escolhido (`v.leaderUid`), senão um filho nascido no lugar do líder morto virava líder.
+   */
+  leaderOf(this: Ecosystem, v: Village): number {
+    const l = v.leader;
+    return l >= 0 && this.alive[l] && this.village[l] === v.id && this.uid[l] === v.leaderUid ? l : -1;
+  },
+
   /** Garante um líder vivo (rei, se for capital de um reino com cidade). */
   updateLeader(this: Ecosystem, v: Village, adults: number[]): void {
-    const l = v.leader;
+    const l = this.leaderOf(v);
     const king = v.tier >= 2 && v.kingdom === v.id;
-    if (l >= 0 && this.alive[l] && this.village[l] === v.id) {
+    if (l >= 0) {
       this.role[l] = king ? ROLE.king : ROLE.leader;
       return;
     }
@@ -59,8 +69,9 @@ export const lifecyclePart = {
 
   /** Agressividade do reino somada ao temperamento do rei (IA local): um rei belicoso puxa a guerra, um gentil a segura. */
   warMood(this: Ecosystem, k: number): number {
-    const l = this.villages[k]?.leader ?? -1;
-    const ruler = l >= 0 && this.alive[l] ? LEADER.temper * rulerTemper(this.traits, l) : 0;
+    const kv = this.villages[k];
+    const l = kv ? this.leaderOf(kv) : -1;
+    const ruler = l >= 0 ? LEADER.temper * rulerTemper(this.traits, l) : 0;
     // O empurrão do jogador manda: no extremo (−1 ou 1) o temperamento do rei não pesa mais.
     const push = this.temperOf(k);
     return Math.max(-1, Math.min(1, push + ruler * (1 - Math.abs(push))));

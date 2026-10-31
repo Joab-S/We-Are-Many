@@ -361,9 +361,10 @@ export const warPart = {
     const want = Math.round(v.population * share);
     let moved = 0;
     const here = this.residents(v.id);
+    const leader = this.leaderOf(v);
     for (let k = 0; k < here.length && moved < want; k++) {
       const i = here[k];
-      if (!this.alive[i] || this.village[i] !== v.id || i === v.leader) continue;
+      if (!this.alive[i] || this.village[i] !== v.id || i === leader) continue;
       this.moveTo(i, v, best);
       moved++;
     }

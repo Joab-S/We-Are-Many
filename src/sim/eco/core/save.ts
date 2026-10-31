@@ -18,6 +18,10 @@ export const savePart = {
     this.uidIndex.clear();
     for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidIndex.set(this.uid[k], k);
     delete (this as { uidYear?: number }).uidYear;
+    // Saves de antes do handle do líder: o uid do líder guardado sai do índice (se ele ainda vive ali).
+    for (const v of this.villages) {
+      if (v.leaderUid === undefined && v.leader >= 0 && this.alive[v.leader] && this.village[v.leader] === v.id) v.leaderUid = this.uid[v.leader];
+    }
     if (this.jobKind.length < n) this.jobKind = new Uint8Array(n);
     if (this.job.length < n) this.job = new Int32Array(n);
     if (this.jobWork.length < n) this.jobWork = new Float32Array(n);
@@ -45,6 +49,14 @@ export const savePart = {
     if (this.act.length < n) this.act = new Uint8Array(n);
     if (this.goal.length < n) this.goal = new Int32Array(n).fill(-1);
     if (this.chase.length < n) this.chase = new Int32Array(n).fill(-1);
+    // Saves de antes do handle da presa: o uid sai do índice guardado (vale se a presa ainda vive).
+    if (this.chaseUid.length < n) {
+      this.chaseUid = new Uint32Array(n);
+      for (let k = 0; k < this.count; k++) {
+        const j = this.chase[k];
+        if (j >= 0 && this.alive[j]) this.chaseUid[k] = this.uid[j];
+      }
+    }
     if (this.effort.length < n) this.effort = new Uint8Array(n);
     if (this.parasite.length < n) this.parasite = new Float32Array(n);
     const tiles = this.map.width * this.map.height;

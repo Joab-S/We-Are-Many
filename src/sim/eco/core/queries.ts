@@ -85,8 +85,8 @@ export const queriesPart = {
         return `indo comer a ${d} tiles${hungry}`;
       }
       case ACT.hunt: {
-        const j = this.chase[i];
-        if (j >= 0 && this.alive[j]) return `caçando ${this.species[this.kind[j]].name.toLowerCase()}${hungry}`;
+        const j = this.prey(i);
+        if (j >= 0) return `caçando ${this.species[this.kind[j]].name.toLowerCase()}${hungry}`;
         return `procurando caça${hungry}`;
       }
       case ACT.scavenge:

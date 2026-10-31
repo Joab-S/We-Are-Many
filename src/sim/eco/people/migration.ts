@@ -100,7 +100,7 @@ export const migrationPart = {
       const better = options.filter((c) => (exodus ? c.value > here && this.scarcity(c.o) === 0 : c.value > stay)).slice(0, 4);
       const reachable = better.filter((c) => this.landPath(v.x, v.y, c.o.x, c.o.y));
       const think = exodus ? B.EXODUS_SHARE : Math.min(0.9, B.MOVE_THINK * (1 + B.MOVE_LACK * lack));
-      const leader = v.leader;
+      const leader = this.leaderOf(v);
       let movedAny = 0;
       let to: Village | null = null;
       if (reachable.length) {

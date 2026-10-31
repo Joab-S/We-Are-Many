@@ -36,9 +36,10 @@ export const societyPart = {
       if (toll <= 0) continue;
       const dead = toll;
       const here = this.residents(v.id);
+      const leader = this.leaderOf(v);
       for (let k = 0; k < here.length && toll > 0; k++) {
         const i = here[k];
-        if (!this.alive[i] || this.village[i] !== v.id || i === v.leader) continue;
+        if (!this.alive[i] || this.village[i] !== v.id || i === leader) continue;
         if (this.civRnd() < 0.5) continue;
         this.kill(i, true, 'doença');
         toll--;
@@ -144,7 +145,7 @@ export const societyPart = {
       if (this.age[i] >= elderAge(this.species[this.kind[i]], Math.floor(v.tech))) continue;
       const from = ROLES[this.role[i]];
       const sector = ROLE_NEED[from];
-      if (this.role[i] === target || i === v.leader || from === 'leader' || from === 'king') continue;
+      if (this.role[i] === target || i === this.leaderOf(v) || from === 'leader' || from === 'king') continue;
       // Fora da crise, ferreiros e mineradores ficam (o trabalho deles também leva à próxima era), e só muda quem tem setor.
       if (!crisis && (!sector || from === 'blacksmith' || from === 'miner')) continue;
       // Soldados e guardas só largam as armas na fome brava.

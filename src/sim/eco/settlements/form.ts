@@ -235,7 +235,8 @@ export const formPart = {
     for (const h of homes) room.set(h, BUILDING_TYPES.house.housing(era, h.level ?? 0, false));
     const byCenter = [...homes].sort((p, q) => this.distance(v, p.x + 1, p.y + 1) - this.distance(v, q.x + 1, q.y + 1));
     const used = new Set<Building>();
-    const fams = [...(families?.entries() ?? [])].sort((p, q) => (q[1].includes(v.leader) ? 1 : 0) - (p[1].includes(v.leader) ? 1 : 0) || q[1].length - p[1].length);
+    const leader = this.leaderOf(v);
+    const fams = [...(families?.entries() ?? [])].sort((p, q) => (q[1].includes(leader) ? 1 : 0) - (p[1].includes(leader) ? 1 : 0) || q[1].length - p[1].length);
     for (const [key, members] of fams) {
       const farmer = members.some((i) => this.role[i] === ROLE.farmer || this.role[i] === ROLE.shepherd);
       const order = farmer ? [...byCenter.filter((h) => h.farm), ...byCenter.filter((h) => !h.farm)] : byCenter.filter((h) => !h.farm).concat(byCenter.filter((h) => h.farm));

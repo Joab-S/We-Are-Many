@@ -195,6 +195,11 @@ export class Ecosystem {
   act = new Uint8Array(0);
   goal = new Int32Array(0);
   chase = new Int32Array(0);
+  /**
+   * `uid` da presa perseguida (0 nenhuma): o handle de `chase`. O índice da presa é reaproveitado depois
+   * da morte dela (Object Pool), então a perseguição só vale enquanto o lugar ainda tem esse `uid`.
+   */
+  chaseUid = new Uint32Array(0);
   /** Decisões gastas no alvo atual (presa ou destino): desiste da presa depois de CHASE_TRIES e do destino depois de GOAL_TRIES. */
   effort = new Uint8Array(0);
   parasite = new Float32Array(0);

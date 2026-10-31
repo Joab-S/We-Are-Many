@@ -29,8 +29,9 @@ export const caravansPart = {
   /** Um adulto para viajar: de preferência comerciante (ou pastor, no rebanho), nunca o líder. */
   traveler(this: Ecosystem, v: Village, role: number): number {
     let pick = -1;
+    const leader = this.leaderOf(v);
     for (const i of this.residents(v.id)) {
-      if (i === v.leader || this.role[i] === CHILD) continue;
+      if (i === leader || this.role[i] === CHILD) continue;
       if (this.age[i] >= elderAge(this.species[v.species], Math.floor(v.tech))) continue;
       if (this.role[i] === role) return i;
       if (pick < 0) pick = i;

@@ -40,9 +40,10 @@ export const coloniesPart = {
       const nv = this.foundVillage(v.species, tx, ny, 0, v, 'família');
       let moved = 0;
       const here = this.residents(v.id);
+      const leader = this.leaderOf(v);
       for (let k = 0; k < here.length && moved < 6; k++) {
         const i = here[k];
-        if (this.alive[i] && this.village[i] === v.id && i !== v.leader && this.role[i] !== CHILD) {
+        if (this.alive[i] && this.village[i] === v.id && i !== leader && this.role[i] !== CHILD) {
           this.setVillage(i, nv.id);
           this.movedAt[i] = this.year;
           v.population--;
@@ -168,8 +169,9 @@ export const coloniesPart = {
     // Batedores: os adultos mais curiosos e corajosos, nunca o líder.
     const elder = elderAge(this.species[v.species], Math.floor(v.tech));
     const pool: { i: number; w: number }[] = [];
+    const leader = this.leaderOf(v);
     for (const i of this.residents(v.id)) {
-      if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD || this.age[i] >= elder || this.role[i] >= ROLE.soldier) continue;
+      if (!this.alive[i] || this.village[i] !== v.id || i === leader || this.role[i] === CHILD || this.age[i] >= elder || this.role[i] >= ROLE.soldier) continue;
       pool.push({ i, w: this.traits[i * TRAIT_COUNT + TRAIT.curiosity] + this.traits[i * TRAIT_COUNT + TRAIT.courage] + this.civRnd() * 4 });
     }
     pool.sort((p, q) => q.w - p.w);
@@ -207,8 +209,9 @@ export const coloniesPart = {
     const site = sites[0];
     // Quem quer ir: curiosos e ambiciosos, pouco apegados, e quem passa fome. A família do líder fica.
     const t = (i: number, k: keyof typeof TRAIT) => this.traits[i * TRAIT_COUNT + TRAIT[k]] / 10;
+    const chief = this.leaderOf(v);
     const fams = [...families.values()]
-      .filter((m) => !m.includes(v.leader))
+      .filter((m) => !m.includes(chief))
       .map((m) => {
         const adults = m.filter((i) => this.role[i] !== CHILD);
         const will = adults.reduce((n, i) => n + t(i, 'curiosity') + t(i, 'ambition') - t(i, 'attachment') + (this.energy[i] < 0.4 ? 0.5 : 0), 0) / Math.max(1, adults.length);
@@ -337,8 +340,9 @@ export const coloniesPart = {
     }
     if (!best) return false;
     let moved = 0;
+    const leader = this.leaderOf(v);
     for (const m of families.values()) {
-      if (m.includes(v.leader) || !happens(this.civRnd, B.EXODUS_SHARE, 1)) continue;
+      if (m.includes(leader) || !happens(this.civRnd, B.EXODUS_SHARE, 1)) continue;
       for (const i of m) this.relocate(i, v, best);
       moved += m.length;
       this.tally.familyMoves++;

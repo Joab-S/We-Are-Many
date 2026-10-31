@@ -218,7 +218,7 @@ export const faunaFoodPart = {
       const dy = near.dy[n];
       const d = dx * dx + dy * dy;
       // Predador saciado não assusta; o que está caçando, sim (e o faminto colado também).
-      const hunting = this.act[j] === ACT.hunt && (this.chase[j] === i || d < 9);
+      const hunting = this.act[j] === ACT.hunt && ((this.chase[j] === i && this.chaseUid[j] === this.uid[i]) || d < 9);
       if (!hunting && !(this.energy[j] < HUNGRY && d < 4)) continue;
       if (d < bd) {
         bd = d;

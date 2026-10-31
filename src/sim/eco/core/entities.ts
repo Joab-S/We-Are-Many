@@ -247,6 +247,7 @@ export const entitiesPart = {
     this.act = copy(this.act, (n) => new Uint8Array(n));
     this.goal = copy(this.goal, (n) => new Int32Array(n));
     this.chase = copy(this.chase, (n) => new Int32Array(n));
+    this.chaseUid = copy(this.chaseUid, (n) => new Uint32Array(n));
     this.effort = copy(this.effort, (n) => new Uint8Array(n));
     this.parasite = copy(this.parasite, (n) => new Float32Array(n));
     const traits = new Int8Array(capacity * TRAIT_COUNT);
@@ -335,6 +336,7 @@ export const entitiesPart = {
     this.act[i] = 0;
     this.goal[i] = -1;
     this.chase[i] = -1;
+    this.chaseUid[i] = 0;
     this.effort[i] = 0;
     this.parasite[i] = 0;
     this.population[s]++;
@@ -403,7 +405,8 @@ export const entitiesPart = {
       village.population--;
       if (village.pendingTech && village.pendingTech.uid === this.uid[i] && cause !== 'partiu') this.losePendingTech(village, 'morreu', quiet);
       // Só a morte de reis e de líderes de reinos entra nos acontecimentos.
-      if (!quiet && village.leader === i && village.kingdom === village.id && (village.tier >= 2 || this.kingdomSize(village) > 1)) {
+      // O lugar `i` já está marcado como morto aqui: confere o líder pelo índice e pelo uid (o índice é reaproveitado).
+      if (!quiet && village.leader === i && this.uid[i] === village.leaderUid && village.kingdom === village.id && (village.tier >= 2 || this.kingdomSize(village) > 1)) {
         const title = this.role[i] === ROLE.king ? 'O rei' : 'O líder';
         if (this.kingdomSize(village) >= 4) this.crises.add(village.id);
         this.note(`${title} de ${village.name} morreu aos ${Math.floor(this.age[i])} anos`, 'povo', village);

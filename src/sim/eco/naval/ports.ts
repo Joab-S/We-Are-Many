@@ -187,9 +187,10 @@ export const portsPart = {
     const passengers: Boat['passengers'] = [];
     const max = Math.min(type.capacity, v.population - 3);
     const here = this.residents(v.id);
+    const leader = this.leaderOf(v);
     for (let k = 0; k < here.length && passengers.length < max; k++) {
       const i = here[k];
-      if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD) continue;
+      if (!this.alive[i] || this.village[i] !== v.id || i === leader || this.role[i] === CHILD) continue;
       if (this.age[i] >= elderAge(this.species[v.species], Math.floor(v.tech))) continue;
       passengers.push({ age: this.age[i], role: this.role[i], who: this.identity(i) });
       this.kill(i, true, 'partiu');

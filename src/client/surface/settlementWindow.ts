@@ -160,7 +160,7 @@ function summaryHtml(eco: Ecosystem, v: Village): string {
   const c = v.culture;
   const era = Math.floor(v.tech);
   const need = eco.eraNeed(v);
-  const leader = v.leader >= 0 && eco.alive[v.leader] ? v.leader : -1;
+  const leader = eco.leaderOf(v);
   const st = economicState(v);
   const w = v.needs ? welfare(v.needs) : 1;
   const next = era < ERAS.length - 1 ? `rumo à ${ERAS[era + 1]}` : 'última era';

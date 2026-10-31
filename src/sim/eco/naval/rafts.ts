@@ -30,7 +30,7 @@ export const raftsPart = {
     const vi = this.village[i];
     const v = vi >= 0 ? this.villages[vi] : null;
     // Um líder ou o último morador não deixa o assentamento para trás.
-    if (aim < 6 || (v && (v.population <= 1 || v.leader === i))) return false;
+    if (aim < 6 || (v && (v.population <= 1 || this.leaderOf(v) === i))) return false;
     const gx = this.x[i] + this.aimX[i];
     const gy = this.y[i] + this.aimY[i];
     const here = this.tileOf(i);
