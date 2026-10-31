@@ -7,12 +7,14 @@ import { keyName } from '../space/commands';
  * trocar a tabela, sem procurar `input.hit('KeyX')` pelo código. Ficam de fora o Esc (fecha o que abriu por
  * último), os dígitos das velocidades, o WASD da câmera e o Ctrl+Z.
  */
-export type SurfaceAction = 'pause' | 'help' | 'territory' | 'panel' | 'follow' | 'brushDown' | 'brushUp' | 'chronicle' | 'kingdoms' | 'species' | 'items';
+export type SurfaceAction = 'pause' | 'help' | 'territory' | 'sites' | 'panel' | 'follow' | 'brushDown' | 'brushUp' | 'chronicle' | 'kingdoms' | 'species' | 'items';
 
 export const SURFACE_KEYS: Readonly<Record<SurfaceAction, readonly string[]>> = {
   pause: ['Space'],
   help: ['KeyH'],
   territory: ['KeyT'],
+  // Camada de depuração do campo de sítios (onde assentar): a nota de cada célula e, na ficha, o porquê.
+  sites: ['KeyN'],
   panel: ['KeyP'],
   follow: ['KeyF'],
   brushDown: ['BracketLeft'],

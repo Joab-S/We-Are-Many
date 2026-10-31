@@ -21,6 +21,7 @@ import { CreatureGrid } from './spatial';
 import { Viewport } from './Viewport';
 import { BrushFx } from './fx';
 import { WeatherView } from './weatherView';
+import { SiteView, siteLegend } from './siteView';
 import { Selection } from './selection';
 import { MapOverlay } from './overlay';
 import { BrushHistory } from './history';
@@ -77,6 +78,7 @@ export class SurfaceMode {
   private applied = 0;
   private readonly fx = new BrushFx();
   private weather!: WeatherView;
+  private sites!: SiteView;
   private sel!: Selection;
   private overlay!: MapOverlay;
   private readonly history = new BrushHistory();
@@ -89,7 +91,7 @@ export class SurfaceMode {
   private minimap!: Minimap;
   private toast!: Toast;
   private labels!: Labels;
-  private readonly settings: SurfaceSettings = { showMinor: false, showLabels: true, showTerritory: true, layer: 'kingdoms', geoView: 'none' };
+  private readonly settings: SurfaceSettings = { showMinor: false, showLabels: true, showTerritory: true, layer: 'kingdoms', geoView: 'none', showSites: false };
   private readonly input: Input;
   private readonly root: HTMLDivElement;
   private tools: Tool[] = [];
@@ -203,6 +205,7 @@ export class SurfaceMode {
     this.sprites = new SpriteLayer(this.atlas, 12000);
     this.grid = new CreatureGrid(map.width, map.height);
     this.weather = new WeatherView(eco);
+    this.sites = new SiteView(() => this.engine.view, this.settings);
     this.icons = new IconCache(this.atlas);
     this.tools = buildTools(state.knownSpecies.values());
 
@@ -341,6 +344,7 @@ export class SurfaceMode {
       <div class="wb-crowd" data-crowd hidden></div>
       <div class="wb-boxsel" data-box hidden></div>
       <div class="wb-toast" data-toast hidden></div>
+      <div class="wb-legend" data-legend hidden>${siteLegend()}</div>
       <div class="wb-dock">
         <div class="wb-tip" data-tip></div>
         <div class="wb-tabs">${TABS.map(([id, label]) => `<button data-tab="${id}" title="${plain(label)}">${svgIcon(TAB_ICONS[id])}</button>`).join('')}</div>
@@ -355,6 +359,7 @@ export class SurfaceMode {
           <span><kbd>${key('pause')}</kbd> pausa · <kbd>1</kbd>–<kbd>${SPEEDS.length}</kbd> velocidade</span>
           <span><kbd>${key('brushDown')}</kbd><kbd>${key('brushUp')}</kbd> tamanho do pincel · <kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz o último traço de terreno ou clima · <kbd>Esc</kbd> fecha o que abriu por último, guarda a ferramenta ou volta à órbita</span>
           <span><kbd>${key('chronicle')}</kbd> crônica · <kbd>${key('kingdoms')}</kbd> reinos · <kbd>${key('species')}</kbd> espécies · <kbd>${key('items')}</kbd> itens · <kbd>${key('panel')}</kbd> painel · <kbd>${key('territory')}</kbd> territórios · <kbd>${key('help')}</kbd> esta ajuda</span>
+          <span><kbd>${key('sites')}</kbd> notas dos sítios (depuração de onde assentar): a nota de cada célula e, na ficha, a nota do ponto fator por fator e por que ali não dá para fundar</span>
           <span>Cada reino tem uma cor: a área dos assentamentos e a faixa do nome mostram de quem é. Borda cheia é a capital; tracejada, os outros assentamentos do reino.</span>
           <span>No minimapa, clique ou arraste para levar a câmera.</span>
         </div>
@@ -384,11 +389,11 @@ export class SurfaceMode {
           else this.sel.setHighlight(null);
         }),
     });
-    this.info = new InfoCard(q('[data-i]'), view, this.sel, this.weather, { say: (t) => this.toast.say(t), redraw });
+    this.info = new InfoCard(q('[data-i]'), view, this.sel, this.weather, this.sites, { say: (t) => this.toast.say(t), redraw });
     this.panel = new SidePanel(root, this.settings, () => this.driver.speed, () => this.raster.version);
     this.minimap = new Minimap(q<HTMLCanvasElement>('[data-mini]'), view, () => this.raster.canvas());
     this.labels = new Labels(q('[data-l]'));
-    this.overlay = new MapOverlay(q<HTMLCanvasElement>('[data-terr]'), eco, view, this.sel, this.settings, this.weather, this.fx);
+    this.overlay = new MapOverlay(q<HTMLCanvasElement>('[data-terr]'), eco, view, this.sel, this.settings, this.weather, this.fx, this.sites);
     const mode = this;
     this.toolbar = new Toolbar(
       root,
@@ -576,6 +581,16 @@ export class SurfaceMode {
     this.overlays.set('help', !el.hidden, () => this.toggleHelp());
   }
 
+  /** Liga ou desliga a camada de depuração dos sítios (as notas no mapa, a legenda e o bloco da ficha). */
+  private toggleSites(): void {
+    const s = this.settings;
+    s.showSites = !s.showSites;
+    this.root.querySelector<HTMLElement>('[data-legend]')!.hidden = !s.showSites;
+    this.info.refresh(this.eco);
+    this.windows.refresh(this.eco);
+    this.dirty = true;
+  }
+
   /** Esconde o painel lateral (o minimapa fica). */
   private fold(): void {
     this.folded = !this.folded;
@@ -605,6 +620,7 @@ export class SurfaceMode {
     else if (opt === 'minor') s.showMinor = !s.showMinor;
     else if (opt === 'labels') s.showLabels = !s.showLabels;
     else if (opt === 'territory') s.showTerritory = !s.showTerritory;
+    else if (opt === 'sites') this.toggleSites();
     else if (opt.startsWith('layer:')) {
       s.layer = opt.slice(6) as SurfaceSettings['layer'];
       s.showTerritory = true;
@@ -712,6 +728,7 @@ export class SurfaceMode {
       this.settings.showTerritory = !this.settings.showTerritory;
       this.dirty = true;
     }
+    if (pressed(input, 'sites')) this.toggleSites();
     if (pressed(input, 'panel')) this.fold();
     if (pressed(input, 'follow')) this.sel.toggleFollow();
     if (pressed(input, 'brushDown')) this.toolbar.stepBrush(-2);

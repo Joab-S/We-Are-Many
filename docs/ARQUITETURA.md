@@ -105,6 +105,8 @@ As duas consultas de onde assentar servem à camada de depuração do campo de s
 - `siteField()` dá `{ cols, rows, cell, score, version }`: a nota de cada célula de 16×16 tiles (`SITE_NONE` no mar) e uma versão que sobe só quando alguma nota muda. A fachada guarda uma cópia das notas e compara a cada chamada (Dirty Flag por comparação, algumas mil células), então o motor não precisou de contador. Antes de o campo existir (mundo sem povos), dá null; a consulta não cria o campo.
 - `siteAt(x, y, from?)` dá o que os batedores veem no tile (`siteLook`), a nota (`siteValue`), a parte de cada fator nela (`parts`, que somam a nota), a nota mínima das colônias e o veto (`siteFilter`). Quem funda é o lugar `from` ou, sem ele, o lugar vivo mais perto, com o motivo `espaço`. As partes saem da própria `siteValue` (a nota menos a nota com o fator no neutro), sem repetir a fórmula. O exame lê os rótulos dos corpos d'água; se eles estão sujos, a consulta os refaz e depois devolve os antigos, para não adiantar o que o passo faria.
 
+No cliente, a camada (`src/client/surface/siteView.ts`) liga e desliga pela tecla da tabela (`sites`, hoje N) ou pelo botão "Notas dos sítios" da janela Mundo. Ela segue o molde do clima: uma imagem de uma célula por pixel, esticada sobre o mapa no canvas dos territórios, com a legenda da rampa embaixo à esquerda. A ficha do tile ganha a nota do ponto fator por fator e o veto. Só lê a `EngineView`.
+
 Hoje a vista é um objeto próprio (`LiveView`, em `engine.ts`) que lê o `Ecosystem` vivo campo a campo, sem cópia, e troca de mundo no `restore`. Antes ela era o próprio `Ecosystem`; ficou separada para a fachada ter consultas suas sem mexer no motor. Dois avisos ficam fora da fila por serem síncronos e quentes (`EngineHooks`): `tileChanged`, o tile que mudou (dezenas de milhares por passo quando a mata cresce; a tela só marca o que repintar), e `species`, a variante nova que entra no catálogo.
 
 ### O que o cliente ainda acessa direto do Ecosystem
@@ -165,7 +167,7 @@ Para acrescentar uma parte:
 
 | Padrão | Onde vive hoje | O que falta |
 | --- | --- | --- |
-| **Command** | `src/sim/api/commands.ts` (`EngineCommand`, `applyCommand`, `TileJournal` para o desfazer); fila e log no `SimDriver`; vista como comando (`viewCommand`); no espaço, `src/client/space/commands.ts` | O desfazer guarda o retrato do traço no cliente (`ApplyContext.journal`); com o motor no Worker, o motor devolve o `restoreTiles` |
+| **Command** | `src/sim/api/commands.ts` (`EngineCommand`, `applyCommand`, `TileJournal` para o desfazer); fila e log no `SimDriver`; vista como comando (`viewCommand`); as teclas numa tabela só, no espaço (`src/client/space/commands.ts`) e na superfície (`src/client/surface/keys.ts`) | O desfazer guarda o retrato do traço no cliente (`ApplyContext.journal`); com o motor no Worker, o motor devolve o `restoreTiles` |
 | **Flyweight** | Espécie por índice (`kind[i]` aponta para `species`), bioma em `Uint8Array`, `SpriteAtlas` e a pixel art com cores trocadas (`src/client/surface/sprites.ts`, `art.ts`) | Nada |
 | **Observer** | `EventBus` do cliente (`src/client/surface/EventBus.ts`); ganchos síncronos `EngineHooks` (`tileChanged`, `species`) | Mais consumidores: o mapa de influência, o luto, a ficha |
 | **Prototype** | `makeVariant` (`src/sim/species.ts`): a espécie nova nasce de outra | Nada |
@@ -181,7 +183,7 @@ Para acrescentar uma parte:
 | **Event Queue** | `src/sim/api/events.ts` e `Ecosystem.events`/`emit`/`drainEvents`; a fila de comandos do `SimDriver`; `ProbeEvent` em `src/explore/probes.ts` | Crônica, luto e vitais como consumidores da fila em vez de chamadas diretas |
 | **Service Locator** | Não usado, de propósito: são poucos serviços, e eles entram por parâmetro (`ToolContext`, construtores do HUD, `EngineHooks`) | Nada. Um locator esconderia a dependência que a fronteira quer deixar à vista |
 | **Data Locality** | Criaturas em cerca de 40 arrays tipados SoA no `Ecosystem`; terreno e ruas por tile em arrays | Carcaças, barcos e caravanas ainda são objetos com `splice` |
-| **Dirty Flag** | Tiles sujos do mapa (`src/client/surface/dirty.ts`, `MapRaster`); `HtmlSlot` no HUD; janela do assentamento suja por evento (`SettlementView`); caches do motor (`footprint` em `v.foot`, `lotCache`, `fieldCache`) | Painel e janelas ainda são refeitos por tempo |
+| **Dirty Flag** | Tiles sujos do mapa (`src/client/surface/dirty.ts`, `MapRaster`); `HtmlSlot` no HUD; janela do assentamento suja por evento (`SettlementView`); camada dos sítios repintada só quando a versão do campo muda (`siteView.ts`, `EngineView.siteField`); caches do motor (`footprint` em `v.foot`, `lotCache`, `fieldCache`) | Painel e janelas ainda são refeitos por tempo |
 | **Object Pool** | Lista livre dos slots de criatura (`eco.free`), sem geração; partículas em `src/client/surface/pool.ts`; vetores reaproveitados no espaço | Validar referências por `uid` (líder, caçada) |
 | **Spatial Partition** | Grade de células com lista ligada no motor (`gridHead`, `gridNext`, `forEachNear` em `eco/core/entities.ts`); células ecológicas (`src/sim/eco/cells.ts`); `CreatureGrid` do desenho (`src/client/surface/spatial.ts`); octree das estrelas (`src/universe/manifest.ts`, `starIndex.ts`) | Índice vila→moradores; grade própria para as consultas do cliente (ver determinismo) |
 

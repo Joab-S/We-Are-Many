@@ -3,14 +3,16 @@ import { VOCATION_COLORS, welfare } from '../../sim/needs';
 import type { BrushFx } from './fx';
 import type { SurfaceSettings } from './hud/Windows';
 import type { Selection } from './selection';
+import type { SiteView } from './siteView';
 import type { CreaturePositions } from './SpriteCollector';
 import type { Viewport } from './Viewport';
 import type { WeatherView } from './weatherView';
 
 /**
- * Canvas transparente por cima do mapa: o assentamento com a janela aberta,
- * os marcadores de seleção, o clima, a animação das ferramentas e o
- * território de cada assentamento na cor do seu reino.
+ * Canvas transparente por cima do mapa: a camada de depuração dos sítios, o
+ * assentamento com a janela aberta, os marcadores de seleção, o clima, a
+ * animação das ferramentas e o território de cada assentamento na cor do seu
+ * reino.
  */
 export class MapOverlay {
   private readonly ctx: CanvasRenderingContext2D;
@@ -24,6 +26,7 @@ export class MapOverlay {
     private readonly settings: SurfaceSettings,
     private readonly weather: WeatherView,
     private readonly fx: BrushFx,
+    private readonly sites: SiteView,
   ) {
     this.ctx = canvas.getContext('2d')!;
   }
@@ -43,6 +46,8 @@ export class MapOverlay {
     }
     const ctx = this.ctx;
     ctx.clearRect(0, 0, w, h);
+    // A camada de depuração dos sítios fica por baixo de tudo o que é marcador.
+    this.sites.draw(ctx, view);
     this.drawOpenSettlement(openId);
     this.drawSelection(pos);
     this.weather.draw(ctx, view);

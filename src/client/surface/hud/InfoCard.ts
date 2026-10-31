@@ -12,6 +12,7 @@ import { bar, economicState, fullName, ROLE_ICONS, stateIcons, sumLedger } from 
 import { DEBUG } from '../tools';
 import type { Selection } from '../selection';
 import type { Viewport } from '../Viewport';
+import type { SiteView } from '../siteView';
 import type { WeatherView } from '../weatherView';
 import { HtmlSlot, HudComponent } from './component';
 
@@ -27,6 +28,7 @@ export class InfoCard extends HudComponent {
     private readonly view: Viewport,
     private readonly sel: Selection,
     private readonly weather: WeatherView,
+    private readonly sites: SiteView,
     private readonly host: { say(text: string): void; redraw(): void },
   ) {
     super(150);
@@ -90,7 +92,7 @@ export class InfoCard extends HudComponent {
           <span>Altitude ${(map.elevation[i] * 100).toFixed(0)}</span>
           <span>Temperatura ${(t - 273.15).toFixed(0)} °C</span>
           <span>Umidade ${(map.moisture[i] * 100).toFixed(0)}%</span>
-          <span>Vegetação ${(map.vegetation[i] * 100).toFixed(0)}%</span>${this.floraInfo(eco, i)}${this.weather.info(i)}${this.plateInfo(eco, i)}`;
+          <span>Vegetação ${(map.vegetation[i] * 100).toFixed(0)}%</span>${this.floraInfo(eco, i)}${this.weather.info(i)}${this.plateInfo(eco, i)}${this.sites.info(atX, this.view.toRow(atY))}`;
       }
     }
     el.hidden = false;
