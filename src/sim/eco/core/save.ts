@@ -57,6 +57,8 @@ export const savePart = {
         if (j >= 0 && this.alive[j]) this.chaseUid[k] = this.uid[j];
       }
     }
+    // Saves de antes da presa que escapou em vetor próprio: ninguém lembra de presa nenhuma.
+    if (this.escaped.length < n) this.escaped = new Uint32Array(n);
     if (this.effort.length < n) this.effort = new Uint8Array(n);
     if (this.parasite.length < n) this.parasite = new Float32Array(n);
     const tiles = this.map.width * this.map.height;

@@ -238,7 +238,7 @@ export const faunaFoodPart = {
     const limit = e.maxPrey * (e.pack ? Math.min(3, 1 + helpers * 0.5) : 1);
     const min = e.mass * 0.015;
     const sight = Math.min(36, 8 + e.range);
-    const escaped = this.goal[i];
+    const escaped = this.escaped[i];
     if (PREY_SEEN.length < this.species.length) PREY_SEEN = new Uint16Array(this.species.length * 2);
     const seen = PREY_SEEN;
     seen.fill(0);
@@ -248,7 +248,7 @@ export const faunaFoodPart = {
     for (let q = 0; q < near.n; q++) {
       const j = near.i[q];
       const k = this.kind[j];
-      if (k === s || j === escaped || n >= cand.length / 3) continue;
+      if (k === s || this.uid[j] === escaped || n >= cand.length / 3) continue;
       const dx = near.dx[q];
       const dy = near.dy[q];
       const kk = this.species[k].kind;

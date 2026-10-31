@@ -200,6 +200,11 @@ export class Ecosystem {
    * da morte dela (Object Pool), então a perseguição só vale enquanto o lugar ainda tem esse `uid`.
    */
   chaseUid = new Uint32Array(0);
+  /**
+   * `uid` da presa que escapou da última caçada (0 nenhuma), para o caçador não voltar logo atrás dela; vale
+   * enquanto ele segue caçando. Antes ficava em `goal`, que no resto do tempo guarda um tile.
+   */
+  escaped = new Uint32Array(0);
   /** Decisões gastas no alvo atual (presa ou destino): desiste da presa depois de CHASE_TRIES e do destino depois de GOAL_TRIES. */
   effort = new Uint8Array(0);
   parasite = new Float32Array(0);

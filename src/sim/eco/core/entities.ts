@@ -248,6 +248,7 @@ export const entitiesPart = {
     this.goal = copy(this.goal, (n) => new Int32Array(n));
     this.chase = copy(this.chase, (n) => new Int32Array(n));
     this.chaseUid = copy(this.chaseUid, (n) => new Uint32Array(n));
+    this.escaped = copy(this.escaped, (n) => new Uint32Array(n));
     this.effort = copy(this.effort, (n) => new Uint8Array(n));
     this.parasite = copy(this.parasite, (n) => new Float32Array(n));
     const traits = new Int8Array(capacity * TRAIT_COUNT);
@@ -337,6 +338,7 @@ export const entitiesPart = {
     this.goal[i] = -1;
     this.chase[i] = -1;
     this.chaseUid[i] = 0;
+    this.escaped[i] = 0;
     this.effort[i] = 0;
     this.parasite[i] = 0;
     this.population[s]++;

@@ -82,6 +82,7 @@ export const faunaDecidePart = {
       const dy = this.y[i] - this.y[threat];
       this.act[i] = ACT.flee;
       this.goal[i] = -1;
+      this.escaped[i] = 0;
       this.headTo(i, dx * 4, dy * 4, speed * 1.6);
       return;
     }
@@ -146,6 +147,8 @@ export const faunaDecidePart = {
     } else if (best === ACT.rest) best = plants ? ACT.eat : hunts(e) ? ACT.hunt : ACT.scavenge;
 
     this.act[i] = best;
+    // A lembrança da presa que escapou só vale enquanto o bicho segue caçando.
+    if (best !== ACT.hunt) this.escaped[i] = 0;
     switch (best) {
       case ACT.eat: {
         if (foodHere >= FOOD_MIN) {
@@ -294,8 +297,9 @@ export const faunaDecidePart = {
         this.chase[i] = -1;
         this.chaseUid[i] = 0;
         this.effort[i] = 0;
-        // Guarda a presa que escapou para não voltar logo atrás dela.
-        this.goal[i] = prey;
+        // Guarda a presa que escapou (pelo uid) para não voltar logo atrás dela; o destino em tile fica vazio.
+        this.escaped[i] = this.uid[prey];
+        this.goal[i] = -1;
         this.stop(i);
         return;
       }
