@@ -173,15 +173,17 @@ O jogador nunca cria espécies. A evolução modifica espécies existentes de fo
 
 ### 9.2 Eras tecnológicas
 
-As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
+As eras do código (`ERAS` em `src/sim/eco/constants.ts`). Não há relógio de séculos (o antigo `ERA_YEARS` saiu do código em 31/10/2026): a era de cada assentamento é calculada por `organicTech` (`src/sim/progress.ts`) a partir das técnicas que o lugar conhece e das peças que forjou (`v.made`), e nunca volta. A tabela diz o que o código faz hoje.
 
-| Era | Desbloqueia | Condição para sair dela |
+| Era | O que muda no lugar | Condição para entrar nela (`organicTech`) |
 |---|---|---|
-| Idade da Pedra | Cabanas de palha, coleta, caça com lança, fogo, aldeias pequenas, canoas | Fazer 5 peças de bronze (cobre + estanho numa ferraria) |
-| Idade do Bronze | Casas de madeira com telhado, agricultura, ferramentas melhores, comércio de troca, vilas, fundição de ferro | Fazer 8 peças de ferro |
-| Idade do Ferro | Casas de pedra, armas de ferro, exércitos organizados, estradas, cidades, deserto colonizável | Extrair 120 de pedra e fazer 30 peças de ferro |
-| Era Medieval | Castelos, reinos, religião organizada, caravelas, aço (ferro + carvão) | Extrair 60 de carvão e fazer 10 peças de aço |
-| Era Industrial | Fábricas, navios a vapor, cidades densas. Última era: os povos não vão ao espaço | — |
+| Idade da Pedra | Tendas e cabanas, coleta, caça, roças pequenas (uma a cada quatro casas), ferramentas de pedra e madeira, canoas, escambo | — (começo; sobe de 0 a 0,95 com ferramentas, roça, porto, rebanho e as primeiras técnicas) |
+| Idade do Bronze | Uma roça a cada duas casas, celeiro e ferraria, barco a remo, lingotes como moeda, soldados entre os ofícios, rendimento da roça ×1,2 (`ERA_YIELD`) | Fundição de cobre e bronze, ou uma peça de bronze forjada, ou cerâmica com domesticação, tecelagem ou roda e já com roça, rebanho ou vila |
+| Idade do Ferro | Construções especiais pedem mais pedra, templo, quartel, estátua, veleiro, moeda de prata, sobrado na vila, rendimento ×1,45 | Fundição de ferro, ou uma peça de ferro forjada, ou fundição com duas peças de bronze e escrita, moinho, cavalaria ou cidade |
+| Era Medieval | Casas de pedra, grande obra na capital, caravela, rotação de culturas (o solo cansa pela metade), moeda cunhada, rendimento ×1,75 | Aço e alvenaria, ou fundição de ferro com 3 peças de ferro e moeda, cavalaria, imprensa ou cidade com 20 de pedra extraída |
+| Era Industrial | Fábrica (dobra a ferraria), navio a vapor, papel-moeda, rendimento ×2,4. Última era: os povos não vão ao espaço | Vapor, com uma peça de aço, 5 de carvão ou 4 peças de ferro |
+
+O avanço emprestado (`advance`: comércio que ensina e a ajuda do jogador) só passa de era com a técnica da porta (fundição, siderurgia, aço ou vapor) ou com as peças de `ERA_NEEDS` (`src/sim/economy.ts`: 2 de bronze; 4 de ferro; 40 de pedra e 12 de ferro; 20 de carvão e 4 de aço) e os pontos de desenvolvimento da era (`ERA_POINTS`). As peças contam o máximo entre o lugar e a capital do reino.
 
 | ID | Requisito | Situação |
 |---|---|---|
