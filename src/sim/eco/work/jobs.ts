@@ -232,10 +232,12 @@ export const jobsPart = {
   /** Quantos trabalham em cada obra agora (revisto a cada segundo, para quem morreu ou mudou de ofício sair da conta). */
   recountCrews(this: Ecosystem): void {
     for (const v of this.villages) for (const h of v.houses) h.crew = 0;
-    for (let i = 0; i < this.count; i++) {
-      if (!this.alive[i] || this.jobKind[i] !== JOB.build || this.village[i] < 0) continue;
-      const b = this.siteFor(i, this.villages[this.village[i]]);
-      if (b) b.crew = (b.crew ?? 0) + 1;
+    for (const v of this.villages) {
+      for (const i of this.residents(v.id)) {
+        if (this.jobKind[i] !== JOB.build) continue;
+        const b = this.siteFor(i, v);
+        if (b) b.crew = (b.crew ?? 0) + 1;
+      }
     }
   },
 

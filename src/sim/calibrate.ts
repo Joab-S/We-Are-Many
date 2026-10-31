@@ -167,9 +167,16 @@ export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: Re
 /**
  * Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, rodando
  * `years` anos em passos de 0,25 s.
+ *
+ * `yearSpan` é a duração do ano de calendário em segundos (eco/core/clock.ts). O padrão é o ano de ação
+ * (`YEAR_SECONDS`), em que os dois relógios coincidem e toda a calibração foi feita; com o ano do jogo
+ * (`REAL_YEAR_SECONDS`, 12 s) mede o que o jogador vê: `years` anos exibidos, cada um com dois anos de ação.
+ * Nos scripts de calibração, pela variável de ambiente YEAR_SPAN.
  */
-export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecosystem; indicators: Indicators } {
+export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = YEAR_SECONDS): { eco: Ecosystem; indicators: Indicators } {
   const { eco, map, placed } = seedWorld(seed, radius);
+  // Como no jogo: o ano da tela é definido depois de povoar o mundo.
+  eco.yearSpan = yearSpan;
   let wars = 0;
   let cavalry = 0;
   let caravans = 0;
@@ -189,7 +196,7 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
   const sapient = () => eco.villages.reduce((n, v) => n + (v.abandoned ? 0 : v.population), 0);
   for (let y = 0; y < years; y++) {
     watch();
-    for (let t = 0; t < YEAR_SECONDS; t += 0.25) eco.step(0.25);
+    for (let t = 0; t < yearSpan; t += 0.25) eco.step(0.25);
     if (y === Math.floor(years * 0.6)) mid = sapient();
     wars += eco.wars.length;
     for (let i = 0; i < eco.count; i++) if (eco.alive[i] && eco.mounted(i)) cavalry++;

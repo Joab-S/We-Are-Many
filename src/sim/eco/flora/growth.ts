@@ -5,12 +5,14 @@
 
 import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
-import { classify, decorAt, isTree, temperatureAt, vegetationCap } from '../../../procgen/surface';
-import { ROLE } from '../../roles';
+import * as surfaceModule from '../../../procgen/surface';
+import * as rolesModule from '../../roles';
 import type { Village } from '../types';
 import * as tilesModule from '../tiles';
 
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
+// Cópias locais dos valores importados (eco/*, superfície, papéis...; o porquê está em ecosystem.ts).
+const { classify, decorAt, isTree, temperatureAt, vegetationCap } = surfaceModule;
+const { ROLE } = rolesModule;
 const { isLand } = tilesModule;
 
 export const growthPart = {
@@ -19,14 +21,14 @@ export const growthPart = {
     const n = m.width * m.height;
     const samples = Math.min(40000, Math.round(n * 0.04 * dt));
     for (let k = 0; k < samples; k++) {
-      const i = Math.floor(this.rnd() * n);
+      const i = Math.floor(this.floraRnd() * n);
       if (m.elevation[i] < 0) continue;
       const cap = vegetationCap(m, i);
       const ok = cap > 0;
       const x = i % m.width;
       const y = (i - x) / m.width;
-      const nx = (x + Math.floor(this.rnd() * 3) - 1 + m.width) % m.width;
-      const ny = y + Math.floor(this.rnd() * 3) - 1;
+      const nx = (x + Math.floor(this.floraRnd() * 3) - 1 + m.width) % m.width;
+      const ny = y + Math.floor(this.floraRnd() * 3) - 1;
       const neighbour = ny >= 0 && ny < m.height ? m.vegetation[ny * m.width + nx] : 0;
       const before = m.vegetation[i];
       // Espalha a partir dos vizinhos; um tile pastado ainda rebrota devagar pelas raízes.
@@ -95,7 +97,7 @@ export const growthPart = {
         }
       }
       if (state === 1) {
-        if (this.rnd() < B.SPROUT_RATE * (this.treeNear(t) ? 1 : B.SPROUT_FAR)) {
+        if (this.floraRnd() < B.SPROUT_RATE * (this.treeNear(t) ? 1 : B.SPROUT_FAR)) {
           felled[t] = 2;
           this.onTileChanged(t);
         }

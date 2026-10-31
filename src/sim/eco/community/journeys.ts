@@ -189,8 +189,8 @@ export const journeysPart = {
     }
     // Reservas de quem já está numa tarefa do quadro anterior continuam valendo.
     for (const t of tasks) t.taken = 0;
-    for (let i = 0; i < this.count; i++) {
-      if (!this.alive[i] || this.village[i] !== v.id || !this.day[i] || this.day[i] >= DAY.eat) continue;
+    for (const i of this.residents(v.id)) {
+      if (!this.day[i] || this.day[i] >= DAY.eat) continue;
       const t = tasks.find((x) => x.kind === this.day[i] && x.tile === this.dayAt[i]);
       if (t) t.taken++;
     }

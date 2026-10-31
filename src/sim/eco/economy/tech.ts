@@ -48,8 +48,17 @@ export const techPart = {
   },
 
   /** Técnicas conhecidas (seção 19.10). */
+  /**
+   * Técnicas que o lugar conhece, como conjunto. Guardado por lugar (`knowsCache`) até a lista mudar: as
+   * técnicas só entram por `push` e saem trocando a lista inteira, então a lista e o tamanho bastam para
+   * saber se o conjunto ainda vale. O conjunto entregue nunca é alterado depois.
+   */
   knows(this: Ecosystem, v: Village): ReadonlySet<string> {
-    return new Set(v.techs ?? []);
+    const c = this.knowsCache.get(v);
+    if (c && c.techs === v.techs && c.n === (v.techs?.length ?? 0)) return c.set;
+    const set = new Set(v.techs ?? []);
+    this.knowsCache.set(v, { techs: v.techs, n: v.techs?.length ?? 0, set });
+    return set;
   },
 
   knew(this: Ecosystem, v: Village, id: string): boolean {
@@ -131,7 +140,7 @@ export const techPart = {
       temple: this.has(v, 'temple'),
       monument: this.has(v, 'statue') || this.has(v, 'wonder'),
       luxuryJoy: !!v.luxuryJoy,
-      leader: v.leader >= 0 && !!this.alive[v.leader],
+      leader: this.leaderOf(v) >= 0,
       tier: this.scale(v),
       stability: v.stability ?? 1,
       linked: !!v.linked,
@@ -267,8 +276,8 @@ export const techPart = {
     let heir = -1;
     if (p.progress >= P.TECH_RESCUE_MIN) {
       let best = -1;
-      for (let j = 0; j < this.count; j++) {
-        if (!this.alive[j] || this.village[j] !== v.id || this.uid[j] === p.uid || this.role[j] === CHILD) continue;
+      for (const j of this.residents(v.id)) {
+        if (this.uid[j] === p.uid || this.role[j] === CHILD) continue;
         // Quem trabalha no ofício aprendeu mais de perto; os outros só se não houver ninguém dele.
         const c = this.curiosity(j) + (t.roles.includes(ROLES[this.role[j]]) ? 10 : 0);
         if (c > best) {

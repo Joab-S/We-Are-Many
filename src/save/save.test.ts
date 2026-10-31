@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { seedFor } from '../core/rng';
+import { seedFor, type StatefulRng } from '../core/rng';
 import { createNavState } from '../nav/guide';
 import { createProbeState } from '../explore/probes';
 import { generateSurface, type PlanetParams } from '../procgen/surface';
 import { Ecosystem } from '../sim/ecosystem';
 import { nativeSpecies } from '../sim/species';
+import { streams } from '../sim/stochastic';
 import type { GameState } from '../client/state';
 import { REJECTED_KEY, SAVE_KEY, SaveManager } from './manager';
 import { restoreGame, snapshotGame } from './game';
@@ -113,6 +114,38 @@ describe('save: ida e volta', () => {
     expect(loaded.villages).toEqual(original.villages);
     expect(loaded.chronicle).toEqual(original.chronicle);
     expect(loaded.map.vegetation).toEqual(original.map.vegetation);
+  }, 60000);
+
+  it('save antigo, sem os fluxos da fauna e da flora nem os vetores novos, carrega e segue determinístico', () => {
+    const s = game();
+    const data = structuredClone(snapshotGame(s, space, seeds));
+    const snap = data.ecosystems.get('sol-3')!;
+    // Como um save de antes: sem os fluxos novos, sem os handles da presa e com o cache anual de uid.
+    delete snap.rng.faunaRnd;
+    delete snap.rng.floraRnd;
+    delete snap.fields.chaseUid;
+    delete snap.fields.escaped;
+    snap.fields.uidYear = 3;
+    const load = () => restoreGame(structuredClone(data), base).state.ecosystems.get('sol-3')!;
+    const a = load();
+    const b = load();
+    // Os fluxos novos começam da semente do planeta.
+    const fresh = streams(snap.seed);
+    expect((a.faunaRnd as StatefulRng).state).toBe((fresh.fauna as StatefulRng).state);
+    expect((a.floraRnd as StatefulRng).state).toBe((fresh.flora as StatefulRng).state);
+    // Os vetores que faltavam são refeitos do tamanho dos outros, e o cache anual sai.
+    expect(a.chaseUid.length).toBe(a.x.length);
+    expect(a.escaped.length).toBe(a.x.length);
+    expect('uidYear' in a).toBe(false);
+    for (let k = 0; k < a.count; k++) {
+      const j = a.chase[k];
+      if (a.alive[k] && j >= 0 && a.alive[j]) expect(a.chaseUid[k]).toBe(a.uid[j]);
+    }
+    run(a, 20);
+    run(b, 20);
+    expect(a.x).toEqual(b.x);
+    expect(a.population).toEqual(b.population);
+    expect(a.map.vegetation).toEqual(b.map.vegetation);
   }, 60000);
 
   it('salvar não altera o jogo em andamento', () => {

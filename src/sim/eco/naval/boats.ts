@@ -16,7 +16,7 @@ import * as tilesModule from '../tiles';
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
 const { YEAR_SECONDS, BOATS } = constantsModule;
 const { cap } = helpersModule;
-const { isWater, isLand } = tilesModule;
+const { isWater, isLand, NEIGHBORS4 } = tilesModule;
 
 export const boatsPart = {
   /** Barco mais próximo de um ponto, dentro do raio. */
@@ -58,8 +58,8 @@ export const boatsPart = {
     b.sunk = 0;
     const v = this.villages[b.village];
     if (b.purpose === 'fish') {
-      for (let i = 0; i < this.count; i++) {
-        if (this.alive[i] && this.village[i] === v.id && this.role[i] === ROLE.fisher) {
+      for (const i of this.residents(v.id)) {
+        if (this.role[i] === ROLE.fisher) {
           this.kill(i, true, 'partiu');
           break;
         }
@@ -74,6 +74,7 @@ export const boatsPart = {
   updateBoats(this: Ecosystem, dt: number): void {
     const map = this.map;
     const w = map.width;
+    // A ordem conta (sorteios de civRnd por barco, chegadas que mexem no destino): splice, não troca com o último.
     for (let k = this.boats.length - 1; k >= 0; k--) {
       const b = this.boats[k];
       const v = this.villages[b.village];
@@ -327,7 +328,7 @@ export const boatsPart = {
       if (d < type.range * 0.35 || this.civRnd() > 0.05) return false;
       const x = t % w;
       const y = (t - x) / w;
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [ox, oy] of NEIGHBORS4) {
         const l = this.tileAt(x + ox, y + oy);
         if (l >= 0 && isLand(map, l)) {
           coasts.push({ water: t, land: l });

@@ -14,6 +14,14 @@ export const savePart = {
   /** Depois de carregar um save de antes das ações presenciais: os vetores novos nascem zerados, do tamanho dos demais. */
   fixAfterLoad(this: Ecosystem): void {
     const n = this.x.length;
+    // Índice uid -> índice: refeito dos vetores (em saves antigos, `uidIndex` era um cache anual, com o ano em `uidYear`).
+    this.uidIndex.clear();
+    for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidIndex.set(this.uid[k], k);
+    delete (this as { uidYear?: number }).uidYear;
+    // Saves de antes do handle do líder: o uid do líder guardado sai do índice (se ele ainda vive ali).
+    for (const v of this.villages) {
+      if (v.leaderUid === undefined && v.leader >= 0 && this.alive[v.leader] && this.village[v.leader] === v.id) v.leaderUid = this.uid[v.leader];
+    }
     if (this.jobKind.length < n) this.jobKind = new Uint8Array(n);
     if (this.job.length < n) this.job = new Int32Array(n);
     if (this.jobWork.length < n) this.jobWork = new Float32Array(n);
@@ -41,6 +49,16 @@ export const savePart = {
     if (this.act.length < n) this.act = new Uint8Array(n);
     if (this.goal.length < n) this.goal = new Int32Array(n).fill(-1);
     if (this.chase.length < n) this.chase = new Int32Array(n).fill(-1);
+    // Saves de antes do handle da presa: o uid sai do índice guardado (vale se a presa ainda vive).
+    if (this.chaseUid.length < n) {
+      this.chaseUid = new Uint32Array(n);
+      for (let k = 0; k < this.count; k++) {
+        const j = this.chase[k];
+        if (j >= 0 && this.alive[j]) this.chaseUid[k] = this.uid[j];
+      }
+    }
+    // Saves de antes da presa que escapou em vetor próprio: ninguém lembra de presa nenhuma.
+    if (this.escaped.length < n) this.escaped = new Uint32Array(n);
     if (this.effort.length < n) this.effort = new Uint8Array(n);
     if (this.parasite.length < n) this.parasite = new Float32Array(n);
     const tiles = this.map.width * this.map.height;
@@ -55,6 +73,8 @@ export const savePart = {
     if (this.cells && !(this.cells instanceof EcoCells)) Object.setPrototypeOf(this.cells, EcoCells.prototype);
     if (this.weather && !this.weather.base) this.weather = null;
     if (this.weather && !(this.weather instanceof Weather)) Object.setPrototypeOf(this.weather, Weather.prototype);
+    // Saves de antes do Double Buffer da umidade: a volta anterior começa igual à de agora.
+    if (this.weather && !this.weather.humidPrev) (this.weather as { humidPrev: Float32Array }).humidPrev = this.weather.humid.slice();
     this.tally.wildfires ??= 0;
     if (this.cells) Object.setPrototypeOf(this.cells, EcoCells.prototype);
     this.tally.wildStarved = this.tally.wildStarved || 0;
@@ -84,7 +104,10 @@ export const savePart = {
    */
   restore(this: Ecosystem, c: number, who: Identity | undefined, back = false): void {
     if (!who) return;
+    // O lugar troca de dono: o índice uid -> índice segue o uid de volta.
+    this.uidIndex.delete(this.uid[c]);
     this.uid[c] = who.uid;
+    this.uidIndex.set(who.uid, c);
     this.parent[c] = who.parent;
     this.family[c] = who.family;
     this.bornAt[c] = who.bornAt;

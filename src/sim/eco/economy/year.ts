@@ -11,11 +11,6 @@ import { CHILD, ROLES } from '../../roles';
 import { emptyVital, HISTORY_YEARS, type DeathCause } from '../../people';
 import { foodCap, goodCap, NEED_NAMES, worstNeed } from '../../needs';
 import type { Village } from '../types';
-import * as constantsModule from '../constants';
-
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
-const { YEAR_SECONDS } = constantsModule;
-
 export const economyYearPart = {
   // Economia local por ano (seções 19.4 e 19.5) ------------------------------
 
@@ -28,11 +23,11 @@ export const economyYearPart = {
     const people: number[][] = this.villages.map(() => []);
     // Todos os moradores (crianças também), para a vida social do ano.
     const residents: number[][] = this.villages.map(() => []);
-    for (let i = 0; i < this.count; i++) {
-      const v = this.village[i];
-      if (v < 0 || !this.alive[i]) continue;
-      residents[v].push(i);
-      if (this.role[i] !== CHILD) people[v].push(i);
+    for (let v = 0; v < this.villages.length; v++) {
+      for (const i of this.residents(v)) {
+        residents[v].push(i);
+        if (this.role[i] !== CHILD) people[v].push(i);
+      }
     }
     this.roleCount.clear();
     for (const v of this.villages) {
@@ -56,7 +51,7 @@ export const economyYearPart = {
       this.hardship(v);
       const curYear = Math.floor(this.year);
       const lastYear = v.history?.length ? v.history[v.history.length - 1].year : -1;
-      if (this.yearSpan <= YEAR_SECONDS || curYear > lastYear) {
+      if (this.closesCalendarYear(lastYear)) {
         v.ledger = v.ledgerNow ?? {};
         v.ledgerNow = {};
         const ledgers = (v.ledgers ??= []);

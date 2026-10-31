@@ -4,28 +4,18 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import { temperatureAt } from '../../../procgen/surface';
-import { wrapDx } from '../../settlement';
+import * as surfaceModule from '../../../procgen/surface';
+import * as settlementModule from '../../settlement';
 import type { Species } from '../../species';
-import {
-  DECISIONS_PER_YEAR,
-  ECO_CELL,
-  ecologyOf,
-  EDIBLE,
-  FOOD_MIN,
-  HUNGRY,
-  hunts,
-  ANIMAL_PACE,
-  metabolic,
-  REFUGE,
-  SATED,
-  TANK_KG,
-  type Ecology,
-} from '../../fauna';
+import * as faunaModule from '../../fauna';
+import type { Ecology } from '../../fauna';
 import * as constantsModule from '../constants';
 import type { EcoCells } from '../cells';
 
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
+// Cópias locais dos valores importados (eco/*, fauna, superfície; o porquê está em ecosystem.ts).
+const { DECISIONS_PER_YEAR, ECO_CELL, ecologyOf, EDIBLE, FOOD_MIN, HUNGRY, hunts, ANIMAL_PACE, metabolic, REFUGE, SATED, TANK_KG } = faunaModule;
+const { wrapDx } = settlementModule;
+const { temperatureAt } = surfaceModule;
 const { ACT, MAX_CARCASSES, REFUGES } = constantsModule;
 
 /** Rascunhos da escolha de presa e do bando (sem alocar a cada decisão). */
@@ -37,6 +27,9 @@ export const faunaFoodPart = {
   /** O bicho morto vira carcaça no lugar. */
   leaveCarcass(this: Ecosystem, i: number, kg = ecologyOf(this.species[this.kind[i]]).mass * EDIBLE): void {
     if (kg < 0.3) return;
+    // A ordem das carcaças conta (por isso shift e splice, e não troca com a última): a mais velha é a
+    // primeira a sair quando enche, a recém-deixada é a última (hunt come dela pelo índice), e
+    // carcassNear desempata pela ordem.
     if (this.carcasses.length >= MAX_CARCASSES) this.carcasses.shift();
     this.carcasses.push({ x: this.x[i], y: this.y[i], kg, at: this.year, sp: this.kind[i] });
   },
@@ -87,7 +80,7 @@ export const faunaFoodPart = {
       return;
     }
     // Um pouco de ruído na direção (o "wander" de Reynolds), sem virar passeio aleatório.
-    const a = Math.atan2(dy, dx) + (this.rnd() - 0.5) * 0.3;
+    const a = Math.atan2(dy, dx) + (this.faunaRnd() - 0.5) * 0.3;
     // Fora da tela a próxima decisão demora `stride` vezes mais: anda mais devagar para não passar do ponto.
     const go = Math.min(speed, d / ((this.yearSpan / DECISIONS_PER_YEAR) * this.stride));
     this.vx[i] = Math.cos(a) * go;
@@ -143,7 +136,7 @@ export const faunaFoodPart = {
     let tile = -1;
     let bestFood = FOOD_MIN;
     for (let k = 0; k < 10; k++) {
-      const t = this.tileAt(x0 + Math.floor(this.rnd() * ECO_CELL), Math.min(m.height - 1, y0 + Math.floor(this.rnd() * ECO_CELL)));
+      const t = this.tileAt(x0 + Math.floor(this.faunaRnd() * ECO_CELL), Math.min(m.height - 1, y0 + Math.floor(this.faunaRnd() * ECO_CELL)));
       if (t < 0 || !this.canStand(s, t)) continue;
       const temp = temperatureAt(m, t);
       if (temp < sp.tempMin || temp > sp.tempMax) continue;
@@ -164,7 +157,7 @@ export const faunaFoodPart = {
       let best = -1;
       let bestFood = min;
       const n = Math.max(8, Math.round(r * 5));
-      const a0 = this.rnd() * Math.PI * 2;
+      const a0 = this.faunaRnd() * Math.PI * 2;
       for (let k = 0; k < n; k++) {
         const a = a0 + (k / n) * Math.PI * 2;
         const t = this.tileAt(this.x[i] + Math.cos(a) * r, Math.floor(this.y[i] + Math.sin(a) * r));
@@ -213,20 +206,25 @@ export const faunaFoodPart = {
     if (hunts(e) || !this.huntersAround(this.x[i], this.y[i], radius)) return -1;
     let best = -1;
     let bd = Infinity;
-    this.forEachNear(this.x[i], this.y[i], radius, (j, dx, dy) => {
+    // Laço quente: a vizinhança vem de `gatherNear` (sem closure por consulta), na mesma ordem de `forEachNear`.
+    const near = this.gatherNear(this.x[i], this.y[i], radius);
+    for (let n = 0; n < near.n; n++) {
+      const j = near.i[n];
       const k = this.kind[j];
-      if (k === s || !this.wild(k)) return;
+      if (k === s || !this.wild(k)) continue;
       const pe = ecologyOf(this.species[k]);
-      if (!hunts(pe) || hunts(e) || e.mass > pe.maxPrey * (pe.pack ? 3 : 1)) return;
+      if (!hunts(pe) || hunts(e) || e.mass > pe.maxPrey * (pe.pack ? 3 : 1)) continue;
+      const dx = near.dx[n];
+      const dy = near.dy[n];
       const d = dx * dx + dy * dy;
       // Predador saciado não assusta; o que está caçando, sim (e o faminto colado também).
-      const hunting = this.act[j] === ACT.hunt && (this.chase[j] === i || d < 9);
-      if (!hunting && !(this.energy[j] < HUNGRY && d < 4)) return;
+      const hunting = this.act[j] === ACT.hunt && ((this.chase[j] === i && this.chaseUid[j] === this.uid[i]) || d < 9);
+      if (!hunting && !(this.energy[j] < HUNGRY && d < 4)) continue;
       if (d < bd) {
         bd = d;
         best = j;
       }
-    });
+    }
     return best;
   },
 
@@ -240,30 +238,34 @@ export const faunaFoodPart = {
     const limit = e.maxPrey * (e.pack ? Math.min(3, 1 + helpers * 0.5) : 1);
     const min = e.mass * 0.015;
     const sight = Math.min(36, 8 + e.range);
-    const escaped = this.goal[i];
+    const escaped = this.escaped[i];
     if (PREY_SEEN.length < this.species.length) PREY_SEEN = new Uint16Array(this.species.length * 2);
     const seen = PREY_SEEN;
     seen.fill(0);
     const cand = PREY_CAND;
     let n = 0;
-    this.forEachNear(this.x[i], this.y[i], sight, (j, dx, dy) => {
+    const near = this.gatherNear(this.x[i], this.y[i], sight);
+    for (let q = 0; q < near.n; q++) {
+      const j = near.i[q];
       const k = this.kind[j];
-      if (k === s || j === escaped || n >= cand.length / 3) return;
+      if (k === s || this.uid[j] === escaped || n >= cand.length / 3) continue;
+      const dx = near.dx[q];
+      const dy = near.dy[q];
       const kk = this.species[k].kind;
       if (kk === 'fish') {
         // Peixe só na beira d'água (ou para os anfíbios, como o crocodilo).
-        if (e.fish <= 0 || (dx * dx + dy * dy > 9 && !this.species[s].amphibious)) return;
-      } else if (!this.wild(k)) return;
+        if (e.fish <= 0 || (dx * dx + dy * dy > 9 && !this.species[s].amphibious)) continue;
+      } else if (!this.wild(k)) continue;
       const pe = ecologyOf(this.species[k]);
       // Filhote de bicho grande é presa possível (leões pegam elefantes jovens).
       const mass = this.age[j] < this.species[k].maturity ? pe.mass * 0.3 : pe.mass;
-      if (hunts(pe) || mass > limit || mass < min) return;
+      if (hunts(pe) || mass > limit || mass < min) continue;
       seen[k]++;
       cand[n * 3] = j;
       cand[n * 3 + 1] = dx;
       cand[n * 3 + 2] = dy;
       n++;
-    });
+    }
     const tank = TANK_KG * metabolic(e);
     // A melhor presa que dá para alcançar por terra (do outro lado do rio não serve); até três tentativas.
     for (let tries = 0; tries < 3; tries++) {
@@ -315,16 +317,20 @@ export const faunaFoodPart = {
     out.d = Infinity;
     out.dx = 0;
     out.dy = 0;
-    this.forEachNear(this.x[i], this.y[i], radius, (j, dx, dy) => {
-      if (j === i || this.kind[j] !== s) return;
+    const near = this.gatherNear(this.x[i], this.y[i], radius);
+    for (let q = 0; q < near.n; q++) {
+      const j = near.i[q];
+      if (j === i || this.kind[j] !== s) continue;
       if (this.age[j] >= mature) out.n++;
+      const dx = near.dx[q];
+      const dy = near.dy[q];
       const d = Math.hypot(dx, dy);
       if (d < out.d) {
         out.d = d;
         out.dx = dx;
         out.dy = dy;
       }
-    });
+    }
     return out;
   },
 };

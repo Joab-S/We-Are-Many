@@ -10,11 +10,12 @@ import { ROLE } from '../../roles';
 import { belowTier, tierAllowed } from '../../community';
 import { isStreet, TRAIL, WALL } from '../../architecture';
 import { TIER_NAMES, wrapDx } from '../../settlement';
+import { BUILDING_TYPES } from '../../buildingTypes';
 import type { Building, Village } from '../types';
 import * as tilesModule from '../tiles';
 
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
-const { isLand } = tilesModule;
+const { isLand, NEIGHBORS4 } = tilesModule;
 
 export const formPart = {
   /**
@@ -171,7 +172,7 @@ export const formPart = {
       for (const t of queue) {
         const tx = t % w;
         const ty = (t - tx) / w;
-        for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (const [ox, oy] of NEIGHBORS4) {
           const n = this.tileAt(tx + ox, ty + oy);
           if (n < 0 || prev.has(n)) continue;
           if (isStreet(this.road[n])) {
@@ -230,10 +231,12 @@ export const formPart = {
     const era = Math.floor(v.tech);
     const homes = v.houses.filter((h) => h.kind === 'house' && !h.site);
     const room = new Map<Building, number>();
-    for (const h of homes) room.set(h, 4 + era + (h.level ?? 0) * B.LEVEL_HOUSING);
+    // Lugar de cada casa pela moradia do tipo (`BUILDING_TYPES`), como em `housing` (a casa vazia aqui ainda conta).
+    for (const h of homes) room.set(h, BUILDING_TYPES.house.housing(era, h.level ?? 0, false));
     const byCenter = [...homes].sort((p, q) => this.distance(v, p.x + 1, p.y + 1) - this.distance(v, q.x + 1, q.y + 1));
     const used = new Set<Building>();
-    const fams = [...(families?.entries() ?? [])].sort((p, q) => (q[1].includes(v.leader) ? 1 : 0) - (p[1].includes(v.leader) ? 1 : 0) || q[1].length - p[1].length);
+    const leader = this.leaderOf(v);
+    const fams = [...(families?.entries() ?? [])].sort((p, q) => (q[1].includes(leader) ? 1 : 0) - (p[1].includes(leader) ? 1 : 0) || q[1].length - p[1].length);
     for (const [key, members] of fams) {
       const farmer = members.some((i) => this.role[i] === ROLE.farmer || this.role[i] === ROLE.shepherd);
       const order = farmer ? [...byCenter.filter((h) => h.farm), ...byCenter.filter((h) => !h.farm)] : byCenter.filter((h) => !h.farm).concat(byCenter.filter((h) => h.farm));

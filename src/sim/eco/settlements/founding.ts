@@ -14,7 +14,7 @@ import type { Village } from '../types';
 import * as tilesModule from '../tiles';
 
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
-const { isWater } = tilesModule;
+const { isWater, NEIGHBORS4 } = tilesModule;
 
 export const foundingPart = {
   /** Direção de um tile mais verde (e no clima da espécie) a até `range` tiles, se houver. */
@@ -44,8 +44,10 @@ export const foundingPart = {
     let bestGap = Math.abs(temp - mid);
     let best: { x: number; y: number } | undefined;
     for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2 + this.rnd() * 0.6;
-      const r = 4 + this.rnd() * (this.wild(s) ? Math.max(6, ecologyOf(sp).roam / 8) : 6);
+      // Bicho de terra procura abrigo no fluxo da fauna; gente, no da vida.
+      const rnd = this.wild(s) ? this.faunaRnd : this.rnd;
+      const a = (k / 8) * Math.PI * 2 + rnd() * 0.6;
+      const r = 4 + rnd() * (this.wild(s) ? Math.max(6, ecologyOf(sp).roam / 8) : 6);
       const t = this.tileAt(this.x[i] + Math.cos(a) * r, Math.floor(this.y[i] + Math.sin(a) * r));
       if (t < 0 || !this.canStand(s, t)) continue;
       const gap = Math.abs(temperatureAt(this.map, t) - mid);
@@ -184,7 +186,7 @@ export const foundingPart = {
 
   /** Põe a criatura `i` (sem assentamento) no assentamento `v`, com uma profissão. */
   join(this: Ecosystem, i: number, v: Village): void {
-    this.village[i] = v.id;
+    this.setVillage(i, v.id);
     this.movedAt[i] = this.year;
     (v.vitalNow ??= emptyVital()).arrived++;
     v.lastCause = undefined;
@@ -206,7 +208,7 @@ export const foundingPart = {
     const w = this.map.width;
     const x = tile % w;
     const y = (tile - x) / w;
-    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [ox, oy] of NEIGHBORS4) {
       const ty = y + oy;
       if (ty < 0 || ty >= this.map.height) continue;
       if (isWater(this.map, ty * w + ((x + ox + w) % w))) return true;

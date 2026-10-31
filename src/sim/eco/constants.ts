@@ -3,6 +3,7 @@
 import { Biome } from '../../procgen/surface';
 import { ROLE } from '../roles';
 import { DAY } from '../../ai/decisions/day';
+import { BUILDING_TYPES } from '../buildingTypes';
 import type { SpeciesKind } from '../species';
 import type { WarMotive, BuildingKind, HerdKind, Behaviour } from './types';
 
@@ -61,46 +62,11 @@ export const KINGDOM_COLORS: [number, number, number][] = [
   [90, 220, 200],
 ];
 
-/** Construções especiais, na ordem em que um assentamento costuma erguê-las. */
-export const BUILDINGS = [
-  'granary',
-  'smithy',
-  'market',
-  'warehouse',
-  'pottery',
-  'windmill',
-  'loom',
-  'corral',
-  'stable',
-  'sawmill',
-  'temple',
-  'barracks',
-  'factory',
-  'aqueduct',
-  'statue',
-  'wonder',
-] as const;
+/** Construções especiais, na ordem em que um assentamento costuma erguê-las (a tabela dos tipos está em buildingTypes.ts). */
+export { BUILDINGS } from '../buildingTypes';
 
-export const BUILDING_NAMES: Record<BuildingKind, string> = {
-  house: 'Casa',
-  port: 'Porto',
-  granary: 'Celeiro',
-  smithy: 'Ferraria',
-  market: 'Mercado',
-  warehouse: 'Armazém',
-  pottery: 'Olaria',
-  windmill: 'Moinho',
-  loom: 'Tear',
-  corral: 'Curral',
-  stable: 'Haras',
-  sawmill: 'Serraria',
-  temple: 'Templo',
-  barracks: 'Quartel',
-  factory: 'Fábrica',
-  aqueduct: 'Aqueduto',
-  statue: 'Estátua',
-  wonder: 'Grande obra',
-};
+/** Nome de cada construção, lido da tabela dos tipos (`BUILDING_TYPES`). */
+export const BUILDING_NAMES = Object.fromEntries(Object.entries(BUILDING_TYPES).map(([k, t]) => [k, t.name])) as Record<BuildingKind, string>;
 
 /** Animais que um povo cria (RF-VIDA-215). */
 export const HERDS = ['sheep', 'cattle', 'goat', 'horse', 'camel'] as const;

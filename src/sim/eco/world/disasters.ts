@@ -187,7 +187,7 @@ export const disastersPart = {
       // O centro afundou, queimou ou virou gelo: o assentamento acabou (os moradores se afogam).
       const center = this.tileAt(v.x, Math.floor(v.y));
       if (center >= 0 && !isLand(map, center) && v.population > 0) {
-        for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] === v.id) this.kill(i, true, 'desastre');
+        for (const i of this.residents(v.id)) if (this.alive[i] && this.village[i] === v.id) this.kill(i, true, 'desastre');
         this.note(`${v.name} foi tomada pelas águas, pelo fogo ou pelo gelo`, 'natureza', v, { major: v.tier >= 1 });
         this.emit({ kind: 'disaster', year: this.year, what: 'engulfed', x: v.x, y: v.y, village: v.id });
       }

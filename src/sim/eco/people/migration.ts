@@ -101,7 +101,7 @@ export const migrationPart = {
       const better = options.filter((c) => (exodus ? c.value > here && this.scarcity(c.o) === 0 : c.value > stay)).slice(0, 4);
       const reachable = better.filter((c) => this.landPath(v.x, v.y, c.o.x, c.o.y));
       const think = exodus ? B.EXODUS_SHARE : Math.min(0.9, B.MOVE_THINK * (1 + B.MOVE_LACK * lack));
-      const leader = v.leader;
+      const leader = this.leaderOf(v);
       let movedAny = 0;
       let to: Village | null = null;
       if (reachable.length) {
@@ -171,7 +171,7 @@ export const migrationPart = {
     this.origin[i] = from.id;
     from.population--;
     (from.vitalNow ??= emptyVital()).left++;
-    this.village[i] = -1;
+    this.setVillage(i, -1);
     const w = this.map.width;
     for (let t = 0; t < 8; t++) {
       const a = this.civRnd() * Math.PI * 2;
@@ -185,7 +185,7 @@ export const migrationPart = {
       break;
     }
     if (this.role[i] === CHILD) {
-      this.village[i] = to.id;
+      this.setVillage(i, to.id);
       this.movedAt[i] = this.year;
       to.population++;
       (to.vitalNow ??= emptyVital()).arrived++;

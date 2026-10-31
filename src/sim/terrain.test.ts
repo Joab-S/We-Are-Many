@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateSurface, Biome, Decor, decorAt, type PlanetParams } from '../procgen/surface';
+import { generateSurface, Biome, Decor, decorAt, temperatureAt, type PlanetParams } from '../procgen/surface';
 import { Ecosystem, isLand, isWater, YEAR_SECONDS } from './ecosystem';
 import { runEvent } from './events';
 import { nativeSpecies } from './species';
@@ -152,6 +152,14 @@ describe('construções e o terreno', () => {
       map.elevation[i] = 0.1;
       map.vegetation[i] = 0.8;
       map.biome[i] = Biome.Forest;
+      // Mata de verdade: sem rua nem casa (o que é rua ou casa não é natureza, e o pincel não mexe). Sem isto o
+      // teste dependia de onde o mundo da semente pôs as ruas do primeiro lugar.
+      eco.road[i] = 0;
+      eco.built[i] = 0;
+      // Clima temperado e úmido no quadrado: cortada, a mata vira campo, e não deserto ou tundra (com cacto ou
+      // pinheiro) conforme a latitude em que a semente pôs o primeiro lugar.
+      map.moisture[i] = 0.6;
+      map.heat[i] += 288 - temperatureAt(map, i);
     }
     const gold = eco.addDeposit(x + 0.5, y + 0.5, 'gold', 100, false);
     v.stock.wood = 0;

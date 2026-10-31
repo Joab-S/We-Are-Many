@@ -10,6 +10,7 @@ import { planItems, type PlanItem } from '../../plan';
 import { spacingFor } from '../../community';
 import { VOCATION_BUILDING } from '../../needs';
 import { wrapDx } from '../../settlement';
+import { buildingType } from '../../buildingTypes';
 import type { BuildContext, Village } from '../types';
 import * as constantsModule from '../constants';
 import * as helpersModule from '../helpers';
@@ -18,7 +19,7 @@ import * as tilesModule from '../tiles';
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
 const { BUILDINGS } = constantsModule;
 const { canBuild } = helpersModule;
-const { isWater, isLand } = tilesModule;
+const { isWater, isLand, NEIGHBORS4 } = tilesModule;
 
 export const layoutPart = {
   /**
@@ -37,7 +38,8 @@ export const layoutPart = {
     const homes = v.houses.filter((h) => h.kind === 'house').length;
     const farms = v.fields > 0 || v.tech >= 0.12 ? Math.max(v.fields, Math.floor(homes / (era >= 1 ? 2 : 4))) : v.fields;
     let n = 4 + farms * 2;
-    for (const h of v.houses) if (planned || !h.site) n += h.kind === 'house' ? (h.empty ? 0 : 4 + era + (h.level ?? 0) * B.LEVEL_HOUSING) : h.kind === 'port' ? 0 : 2;
+    // Quanto cada construção abriga vem do tipo dela (`BUILDING_TYPES`): casa pela era e pelos andares, porto nada, as outras dois.
+    for (const h of v.houses) if (planned || !h.site) n += buildingType(h.kind).housing(era, h.level ?? 0, !!h.empty);
     return n;
   },
 
@@ -282,7 +284,7 @@ export const layoutPart = {
     const x = t % w;
     const y = (t - x) / w;
     const e = this.map.elevation[t];
-    for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [ox, oy] of NEIGHBORS4) {
       const n = this.tileAt(x + ox, y + oy);
       if (n >= 0 && isLand(this.map, n) && Math.abs(this.map.elevation[n] - e) > B.SITE_MAX_SLOPE) return false;
     }

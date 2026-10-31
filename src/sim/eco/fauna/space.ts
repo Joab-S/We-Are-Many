@@ -4,15 +4,20 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import { happens } from '../../stochastic';
-import { Biome } from '../../../procgen/surface';
-import { wrapDx } from '../../settlement';
+import * as stochasticModule from '../../stochastic';
+import * as surfaceModule from '../../../procgen/surface';
+import * as settlementModule from '../../settlement';
 import { EARTH_ID } from '../../species';
-import { BREED_LENGTH, BREED_START, ECO_CELL, ecologyOf, refreshEcology, hunts, appetite, type Ecology } from '../../fauna';
+import * as faunaModule from '../../fauna';
+import type { Ecology } from '../../fauna';
 import * as constantsModule from '../constants';
 import type { EcoCells } from '../cells';
 
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
+// Cópias locais dos valores importados (eco/*, fauna, superfície; o porquê está em ecosystem.ts).
+const { BREED_LENGTH, BREED_START, ECO_CELL, ecologyOf, refreshEcology, hunts, appetite } = faunaModule;
+const { wrapDx } = settlementModule;
+const { Biome } = surfaceModule;
+const { happens } = stochasticModule;
 const { RELICT, MATE_RANGE } = constantsModule;
 
 export const faunaSpacePart = {
@@ -150,7 +155,7 @@ export const faunaSpacePart = {
       for (let ox = -3; ox <= 3; ox++) {
         const k = y * c.cols + ((cx + ox + c.cols) % c.cols);
         if (k === here || c.suit[k * S + s] < 0.15) continue;
-        const fill = this.crowding(c, k, s, herd) + this.rnd() * 0.1;
+        const fill = this.crowding(c, k, s, herd) + this.faunaRnd() * 0.1;
         if (fill < low) {
           low = fill;
           best = k;
@@ -159,7 +164,7 @@ export const faunaSpacePart = {
     }
     if (best < 0) return -1;
     for (let k = 0; k < 8; k++) {
-      const t = this.tileAt((best % c.cols) * ECO_CELL + Math.floor(this.rnd() * ECO_CELL), Math.min(this.map.height - 1, Math.floor(best / c.cols) * ECO_CELL + Math.floor(this.rnd() * ECO_CELL)));
+      const t = this.tileAt((best % c.cols) * ECO_CELL + Math.floor(this.faunaRnd() * ECO_CELL), Math.min(this.map.height - 1, Math.floor(best / c.cols) * ECO_CELL + Math.floor(this.faunaRnd() * ECO_CELL)));
       if (t >= 0 && this.habitable(s, t)) return t;
     }
     return -1;
@@ -184,14 +189,14 @@ export const faunaSpacePart = {
     const rare = this.population[s] < RELICT ? 3 : this.population[s] < c.total[s] * 0.5 ? 2 : 1;
     // Cada cria tem dois pais: metade da ninhada por adulto, espalhada pela estação.
     const rate = ((e.litter / 2) * (1 - dens * dens) * (1 - 0.6 * this.parasite[i]) * rare) / (e.seasonal ? BREED_LENGTH : 1);
-    if (!happens(this.rnd, rate, yr)) return;
+    if (!happens(this.faunaRnd, rate, yr)) return;
     // Parceiro adulto por perto (solitários, como a onça, se encontram de mais longe).
     const k = this.kin(i, e.herd > 2 ? 8 : Math.max(8, e.range));
     if (!k.n || k.n > e.herd * 1.5 + 1) return;
     // Predador só cria filhote com território: nenhum outro grupo da espécie, maior ou tão grande, mora ali perto.
     // Espécie já rara não briga por território: sobra espaço para todos.
     if (appetite(e) < 1 && this.population[s] > RELICT * 3 && !this.holdsTerritory(i, e, c)) return;
-    const child = this.spawn(s, this.x[i] + (this.rnd() - 0.5), this.y[i] + (this.rnd() - 0.5));
+    const child = this.spawn(s, this.x[i] + (this.faunaRnd() - 0.5), this.y[i] + (this.faunaRnd() - 0.5));
     if (child < 0) return;
     this.energy[i] -= 0.12;
     this.parent[child] = this.uid[i];
@@ -323,16 +328,22 @@ export const faunaSpacePart = {
     const sp = this.species[s];
     const range = this.population[s] < this.caps[s] * 0.2 ? MATE_RANGE * 2 : MATE_RANGE;
     let bd = Infinity;
-    let best: { x: number; y: number } | undefined;
-    this.forEachNear(this.x[i], this.y[i], range, (j, dx, dy) => {
-      if (j === i || this.kind[j] !== s || this.age[j] < sp.maturity) return;
+    let bx = 0;
+    let by = 0;
+    const near = this.gatherNear(this.x[i], this.y[i], range);
+    for (let q = 0; q < near.n; q++) {
+      const j = near.i[q];
+      if (j === i || this.kind[j] !== s || this.age[j] < sp.maturity) continue;
+      const dx = near.dx[q];
+      const dy = near.dy[q];
       const d = dx * dx + dy * dy;
       if (d < bd) {
         bd = d;
-        best = { x: dx, y: dy };
+        bx = dx;
+        by = dy;
       }
-    });
-    return bd < 9 ? undefined : best;
+    }
+    return bd < 9 || bd === Infinity ? undefined : { x: bx, y: by };
   },
 };
 export type FaunaSpacePart = typeof faunaSpacePart;

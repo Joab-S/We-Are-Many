@@ -54,6 +54,8 @@ import { disastersPart, type DisastersPart } from './eco/world/disasters';
 import { playerPart, type PlayerPart } from './eco/world/player';
 import { queriesPart, type QueriesPart } from './eco/core/queries';
 import { EVENT_QUEUE_LIMIT, type EngineEvent } from './api/events';
+import { residentsPart, ResidentIndex, type ResidentsPart } from './eco/core/residents';
+import { clockPart, type ClockPart } from './eco/core/clock';
 
 export * from './eco/types';
 export * from './eco/constants';
@@ -119,7 +121,9 @@ export interface Ecosystem
     CaravansPart,
     DisastersPart,
     PlayerPart,
-    QueriesPart {}
+    QueriesPart,
+    ResidentsPart,
+    ClockPart {}
 
 export class Ecosystem {
   readonly species: Species[] = [];
@@ -192,6 +196,16 @@ export class Ecosystem {
   act = new Uint8Array(0);
   goal = new Int32Array(0);
   chase = new Int32Array(0);
+  /**
+   * `uid` da presa perseguida (0 nenhuma): o handle de `chase`. O índice da presa é reaproveitado depois
+   * da morte dela (Object Pool), então a perseguição só vale enquanto o lugar ainda tem esse `uid`.
+   */
+  chaseUid = new Uint32Array(0);
+  /**
+   * `uid` da presa que escapou da última caçada (0 nenhuma), para o caçador não voltar logo atrás dela; vale
+   * enquanto ele segue caçando. Antes ficava em `goal`, que no resto do tempo guarda um tile.
+   */
+  escaped = new Uint32Array(0);
   /** Decisões gastas no alvo atual (presa ou destino): desiste da presa depois de CHASE_TRIES e do destino depois de GOAL_TRIES. */
   effort = new Uint8Array(0);
   parasite = new Float32Array(0);
@@ -231,9 +245,11 @@ export class Ecosystem {
   readonly bonds = new Map<number, Bond[]>();
   /** Ofícios de cada assentamento no último ano (índice em ROLES), para a IA saber o que já está cheio. */
   roleCount = new Map<number, number[]>();
-  /** Cache de `uid` -> índice, refeito uma vez por ano (vai no save junto com o ano, então volta coerente). */
+  /**
+   * `uid` -> índice de cada criatura viva (Object Pool com handle: o índice é reaproveitado depois da
+   * morte, o `uid` não). Mantido por `spawn`, `kill` e `restore`; refeito dos vetores depois de carregar.
+   */
   readonly uidIndex = new Map<number, number>();
-  uidYear = -1;
   /** Tiles que ninguém alcançou, e o ano até o qual saem do quadro de serviços. */
   readonly jobBlocked = new Map<number, number>();
   /** Obra que cada construtor atende (cache; se faltar, é refeito pelo tile da ordem). */
@@ -276,6 +292,7 @@ export class Ecosystem {
   readonly affinities = new Map<string, number>();
   readonly wars: War[] = [];
   cultures = 0;
+  /** Segundos do ano de ação em curso (o relógio de `yearly()`; os dois relógios estão em eco/core/clock.ts). */
   yearClock = 0;
   /**
    * Clima do ano por região (RF-VIDA-304 e 305): 0 é um ano normal, negativo
@@ -402,9 +419,12 @@ export class Ecosystem {
   readonly everLived: boolean[] = [];
   /** Chamado quando uma espécie entra no planeta (variantes novas vão para o catálogo). */
   onSpecies: (sp: Species) => void = () => {};
-  /** Anos de jogo desde a chegada. */
+  /** Anos de calendário desde a chegada (o ano que a tela mostra). */
   year = 0;
-  /** Segundos de simulação que formam um ano no relógio (padrão YEAR_SECONDS; maior na tela para o ano durar mais sem desacelerar ações e eventos). */
+  /**
+   * Segundos de simulação que formam um ano de calendário (padrão YEAR_SECONDS; maior na tela para o ano durar
+   * mais sem desacelerar ações e eventos, que seguem o ano de ação). Os dois relógios estão em eco/core/clock.ts.
+   */
   yearSpan = YEAR_SECONDS;
   /** Crônica do planeta, do mais novo para o mais antigo (RF-VIDA-156). */
   readonly chronicle: ChronicleEntry[] = [];
@@ -418,8 +438,18 @@ export class Ecosystem {
   /** Aviso curto para o jogador (ex.: lugar inválido): a fachada (src/sim/api/engine.ts) o devolve no resultado do comando e limpa. */
   hint = '';
   free: number[] = [];
-  /** Sorteios da vida animal e da vegetação (cada subsistema tem o seu fluxo, RF-VIDA-306). */
+  /**
+   * Sorteios da vida (cada subsistema tem o seu fluxo, RF-VIDA-306): o andar das pessoas e dos bichos da
+   * água, nascimentos, o mundo inicial. Bichos de terra e vegetação têm fluxos próprios (abaixo).
+   */
   readonly rnd: () => number;
+  /**
+   * Sorteios das decisões dos bichos de terra (e do nascer, desviar e quicar deles). O detalhe deles muda
+   * com a câmera; num fluxo só deles, a câmera não mexe nos sorteios das pessoas nem da vegetação.
+   */
+  readonly faunaRnd: () => number;
+  /** Sorteios da vegetação e das florestas (`growVegetation` e `growForests`). */
+  readonly floraRnd: () => number;
   /** Sorteios dos povos: casas, colonos, barcos, produção. */
   readonly civRnd: () => number;
   /** Sorteios do saber: técnicas aprendidas e esquecidas. */
@@ -441,10 +471,18 @@ export class Ecosystem {
   /** Chamado quando uma criatura altera um tile (ex.: come a vegetação). */
   onTileChanged: (i: number) => void = () => {};
 
+  /**
+   * Índices derivados (caches): ficam fora do save e da impressão digital (propriedades não enumeráveis,
+   * criadas no construtor) e são refeitos sob demanda depois de carregar.
+   */
+  /** Moradores por assentamento (eco/core/residents.ts). */
+  declare residentIndex: ResidentIndex;
+
   constructor(
     readonly map: SurfaceMap,
     seed: number,
   ) {
+    Object.defineProperty(this, 'residentIndex', { value: new ResidentIndex(), writable: true, enumerable: false });
     const rng = streams(seed);
     this.rnd = rng.vida;
     this.civRnd = rng.povos;
@@ -453,6 +491,9 @@ export class Ecosystem {
     this.worldRnd = rng.mundo;
     this.climateRnd = rng.clima;
     this.mindRnd = rng.mente;
+    // Saves de antes destes fluxos não têm o estado deles: começam aqui, da semente (determinístico).
+    this.faunaRnd = rng.fauna;
+    this.floraRnd = rng.flora;
     this.road = new Uint8Array(map.width * map.height);
     this.traffic = new Uint16Array(map.width * map.height);
     this.trafficEra = new Uint8Array(map.width * map.height);
@@ -579,10 +620,10 @@ export class Ecosystem {
     this.buildGrid();
     const map = this.map;
     const w = map.width;
-    // Dois relógios: bichos de terra decidem DECISIONS_PER_YEAR vezes por ano; os aquáticos vivem no
-    // tempo em que foram calibrados (ano de YEAR_SECONDS), então a biologia não muda com a duração do ano.
+    // Dois relógios (eco/core/clock.ts): bichos de terra decidem DECISIONS_PER_YEAR vezes por ano de calendário;
+    // os aquáticos vivem no ano de ação, em que foram calibrados, então a biologia não muda com a duração do ano.
     const animalThink = this.yearSpan / DECISIONS_PER_YEAR;
-    const legacy = YEAR_SECONDS / this.yearSpan;
+    const legacy = this.actionScale();
     for (let i = 0; i < this.count; i++) {
       if (!this.alive[i]) continue;
       const sk = this.species[this.kind[i]].kind;
@@ -602,8 +643,9 @@ export class Ecosystem {
         // Travado na beira da água com o destino do outro lado: conta o tempo (jangada, em `decide`).
         if (ny >= 0 && ny < map.height && isWater(map, tile) && this.species[this.kind[i]].kind === 'sapient') this.stuck[i] += dt;
         if (!this.steer(i, here, mdt)) {
-          this.vx[i] = -this.vx[i] + (this.rnd() - 0.5) * 0.5;
-          this.vy[i] = -this.vy[i] + (this.rnd() - 0.5) * 0.5;
+          const r = sk === 'herbivore' || sk === 'predator' ? this.faunaRnd : this.rnd;
+          this.vx[i] = -this.vx[i] + (r() - 0.5) * 0.5;
+          this.vy[i] = -this.vy[i] + (r() - 0.5) * 0.5;
         }
       }
       if (this.jobKind[i]) this.workJob(i, dt);
@@ -629,10 +671,15 @@ export class Ecosystem {
     this.updateRafts(dt);
     this.updateCaravans(dt);
     this.growVegetation(dt * legacy);
-    for (let k = this.effects.length - 1; k >= 0; k--) {
-      const fx = this.effects[k];
+    // Efeitos só se desenham (a simulação conta só quantos há): o que acabou sai trocando de lugar com o último
+    // (swap-remove, sem deslocar o resto). O laço vai de trás para frente, então o que vem para `k` já foi visto.
+    const effects = this.effects;
+    for (let k = effects.length - 1; k >= 0; k--) {
+      const fx = effects[k];
       fx.age += dt;
-      if (fx.age >= fx.life) this.effects.splice(k, 1);
+      if (fx.age < fx.life) continue;
+      const last = effects.pop()!;
+      if (k < effects.length) effects[k] = last;
     }
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt);
     this.villageClock += dt;
@@ -643,6 +690,9 @@ export class Ecosystem {
   }
 
   readonly contours = new WeakMap<Village, { key: number; radii: Float32Array }>();
+
+  /** Técnicas de cada lugar como conjunto (cache de `knows`, refeito quando a lista muda; WeakMap fica fora do save). */
+  readonly knowsCache = new WeakMap<Village, { techs: string[] | undefined; n: number; set: ReadonlySet<string> }>();
 
   /** Contador de alterações em tiles para atualizar o cache do contorno na hora. */
   mapVersionKey = 0;
@@ -768,6 +818,8 @@ for (const part of [
   disastersPart,
   playerPart,
   queriesPart,
+  residentsPart,
+  clockPart,
 ]) {
   for (const [k, f] of Object.entries(part)) Object.defineProperty(Ecosystem.prototype, k, { value: f, writable: true, configurable: true, enumerable: false });
 }

@@ -25,11 +25,21 @@ const { YEAR_SECONDS, ERAS, KINGDOM_COLORS, RUIN_YEARS } = constantsModule;
 const { hsl, elderAge } = helpersModule;
 
 export const lifecyclePart = {
+  /**
+   * O líder vivo de `v`, ou -1. O índice da criatura é reaproveitado depois da morte (Object Pool com
+   * lista livre), então `v.leader` sozinho não basta: só vale se o lugar ainda tem o `uid` do líder
+   * escolhido (`v.leaderUid`), senão um filho nascido no lugar do líder morto virava líder.
+   */
+  leaderOf(this: Ecosystem, v: Village): number {
+    const l = v.leader;
+    return l >= 0 && this.alive[l] && this.village[l] === v.id && this.uid[l] === v.leaderUid ? l : -1;
+  },
+
   /** Garante um líder vivo (rei, se for capital de um reino com cidade). */
   updateLeader(this: Ecosystem, v: Village, adults: number[]): void {
-    const l = v.leader;
+    const l = this.leaderOf(v);
     const king = v.tier >= 2 && v.kingdom === v.id;
-    if (l >= 0 && this.alive[l] && this.village[l] === v.id) {
+    if (l >= 0) {
       this.role[l] = king ? ROLE.king : ROLE.leader;
       return;
     }
@@ -59,8 +69,9 @@ export const lifecyclePart = {
 
   /** Agressividade do reino somada ao temperamento do rei (IA local): um rei belicoso puxa a guerra, um gentil a segura. */
   warMood(this: Ecosystem, k: number): number {
-    const l = this.villages[k]?.leader ?? -1;
-    const ruler = l >= 0 && this.alive[l] ? LEADER.temper * rulerTemper(this.traits, l) : 0;
+    const kv = this.villages[k];
+    const l = kv ? this.leaderOf(kv) : -1;
+    const ruler = l >= 0 ? LEADER.temper * rulerTemper(this.traits, l) : 0;
     // O empurrão do jogador manda: no extremo (−1 ou 1) o temperamento do rei não pesa mais.
     const push = this.temperOf(k);
     return Math.max(-1, Math.min(1, push + ruler * (1 - Math.abs(push))));
@@ -231,15 +242,15 @@ export const lifecyclePart = {
     // Moradores e os que estão bem alimentados (atendimento de comida, RF-VIDA-210).
     const residents = new Array<number>(this.villages.length).fill(0);
     const fed = new Array<number>(this.villages.length).fill(0);
-    for (let i = 0; i < this.count; i++) {
-      const v = this.village[i];
-      if (v < 0 || !this.alive[i]) continue;
-      residents[v]++;
-      if (this.energy[i] >= 0.3) fed[v]++;
-      if (this.role[i] === CHILD) continue;
-      adults[v].push(i);
+    for (let v = 0; v < this.villages.length; v++) {
       const village = this.villages[v];
-      if (this.age[i] < elderAge(this.species[this.kind[i]], Math.floor(village.tech))) workers[v][this.role[i]]++;
+      for (const i of this.residents(v)) {
+        residents[v]++;
+        if (this.energy[i] >= 0.3) fed[v]++;
+        if (this.role[i] === CHILD) continue;
+        adults[v].push(i);
+        if (this.age[i] < elderAge(this.species[this.kind[i]], Math.floor(village.tech))) workers[v][this.role[i]]++;
+      }
     }
     const fishers = workers.map((w) => w[ROLE.fisher]);
     fishers.length = this.villages.length;
@@ -256,8 +267,7 @@ export const lifecyclePart = {
         continue;
       }
       const before = Math.floor(v.tech);
-      const eraPace = this.yearSpan > YEAR_SECONDS ? 1.5 : 1;
-      this.develop(v, dt * eraPace, adults[v.id] ?? []);
+      this.develop(v, dt * this.eraPace(), adults[v.id] ?? []);
       if (Math.floor(v.tech) > before) {
         this.note(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`, 'era', v, { major: true });
         this.emit({ kind: 'era', year: this.year, village: v.id, era: Math.floor(v.tech), first: !this.villages.some((o) => o !== v && Math.floor(o.tech) >= Math.floor(v.tech)) });
@@ -305,7 +315,7 @@ export const lifecyclePart = {
         const mill = v.houses.some((h) => h.kind === 'windmill') ? 1 + (this.knew(v, 'moinhoagua') ? 0.45 : 0.3) * Math.min(1, w[ROLE.miller]) : 1;
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
-        const season = B.SEASON_HARVEST[seasonOf(this.yearClock / YEAR_SECONDS)];
+        const season = B.SEASON_HARVEST[seasonOf(this.actionPhase())];
         this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * B.ERA_YIELD[Math.min(B.ERA_YIELD.length - 1, Math.floor(v.tech))] * this.harvest(v) * (this.knew(v, 'irrigacao') ? 1.1 : 1) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
       }
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
@@ -341,11 +351,7 @@ export const lifecyclePart = {
       }
     }
     this.updateWars(dt);
-    this.yearClock += dt;
-    if (this.yearClock >= YEAR_SECONDS) {
-      this.yearClock = 0;
-      this.yearly();
-    }
+    if (this.tickActionYear(dt)) this.yearly();
   },
 };
 export type LifecyclePart = typeof lifecyclePart;

@@ -35,8 +35,11 @@ export const societyPart = {
       let toll = binomial(this.civRnd, v.population, B.EPIDEMIC_SHARE);
       if (toll <= 0) continue;
       const dead = toll;
-      for (let i = 0; i < this.count && toll > 0; i++) {
-        if (!this.alive[i] || this.village[i] !== v.id || i === v.leader) continue;
+      const here = this.residents(v.id);
+      const leader = this.leaderOf(v);
+      for (let k = 0; k < here.length && toll > 0; k++) {
+        const i = here[k];
+        if (!this.alive[i] || this.village[i] !== v.id || i === leader) continue;
         if (this.civRnd() < 0.5) continue;
         this.kill(i, true, 'doença');
         toll--;
@@ -143,7 +146,7 @@ export const societyPart = {
       if (this.age[i] >= elderAge(this.species[this.kind[i]], Math.floor(v.tech))) continue;
       const from = ROLES[this.role[i]];
       const sector = ROLE_NEED[from];
-      if (this.role[i] === target || i === v.leader || from === 'leader' || from === 'king') continue;
+      if (this.role[i] === target || i === this.leaderOf(v) || from === 'leader' || from === 'king') continue;
       // Fora da crise, ferreiros e mineradores ficam (o trabalho deles também leva à próxima era), e só muda quem tem setor.
       if (!crisis && (!sector || from === 'blacksmith' || from === 'miner')) continue;
       // Soldados e guardas só largam as armas na fome brava.
@@ -223,16 +226,13 @@ export const societyPart = {
     return ROLE[role];
   },
 
-  /** Índice de quem tem esse `uid` (-1 se morreu ou não existe); o mapa é refeito uma vez por ano. */
+  /**
+   * Índice de quem tem esse `uid` (-1 se morreu ou não existe). O `uid` é o handle estável da criatura
+   * (Object Pool: o índice é reaproveitado depois da morte); o mapa `uidIndex` acompanha `spawn`, `kill`
+   * e `restore`, então vale na hora, inclusive para quem nasceu ou desembarcou neste ano.
+   */
   indexOfUid(this: Ecosystem, uid: number): number {
-    if (!uid) return -1;
-    if (this.uidYear !== Math.floor(this.year)) {
-      this.uidYear = Math.floor(this.year);
-      this.uidIndex.clear();
-      for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidIndex.set(this.uid[k], k);
-    }
-    const k = this.uidIndex.get(uid);
-    return k !== undefined && this.alive[k] && this.uid[k] === uid ? k : -1;
+    return uid ? this.findUid(uid) : -1;
   },
 
   /**

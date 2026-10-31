@@ -29,8 +29,9 @@ export const caravansPart = {
   /** Um adulto para viajar: de preferência comerciante (ou pastor, no rebanho), nunca o líder. */
   traveler(this: Ecosystem, v: Village, role: number): number {
     let pick = -1;
-    for (let i = 0; i < this.count; i++) {
-      if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD) continue;
+    const leader = this.leaderOf(v);
+    for (const i of this.residents(v.id)) {
+      if (i === leader || this.role[i] === CHILD) continue;
       if (this.age[i] >= elderAge(this.species[v.species], Math.floor(v.tech))) continue;
       if (this.role[i] === role) return i;
       if (pick < 0) pick = i;
@@ -299,6 +300,8 @@ export const caravansPart = {
   /** Movimento das caravanas e rebanhos, pedágios, neve e os perigos do caminho. */
   updateCaravans(this: Ecosystem, dt: number): void {
     const w = this.map.width;
+    // A ordem conta: cada caravana tira sorteios de civRnd e a chegada mexe no estoque e no preço do destino,
+    // então a que chega primeiro muda o que a outra encontra. Por isso splice (a ordem fica) e não troca com a última.
     for (let k = this.caravans.length - 1; k >= 0; k--) {
       const c = this.caravans[k];
       const home = this.villages[c.home];
@@ -492,7 +495,7 @@ export const caravansPart = {
     if (c.kind === 'flock') {
       if (!c.back) {
         // No pasto alto até o outono.
-        const phase = this.yearClock / YEAR_SECONDS;
+        const phase = this.actionPhase();
         c.wait = Math.max(0.5, (0.5 - phase) * YEAR_SECONDS);
         c.back = true;
         c.path.reverse();

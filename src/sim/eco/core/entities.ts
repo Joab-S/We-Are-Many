@@ -5,7 +5,7 @@
 
 import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
-import { temperatureAt } from '../../../procgen/surface';
+import * as surfaceModule from '../../../procgen/surface';
 import { CHILD, pickRole, ROLE } from '../../roles';
 import { randomTraits, TRAIT_COUNT } from '../../../ai/traits';
 import { emptyVital, type Exit } from '../../people';
@@ -14,9 +14,31 @@ import { DECISIONS_PER_YEAR } from '../../fauna';
 import * as constantsModule from '../constants';
 import * as tilesModule from '../tiles';
 
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
+// Cópias locais dos valores importados (eco/*, superfície, papéis...; o porquê está em ecosystem.ts).
+const { temperatureAt } = surfaceModule;
+const { MAX_CLIMB } = B;
 const { BEHAVIOUR, CELL, THINK_INTERVAL, MIN_CAP, RELICT } = constantsModule;
 const { isWater, isLand } = tilesModule;
+
+/**
+ * Resultado de `gatherNear`: as criaturas achadas e o deslocamento de cada uma, num rascunho do módulo
+ * (sem closure nem alocação por consulta). Vale até a próxima chamada: quem percorre não pode consultar de novo.
+ */
+export const NEAR = { n: 0, i: new Int32Array(256), dx: new Float64Array(256), dy: new Float64Array(256) };
+
+/** Dobra o rascunho `NEAR` (fora do laço quente, para não atrapalhar a otimização dele). */
+function growNear(): void {
+  const n = NEAR.i.length * 2;
+  const i = new Int32Array(n);
+  const dx = new Float64Array(n);
+  const dy = new Float64Array(n);
+  i.set(NEAR.i);
+  dx.set(NEAR.dx);
+  dy.set(NEAR.dy);
+  NEAR.i = i;
+  NEAR.dx = dx;
+  NEAR.dy = dy;
+}
 
 export const entitiesPart = {
   addSpecies(this: Ecosystem, sp: Species): number {
@@ -76,7 +98,7 @@ export const entitiesPart = {
     const a = this.map.elevation[from];
     const b = this.map.elevation[to];
     if (a < 0 || b < 0) return true;
-    return b - a <= B.MAX_CLIMB && a - b <= B.MAX_CLIMB * 2;
+    return b - a <= MAX_CLIMB && a - b <= MAX_CLIMB * 2;
   },
 
   /**
@@ -90,7 +112,7 @@ export const entitiesPart = {
     const speed = Math.hypot(this.vx[i], this.vy[i]);
     if (speed < 0.01) return false;
     const a0 = Math.atan2(this.vy[i], this.vx[i]);
-    const side = this.side[i] || (this.rnd() < 0.5 ? 1 : -1);
+    const side = this.side[i] || ((this.wild(s) ? this.faunaRnd : this.rnd)() < 0.5 ? 1 : -1);
     const look = Math.max(0.8, speed * dt * 2);
     const w = this.map.width;
     for (let k = 1; k <= 4; k++) {
@@ -225,6 +247,8 @@ export const entitiesPart = {
     this.act = copy(this.act, (n) => new Uint8Array(n));
     this.goal = copy(this.goal, (n) => new Int32Array(n));
     this.chase = copy(this.chase, (n) => new Int32Array(n));
+    this.chaseUid = copy(this.chaseUid, (n) => new Uint32Array(n));
+    this.escaped = copy(this.escaped, (n) => new Uint32Array(n));
     this.effort = copy(this.effort, (n) => new Uint8Array(n));
     this.parasite = copy(this.parasite, (n) => new Float32Array(n));
     const traits = new Int8Array(capacity * TRAIT_COUNT);
@@ -278,12 +302,16 @@ export const entitiesPart = {
     this.vx[i] = 0;
     this.vy[i] = 0;
     this.age[i] = age;
-    this.energy[i] = 0.6 + this.rnd() * 0.3;
-    this.think[i] = this.rnd() * (this.wild(s) ? this.yearSpan / DECISIONS_PER_YEAR : THINK_INTERVAL);
+    // Bicho de terra nasce no fluxo da fauna (os filhotes vêm das decisões deles, que mudam com a câmera).
+    const r = this.wild(s) ? this.faunaRnd : this.rnd;
+    this.energy[i] = 0.6 + r() * 0.3;
+    this.think[i] = r() * (this.wild(s) ? this.yearSpan / DECISIONS_PER_YEAR : THINK_INTERVAL);
     this.kind[i] = s;
     this.alive[i] = 1;
     this.village[i] = village;
+    if (village >= 0) this.residentIndex.dirty = true;
     this.uid[i] = ++this.nextUid;
+    this.uidIndex.set(this.uid[i], i);
     this.parent[i] = 0;
     this.family[i] = ++this.nextFamily;
     this.bornAt[i] = age === 0 ? village : -1;
@@ -311,6 +339,8 @@ export const entitiesPart = {
     this.act[i] = 0;
     this.goal[i] = -1;
     this.chase[i] = -1;
+    this.chaseUid[i] = 0;
+    this.escaped[i] = 0;
     this.effort[i] = 0;
     this.parasite[i] = 0;
     this.population[s]++;
@@ -341,6 +371,8 @@ export const entitiesPart = {
   kill(this: Ecosystem, i: number, quiet = false, cause: Exit = 'outra'): void {
     if (!this.alive[i]) return;
     this.alive[i] = 0;
+    this.uidIndex.delete(this.uid[i]);
+    if (this.village[i] >= 0) this.residentIndex.dirty = true;
     const s = this.kind[i];
     if (cause !== 'partiu') {
       this.diary.delete(this.uid[i]);
@@ -378,7 +410,8 @@ export const entitiesPart = {
       village.population--;
       if (village.pendingTech && village.pendingTech.uid === this.uid[i] && cause !== 'partiu') this.losePendingTech(village, 'morreu', quiet);
       // Só a morte de reis e de líderes de reinos entra nos acontecimentos.
-      if (!quiet && village.leader === i && village.kingdom === village.id && (village.tier >= 2 || this.kingdomSize(village) > 1)) {
+      // O lugar `i` já está marcado como morto aqui: confere o líder pelo índice e pelo uid (o índice é reaproveitado).
+      if (!quiet && village.leader === i && this.uid[i] === village.leaderUid && village.kingdom === village.id && (village.tier >= 2 || this.kingdomSize(village) > 1)) {
         const title = this.role[i] === ROLE.king ? 'O rei' : 'O líder';
         if (this.kingdomSize(village) >= 4) this.crises.add(village.id);
         this.note(`${title} de ${village.name} morreu aos ${Math.floor(this.age[i])} anos`, 'povo', village);
@@ -409,6 +442,59 @@ export const entitiesPart = {
     const cx = Math.floor((((x % w) + w) % w) / CELL);
     const cy = Math.min(this.rows - 1, Math.max(0, Math.floor(y / CELL)));
     return cy * this.cols + cx;
+  },
+
+  /**
+   * As criaturas num raio, como `forEachNear`, mas guardadas em `NEAR` em vez de chamar uma função para cada uma:
+   * a mesma ordem de visita, sem closure por consulta (para os laços mais quentes da fauna). Devolve `NEAR`.
+   */
+  gatherNear(this: Ecosystem, x: number, y: number, radius: number): typeof NEAR {
+    const w = this.map.width;
+    const half = w / 2;
+    const cols = this.cols;
+    const rows = this.rows;
+    const head = this.gridHead;
+    const next = this.gridNext;
+    const alive = this.alive;
+    const xs = this.x;
+    const ys = this.y;
+    const r = Math.ceil(radius / CELL);
+    const cx = Math.floor((((x % w) + w) % w) / CELL);
+    const cy = Math.floor(y / CELL);
+    const rr = radius * radius;
+    let n = 0;
+    let cap = NEAR.i.length;
+    let oi = NEAR.i;
+    let odx = NEAR.dx;
+    let ody = NEAR.dy;
+    for (let oy = -r; oy <= r; oy++) {
+      const gy = cy + oy;
+      if (gy < 0 || gy >= rows) continue;
+      for (let ox = -r; ox <= r; ox++) {
+        const gx = (((cx + ox) % cols) + cols) % cols;
+        for (let i = head[gy * cols + gx]; i >= 0; i = next[i]) {
+          if (!alive[i]) continue;
+          let dx = xs[i] - x;
+          if (dx > half) dx -= w;
+          else if (dx < -half) dx += w;
+          const dy = ys[i] - y;
+          if (dx * dx + dy * dy > rr) continue;
+          if (n === cap) {
+            growNear();
+            cap = NEAR.i.length;
+            oi = NEAR.i;
+            odx = NEAR.dx;
+            ody = NEAR.dy;
+          }
+          oi[n] = i;
+          odx[n] = dx;
+          ody[n] = dy;
+          n++;
+        }
+      }
+    }
+    NEAR.n = n;
+    return NEAR;
   },
 
   /** Visita criaturas num raio (em tiles), considerando a volta horizontal do mapa. */

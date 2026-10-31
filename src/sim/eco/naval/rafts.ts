@@ -11,7 +11,7 @@ import type { Raft } from '../types';
 import * as tilesModule from '../tiles';
 
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
-const { isWater, isLand } = tilesModule;
+const { isWater, isLand, NEIGHBORS4 } = tilesModule;
 
 export const raftsPart = {
   /**
@@ -30,7 +30,7 @@ export const raftsPart = {
     const vi = this.village[i];
     const v = vi >= 0 ? this.villages[vi] : null;
     // Um líder ou o último morador não deixa o assentamento para trás.
-    if (aim < 6 || (v && (v.population <= 1 || v.leader === i))) return false;
+    if (aim < 6 || (v && (v.population <= 1 || this.leaderOf(v) === i))) return false;
     const gx = this.x[i] + this.aimX[i];
     const gy = this.y[i] + this.aimY[i];
     const here = this.tileOf(i);
@@ -69,7 +69,7 @@ export const raftsPart = {
     this.searchSea(start, 20000, B.RAFT_RANGE, (t) => {
       const x = t % w;
       const y = (t - x) / w;
-      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [ox, oy] of NEIGHBORS4) {
         const l = this.tileAt(x + ox, y + oy);
         if (l < 0 || !this.canStand(s, l) || !this.habitable(s, l)) continue;
         const d = Math.hypot(wrapDx(gx - ((l % w) + 0.5), w), gy - (Math.floor(l / w) + 0.5));
@@ -120,6 +120,7 @@ export const raftsPart = {
   updateRafts(this: Ecosystem, dt: number): void {
     const map = this.map;
     const w = map.width;
+    // A ordem conta (quem desembarca primeiro pega o lugar livre): splice, não troca com a última.
     for (let k = this.rafts.length - 1; k >= 0; k--) {
       const r = this.rafts[k];
       const here = this.tileAt(r.x, Math.floor(r.y));

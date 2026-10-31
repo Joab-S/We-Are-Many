@@ -5,21 +5,26 @@
 
 import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
-import { happens } from '../../stochastic';
-import { temperatureAt } from '../../../procgen/surface';
-import { CHILD, ROLE } from '../../roles';
+import * as stochasticModule from '../../stochastic';
+import * as surfaceModule from '../../../procgen/surface';
+import * as rolesModule from '../../roles';
 import { inheritTraits } from '../../../ai/traits';
 import { partnerOf } from '../../../ai/relations';
 import { SOCIAL } from '../../../ai/tuning';
 import type { DeathCause } from '../../people';
 import { welfare } from '../../needs';
-import { wrapDx } from '../../settlement';
-import { ecologyOf } from '../../fauna';
+import * as settlementModule from '../../settlement';
+import * as faunaModule from '../../fauna';
 import * as constantsModule from '../constants';
 import * as helpersModule from '../helpers';
 import * as tilesModule from '../tiles';
 
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
+// Cópias locais dos valores importados (eco/*, superfície, papéis...; o porquê está em ecosystem.ts).
+const { happens } = stochasticModule;
+const { temperatureAt } = surfaceModule;
+const { CHILD, ROLE } = rolesModule;
+const { wrapDx } = settlementModule;
+const { ecologyOf } = faunaModule;
 const { BEHAVIOUR, CELL } = constantsModule;
 const { lifespan, elderAge } = helpersModule;
 const { isWater } = tilesModule;
