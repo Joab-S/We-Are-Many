@@ -114,6 +114,14 @@ export function poisInCell(ix: number, iy: number, iz: number): Poi[] {
   return list;
 }
 
+/** Distância (UA) em que a nave para ao chegar ao ponto de interesse. */
+export function poiArrive(p: Pick<Poi, 'kind' | 'radius'>): number {
+  if (p.kind === 'nebula') return p.radius * 1.3;
+  if (p.kind === 'brown-dwarf') return p.radius * 6;
+  if (p.kind === 'rogue') return p.radius * 4;
+  return Math.max(p.radius * 12, 1e-4);
+}
+
 /** Ponto fixo perto do Sol, para o GUIA ensinar a varredura e o piloto automático. */
 export const TUTORIAL_POI: Poi = {
   id: 'poi:oort',

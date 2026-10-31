@@ -17,6 +17,8 @@ export const compressOrbit = (aAu: number): number => 0.3 * Math.pow(aAu, 0.6);
 
 export type PlanetKind = 'rocky' | 'gas' | 'ice';
 
+export const PLANET_KIND_LABEL: Record<PlanetKind, string> = { rocky: 'Rochoso', gas: 'Gigante gasoso', ice: 'Gigante de gelo' };
+
 export interface PlanetData {
   id: string;
   name: string;

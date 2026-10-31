@@ -48,8 +48,16 @@ export interface SystemData {
 
 export const SOL_ID = 0;
 
+/** Estrela do catálogo (id, magnitude absoluta e índice de cor), com ou sem nome. */
+export type StarRef = Pick<StarInfo, 'id' | 'absmag' | 'ci'>;
+
+/** Dados da estrela com o nome do catálogo; sem nome próprio, "Sol" ou "HYG <id>". */
+export function starInfo(s: StarRef, names: ReadonlyMap<number, string>): StarInfo {
+  return { id: s.id, name: names.get(s.id) ?? (s.id === SOL_ID ? 'Sol' : `HYG ${s.id}`), absmag: s.absmag, ci: s.ci };
+}
+
 /** Raio visual da estrela, em UA (mesma regra de createStarBody). */
-export function starVisualRadius(star: StarInfo): number {
+export function starVisualRadius(star: StarRef): number {
   if (star.id === SOL_ID) return SUN_VISUAL_RADIUS;
   return SUN_VISUAL_RADIUS * Math.min(Math.max(stellarRadius(star.absmag, star.ci), 0.15), 30);
 }

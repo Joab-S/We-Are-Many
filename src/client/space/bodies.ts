@@ -41,6 +41,11 @@ export interface Body {
   radius: number;
   object: THREE.Object3D;
   planet?: PlanetData;
+  /** Partes animadas, guardadas na criação para não procurar por nome a cada quadro. */
+  glow?: THREE.Sprite;
+  tail?: THREE.Line;
+  surface?: THREE.Object3D;
+  rocks?: THREE.Object3D;
 }
 
 let glowTexture: THREE.Texture | null = null;
@@ -89,7 +94,7 @@ export function createStarBody(name: string, pos: THREE.Vector3, absmag: number,
   );
   glow.name = 'glow';
   group.add(sphere, glow);
-  return { name, kind: 'star', pos: pos.clone(), radius, object: group };
+  return { name, kind: 'star', pos: pos.clone(), radius, object: group, glow };
 }
 
 function bandTexture(p: PlanetData): THREE.Texture {
@@ -153,6 +158,7 @@ export function createPlanetBody(p: PlanetData, surfaces: Map<string, SurfaceMap
   sphere.rotation.z = 0.2;
   sphere.name = 'surface';
   group.add(sphere);
+  let rocks: THREE.Object3D | undefined;
   if (p.atmosphere) {
     const atmo = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 1.04, 48, 24),
@@ -192,9 +198,10 @@ export function createPlanetBody(p: PlanetData, surfaces: Map<string, SurfaceMap
     );
     ring.rotation.x = Math.PI / 2 - 0.45;
     group.add(ring);
-    group.add(createRingRocks(p, radius * 1.3, radius * 2.3, ring.rotation.x));
+    rocks = createRingRocks(p, radius * 1.3, radius * 2.3, ring.rotation.x);
+    group.add(rocks);
   }
-  return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p };
+  return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p, surface: sphere, rocks };
 }
 
 /** Linha da órbita comprimida. */
@@ -226,7 +233,7 @@ export function createCometBody(id: string, name: string, radius: number): Body 
   tail.name = 'tail';
   tail.frustumCulled = false;
   group.add(nucleus, coma, tail);
-  return { name, kind: 'comet', id, pos: new THREE.Vector3(), radius, object: group };
+  return { name, kind: 'comet', id, pos: new THREE.Vector3(), radius, object: group, glow: coma, tail };
 }
 
 /** Linha fechada a partir de pontos (órbitas de cometas, zona habitável). */
@@ -272,7 +279,7 @@ export function createPoiBody(id: string, name: string, kind: PoiVisual, pos: TH
     b.rotation.z = 1.1;
     group.add(a, b);
   }
-  return { name, kind: 'poi', id, pos: pos.clone(), radius, object: group };
+  return { name, kind: 'poi', id, pos: pos.clone(), radius, object: group, glow };
 }
 
 /**
