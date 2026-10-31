@@ -40,6 +40,18 @@ export const marketsPart = {
     return price(g, this.amountOf(v, g), this.capOf(v, g), v.needs, rich);
   },
 
+  /**
+   * O comércio traz peças (trava local da era): ferramentas, armas e armaduras de metal que chegam de quem as
+   * forjou contam como peças do metal mais nobre que o vendedor forja, na proporção TRADED_PIECES, para quem as
+   * recebe. A era e as peças são do lugar, mas o lugar sem minério pode avançar comprando o que outros forjam.
+   */
+  tradedPieces(this: Ecosystem, seller: Village, buyer: Village, g: Good | 'food', n: number): void {
+    if (n <= 0 || (g !== 'tools' && g !== 'weapons' && g !== 'armor')) return;
+    const m = seller.made;
+    const metal = m.steel >= 1 ? 'steel' : m.iron >= 1 ? 'iron' : m.bronze >= 1 ? 'bronze' : null;
+    if (metal) buyer.made[metal] += n * B.TRADED_PIECES;
+  },
+
   /** Caravanas e barcos mercantes de um assentamento na estrada ou no mar (rebanhos não contam). */
   caravansOf(this: Ecosystem, v: Village): number {
     let n = 0;

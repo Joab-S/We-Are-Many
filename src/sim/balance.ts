@@ -861,3 +861,5 @@ export const BOSERUP_TECHS: readonly string[] = ['domesticacao', 'arado', 'irrig
 export const BOSERUP_K = 2;
 export const BOSERUP_STARVING = 0.15;
 export const DISCOVER_FED = 0.4;
+/** Peças que o comércio traz (`tradedPieces`): cada ferramenta, arma ou armadura de metal recebida conta esta parte de uma peça forjada no lugar. */
+export const TRADED_PIECES = 0.5;

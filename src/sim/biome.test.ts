@@ -223,6 +223,64 @@ describe('Boserup: a necessidade puxa a intensificação', () => {
   });
 });
 
+describe('trava local da era', () => {
+  /** Dois lugares do mesmo reino: a capital minera e forja; a vila não tem minério nem forja. */
+  function kingdom() {
+    const { eco } = world();
+    const [capital, village] = eco.villages;
+    village.kingdom = capital.id;
+    capital.techs = ['ceramica', 'fundicao', 'siderurgia'];
+    capital.made = { bronze: 20, iron: 40, steel: 0, stone: 60, coal: 0 };
+    village.techs = ['ceramica'];
+    village.tech = 0.5;
+    village.made = { bronze: 0, iron: 0, steel: 0, stone: 0, coal: 0 };
+    for (const k of ['copper', 'tin', 'gold', 'iron', 'coal'] as const) village.stock[k] = 0;
+    // Ninguém do reino conhece jazida nenhuma perto da vila: falta a condição material da fundição.
+    for (const d of eco.deposits) {
+      d.known.clear();
+      if (d.mine === village.id) d.mine = -1;
+    }
+    village.mines = [];
+    return { eco, capital, village };
+  }
+
+  it('a era e as peças forjadas são do lugar, não o máximo do reino', () => {
+    const { eco, village } = kingdom();
+    eco.develop(village, 1, []);
+    expect(Math.floor(village.tech)).toBe(0);
+    expect(eco.useContext(village).forgedBronze).toBe(false);
+    expect(eco.useContext(village).forgedIron).toBe(false);
+  });
+
+  it('aprender com o vizinho pede a condição material do próprio lugar', () => {
+    const { eco, village } = kingdom();
+    village.stock.tools = 2;
+    expect(eco.useContext(village).softOre).toBe(false);
+    for (let k = 0; k < 200; k++) {
+      village.learnAt = eco.year - 10;
+      eco.develop(village, 1, []);
+    }
+    expect(eco.knew(village, 'fundicao')).toBe(false);
+    // Com cobre no estoque (e ferramentas) a condição existe, e a técnica vem do vizinho.
+    village.stock.copper = 3;
+    for (let k = 0; k < 200 && !eco.knew(village, 'fundicao'); k++) {
+      village.learnAt = eco.year - 10;
+      eco.develop(village, 1, []);
+    }
+    expect(eco.knew(village, 'fundicao')).toBe(true);
+  });
+
+  it('o comércio traz peças: o metal de quem forjou conta para quem recebe', () => {
+    const { eco, capital, village } = kingdom();
+    eco.tradedPieces(capital, village, 'tools', 4);
+    expect(village.made.iron).toBeCloseTo(4 * B.TRADED_PIECES, 5);
+    eco.tradedPieces(capital, village, 'wood', 10);
+    expect(village.made.iron).toBeCloseTo(4 * B.TRADED_PIECES, 5);
+    eco.develop(village, 1, []);
+    expect(Math.floor(village.tech)).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe('vocação: amostra do lugar', () => {
   it('conta só as jazidas que o reino conhece', () => {
     const { eco, map } = world();

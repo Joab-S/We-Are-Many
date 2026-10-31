@@ -47,7 +47,6 @@ export const productionPart = {
   produce(this: Ecosystem, v: Village, w: number[], adults: number, dt: number): void {
     const yr = dt / YEAR_SECONDS;
     const st = v.stock;
-    const made = this.villages[v.kingdom].made;
     if (happens(this.civRnd, B.SURVEY_RATE, yr) || v.forest === 0) this.survey(v);
     const tools = st.tools > 0 ? 1.4 : 1;
     const bonus = (voc: Vocation) => (v.vocation === voc ? 1 + B.VOCATION_BONUS : 1);
@@ -69,10 +68,8 @@ export const productionPart = {
       for (const d of mines) {
         const take = this.gain(v, d.ore, Math.min(d.amount, each));
         d.amount -= take;
-        if (d.ore === 'coal') {
-          v.made.coal += take;
-          if (v.kingdom !== v.id) made.coal += take;
-        }
+        // O que se extrai e forja conta para o próprio lugar (antes também para a capital, e a era do reino era a do mais rico).
+        if (d.ore === 'coal') v.made.coal += take;
         if (d.amount <= 0) {
           d.mine = -1;
           v.mines.splice(v.mines.indexOf(d.id), 1);
@@ -86,7 +83,6 @@ export const productionPart = {
     if (quarry) {
       const q = this.quarry(v, quarry * B.QUARRY_RATE * yr * tools);
       v.made.stone += q;
-      if (v.kingdom !== v.id) made.stone += q;
     }
     // Barro e tijolo (RF-VIDA-211): o oleiro tira barro perto da água e queima tijolo e telha na olaria.
     if (w[ROLE.potter] && v.wet && this.has(v, 'pottery')) {
@@ -150,7 +146,6 @@ export const productionPart = {
         this.book(v, 'metal', 0, before - (st.copper + st.tin + st.iron + st.coal));
         v.forgeWork -= 1;
         v.made[piece.kind]++;
-        if (v.kingdom !== v.id) made[piece.kind]++;
         this.craft(v, st, this.needed(st, adults, soldiers, v), TIER_MATERIAL[piece.tier], era);
       }
     }

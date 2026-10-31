@@ -214,6 +214,7 @@ export const caravansPart = {
       value += put * this.priceAt(o, c.good);
       this.addTo(o, c.good, put);
       this.book(o, 'chegou', put, 0);
+      this.tradedPieces(v, o, c.good, put);
       c.amount -= put;
     }
     t.cargo = t.cargo.filter((c) => c.amount >= 1);
