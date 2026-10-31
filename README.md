@@ -69,14 +69,31 @@ npm run data
 ## Estrutura
 
 ```
-src/core/       Núcleo sem three.js: unidades, PRNG determinístico, voo, astrofísica
-src/procgen/    Geração procedural determinística (ruído, superfícies)
-src/sim/        Simulação sem three.js: espécies, ecossistema e aldeias
-src/universe/   Manifesto da octree, seleção e carregamento de chunks
-src/client/     three.js: modo espaço (3D), modo superfície (2D), HUD
-tools/pipeline/ Pipeline Python que gera os chunks a partir do catálogo
-public/universe Chunks gerados
+src/core/                 Núcleo sem three.js: unidades, PRNG determinístico, voo, astrofísica
+src/procgen/              Geração procedural determinística (ruído, superfícies)
+src/sim/                  Simulação sem three.js: espécies, ecossistema e aldeias
+src/sim/ecosystem.ts      Classe Ecosystem: estado, construtor, crônica e escalonador (step, yearly)
+src/sim/eco/              Tipos, constantes, funções puras, tiles e células ecológicas do ecossistema
+src/sim/eco/core/         Partes do Ecosystem: criaturas (nascer, morrer, andar), save e consultas da interface
+src/sim/eco/people/       Pessoas: decisão, migração, sociedade, vocação e rebanhos
+src/sim/eco/fauna/        Bichos de terra: células ecológicas, comida, decisão e espaço
+src/sim/eco/flora/        Vegetação e matas
+src/sim/eco/settlements/  Assentamentos: fundação, planta, prédios, ruas, ciclo de vida, colônias, política e forma
+src/sim/eco/economy/      Economia: o ano, estoque, técnicas e produção
+src/sim/eco/community/    Jornadas do modo completo, desgaste das ruas e relações entre lugares
+src/sim/eco/work/         Ações presenciais e recursos do mapa (árvores, pedra, minas)
+src/sim/eco/war/          Guerras
+src/sim/eco/politics/     Diplomacia entre reinos
+src/sim/eco/naval/        Portos, jangadas e barcos
+src/sim/eco/trade/        Mercados e caravanas
+src/sim/eco/world/        Eventos do mundo e ferramentas do jogador
+src/universe/             Manifesto da octree, seleção e carregamento de chunks
+src/client/               three.js: modo espaço (3D), modo superfície (2D), HUD
+tools/pipeline/           Pipeline Python que gera os chunks a partir do catálogo
+public/universe           Chunks gerados
 ```
+
+O `Ecosystem` é uma classe parcial: cada arquivo em `src/sim/eco/<domínio>/` exporta um objeto com métodos `this: Ecosystem`, que `ecosystem.ts` instala no protótipo (não enumeráveis, fora do save). A impressão digital do mundo (`src/sim/fingerprint.ts`) protege refatorações: `npx vitest run --config vitest.calib.config.ts src/sim/fingerprint.calib.ts` compara três mundos fixos com o baseline.
 
 ## Créditos dos dados
 

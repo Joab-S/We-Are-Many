@@ -26,7 +26,7 @@ sorteios do mundo (fluxo `mente`), então a mesma semente dá a mesma história.
 | `decisions/leader.ts` | Escolha do líder, herdeiro do rei e temperamento do rei para a guerra |
 | `lab/` | O laboratório: testes que olham uma pessoa, um casal, um grupo e um povo inteiro |
 
-## Onde a simulação chama a IA (`src/sim/ecosystem.ts`)
+## Onde a simulação chama a IA (métodos do `Ecosystem`, em `src/sim/eco/core/`, `people/` e `settlements/`)
 
 - `spawn` e o nascimento: traços sorteados ou herdados dos pais (o outro pai é o cônjuge).
 - `firstRole` / `thinkProfession`: ofício de quem vira adulto. Soldados e guardas continuam sendo chamados pelo líder.
