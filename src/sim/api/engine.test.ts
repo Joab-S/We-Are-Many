@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateSurface } from '../../procgen/surface';
 import * as B from '../balance';
 import { earthParams } from '../calibrate';
-import { Ecosystem, isLand } from '../ecosystem';
+import { Ecosystem, isLand, YEAR_SECONDS } from '../ecosystem';
 import { worldFingerprint } from '../fingerprint';
 import { nativeSpecies } from '../species';
 import { viewCommand } from './commands';
@@ -134,8 +134,11 @@ describe('fachada do motor (src/sim/api/engine.ts)', () => {
     // Sem passo, nada muda: a mesma versão.
     expect(e.view.siteField()!.version).toBe(f.version);
     const before = f.version;
+    // A nota só muda quando uma volta completa troca os buffers (SITE_FIELD_YEARS anos) ou quando uma fundação ou
+    // um abandono suja células; se isso cai nos primeiros passos depende da semente. Até duas voltas.
     let changed = false;
-    for (let k = 0; k < 40 && !changed; k++) {
+    const steps = Math.ceil((2 * B.SITE_FIELD_YEARS * YEAR_SECONDS) / 0.25);
+    for (let k = 0; k < steps && !changed; k++) {
       run(e, 0.25);
       changed = e.view.siteField()!.version !== before;
     }
