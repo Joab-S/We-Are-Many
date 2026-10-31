@@ -464,6 +464,7 @@ export const caravansPart = {
     // Enxoval dos colonos (RF-AS-03): chega ao lugar novo, descarrega e quem levou fica morando lá.
     if (c.kind === 'settlers') {
       this.unload(home, c.cargo, 0);
+      this.emit({ kind: 'colony', year: this.year, phase: 'arrive', from: home.mother ?? -1, to: home.id, people: 1, by: 'land' });
       this.disembark(home, c.crew, c.x, c.y);
       return true;
     }

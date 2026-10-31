@@ -18,12 +18,12 @@ const UPLOAD_BUDGET = 48;
  * e os enfeites de 16 pixels por cima. Ruas, praças, muralhas e quintais são
  * pintados por cima do bioma (`paintSettlement`).
  *
- * Dirty Flag: o motor avisa o tile que mudou (`markDirty`, chamado por
- * `eco.onTileChanged`, que só marca); `flush` repinta os tiles marcados e,
- * dos que mudaram de cor de verdade, envia ao canvas só o retângulo sujo de
- * cada bloco de 64×64. O que o jogador mudou vai já; o que a simulação mudou
- * (a vegetação muda em tiles sorteados pelo mapa inteiro) vai por orçamento,
- * a vista primeiro.
+ * Dirty Flag: o motor avisa o tile que mudou (`markDirty`, chamado pelo
+ * gancho `tileChanged` da fachada do motor, que só marca); `flush` repinta
+ * os tiles marcados e, dos que mudaram de cor de verdade, envia ao canvas só
+ * o retângulo sujo de cada bloco de 64×64. O que o jogador mudou vai já; o
+ * que a simulação mudou (a vegetação muda em tiles sorteados pelo mapa
+ * inteiro) vai por orçamento, a vista primeiro.
  *
  * Não há caminho WebGL para o mapa: desde 0f7b0c7 a superfície desenha sempre
  * em Canvas 2D (o 3D fica escondido). Se um dia o mapa voltar a ser textura,

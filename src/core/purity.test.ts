@@ -1,22 +1,34 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * Motor puro (preparação para separar back-end e front-end): core, nav,
- * explore e o manifesto/busca do universo não podem depender de three.js,
- * do DOM nem de nada em src/client, nem diretamente nem pelo que importam.
- * O carregamento por rede e o cache no IndexedDB (universe/loader.ts e
- * universe/chunkCache.ts) são adaptadores de plataforma e ficam de fora.
+ * Teste de fronteira (preparação para separar back-end e front-end): o motor
+ * puro não pode depender de three.js, do DOM nem de nada em src/client, nem
+ * diretamente nem pelo que importam. As camadas estão em docs/ARQUITETURA.md:
+ *
+ *  - motor puro: core, nav, explore, procgen, sim (com sim/api, a fronteira
+ *    de comandos, eventos e a fachada), ai, o manifesto e a busca do universo
+ *    e o retrato do save (save/snapshot.ts);
+ *  - plataforma (adaptadores do navegador, de fora daqui): o carregamento por
+ *    rede e o cache no IndexedDB do universo, o armazenamento do save no
+ *    IndexedDB, o Worker que gera a superfície e a cola do save com o estado
+ *    do cliente (save/game.ts e save/manager.ts, que usam o GameState);
+ *  - cliente: src/client.
  */
 
 interface Fs {
   readFileSync(path: URL, enc: 'utf8'): string;
-  readdirSync(path: URL): string[];
+  readdirSync(path: URL, opts: { recursive: true }): string[];
 }
 
 /** Pasta src/ (este arquivo fica em src/core). */
 const SRC = new URL('../', import.meta.url);
-const ROOT_DIRS = ['core', 'nav', 'explore'];
-const ROOT_FILES = ['universe/manifest.ts', 'universe/starIndex.ts'];
+/** Pastas do motor puro, com as subpastas (sim/eco/**, sim/api...). */
+const ROOT_DIRS = ['core', 'nav', 'explore', 'procgen', 'sim', 'ai'];
+const ROOT_FILES = ['universe/manifest.ts', 'universe/starIndex.ts', 'save/snapshot.ts'];
+/** Adaptadores de plataforma: usam o navegador por definição e o motor nunca os alcança. */
+const PLATFORM = ['universe/loader.ts', 'universe/chunkCache.ts', 'save/store.ts', 'procgen/surface.worker.ts', 'save/game.ts', 'save/manager.ts'];
+/** Fora do motor: testes e calibração (rodam no Node, com node:fs). */
+const NOT_ENGINE = /\.(test|calib)\.ts$/;
 const IMPORT = /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/g;
 /** Uso de APIs do navegador (não confunde com nomes de parâmetros como `window`). */
 const BROWSER = /\b(?:document|window|navigator|localStorage|sessionStorage|indexedDB)\s*\.|\bfetch\s*\(|\brequestAnimationFrame\b|\bHTML\w*Element\b|\bimport\.meta\.env\b/;
@@ -42,7 +54,10 @@ describe('motor puro sem three.js, DOM ou cliente', () => {
     const fs = (await import(/* @vite-ignore */ fsName)) as Fs;
     const stack = [...ROOT_FILES];
     for (const d of ROOT_DIRS) {
-      for (const f of fs.readdirSync(new URL(`${d}/`, SRC))) if (f.endsWith('.ts') && !f.endsWith('.test.ts')) stack.push(`${d}/${f}`);
+      for (const f of fs.readdirSync(new URL(`${d}/`, SRC), { recursive: true })) {
+        const file = `${d}/${f.replace(/\\/g, '/')}`;
+        if (file.endsWith('.ts') && !NOT_ENGINE.test(file) && !PLATFORM.includes(file)) stack.push(file);
+      }
     }
     while (stack.length) {
       const file = stack.pop()!;
@@ -59,6 +74,14 @@ describe('motor puro sem three.js, DOM ou cliente', () => {
     expect(files.has('universe/starIndex.ts')).toBe(true);
     expect(files.has('core/shipControl.ts')).toBe(true);
     expect(files.has('core/lru.ts')).toBe(true);
+    // O motor da superfície e a fronteira dele com o cliente.
+    for (const f of ['sim/ecosystem.ts', 'sim/eco/war/war.ts', 'sim/api/commands.ts', 'sim/api/events.ts', 'sim/api/engine.ts', 'save/snapshot.ts', 'ai/utility.ts', 'procgen/surface.ts']) {
+      expect(files.has(f), f).toBe(true);
+    }
+  });
+
+  it('o motor não alcança os adaptadores de plataforma', () => {
+    expect([...files.keys()].filter((f) => PLATFORM.includes(f))).toEqual([]);
   });
 
   it('nenhum arquivo importa three.js ou src/client', () => {

@@ -206,6 +206,7 @@ export const portsPart = {
     }
     this.launch(v, 'colonize', path, pick.land, passengers);
     this.note(`${passengers.length} colonos de ${v.name} partiram de ${type.name.toLowerCase()}`, 'mar', v);
+    this.emit({ kind: 'colony', year: this.year, phase: 'depart', from: v.id, to: -1, people: passengers.length, by: 'sea' });
     return true;
   },
 };

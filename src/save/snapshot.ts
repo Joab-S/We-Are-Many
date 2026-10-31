@@ -1,18 +1,22 @@
-import * as THREE from 'three';
 import { Ecosystem } from '../sim/ecosystem';
 import type { StatefulRng } from '../core/rng';
 import type { PlanetParams, SurfaceMap } from '../procgen/surface';
 import type { Species } from '../sim/species';
 import type { NavState } from '../nav/guide';
 import type { ProbeState } from '../explore/probes';
-import type { GameState } from '../client/state';
 
 /**
  * Salvamento do jogo (RF-SAV-01 a 03). O instantâneo é um objeto que o
  * `structuredClone` entende (Map, Set, arrays tipados, referências
  * compartilhadas), por isso vai direto para o IndexedDB, sem passar por JSON:
  * o mapa de um planeta tem alguns MB de arrays tipados, bem acima da cota do
- * localStorage (~5 MB). Sem three.js nem DOM no que é testado, para rodar em Node.
+ * localStorage (~5 MB).
+ *
+ * Este arquivo é do motor puro (sem three.js, DOM nem `src/client`, conferido
+ * em `src/core/purity.test.ts`): o formato, a validação e o retrato do
+ * Ecosystem, que a fachada do motor (`src/sim/api/engine.ts`) também usa. O
+ * estado do jogo inteiro (nave em THREE.Vector3, `GameState` do cliente) é
+ * montado em `game.ts`.
  */
 
 /** Sobe quando o formato muda de um jeito que saves antigos não entendem. */
@@ -53,7 +57,7 @@ const isRng = (v: unknown): v is StatefulRng => typeof v === 'function' && typeo
  * campo novo no Ecosystem já é salvo. Funções e WeakMaps (caches) ficam de fora;
  * os geradores de sorteio entram pelo estado.
  */
-function snapshotEcosystem(eco: Ecosystem, seed: number): EcosystemSnapshot {
+export function snapshotEcosystem(eco: Ecosystem, seed: number): EcosystemSnapshot {
   const rng: Record<string, number> = {};
   const fields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(eco)) {
@@ -62,22 +66,6 @@ function snapshotEcosystem(eco: Ecosystem, seed: number): EcosystemSnapshot {
     else if (typeof value !== 'function') fields[key] = value;
   }
   return { seed, rng, fields };
-}
-
-export function snapshotGame(state: GameState, view: ViewSnapshot, seeds: (planetId: string) => number, now = Date.now()): SaveData {
-  return {
-    version: SAVE_VERSION,
-    savedAt: now,
-    ship: { pos: state.shipPos.toArray(), quat: state.shipQuat.toArray() as [number, number, number, number] },
-    time: state.time,
-    orbitPlanetId: state.orbitPlanetId,
-    surfaces: state.surfaces,
-    ecosystems: new Map([...state.ecosystems].map(([id, eco]) => [id, snapshotEcosystem(eco, seeds(id))])),
-    knownSpecies: state.knownSpecies,
-    nav: state.nav,
-    probes: state.probes,
-    view,
-  };
 }
 
 export class SaveFormatError extends Error {}
@@ -103,7 +91,7 @@ export function validateSave(raw: unknown): SaveData {
 }
 
 /** Recria um ecossistema idêntico ao salvo: classe nova (métodos e callbacks) com os campos e o RNG do save. */
-function restoreEcosystem(snap: EcosystemSnapshot, map: SurfaceMap): Ecosystem {
+export function restoreEcosystem(snap: EcosystemSnapshot, map: SurfaceMap): Ecosystem {
   // O construtor zera o mapa de árvores cortadas, que pertence ao terreno e vem no save.
   const felled = map.felled;
   const eco = new Ecosystem(map, snap.seed);
@@ -117,24 +105,4 @@ function restoreEcosystem(snap: EcosystemSnapshot, map: SurfaceMap): Ecosystem {
   }
   eco.fixAfterLoad();
   return eco;
-}
-
-/** Monta o estado do jogo a partir do save; `base` traz o que não é salvo (manifesto e nomes das estrelas). */
-export function restoreGame(raw: unknown, base: Pick<GameState, 'manifest' | 'names'>): { state: GameState; view: ViewSnapshot; savedAt: number } {
-  const d = validateSave(raw);
-  const ecosystems = new Map<string, Ecosystem>();
-  for (const [id, snap] of d.ecosystems) ecosystems.set(id, restoreEcosystem(snap, d.surfaces.get(id)!));
-  const state: GameState = {
-    ...base,
-    shipPos: new THREE.Vector3().fromArray(d.ship.pos),
-    shipQuat: new THREE.Quaternion().fromArray(d.ship.quat),
-    time: d.time,
-    surfaces: d.surfaces,
-    orbitPlanetId: d.orbitPlanetId,
-    ecosystems,
-    knownSpecies: d.knownSpecies,
-    nav: d.nav,
-    probes: d.probes,
-  };
-  return { state, view: d.view, savedAt: d.savedAt };
 }

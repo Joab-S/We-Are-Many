@@ -53,6 +53,7 @@ import { caravansPart, type CaravansPart } from './eco/trade/caravans';
 import { disastersPart, type DisastersPart } from './eco/world/disasters';
 import { playerPart, type PlayerPart } from './eco/world/player';
 import { queriesPart, type QueriesPart } from './eco/core/queries';
+import { EVENT_QUEUE_LIMIT, type EngineEvent } from './api/events';
 
 export * from './eco/types';
 export * from './eco/constants';
@@ -407,9 +408,14 @@ export class Ecosystem {
   yearSpan = YEAR_SECONDS;
   /** Crônica do planeta, do mais novo para o mais antigo (RF-VIDA-156). */
   readonly chronicle: ChronicleEntry[] = [];
+  /**
+   * Fila de eventos de domínio (Event Queue, src/sim/api/events.ts), da mais antiga para a mais nova: o motor
+   * só empurra (`emit`), quem ouve drena (`drainEvents`). Vai no save, então nada se perde ao carregar.
+   */
+  readonly events: EngineEvent[] = [];
   /** Ano do último acontecimento importante (para detectar marasmo). */
   lastMajor = 0;
-  /** Aviso curto para o jogador (ex.: lugar inválido), lido e limpo pela interface. */
+  /** Aviso curto para o jogador (ex.: lugar inválido): a fachada (src/sim/api/engine.ts) o devolve no resultado do comando e limpa. */
   hint = '';
   free: number[] = [];
   /** Sorteios da vida animal e da vegetação (cada subsistema tem o seu fluxo, RF-VIDA-306). */
@@ -476,15 +482,18 @@ export class Ecosystem {
    * (ex.: tempestades que afundam barcos de pesca) viram uma linha só, com a
    * contagem e os lugares, para não encher o painel do mesmo assunto.
    */
-  note(text: string, kind: ChronicleKind, at?: { x: number; y: number } | null, opts: { major?: boolean; key?: string; place?: string } = {}): void {
+  note(text: string, kind: ChronicleKind, at?: { x: number; y: number } | null, opts: { major?: boolean; key?: string; place?: string; villages?: number[] } = {}): void {
     const major = opts.major ?? false;
     if (major && kind !== 'jogador') this.lastMajor = this.year;
+    const villages = this.noteVillages(text, at, opts.villages);
     if (opts.key) {
       const old = this.chronicle.find((e) => e.key === opts.key && this.year - e.year < MERGE_YEARS);
       if (old) {
         old.count++;
         old.year = this.year;
         if (opts.place && !old.places.includes(opts.place)) old.places.push(opts.place);
+        old.villages ??= [];
+        for (const id of villages) if (!old.villages.includes(id)) old.villages.push(id);
         if (at) {
           old.x = at.x;
           old.y = at.y;
@@ -505,8 +514,34 @@ export class Ecosystem {
       key: opts.key ?? '',
       count: 1,
       places: opts.place ? [opts.place] : [],
+      villages,
     });
     if (this.chronicle.length > CHRONICLE_MAX) this.chronicle.length = CHRONICLE_MAX;
+  }
+
+  /**
+   * Assentamentos de uma linha da crônica, pelo id: o lugar onde aconteceu (quando `at` é um assentamento),
+   * os pedidos e os citados pelo nome no texto (a colônia lembra a mãe, a guerra os dois lados). Guardado
+   * na linha, a janela do assentamento acha a história dele sem procurar o nome no texto.
+   */
+  noteVillages(text: string, at?: { x: number; y: number } | null, ids?: number[]): number[] {
+    const out: number[] = [];
+    const id = at ? (at as { id?: unknown }).id : undefined;
+    if (typeof id === 'number' && this.villages[id] === at) out.push(id);
+    if (ids) for (const k of ids) if (!out.includes(k)) out.push(k);
+    for (const v of this.villages) if (!out.includes(v.id) && text.includes(v.name)) out.push(v.id);
+    return out;
+  }
+
+  /** Anota um evento de domínio na fila (só empurra: não sorteia nem muda o mundo). Cheia, o mais antigo sai. */
+  emit(e: EngineEvent): void {
+    if (this.events.length >= EVENT_QUEUE_LIMIT) this.events.shift();
+    this.events.push(e);
+  }
+
+  /** Entrega e esvazia a fila de eventos, do mais antigo para o mais novo. */
+  drainEvents(): EngineEvent[] {
+    return this.events.splice(0, this.events.length);
   }
 
   /** Texto de uma linha da crônica, com repetições e lugares. */

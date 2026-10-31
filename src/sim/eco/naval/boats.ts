@@ -378,6 +378,7 @@ export const boatsPart = {
         'mar',
         b,
       );
+      this.emit({ kind: 'colony', year: this.year, phase: 'arrive', from: from.id, to: -1, people: landed, by: 'sea' });
       return;
     }
     for (const p of b.passengers) {
@@ -388,6 +389,7 @@ export const boatsPart = {
         this.movedAt[c] = this.year;
       }
     }
+    this.emit({ kind: 'colony', year: this.year, phase: 'arrive', from: from.id, to: target.id, people: b.passengers.length, by: 'sea' });
   },
 };
 export type BoatsPart = typeof boatsPart;

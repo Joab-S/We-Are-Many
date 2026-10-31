@@ -8,7 +8,8 @@ import { Ecosystem } from '../sim/ecosystem';
 import { nativeSpecies } from '../sim/species';
 import type { GameState } from '../client/state';
 import { REJECTED_KEY, SAVE_KEY, SaveManager } from './manager';
-import { restoreGame, SAVE_VERSION, snapshotGame, type ViewSnapshot } from './snapshot';
+import { restoreGame, snapshotGame } from './game';
+import { SAVE_VERSION, type ViewSnapshot } from './snapshot';
 import { memoryStore } from './store';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };

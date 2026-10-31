@@ -2,8 +2,10 @@ import { icon as svgIcon } from '../ui/icons';
 import { seedFor } from '../../core/rng';
 import { temperatureAt, type PlanetParams, type SurfaceMap } from '../../procgen/surface';
 import type { GeoView } from '../../procgen/debugViews';
-import { Ecosystem } from '../../sim/ecosystem';
-import { applyCommand, type EngineCommand } from '../../sim/api/commands';
+import type { Ecosystem } from '../../sim/ecosystem';
+import { sameView, viewCommand, type EngineCommand, type ViewCommand } from '../../sim/api/commands';
+import { createEngine, ecosystemOf, type Engine } from '../../sim/api/engine';
+import type { EngineEvent } from '../../sim/api/events';
 import { earthCatalog, nativeSpecies } from '../../sim/species';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
@@ -31,6 +33,7 @@ import { Windows, type SurfaceSettings } from './hud/Windows';
 import { SettlementView } from './hud/SettlementView';
 import { Minimap } from './hud/Minimap';
 import { Toast } from './hud/Toast';
+import { bindNotices } from './hud/notices';
 import { Labels } from './hud/Labels';
 import { buildTools, plain, REAL_YEAR_SECONDS, SETTLEMENT_TAB_ICONS, TAB_ICONS, TABS, WINDOW_ICONS, WINDOWS, type FxKind, type Tab, type Tool, type ToolContext, type Win } from './tools';
 
@@ -47,13 +50,22 @@ const GRID_SLACK = 4;
  * (`MapOverlay`), a seleção, as animações e as partes do HUD. As ferramentas
  * não mexem no mundo: montam comandos (`src/sim/api/commands.ts`) que o
  * motor aplica na fronteira do passo.
+ *
+ * O motor é a fachada `Engine` (`src/sim/api/engine.ts`): o relógio dá os
+ * passos e aplica os comandos por ela, e os eventos dela chegam ao HUD pelo
+ * despachante do relógio. O HUD ainda lê o Ecosystem direto (`eco`); a lista
+ * do que falta passar pela fachada está em docs/ARQUITETURA.md.
  */
 export class SurfaceMode {
-  /** O mundo (público para `?debug` e as ferramentas de captura). */
+  /** O mundo (público para `?debug` e as ferramentas de captura); a ponte de transição da fachada. */
   eco!: Ecosystem;
+  /** O motor: passos, comandos, eventos e a vista de leitura. */
+  engine!: Engine;
   private map!: SurfaceMap;
   private view!: Viewport;
-  private driver!: SimDriver<EngineCommand>;
+  private driver!: SimDriver<EngineCommand, EngineEvent>;
+  /** Última vista mandada ao motor (só manda outra quando muda de célula, de raio ou de lugar fixado). */
+  private lastLook: ViewCommand | null = null;
   private raster!: MapRaster;
   private atlas!: SpriteAtlas;
   private sprites!: SpriteLayer;
@@ -151,32 +163,23 @@ export class SurfaceMode {
     this.map = map;
     state.surfaces.set(this.params.id, map);
 
-    // Espécies nativas passam a ser conhecidas (podem ser levadas a outros planetas).
-    let eco = state.ecosystems.get(this.params.id);
-    if (!eco) {
-      eco = new Ecosystem(map, seedFor(`${this.params.id}:life`));
-      for (const sp of nativeSpecies(this.params)) {
-        eco.addSpecies(sp);
-        state.knownSpecies.set(sp.id, sp);
-      }
-      eco.populate();
-      state.ecosystems.set(this.params.id, eco);
-    }
+    // O motor: o mundo salvo (ou já visitado) ou um novo, com as espécies nativas, que passam a ser
+    // conhecidas (podem ser levadas a outros planetas). O ano na tela dura REAL_YEAR_SECONDS.
+    const seed = seedFor(`${this.params.id}:life`);
+    const saved = state.ecosystems.get(this.params.id);
+    const natives = saved ? [] : nativeSpecies(this.params);
+    for (const sp of natives) state.knownSpecies.set(sp.id, sp);
+    this.engine = createEngine(map, saved ? { seed, eco: saved, yearSpan: REAL_YEAR_SECONDS } : { seed, species: natives, yearSpan: REAL_YEAR_SECONDS });
+    const eco = ecosystemOf(this.engine);
+    if (!saved) state.ecosystems.set(this.params.id, eco);
     this.eco = eco;
-    eco.yearSpan = REAL_YEAR_SECONDS;
     // O banco genético da Terra vem a bordo; variantes que surgem entram no catálogo.
     for (const sp of earthCatalog()) if (!state.knownSpecies.has(sp.id)) state.knownSpecies.set(sp.id, sp);
     for (const sp of eco.species) state.knownSpecies.set(sp.id, sp);
-    eco.onSpecies = (sp) => {
-      if (state.knownSpecies.has(sp.id)) return;
-      state.knownSpecies.set(sp.id, sp);
-      this.tools = buildTools(state.knownSpecies.values());
-      if (this.ready) this.toolbar.selectTab(this.toolbar.tab);
-    };
 
     this.view = new Viewport(map.width, map.height);
     this.view.zoom = Math.max(1, window.innerHeight / map.height);
-    this.driver = new SimDriver<EngineCommand>(eco, (cmd) => this.apply(cmd), { wrapWidth: map.width });
+    this.driver = new SimDriver<EngineCommand, EngineEvent>(this.engine, (cmd) => this.apply(cmd), { wrapWidth: map.width });
     if (this.resume) {
       this.view.center.x = this.resume.center[0];
       this.view.center.y = this.resume.center[1];
@@ -184,8 +187,17 @@ export class SurfaceMode {
       this.driver.setSpeed(this.resume.speed);
     }
     this.raster = new MapRaster(map, eco);
-    // Observer: o motor avisa o tile que mudou e a tela só o marca para repintar (o bioma já vem reclassificado).
-    eco.onTileChanged = (i) => this.raster.markDirty(i);
+    this.engine.setHooks({
+      // Observer: o motor avisa o tile que mudou e a tela só o marca para repintar (o bioma já vem reclassificado).
+      tileChanged: (i) => this.raster.markDirty(i),
+      // Variantes que surgem entram no catálogo (e nas ferramentas de soltar espécies).
+      species: (sp) => {
+        if (state.knownSpecies.has(sp.id)) return;
+        state.knownSpecies.set(sp.id, sp);
+        this.tools = buildTools(state.knownSpecies.values());
+        if (this.ready) this.toolbar.selectTab(this.toolbar.tab);
+      },
+    });
     this.atlas = new SpriteAtlas();
     this.sprites = new SpriteLayer(this.atlas, 12000);
     this.grid = new CreatureGrid(map.width, map.height);
@@ -205,10 +217,16 @@ export class SurfaceMode {
 
   /** Aplica um comando no motor (chamado pelo SimDriver na fronteira do passo). */
   private apply(cmd: EngineCommand): void {
+    // A vista só muda o nível de detalhe do motor: nada a repintar nem a avisar.
+    if (cmd.kind === 'view') {
+      this.engine.apply(cmd);
+      return;
+    }
     // O que o jogador muda vai para a tela no mesmo quadro.
     this.raster.urgent = true;
-    const res = applyCommand(this.eco, this.map, cmd, { journal: cmd.kind === 'terraform' ? this.history.journal : null });
+    const res = this.engine.apply(cmd, { journal: cmd.kind === 'terraform' ? this.history.journal : null });
     this.raster.urgent = false;
+    if (res.hint) this.toast.say(res.hint);
     this.applied++;
     this.dirty = true;
     if (cmd.kind === 'surprise' && res.at) this.goTo(res.at.x, res.at.y);
@@ -348,6 +366,9 @@ export class SurfaceMode {
     this.toast = new Toast(q('[data-toast]'));
     this.windows = new Windows(root, this.icons, this.settings, this.state.knownSpecies, this.params.id);
     this.vwin = new SettlementView(root, this.icons);
+    // Consumidores da fila de eventos do motor (Observer): avisos dos acontecimentos e a janela do assentamento.
+    bindNotices(this.driver.bus, () => this.engine.view, (t) => this.toast.notice(t));
+    this.driver.bus.onAny((e) => this.vwin.onEvent(e));
     this.sel = new Selection(eco, view, q('[data-crowd]'), {
       openSettlement: (id) => this.openSettlement(id),
       refreshInfo: () => this.info.refresh(this.eco),
@@ -636,12 +657,17 @@ export class SurfaceMode {
     this.machine.frame(dt);
     this.fx.step(dt, this.machine.painting);
 
-    // Bichos longe do que está na tela decidem menos (mesma biologia, menos custo). O foco da câmera e o
-    // lugar da pessoa na ficha (`eco.pinned`, em Selection.track) são dicas da vista para o nível de
-    // detalhe da simulação, não ações do jogador: ficam fora da fila e do log de comandos.
+    // A vista muda a simulação (RF-AS-31): os lugares perto da tela e o da pessoa na ficha rodam as jornadas, e
+    // os bichos longe decidem menos (mesma biologia, menos custo). Por isso vai ao motor como comando, na
+    // fronteira do passo e no log, e só quando muda de célula, de raio ou de lugar fixado (`viewCommand`).
     const half = Math.max(view.width, view.height) / (2 * Math.max(0.5, view.zoom)) + 24;
-    eco.focus = { x: view.center.x, y: view.toRow(view.center.y), r: half };
+    const look = viewCommand(view.center.x, view.toRow(view.center.y), half, this.sel.pinnedVillage());
+    if (!sameView(look, this.lastLook)) {
+      this.driver.enqueue(look);
+      this.lastLook = look;
+    }
     const steps = this.driver.update(dt);
+    this.vwin.onSteps(steps);
     if (!this.driver.paused) this.weather.step(dt, view);
     this.raster.flush(view);
 
@@ -773,7 +799,8 @@ export class SurfaceMode {
     this.abort.abort();
     this.input.dispose();
     if (this.ready) {
-      this.eco.onTileChanged = () => {};
+      this.engine.setHooks({});
+      this.driver.bus.clear();
       this.sprites.dispose();
       this.atlas.dispose();
     }

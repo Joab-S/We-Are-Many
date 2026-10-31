@@ -136,6 +136,7 @@ export const lifecyclePart = {
     for (let k = 0; k < settlers; k++) {
       this.spawn(s, x + (rnd() - 0.5) * 3, y + (rnd() - 0.5) * 3, village.id, sp.maturity + rnd() * 10);
     }
+    this.emit({ kind: 'found', year: this.year, village: id, from: from?.id ?? -1, how: village.foundedBy!, x: village.x, y: village.y });
     return village;
   },
 
@@ -176,6 +177,7 @@ export const lifecyclePart = {
     v.mines.length = 0;
     // Assentamentos do reino de uma capital abandonada ficam independentes.
     for (const o of this.villages) if (o.kingdom === v.id && o !== v) o.kingdom = o.id;
+    this.emit({ kind: 'abandon', year: this.year, village: v.id, to: v.leftTo ?? -1 });
     if (quiet) return;
     // Abandono com destino (RF-AS-08): a crônica diz para onde foram os últimos moradores.
     const to = v.leftTo !== undefined ? this.villages[v.leftTo] : null;
@@ -258,6 +260,7 @@ export const lifecyclePart = {
       this.develop(v, dt * eraPace, adults[v.id] ?? []);
       if (Math.floor(v.tech) > before) {
         this.note(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`, 'era', v, { major: true });
+        this.emit({ kind: 'era', year: this.year, village: v.id, era: Math.floor(v.tech), first: !this.villages.some((o) => o !== v && Math.floor(o.tech) >= Math.floor(v.tech)) });
         // Cada era nova refaz o calçamento das ruas que o uso abriu (RF-VIDA-253 e RF-AS-13).
         if (Math.floor(v.tech) >= 2) this.rankStreets(v);
       }

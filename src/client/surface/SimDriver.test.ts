@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { generateSurface } from '../../procgen/surface';
+import { earthParams } from '../../sim/calibrate';
+import { viewCommand, type EngineCommand } from '../../sim/api/commands';
+import { createEngine, ecosystemOf } from '../../sim/api/engine';
+import type { EngineEvent } from '../../sim/api/events';
+import { nativeSpecies } from '../../sim/species';
 import { MAX_STEPS_PER_FRAME, SIM_STEP, SimDriver, SPEEDS, type SimTarget } from './SimDriver';
 
-/** Mundo de mentira: uma criatura que anda 1 tile por segundo de jogo para leste. */
-function world(n = 1): SimTarget & { steps: number[]; x: Float32Array; y: Float32Array; uid: Uint32Array; count: number; year: number } {
+type Ev = { kind: 'found'; village: number } | { kind: 'warStart'; a: number };
+
+/** Mundo de mentira: uma criatura que anda 1 tile por segundo de jogo para leste; a cada 4 passos, um evento. */
+function world(n = 1): SimTarget<Ev> & { steps: number[]; x: Float32Array; y: Float32Array; uid: Uint32Array; count: number; year: number; queue: Ev[] } {
   const w = {
     steps: [] as number[],
     count: n,
@@ -10,10 +18,18 @@ function world(n = 1): SimTarget & { steps: number[]; x: Float32Array; y: Float3
     y: new Float32Array(8),
     uid: new Uint32Array(8).map((_, i) => i + 1),
     year: 0,
+    queue: [] as Ev[],
+    get view() {
+      return this;
+    },
     step(h: number) {
       this.steps.push(h);
       this.year += h / 12;
       for (let i = 0; i < this.count; i++) this.x[i] += h;
+      if (this.steps.length % 4 === 0) this.queue.push({ kind: 'found', village: this.steps.length });
+    },
+    drainEvents() {
+      return this.queue.splice(0);
     },
   };
   return w;
@@ -104,7 +120,7 @@ describe('SimDriver: passo fixo, teto e interpolação', () => {
   it('aplica os comandos na fronteira do passo e guarda o passo no log', () => {
     const w = world();
     const applied: { cmd: string; stepsBefore: number }[] = [];
-    const d = new SimDriver<string>(w, (cmd) => applied.push({ cmd, stepsBefore: w.steps.length }));
+    const d = new SimDriver<string, Ev>(w, (cmd) => applied.push({ cmd, stepsBefore: w.steps.length }));
     d.setSpeed(1);
     d.enqueue('a');
     // Quadro sem passo: o comando entra no fim do quadro.
@@ -126,10 +142,64 @@ describe('SimDriver: passo fixo, teto e interpolação', () => {
     ]);
   });
 
+  it('drena os eventos depois dos passos do quadro e entrega pelo despachante (on por tipo, onAny)', () => {
+    const w = world();
+    const d = new SimDriver<string, Ev>(w, (cmd) => w.queue.push({ kind: 'warStart', a: Number(cmd) }));
+    const found: number[] = [];
+    const all: string[] = [];
+    const off = d.bus.on('found', (e) => found.push(e.village));
+    d.bus.onAny((e) => all.push(e.kind));
+    d.setSpeed(1);
+    // 8 passos (dois quadros de 1 s com teto 3 e o resto em quadros pequenos): eventos nos passos 4 e 8.
+    for (let f = 0; f < 8; f++) d.update(0.25);
+    expect(w.steps.length).toBe(8);
+    expect(found).toEqual([4, 8]);
+    expect(w.queue).toEqual([]);
+    // Evento gerado por um comando num quadro sem passo também sai no mesmo quadro.
+    d.setSpeed(0);
+    d.enqueue('7');
+    d.update(0.1);
+    expect(all).toEqual(['found', 'found', 'warStart']);
+    expect(d.stats.events).toBe(1);
+    expect(d.stats.totalEvents).toBe(3);
+    // Quem desliga não recebe mais.
+    off();
+    d.setSpeed(1);
+    for (let f = 0; f < 4; f++) d.update(0.25);
+    expect(found).toEqual([4, 8]);
+    expect(all.length).toBe(4);
+  });
+
   it('o log tem limite', () => {
-    const d = new SimDriver<number>(world(), () => {}, { logLimit: 5 });
+    const d = new SimDriver<number, Ev>(world(), () => {}, { logLimit: 5 });
     for (let k = 0; k < 12; k++) d.enqueue(k);
     d.update(0);
     expect(d.log.map((e) => e.cmd)).toEqual([7, 8, 9, 10, 11]);
+  });
+});
+
+describe('SimDriver sobre a fachada do motor', () => {
+  it('dá os passos, aplica comandos e vistas na fronteira, guarda no log e entrega os eventos do motor', () => {
+    const params = earthParams(0.2);
+    const engine = createEngine(generateSurface(params), { seed: 7, species: nativeSpecies(params) });
+    const eco = ecosystemOf(engine);
+    const d = new SimDriver<EngineCommand, EngineEvent>(engine, (cmd) => engine.apply(cmd), { wrapWidth: engine.view.map.width });
+    const founded: number[] = [];
+    d.bus.on('found', (e) => founded.push(e.village));
+    const v = engine.view.villages[0];
+    d.enqueue(viewCommand(v.x, v.y, 30, v.id));
+    d.setSpeed(1);
+    d.update(SIM_STEP);
+    // A vista entrou antes do primeiro passo e foi para o log com o passo 0.
+    expect(eco.focus).not.toBeNull();
+    expect(eco.pinned).toBe(v.id);
+    expect(d.log[0]).toEqual({ tick: 0, cmd: viewCommand(v.x, v.y, 30, v.id) });
+    // Um evento do motor (aqui, uma fundação no meio do quadro) sai no fim do quadro, pelo despachante.
+    const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
+    const nv = eco.foundVillage(s, Math.floor(v.x) + 25, Math.floor(v.y), 2);
+    d.update(SIM_STEP);
+    expect(founded).toContain(nv.id);
+    expect(engine.drainEvents()).toEqual([]);
+    expect(d.tick).toBe(2);
   });
 });

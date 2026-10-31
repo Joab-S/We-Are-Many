@@ -428,6 +428,7 @@ export const formPart = {
       v.lowYears = 0;
       if (v.tier >= 1) this.rankStreets(v);
       this.note(`${v.name} virou ${TIER_NAMES[v.tier].toLowerCase()}`, 'povo', v, { major: v.tier >= 2 });
+      this.emit({ kind: 'tierUp', year: this.year, village: v.id, tier: v.tier });
       return;
     }
     if (!yearly) return;
@@ -438,6 +439,7 @@ export const formPart = {
         v.lowYears = 0;
         this.tally.tierDowns++;
         this.note(`${v.name} encolheu e voltou a ser ${TIER_NAMES[v.tier].toLowerCase()}`, 'povo', v, { major: v.tier >= 1 });
+        this.emit({ kind: 'tierDown', year: this.year, village: v.id, tier: v.tier });
       }
     } else v.lowYears = 0;
   },

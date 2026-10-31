@@ -77,6 +77,57 @@ export interface RestoreTilesCommand {
   bare: number[];
 }
 
+/** Onde o jogador está olhando: centro (coluna, linha) e meia largura da tela, em tiles. */
+export interface ViewFocus {
+  x: number;
+  y: number;
+  r: number;
+}
+
+/**
+ * A vista do jogador como entrada do motor (RF-AS-31): os lugares perto do que está na tela (e o da pessoa
+ * aberta na ficha, `pinned`) rodam as jornadas do modo completo, e os bichos de terra longe dela decidem
+ * menos. Isso muda a simulação, então a vista é um comando como os outros: entra na fila, é aplicada na
+ * fronteira do passo e vai para o log. O determinismo do motor vale para a semente mais o log inteiro,
+ * vistas incluídas. Monte com `viewCommand`, que arredonda o foco para o log só crescer quando a vista
+ * muda de verdade.
+ */
+export interface ViewCommand {
+  kind: 'view';
+  /** null: ninguém olhando (testes e calibração), todo lugar no modo agregado e todo bicho no detalhe cheio. */
+  focus: ViewFocus | null;
+  /** Assentamento da pessoa aberta na ficha (-1 nenhum): fica no modo completo mesmo fora da tela. */
+  pinned: number;
+}
+
+/**
+ * Célula da vista, em tiles: o centro do foco vai para o meio da célula e a meia largura sobe para cobrir a
+ * tela inteira, então o comando só muda (e só entra no log) quando a câmera troca de célula ou o zoom troca
+ * de degrau. A célula mínima é VIEW_CELL; de longe ela cresce com a vista (a potência de 2 perto de um
+ * oitavo da meia largura), para arrastar o mapa não gerar um comando por quadro.
+ */
+export const VIEW_CELL = 8;
+
+/** Lado da célula da vista para uma meia largura `r` (ver VIEW_CELL). */
+export function viewCell(r: number): number {
+  return Math.max(VIEW_CELL, 2 ** Math.round(Math.log2(Math.max(1, r) / 8)));
+}
+
+/** Comando de vista com o foco arredondado na célula; o raio leva meia célula a mais, para nada da tela ficar de fora. */
+export function viewCommand(x: number, y: number, r: number, pinned: number): ViewCommand {
+  const c = viewCell(r);
+  return { kind: 'view', focus: { x: (Math.floor(x / c) + 0.5) * c, y: (Math.floor(y / c) + 0.5) * c, r: Math.ceil((r + c / 2) / c) * c }, pinned };
+}
+
+/** As duas vistas dão o mesmo efeito no motor (o cliente só enfileira quando muda). */
+export function sameView(a: ViewCommand | null, b: ViewCommand | null): boolean {
+  if (!a || !b) return a === b;
+  if (a.pinned !== b.pinned) return false;
+  const f = a.focus;
+  const g = b.focus;
+  return f === g || (!!f && !!g && f.x === g.x && f.y === g.y && f.r === g.r);
+}
+
 /** Tudo o que as ferramentas da superfície fazem com o mundo. União discriminada por `kind`, só com dados. */
 export type EngineCommand =
   | TerraformCommand
@@ -104,14 +155,20 @@ export type EngineCommand =
   /** Um evento aleatório em algum lugar do mundo. */
   | { kind: 'surprise' }
   /** Eventos aleatórios ligados ou não, e a frequência deles (janela Mundo). */
-  | { kind: 'events'; auto?: boolean; rate?: number };
+  | { kind: 'events'; auto?: boolean; rate?: number }
+  /** A vista do jogador (nível de detalhe da simulação). */
+  | ViewCommand;
 
 export type CommandKind = EngineCommand['kind'];
 
-/** O que o comando deu: `ok` falso quando não pôde agir ali; `at` é um lugar para a câmera ir (x, linha). */
+/**
+ * O que o comando deu: `ok` falso quando não pôde agir ali; `at` é um lugar para a câmera ir (x, linha);
+ * `hint` é o aviso curto do motor para o jogador (lugar inválido...), entregue pela fachada (`engine.ts`).
+ */
 export interface CommandResult {
   ok: boolean;
   at?: { x: number; y: number };
+  hint?: string;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -351,6 +408,11 @@ export function applyCommand(eco: Ecosystem, map: SurfaceMap, cmd: EngineCommand
     case 'events':
       if (cmd.auto !== undefined) eco.autoEvents = cmd.auto;
       if (cmd.rate !== undefined) eco.eventRate = cmd.rate;
+      return { ok: true };
+    case 'view':
+      // Cópia: o comando fica no log e não pode virar o mesmo objeto que o motor guarda.
+      eco.focus = cmd.focus ? { x: cmd.focus.x, y: cmd.focus.y, r: cmd.focus.r } : null;
+      eco.pinned = cmd.pinned;
       return { ok: true };
   }
 }

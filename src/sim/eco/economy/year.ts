@@ -216,6 +216,7 @@ export const economyYearPart = {
       this.newKingdom(v, capital);
       this.relations.set(this.key(capital.id, v.id), -40);
       this.note(`${v.name} se revoltou contra ${capital.name}: faltava ${why}`, 'povo', v, { major: true });
+      this.emit({ kind: 'revolt', year: this.year, village: v.id, against: capital.id, cause: 'stability' });
     }
   },
 

@@ -370,6 +370,7 @@ export const entitiesPart = {
     if (this.population[s] === 0 && this.species[s].kind !== 'sapient') {
       this.extinct.add(s);
       this.note(`${this.species[s].name}: a espécie foi extinta neste planeta`, 'natureza', { x: this.x[i], y: this.y[i] }, { major: true });
+      this.emit({ kind: 'extinction', year: this.year, species: s });
     }
     const v = this.village[i];
     if (v >= 0) {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { classify, generateSurface, type PlanetParams } from '../../procgen/surface';
 import { Ecosystem, isLand } from '../ecosystem';
 import { nativeSpecies } from '../species';
-import { applyCommand, TERRAFORM_TOOLS, TileJournal, type EngineCommand } from './commands';
+import { applyCommand, sameView, TERRAFORM_TOOLS, TileJournal, VIEW_CELL, viewCell, viewCommand, type EngineCommand } from './commands';
 import source from './commands.ts?raw';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
@@ -102,6 +102,8 @@ describe('comandos do jogador (src/sim/api/commands.ts)', () => {
       { kind: 'surprise' },
       { kind: 'events', auto: false, rate: 2 },
       new TileJournal().toCommand(),
+      viewCommand(100.3, 40.7, 33, 2),
+      { kind: 'view', focus: null, pinned: -1 },
     ];
     for (const c of cmds) expect(JSON.parse(JSON.stringify(c))).toEqual(c);
   });
@@ -136,6 +138,63 @@ describe('comandos do jogador (src/sim/api/commands.ts)', () => {
     applyCommand(eco, map, { kind: 'events', auto: false, rate: 2 });
     expect(eco.autoEvents).toBe(false);
     expect(eco.eventRate).toBe(2);
+  });
+
+  it('a vista é um comando: põe o foco e o lugar fixado no motor, arredondados na célula', () => {
+    const { map, eco } = world();
+    expect(eco.focus).toBeNull();
+    const cmd = viewCommand(100.3, 40.7, 33, 2);
+    expect(cmd).toEqual({ kind: 'view', focus: { x: 12.5 * VIEW_CELL, y: 5.5 * VIEW_CELL, r: 5 * VIEW_CELL }, pinned: 2 });
+    expect(applyCommand(eco, map, cmd).ok).toBe(true);
+    expect(eco.focus).toEqual(cmd.focus);
+    // O motor guarda uma cópia: o comando no log não vira estado do mundo.
+    expect(eco.focus).not.toBe(cmd.focus);
+    expect(eco.pinned).toBe(2);
+    applyCommand(eco, map, { kind: 'view', focus: null, pinned: -1 });
+    expect(eco.focus).toBeNull();
+    expect(eco.pinned).toBe(-1);
+  });
+
+  it('a vista só muda quando troca de célula, de raio ou de lugar fixado (o log não cresce a cada quadro)', () => {
+    const a = viewCommand(100.3, 40.7, 33, -1);
+    expect(sameView(a, viewCommand(101.9, 41.2, 34.5, -1))).toBe(true);
+    expect(sameView(a, viewCommand(104.1, 40.7, 33, -1))).toBe(false);
+    expect(sameView(a, viewCommand(100.3, 40.7, 41, -1))).toBe(false);
+    expect(sameView(a, viewCommand(100.3, 40.7, 33, 5))).toBe(false);
+    expect(sameView(a, null)).toBe(false);
+    expect(sameView(null, null)).toBe(true);
+    // A célula arredonda o centro, mas a tela continua coberta: o raio cobre o centro de verdade mais a meia largura.
+    for (const [x, y, r] of [
+      [3.9, 7.1, 25],
+      [250.2, 0.4, 61],
+      [700.6, 300.2, 440],
+    ]) {
+      const c = viewCell(r);
+      const f = viewCommand(x, y, r, -1).focus!;
+      expect(Math.abs(f.x - x)).toBeLessThanOrEqual(c / 2);
+      expect(Math.abs(f.y - y)).toBeLessThanOrEqual(c / 2);
+      expect(f.r).toBeGreaterThanOrEqual(r + Math.max(Math.abs(f.x - x), Math.abs(f.y - y)));
+    }
+    // De perto a célula é a mínima; de longe ela cresce, e arrastar meio mapa de célula não muda a vista.
+    expect(viewCell(30)).toBe(VIEW_CELL);
+    expect(viewCell(440)).toBe(64);
+    expect(sameView(viewCommand(130, 200, 440, -1), viewCommand(150, 210, 440, -1))).toBe(true);
+  });
+
+  it('a mesma semente e o mesmo log, vistas incluídas, dão o mesmo mundo', () => {
+    const a = world();
+    const b = world();
+    const v = a.eco.villages.find((q) => !q.abandoned)!;
+    const log: EngineCommand[] = [viewCommand(v.x, v.y, 30, -1), { kind: 'feed', x: v.x, y: v.y, r: 10 }, viewCommand(v.x + 40, v.y, 30, v.id), { kind: 'view', focus: null, pinned: -1 }];
+    for (const w of [a, b]) {
+      for (const c of log) {
+        applyCommand(w.eco, w.map, c);
+        for (let t = 0; t < 8; t++) w.eco.step(0.25);
+      }
+    }
+    expect(b.eco.count).toBe(a.eco.count);
+    expect(Array.from(b.eco.x.subarray(0, b.eco.count))).toEqual(Array.from(a.eco.x.subarray(0, a.eco.count)));
+    expect([...b.eco.watched]).toEqual([...a.eco.watched]);
   });
 
   it('não importa nada do cliente nem do three.js', () => {

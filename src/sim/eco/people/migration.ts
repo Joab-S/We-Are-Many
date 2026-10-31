@@ -86,6 +86,7 @@ export const migrationPart = {
         const dest = options.find((c) => !c.o.abandoned && this.scarcity(c.o) === 0 && this.landPath(v.x, v.y, c.o.x, c.o.y))?.o;
         if (dest) {
           for (const members of fams.values()) for (const i of members) this.relocate(i, v, dest);
+          this.emit({ kind: 'migrate', year: this.year, family: -1, from: v.id, to: dest.id, people: [...fams.values()].reduce((n, m) => n + m.length, 0), cause: 'lastWave' });
           v.leftTo = dest.id;
           this.tally.lastWaves++;
           this.note(`Os últimos moradores de ${v.name} se mudaram para ${dest.name}`, 'povo', dest, { key: `lastwave-${v.id}` });
@@ -127,6 +128,7 @@ export const migrationPart = {
           const dest = pick.o;
           if (dest.abandoned) continue;
           for (const i of members) this.relocate(i, v, dest);
+          this.emit({ kind: 'migrate', year: this.year, family: this.family[members[0]] ?? -1, from: v.id, to: dest.id, people: members.length, cause: 'move' });
           movedAny += members.length;
           this.tally.familyMoves++;
           to = dest;
