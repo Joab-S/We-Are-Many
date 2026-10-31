@@ -225,7 +225,7 @@ Já está pronto:
 
 Falta:
 
-- **A vista de leitura.** Hoje ela é o próprio `Ecosystem`. No Worker, os arrays das criaturas podem ir num `SharedArrayBuffer` (o que pede *cross-origin isolation* no servidor: cabeçalhos COOP e COEP), ou numa cópia por passo transferida com `postMessage(…, [buffers])`. O resto (assentamentos, guerras, crônica) iria em diffs, ou num retrato completo a cada N passos.
+- **A vista de leitura.** Hoje ela lê o `Ecosystem` vivo campo a campo (`LiveView`). No Worker, os arrays das criaturas podem ir num `SharedArrayBuffer` (o que pede *cross-origin isolation* no servidor: cabeçalhos COOP e COEP), ou numa cópia por passo transferida com `postMessage(…, [buffers])`. O resto (assentamentos, guerras, crônica) iria em diffs, ou num retrato completo a cada N passos.
 - **Os ganchos síncronos.** `tileChanged` vira uma lista de tiles sujos por passo, mandada junto com os eventos, e `species` vira um evento.
 - **As consultas.** `pick`, `pickAll`, `activityOf`, a ficha e a janela do assentamento passam a ser pedidas ao Worker, de forma assíncrona, ou calculadas no cliente sobre a cópia da vista. As que mudam a grade (`pick`) deixam de mexer no motor.
 - **O HUD.** A tabela "o que o cliente ainda acessa direto" é a lista de trabalho: cada arquivo passa a ler `EngineView`, e a ponte `ecosystemOf` sai.
