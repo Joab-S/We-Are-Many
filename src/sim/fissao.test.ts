@@ -35,6 +35,17 @@ function world(seed = 5): { eco: Ecosystem; s: number; spot: () => { x: number; 
   return { eco, s, spot };
 }
 
+/**
+ * Terra fértil no planeta todo: os testes de quem sai e com quem não devem depender de o planeta pequeno ter, por
+ * sorte, um sítio acima da nota mínima de fundação (SITE_MIN_VALUE, SITE_MIN_SOLO). Vem antes do lugar, para o
+ * campo de notas dos sítios já nascer com ela.
+ */
+function lush<T>(eco: Ecosystem, at: T): T {
+  const map = eco.map;
+  for (let t = 0; t < map.width * map.height; t++) if (isLand(map, t)) map.vegetation[t] = Math.max(map.vegetation[t], 0.95);
+  return at;
+}
+
 /** Um lugar com `n` moradores (só os números: a pressão olha a população, não quem mora). */
 function place(eco: Ecosystem, s: number, at: { x: number; y: number }, n: number): Village {
   const v = eco.foundVillage(s, at.x, at.y, 2);
@@ -131,7 +142,12 @@ function neighbour(eco: Ecosystem, s: number, a: Village, n: number): Village | 
 describe('fissão por pressão: quem sai, quando e com quem', () => {
   it('lugar cheio demais para as instituições: famílias escolhem fundar e a colônia leva famílias inteiras', () => {
     const { eco, s, spot } = world();
-    const v = town(eco, s, spot(), 200, 30);
+    const v = town(eco, s, lush(eco, spot()), 200, 30);
+    // Sem a nota mínima dos sítios: no planeta pequeno o território de 200 moradores cobre quase toda a terra em
+    // volta, e todo sítio do anel fica abaixo de SITE_MIN_VALUE. Aqui o que se testa é quem sai e com quem; a
+    // escolha do lugar tem os testes dela (sites.test.ts).
+    const scout = eco.scoutSites;
+    eco.scoutSites = (o, motive, count) => scout.call(eco, o, motive, count, 0);
     expect(eco.socialPressure(v)).toBeGreaterThan(B.PRESSURE_FISSION);
     for (let k = 0; k < 8 && !v.colony; k++) {
       eco.year += 1;
@@ -172,7 +188,7 @@ describe('fissão por pressão: quem sai, quando e com quem', () => {
     const { eco, s, spot } = world();
     const few = town(eco, s, spot(), 3);
     expect(eco.colonizeByLand(few, eco.familyGroups().get(few.id))).toBe(false);
-    const v = town(eco, s, spot(), 30, 6);
+    const v = town(eco, s, lush(eco, spot()), 30, 6);
     const families = eco.familyGroups().get(v.id)!;
     const villages = eco.villages.length;
     let ok = false;

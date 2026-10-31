@@ -203,12 +203,12 @@ export const coloniesPart = {
 
   /**
    * Sítios bons para um grupo de `v` fundar, os melhores primeiro (RF-AS-04): melhor de N no anel do espaçamento
-   * até COLONY_REACH além dele (`chooseSite`), a pé, a 6 tiles um do outro e nenhum abaixo de SITE_MIN_VALUE.
+   * até COLONY_REACH além dele (`chooseSite`), a pé, a 6 tiles um do outro e nenhum abaixo de `min` (SITE_MIN_VALUE).
    */
-  scoutSites(this: Ecosystem, v: Village, motive: ColonyMotive, count: number): { x: number; y: number; value: number }[] {
+  scoutSites(this: Ecosystem, v: Village, motive: ColonyMotive, count: number, min: number = B.SITE_MIN_VALUE): { x: number; y: number; value: number }[] {
     const base = spacingFor(v.tier) + this.footprint(v);
     const cands = this.siteRing(v.x, v.y, base, base + B.COLONY_REACH, B.SITE_CANDIDATES, B.SITE_CANDIDATES);
-    return this.chooseSite(cands, v.species, v, motive, v.tech, { count, walk: v, apart: 6, min: B.SITE_MIN_VALUE });
+    return this.chooseSite(cands, v.species, v, motive, v.tech, { count, walk: v, apart: 6, min });
   },
 
   /** Pode mandar um grupo agora: sem colônia em formação, com gente de sobra e passado o intervalo desde a última. */

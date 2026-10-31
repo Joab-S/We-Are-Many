@@ -59,11 +59,13 @@ describe('jornadas num povo de verdade', () => {
   });
 
   it('quem tem fome vai comer antes de voltar ao trabalho', () => {
+    // Fora da safra: no verão a colheita é urgente e ganha da fome de propósito (colheita coletiva, RF-AS-28), e
+    // o teste cair nela depende da história da semente. O quadro do lugar é refeito para a estação nova.
+    for (let t = 0; t < YEAR_SECONDS && eco.season() === 2; t += 0.25) step(0.25);
+    eco.boards.delete(big.id);
     const adults = residents().filter((i) => eco.role[i] !== CHILD && eco.role[i] < ROLE.soldier && !eco.carry[i] && !eco.jobKind[i]);
     expect(adults.length).toBeGreaterThan(3);
-    // Até 8 famintos, e cada um decide já no próximo passo: antes eram 4 com o relógio de decisão de cada um, e a
-    // refeição do lugar (a volta dos assentamentos) podia chegar antes da decisão; a escolha da jornada também é
-    // sorteada entre as melhores, então 3 de 4 dependia da semente.
+    // Até 8 famintos; a escolha da jornada é sorteada entre as melhores, então basta a metade.
     const hungry = adults.slice(0, 8);
     big.food = Math.max(big.food, 20);
     // Sem festa, enterro, alarme nem caravana na praça neste instante: esses eventos chamam todo mundo antes
@@ -73,13 +75,21 @@ describe('jornadas num povo de verdade', () => {
     big.alarmUntil = undefined;
     big.curiousUntil = undefined;
     for (const i of hungry) {
+      eco.dropDay(i, big);
       eco.energy[i] = 0.3;
       eco.day[i] = DAY.none;
-      eco.think[i] = 0;
     }
+    // A escolha é feita já, com a fome posta: num passo da simulação a refeição do lugar (a volta dos
+    // assentamentos) pode chegar antes da decisão e matar a fome, e cair nesse passo depende da semente.
     const ate = new Set<number>();
-    step(2, () => {
-      for (const i of hungry) if (eco.day[i] === DAY.eat) ate.add(i);
+    for (const i of hungry) {
+      eco.pickDay(i, big, true);
+      if (eco.day[i] === DAY.eat) ate.add(i);
+    }
+    expect(ate.size).toBeGreaterThanOrEqual(Math.ceil(hungry.length / 2));
+    // E andam até a comida: ninguém que escolheu comer troca de ideia antes de chegar.
+    step(1, () => {
+      for (const i of [...ate]) if (eco.alive[i] && eco.day[i] !== DAY.eat && eco.energy[i] < 0.5) ate.delete(i);
     });
     expect(ate.size).toBeGreaterThanOrEqual(Math.ceil(hungry.length / 2));
   });
