@@ -148,6 +148,23 @@ it('diagnóstico da longa', async () => {
     }
   };
 
+  // Fissão: os anos de cada lugar com pressão para os batedores, e onde o caminho parou.
+  const fission = { years: 0, noSplit: 0, noSite: 0, site: 0, cores: 0 };
+  proto.circumscribe = function (this: Ecosystem, v: Village, pressure: number, split: boolean, hasSite: boolean) {
+    if (pressure >= B.PRESSURE_SCOUT) {
+      fission.years++;
+      if (!split) fission.noSplit++;
+      else if (!hasSite) fission.noSite++;
+      else fission.site++;
+    }
+    return saved.circumscribe.call(this, v, pressure, split, hasSite);
+  };
+  proto.organizeColony = function (this: Ecosystem, v: Village, motive: string, found?: unknown, volunteers?: number[], why?: string) {
+    const ok = saved.organizeColony.call(this, v, motive, found, volunteers, why);
+    if (ok && volunteers?.length) fission.cores++;
+    return ok;
+  };
+
   // Linha do tempo: a cada `every` anos, no fim do ano.
   const timeline: string[] = [];
   const eraNotes: string[] = [];
@@ -166,7 +183,7 @@ it('diagnóstico da longa', async () => {
       const roles = this.roleCount.get(v.id);
       const list = trace.get(v.id) ?? [];
       list.push(
-        `| ${y} | ${v.population} | ${fmt(v.fedShare ?? 1)} | ${Math.round(v.food)} | ${Math.round(v.stock.wood)}/${Math.round(v.stock.stone)} | ${v.fields} | ${roles?.[ROLE.farmer] ?? 0}/${roles?.[ROLE.gatherer] ?? 0}/${roles?.[ROLE.hunter] ?? 0}/${roles?.[ROLE.fisher] ?? 0} | ${v.herd?.head ?? 0} | ${(v.lifeway ?? 's').slice(0, 3)} | ${fmt(this.harvest(v))} | ${fmt(v.tech)} | ${vit?.births ?? 0} | ${vit?.deaths.fome ?? 0}/${vit?.deaths.velhice ?? 0}/${(vit?.deaths.guerra ?? 0) + (vit?.deaths.doença ?? 0) + (vit?.deaths.frio ?? 0)} | ${vit?.arrived ?? 0}/${vit?.left ?? 0} | ${v.want ?? 0} | ${fmt(v.needs?.fuel ?? 1)} | ${roles?.[ROLE.woodcutter] ?? 0}/${roles?.[ROLE.builder] ?? 0} | ${v.trees ?? '-'} |`,
+        `| ${y} | ${v.population} | ${fmt(v.fedShare ?? 1)} | ${Math.round(v.food)} | ${Math.round(v.stock.wood)}/${Math.round(v.stock.stone)} | ${v.fields} | ${roles?.[ROLE.farmer] ?? 0}/${roles?.[ROLE.gatherer] ?? 0}/${roles?.[ROLE.hunter] ?? 0}/${roles?.[ROLE.fisher] ?? 0} | ${v.herd?.head ?? 0} | ${(v.lifeway ?? 's').slice(0, 3)} | ${fmt(this.harvest(v))} | ${fmt(v.tech)} | ${vit?.births ?? 0} | ${vit?.deaths.fome ?? 0}/${vit?.deaths.velhice ?? 0}/${(vit?.deaths.guerra ?? 0) + (vit?.deaths.doença ?? 0) + (vit?.deaths.frio ?? 0)} | ${vit?.arrived ?? 0}/${vit?.left ?? 0} | ${v.want ?? 0} | ${fmt(v.needs?.fuel ?? 1)} | ${roles?.[ROLE.woodcutter] ?? 0}/${roles?.[ROLE.builder] ?? 0} | ${v.trees ?? '-'} | ${Math.round(v.ledger?.['_trees']?.[0] ?? 0)} | ${Math.round(v.ledger?.['_fuel']?.[1] ?? 0)}+${Math.round(v.ledger?.['_upkeep']?.[1] ?? 0)} | ${fmt(v.pressure ?? 0)} |`,
       );
       trace.set(v.id, list);
       peak.set(v.id, Math.max(peak.get(v.id) ?? 0, v.population));
@@ -182,7 +199,7 @@ it('diagnóstico da longa', async () => {
     const t = this.tally;
     const hunger = ((starved - lastStarved) / Math.max(1, y - lastYear)) * (100 / Math.max(1, people));
     timeline.push(
-      `| ${y} | ${people} | ${live.length} | ${this.villages.length} | ${top} | ${fmt(era)} | ${fmt(Math.max(0, ...live.map((v) => v.tech)))} | ${fmt(fed)} | ${fmt(hunger)} | ${ways.nomade}/${ways.sedentario}/${ways.intensivo} | ${t.foundFamine}/${t.foundPressure}/${t.foundLand}/${t.foundResource}/${t.soloFounds} | ${t.exodus} | ${t.fissions} |`,
+      `| ${y} | ${people} | ${live.length} | ${this.villages.length} | ${top} | ${fmt(era)} | ${fmt(Math.max(0, ...live.map((v) => v.tech)))} | ${fmt(fed)} | ${fmt(hunger)} | ${ways.nomade}/${ways.sedentario}/${ways.intensivo} | ${t.foundFamine}/${t.foundPressure}/${t.foundLand}/${t.foundResource}/${t.soloFounds} | ${t.exodus} | ${t.fissions} | ${fmt(Math.max(0, ...live.map((v) => v.pressure ?? 0)))} | ${live.filter((v) => (v.circumscribed ?? 0) > 0).length} | ${live.filter((v) => (v.herd?.head ?? 0) > 0).length} |`,
     );
     const lead = live.reduce<Village | null>((b, v) => (!b || v.tech > b.tech ? v : b), null);
     if (lead) eraNotes.push(`- ${y}: ${lead.name} (era ${fmt(lead.tech)}, ${lead.population} moradores, ${lead.techs?.length ?? 0} técnicas): ${this.eraNeed(lead) ?? 'nada'}`);
@@ -210,12 +227,12 @@ it('diagnóstico da longa', async () => {
     })
     .sort((p, q) => q.drop - p.drop)
     .slice(0, Number(env.QUEDAS ?? 3));
-  const head = '| Ano | Povo | Comendo bem | Comida | Lenha/pedra | Roças | Agric./colet./caç./pesc. | Rebanho | Modo | Colheita | Era | Nasc. | Fome/velhice/outras | Chegou/saiu | Anos de falta | Lenha atendida | Lenhad./constr. | Árvores ao alcance |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|';
+  const head = '| Ano | Povo | Comendo bem | Comida | Lenha/pedra | Roças | Agric./colet./caç./pesc. | Rebanho | Modo | Colheita | Era | Nasc. | Fome/velhice/outras | Chegou/saiu | Anos de falta | Lenha atendida | Lenhad./constr. | Árvores ao alcance | Árvores cortadas | Lenha pedida (fogo+conserto) | Pressão social |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|';
   const falls = drops.map((d) => `### ${eco.villages[d.id].name} (pico ${peak.get(d.id)}, queda de ${d.drop})\n\n${head}\n${d.rows.slice(Math.max(0, d.at - 15), d.at + 30).join('\n')}\n`);
   const changed = Object.keys(env)
     .filter((k) => k.startsWith('B_'))
     .map((k) => `${k.slice(2)} = ${JSON.stringify((B as Record<string, unknown>)[k.slice(2)])}`);
-  const keys: (keyof Indicators)[] = ['people', 'peopleTrend', 'settlements', 'founded', 'exodus', 'medianPop', 'biggest', 'metropoles', 'cityShare', 'hunger', 'foodNeed', 'era', 'familyMoves', 'famineFounds', 'landFounds', 'fissions', 'circumscribed'];
+  const keys: (keyof Indicators)[] = ['people', 'peopleTrend', 'settlements', 'founded', 'exodus', 'medianPop', 'biggest', 'metropoles', 'cityShare', 'hunger', 'foodNeed', 'era', 'familyMoves', 'famineFounds', 'landFounds', 'fissions', 'circumscribed', 'herds', 'shortLived', 'soloShare', 'smallShare'];
   const text = `# Diagnóstico da longa: semente ${first}, ${years} anos${abl.size ? ` (ablação: ${[...abl].join(', ')})` : ''}${changed.length ? ` (constantes: ${changed.join(', ')})` : ''}
 
 | Indicador | Valor | Mediana | 10% a 90% | Meta | Situação |
@@ -226,13 +243,17 @@ ${reportRows([indicators], LONG_TARGETS, keys.filter((k) => indicators[k] !== un
 
 Era média pesada pelo povo; fundações por fome, pressão, terra, recurso e família sozinha (acumuladas). Êxodos no fim: ${eco.tally.exodus}, ${eco.tally.exodusFuel} por falta de lenha.
 
-| Ano | Povo | Vivos | Lugares já fundados | Maior | Era média | Maior era | Comendo bem | Fome no trecho (por 100/ano) | Nômade/sedentário/intensivo | Fundações | Êxodos | Fissões |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Ano | Povo | Vivos | Lugares já fundados | Maior | Era média | Maior era | Comendo bem | Fome no trecho (por 100/ano) | Nômade/sedentário/intensivo | Fundações | Êxodos | Fissões | Maior pressão | Apertados agora | Com rebanho |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 ${timeline.join('\n')}
 
 ## O que falta para a próxima era, no lugar mais adiantado
 
 ${eraNotes.join('\n')}
+
+## Fissão por pressão
+
+Anos de lugar com pressão a partir de ${fmt(B.PRESSURE_SCOUT)}: ${fission.years}; sem poder mandar grupo (colônia em curso, intervalo ou êxodo) ${fission.noSplit}, sem sítio ${fission.noSite}, com sítio ${fission.site}; núcleos de fissão formados ${fission.cores}; fissões ${eco.tally.fissions}.
 
 ## Sítios com nota mínima
 
