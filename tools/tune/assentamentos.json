@@ -1,0 +1,30 @@
+{
+  "modo": "cmaes",
+  "parametros": [
+    { "nome": "SITE_MIN_VALUE", "min": 3, "max": 5 },
+    { "nome": "SITE_MIN_SOLO", "min": 3.5, "max": 6 },
+    { "nome": "SITE_SPRING_MOISTURE", "min": 0.4, "max": 0.75 },
+    { "nome": "FAMINE_COLONY_POP", "min": 10, "max": 200, "log": true, "inteiro": true },
+    { "nome": "PRESSURE_FISSION", "min": 0.5, "max": 2 },
+    { "nome": "DUNBAR", "min": 80, "max": 250, "inteiro": true },
+    { "nome": "NOMAD_FARM", "min": 0.15, "max": 0.6 },
+    { "nome": "MOVE_W.stay", "min": 0.1, "max": 1 }
+  ],
+  "anos": 200,
+  "sementes": [0, 1, 2, 3, 4, 5],
+  "porAvaliacao": 2,
+  "geracoes": 12,
+  "sigma": 0.25,
+  "metas": [
+    { "chave": "hunger", "max": 0.5, "peso": 3 },
+    { "chave": "people", "min": 800, "escala": 800, "peso": 2 },
+    { "chave": "peopleTrend", "min": 1, "max": 3 },
+    { "chave": "era", "min": 3, "peso": 1 },
+    { "chave": "settlements", "min": 25, "max": 90 },
+    { "chave": "founded", "min": 25, "max": 110 },
+    { "chave": "smallShare", "max": 0.2 },
+    { "chave": "shortLived", "max": 0.15 },
+    { "chave": "soloShare", "max": 0.15 }
+  ],
+  "validar": { "anos": 1000, "sementes": [0, 1, 2] }
+}

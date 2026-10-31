@@ -6,6 +6,7 @@ Jogo de navegador de exploração espacial, replicação de sondas e terraforma�
 - Estado atual: **Fase 0** concluída e ampliada (navegação com o GUIA, sondas e quase toda a vida nos planetas já existem); próximos passos na [seção 8.1](docs/REQUISITOS.md#81-backlog-revisado-em-20102026-próximos-passos).
 - Regra do projeto: nada que já foi implementado é removido sem necessidade ou pedido, e toda remoção é registrada com o motivo ([seção 0](docs/REQUISITOS.md#0-como-manter-este-documento)).
 - Arquitetura: camadas (motor, plataforma e cliente), protocolo de comandos e eventos, regras de determinismo e os padrões do *Game Programming Patterns* no código em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+- Ajuste automático das constantes de equilíbrio por CMA-ES (`npm run calibrar:ajustar -- <plano.json>`) em [docs/AJUSTE-AUTOMATICO.md](docs/AJUSTE-AUTOMATICO.md).
 
 ## Rodando
 
