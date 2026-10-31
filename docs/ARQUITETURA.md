@@ -93,7 +93,7 @@ A crônica continua com o texto longo, e cada linha ganhou `villages`: os ids do
 
 No cliente, o `SimDriver` drena a fila depois dos passos de cada quadro (e dos comandos do quadro sem passo) e entrega pelo seu `bus`, um `EventBus` (`src/client/surface/EventBus.ts`) com `on(kind, fn)` e `onAny(fn)`. Hoje há dois consumidores:
 
-- **Avisos** (`src/client/surface/hud/notices.ts` e `hud/Toast.ts`): fundação, colônia, guerra e a primeira era do mundo viram uma linha no balão. Os avisos do jogador passam na frente, e o aviso do motor sobre um comando inválido agora volta no resultado do comando (`CommandResult.hint`) em vez de ficar em `eco.hint` para o cliente ler e limpar.
+- **Avisos** (`src/client/surface/hud/notices.ts` e `hud/Toast.ts`): fundação, colônia, fissão, cerco (`circumscribed`), guerra e a primeira era do mundo viram uma linha no balão. A guerra por terra de um reino com lugar cercado ganha um texto que liga uma coisa à outra. Os avisos de uma entrega saem juntos no fim dela (numa microtarefa), para a fissão tomar o lugar do aviso da colônia que vem logo antes dela no mesmo instante. Os avisos do jogador passam na frente, e o aviso do motor sobre um comando inválido agora volta no resultado do comando (`CommandResult.hint`) em vez de ficar em `eco.hint` para o cliente ler e limpar.
 - **Janela do assentamento** (`hud/SettlementView.ts`): Dirty Flag em vez de consulta por tempo. Fica suja por um evento que envolve o lugar (`eventVillages`), por linha nova na crônica (aba História) ou pelos passos da simulação (abas de números). Na pausa, não é refeita.
 
 ### Vista de leitura
