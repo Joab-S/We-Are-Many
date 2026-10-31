@@ -115,18 +115,49 @@ export const herdsPart = {
     return found;
   },
 
-  /** Domestica bichos da região: um domesticável por perto é capturado e começa o rebanho do tipo que ele dá. */
+  /**
+   * Vizinho que pode ceder animais já domesticados (Diamond: os rebanhos se espalham de quem os tem): o parceiro
+   * mais perto (mesmo reino ou acordo comercial, `partnersOf`) a até HERD_SHARE_RANGE tiles, com HERD_SHARE_MIN
+   * cabeças ou mais. Com `path`, só quem se alcança a pé.
+   */
+  herdNeighbor(this: Ecosystem, v: Village, path: boolean): Village | null {
+    let best: Village | null = null;
+    let bd = Infinity;
+    for (const o of this.partnersOf(v)) {
+      if (!o.herd || o.herd.head < B.HERD_SHARE_MIN) continue;
+      const d = this.distance(o, v.x, v.y);
+      if (d > B.HERD_SHARE_RANGE || d >= bd) continue;
+      if (path && !this.landPath(o.x, o.y, v.x, v.y)) continue;
+      best = o;
+      bd = d;
+    }
+    return best;
+  },
+
+  /**
+   * Começa o rebanho: um domesticável da região é capturado, ou o vizinho que já cria cede algumas cabeças (o gado
+   * chega a quem não tem o bicho selvagem por perto, como na Eurásia). A vocação e o clima escolhem entre o que há.
+   */
   domesticate(this: Ecosystem, v: Village): void {
     const wild = this.wildHerdsNear(v, true);
-    if (!wild.size) return;
+    const near = this.herdNeighbor(v, true);
+    const kinds = [...wild.keys()];
+    if (near?.herd && !kinds.includes(near.herd.kind)) kinds.push(near.herd.kind);
+    if (!kinds.length) return;
     const s = this.siteSample(v);
     const b = this.map.biome[this.tileAt(v.x, Math.floor(v.y))] as Biome;
-    const kind = herdFor(v.vocation, s, b === Biome.Desert || b === Biome.Savanna, [...wild.keys()]);
+    const kind = herdFor(v.vocation, s, b === Biome.Desert || b === Biome.Savanna, kinds);
     if (!kind) return;
     if (!v.pens?.length && !this.addPen(v)) return;
-    this.kill(wild.get(kind)!, true);
-    v.herd = { kind, head: 3 };
-    this.note(`${v.name} domesticou ${HERD_NAMES[kind]}`, 'economia', v);
+    if (wild.has(kind)) {
+      this.kill(wild.get(kind)!, true);
+      v.herd = { kind, head: 3 };
+      this.note(`${v.name} domesticou ${HERD_NAMES[kind]}`, 'economia', v);
+      return;
+    }
+    near!.herd!.head -= B.HERD_SHARE_HEAD;
+    v.herd = { kind, head: B.HERD_SHARE_HEAD };
+    this.note(`${v.name} trouxe ${HERD_NAMES[kind]} de ${near!.name}`, 'economia', v, { key: `herd-in-${v.id}` });
   },
 
   /** Cercado de pasto na borda da área ou logo fora dela (tiles de pasto, 2x2). */

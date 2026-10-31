@@ -328,6 +328,32 @@ describe('domesticação (Diamond)', () => {
     eco.domesticate(v);
     expect(v.herd).toBeUndefined();
   });
+
+  it('sem o bicho selvagem por perto, o rebanho vem do vizinho que já cria', () => {
+    const { eco } = world();
+    const [capital, village] = eco.villages;
+    village.kingdom = capital.id;
+    for (let j = 0; j < eco.count; j++) if (eco.alive[j] && domesticable(eco.species[eco.kind[j]])) eco.kill(j, true);
+    eco.buildGrid();
+    // O vizinho cria gado a 10 tiles (a busca de caminho fica de fora do teste: o mapa é o de verdade).
+    capital.x = village.x + 10;
+    capital.y = village.y;
+    capital.herd = { kind: 'cattle', head: B.HERD_SHARE_MIN + 2 };
+    (eco as unknown as { landPath: () => boolean }).landPath = () => true;
+    expect(eco.herdNeighbor(village, true)).toBe(capital);
+    expect(eco.useContext(village).herbivores).toBe(true);
+    village.herd = undefined;
+    eco.domesticate(village);
+    expect(village.pens?.length).toBeGreaterThan(0);
+    expect(village.herd).toEqual({ kind: 'cattle', head: B.HERD_SHARE_HEAD });
+    expect(capital.herd.head).toBe(B.HERD_SHARE_MIN + 2 - B.HERD_SHARE_HEAD);
+    // Rebanho pequeno demais não se reparte; longe demais também não.
+    capital.herd = { kind: 'cattle', head: B.HERD_SHARE_MIN - 1 };
+    expect(eco.herdNeighbor(village, true)).toBeNull();
+    capital.herd = { kind: 'cattle', head: B.HERD_SHARE_MIN + 2 };
+    capital.x = village.x + B.HERD_SHARE_RANGE + 5;
+    expect(eco.herdNeighbor(village, true)).toBeNull();
+  });
 });
 
 describe('preço por utilidade na era', () => {

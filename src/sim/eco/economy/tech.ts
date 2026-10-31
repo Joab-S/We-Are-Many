@@ -94,8 +94,8 @@ export const techPart = {
       else if (d.ore === 'iron') ironOre = true;
       else if (d.ore === 'coal') coal = true;
     }
-    // Domesticar pede bicho domesticável na região do lugar (Diamond), não qualquer herbívoro vivo no planeta.
-    const herbivores = (!!v.herd && v.herd.head > 0) || this.wildHerdsNear(v, false).size > 0;
+    // Domesticar pede bicho domesticável na região do lugar, ou um vizinho que já cria (Diamond), não qualquer herbívoro do planeta.
+    const herbivores = (!!v.herd && v.herd.head > 0) || this.wildHerdsNear(v, false).size > 0 || this.herdNeighbor(v, false) !== null;
     return {
       tech: v.tech,
       tier: this.scale(v),
