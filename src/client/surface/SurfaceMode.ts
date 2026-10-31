@@ -276,6 +276,14 @@ export class SurfaceMode {
     if (v) this.dirty = true;
   }
 
+  /**
+   * Medidas para `?debug` (console): passos e tempo do `eco.step` no último quadro e no total,
+   * tempo de jogo descartado pelo teto, tiles repintados e pixels enviados ao canvas do mapa.
+   */
+  get stats(): { driver: SimDriver<EngineCommand>['stats']; raster: MapRaster['stats']; tick: number; log: number } {
+    return { driver: this.driver.stats, raster: this.raster.stats, tick: this.driver.tick, log: this.driver.log.length };
+  }
+
   // Interface ----------------------------------------------------------------
 
   private buildUi(): void {
@@ -628,7 +636,9 @@ export class SurfaceMode {
     this.machine.frame(dt);
     this.fx.step(dt, this.machine.painting);
 
-    // Bichos longe do que está na tela decidem menos (mesma biologia, menos custo).
+    // Bichos longe do que está na tela decidem menos (mesma biologia, menos custo). O foco da câmera e o
+    // lugar da pessoa na ficha (`eco.pinned`, em Selection.track) são dicas da vista para o nível de
+    // detalhe da simulação, não ações do jogador: ficam fora da fila e do log de comandos.
     const half = Math.max(view.width, view.height) / (2 * Math.max(0.5, view.zoom)) + 24;
     eco.focus = { x: view.center.x, y: view.toRow(view.center.y), r: half };
     const steps = this.driver.update(dt);
