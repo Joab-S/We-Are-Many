@@ -77,8 +77,14 @@ export const migrationPart = {
    */
   migrate(this: Ecosystem): void {
     const live = this.villages.filter((o) => !o.abandoned && o.population > 0);
+    // Nota e pressão social de cada lugar, refeitas a cada chegada e saída (sem estouro de manada).
     const score = new Map<Village, number>();
-    for (const o of live) score.set(o, this.placeScore(o));
+    const crowd = new Map<Village, number>();
+    const rescore = (o: Village) => {
+      score.set(o, this.placeScore(o));
+      crowd.set(o, this.socialPressure(o));
+    };
+    for (const o of live) rescore(o);
     // Famílias de cada assentamento: cada adulto com os filhos ainda crianças que moram no mesmo lugar.
     const families = this.familyGroups();
     for (const v of live) {
@@ -105,7 +111,7 @@ export const migrationPart = {
           v.leftTo = dest.id;
           this.tally.lastWaves++;
           this.note(`Os últimos moradores de ${v.name} se mudaram para ${dest.name}`, 'povo', dest, { key: `lastwave-${v.id}` });
-          score.set(dest, this.placeScore(dest));
+          rescore(dest);
           continue;
         }
       }
@@ -136,7 +142,7 @@ export const migrationPart = {
       if (targets.length || sites.length) {
         for (const [key, members] of fams) {
           if (members.includes(leader) || !happens(this.civRnd, think, 1)) continue;
-          const pick = this.thinkMove(v, members, targets, score, lack, exodus, sites, pressure);
+          const pick = this.thinkMove(v, members, targets, score, crowd, lack, exodus, sites, pressure);
           if (pick?.kind === 'found') {
             // Quem escolheu fundar espera o grupo: a colônia sai quando houver famílias bastantes.
             volunteers.push(key);
@@ -152,8 +158,8 @@ export const migrationPart = {
           this.tally.familyMoves++;
           to = dest;
           // A chegada muda as duas notas (casa sobrando, pressão): a próxima família já vê o destino mais cheio.
-          score.set(dest, this.placeScore(dest));
-          score.set(v, this.placeScore(v));
+          rescore(dest);
+          rescore(v);
           if (v.population <= 0) break;
         }
       }
@@ -171,17 +177,18 @@ export const migrationPart = {
 
   /**
    * A família `members` de `v` pensa em se mudar (src/ai/decisions/move.ts): monta o que ela sabe (a nota de
-   * cada lugar ao alcance, a pressão, os laços que tem em cada um, há quanto tempo chegou e os sítios que os
-   * batedores viram) e escolhe. Quem decide sair anota o porquê no diário. Devolve a escolha (null: nenhuma opção).
+   * cada lugar ao alcance em `score`, a pressão social em `crowd` e a de casa em `pressure`, os laços que tem
+   * em cada um, há quanto tempo chegou e os sítios que os batedores viram) e escolhe. Quem decide sair anota o
+   * porquê no diário. Devolve a escolha (null: nenhuma opção).
    */
-  thinkMove(this: Ecosystem, v: Village, members: number[], known: Known[], score: Map<Village, number>, lack: number, exodus: boolean, sites: { value: number }[] = [], pressure?: number): MoveAction | null {
+  thinkMove(this: Ecosystem, v: Village, members: number[], known: Known[], score: Map<Village, number>, crowd: Map<Village, number>, lack: number, exodus: boolean, sites: { value: number }[] = [], pressure?: number): MoveAction | null {
     const adults = members.filter((i) => this.role[i] !== CHILD);
     if (!adults.length) return null;
     const ties = this.tiesByPlace(members);
     let yearsHere = Infinity;
     for (const i of adults) if (this.movedAt[i] >= 0) yearsHere = Math.min(yearsHere, this.year - this.movedAt[i]);
     const places: PlaceView[] = known
-      .map((c) => ({ id: c.o.id, value: (score.get(c.o) ?? 0) - c.cost, pressure: this.socialPressure(c.o), friends: ties.get(c.o.id) ?? 0, affinity: this.affinity(v.id, c.o.id) }))
+      .map((c) => ({ id: c.o.id, value: (score.get(c.o) ?? 0) - c.cost, pressure: crowd.get(c.o) ?? this.socialPressure(c.o), friends: ties.get(c.o.id) ?? 0, affinity: this.affinity(v.id, c.o.id) }))
       .sort((p, q) => q.value - p.value)
       .slice(0, MOVE_OPTIONS);
     const ctx: MoveContext = {
