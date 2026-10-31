@@ -75,6 +75,8 @@ No `Ecosystem`, `events` é a fila (FIFO, vai no save), `emit(e)` empurra e `dra
 | `farmstead` | `village`, `x`, `y` | `openFarmstead` (`colonies.ts`) |
 | `migrate` | `family`, `from`, `to`, `people`, `cause` | `migrate` (`eco/people/migration.ts`), por família e na última leva; `seekRefuge` (`colonies.ts`) |
 | `exodus` | `village`, `lack` | `exodusWithoutPlace` (`colonies.ts`) |
+| `fission` | `from`, `to`, `people`, `population`, `pressure` | `departColony` (`colonies.ts`), quando a colônia sai por pressão social |
+| `circumscribed` | `village`, `pressure`, `years` | `cramp` (`eco/people/society.ts`): pressão acima do limiar e nenhum sítio livre (Carneiro) |
 | `abandon` | `village`, `to` | `abandon` (`lifecycle.ts`) |
 | `merge` | `village`, `into` | `mergeInto` (`eco/settlements/polity.ts`) |
 | `tierUp`, `tierDown` | `village`, `tier` | `updateTier` (`eco/settlements/form.ts`) |
@@ -126,9 +128,11 @@ Nenhum desses arquivos escreve mais no `Ecosystem`. As últimas escritas, `eco.f
 1. **Semente mais log.** O mundo é função da semente do planeta (`seedFor('<id>:life')`), do `yearSpan` e do log de comandos do `SimDriver` (passo e comando, `LOG_LIMIT` = 4096), **inclusive os de vista**. Nos testes e na calibração não há vista (`focus` nulo), e por isso a impressão digital não depende da tela.
 2. **Passo fixo.** O jogo sempre chama `step(SIM_STEP)` com `SIM_STEP` = 0,25 s, o mesmo `dt` da calibração e dos testes longos, em qualquer velocidade. A velocidade muda quantos passos cabem no quadro (com teto de `MAX_STEPS_PER_FRAME` = 3 passos; o que passa disso é descartado e o jogo desacelera) e não o tamanho do passo. O desenho interpola entre o passo anterior e o atual (`alpha`).
 3. **Comandos só na fronteira.** O `SimDriver` aplica a fila antes do próximo passo, ou no fim do quadro quando nenhum passo roda. Nada do cliente muda o mundo no meio de um passo.
-4. **Fluxos de sorteio.** Cada subsistema tem o seu gerador, todos derivados da semente (`streams` em `src/sim/stochastic.ts`): `vida` (fauna e vegetação), `povos`, `politica`, `mundo` (eventos), `terreno` (jazidas), `clima`, `saber` (técnicas) e `mente` (IA das pessoas). Um sistema novo não muda a sequência dos outros. O estado de cada gerador vai no save. `Math.random` só aparece no cliente (o tremor da câmera).
+4. **Fluxos de sorteio.** Cada subsistema tem o seu gerador, todos derivados da semente (`streams` em `src/sim/stochastic.ts`): `vida` (aquáticos e o resto da vida), `fauna` (decisões dos bichos de terra), `flora` (vegetação e florestas), `povos`, `politica`, `mundo` (eventos), `terreno` (jazidas), `clima`, `saber` (técnicas) e `mente` (IA das pessoas). Um sistema novo não muda a sequência dos outros. O estado de cada gerador vai no save; um save antigo, sem `fauna` e `flora`, semeia os dois a partir da semente. `Math.random` só aparece no cliente (o tremor da câmera).
 5. **Emitir não é agir.** `emit`, `note` e as consultas da vista não sorteiam nada.
-6. **Rede de segurança.** `src/sim/fingerprint.calib.ts` roda três mundos fixos por 200 anos (com povos, só fauna, e com vista) e compara a impressão digital com `fingerprint.baseline.json`. Uma refatoração sem mudança de comportamento mantém a impressão idêntica.
+6. **Dois relógios, de propósito.** O ano de ação (`YEAR_SECONDS` = 6 s, `yearClock`) move a economia, as obras, os barcos, as caravanas, a guerra e o `yearly()`. O ano de calendário (`yearSpan`, `year`) move a idade, os nascimentos, a fase do ano e o que a tela mostra. Na calibração e nos testes eles coincidem; no jogo, `yearSpan` = 12 s. Os dois e as compensações (`eraPace`, `closesCalendarYear`, `actionScale`) ficam em `src/sim/eco/core/clock.ts`. Para medir no ritmo do jogo: `YEAR_SPAN=12 npm run calibrar`. Unificar os dois é uma decisão de design em aberto: deixa a calibração igual ao jogo, mas deixa a economia duas vezes mais lenta por minuto e pede recalibrar `balance.ts`.
+7. **Handles por `uid`.** Slot de criatura é reaproveitado (lista livre, LIFO). Quem guarda outra criatura guarda o `uid` e resolve com `indexOfUid`/`findUid`; o líder se lê com `leaderOf(v)` (valida `leaderUid`) e a presa com `prey(i)` (valida `chaseUid`). Nunca se guarda índice cru de outra criatura entre passos.
+8. **Rede de segurança.** `src/sim/fingerprint.calib.ts` roda três mundos fixos por 200 anos (com povos, só fauna, e com vista) e compara a impressão digital com `fingerprint.baseline.json`. Uma refatoração sem mudança de comportamento mantém a impressão idêntica.
 
 O que ainda vaza: as consultas `pick`, `pickAll` e `pickRect` (seleção e ficha, a cada quadro com o mouse no mapa) refazem a grade espacial do motor (`buildGrid`). O passo refaz a grade logo no começo, mas o fogo natural do verão (`wildfires`, `burn`) roda antes disso e usa a grade como estiver. Com o mouse no mapa, a grade é a das posições de agora; sem ele, é a do começo do passo anterior. O replay só é exato sem consultas entre passos. Há duas correções possíveis: dar às consultas uma grade própria, ou refazer a grade antes do fogo. A segunda muda a impressão digital e pede regravar o baseline.
 
@@ -156,6 +160,23 @@ Para acrescentar uma parte:
 5. Um acontecimento que o cliente precisa saber é anotado com `this.emit({...})` no ponto único onde ele acontece. Antes, o tipo dele entra em `EngineEvent`.
 6. Rodar a impressão digital: uma parte nova que só reorganiza código não pode mudá-la.
 
+Regras que valem para todas as partes:
+
+- **Morada.** Toda mudança de assentamento passa por `setVillage(i, id)`. `residents(v)` devolve os moradores pelo índice por vila (Dirty Flag, refeito quando alguém muda de morada) e vale até a próxima mudança.
+- **Caches fora do save.** Um cache derivado fica como propriedade não enumerável (como `residentIndex`) ou num `WeakMap` (como `knowsCache`), para não entrar no save nem na impressão digital. A impressão digital hasheia todo vetor tipado da instância: um vetor novo de estado muda o hash, e o baseline precisa ser regravado no mesmo commit.
+- **Busca por perto.** `gatherNear`/`NEAR` usam um buffer do módulo e não são reentrantes.
+- **Vegetação.** Quem muda a vegetação de um tile chama `classify` antes de `onTileChanged`.
+- **Tipos de construção.** Moradia, área e custo de cada construção saem de `BUILDING_TYPES` (`src/sim/buildingTypes.ts`), não de `switch` espalhados.
+
+Partes que valem conhecer além dos domínios:
+
+| Parte | O que faz |
+| --- | --- |
+| `eco/core/clock.ts` | Os dois relógios e as compensações entre eles |
+| `eco/core/residents.ts` | Índice uid → slot e índice vila → moradores |
+| `eco/settlements/siteField.ts` | Campo de notas dos sítios (mapa de influência): uma célula de 16×16 tiles, com Double Buffer (`raw`/`rawNext`) e Dirty Flag por fundação, abandono e terreno mudado; `siteRing`, `chooseSite` (melhor de N), `siteFilter` (veto único) e `catchRadius` |
+| `src/ai/decisions/move.ts` | Utility AI de ficar, migrar ou fundar, por família, com histerese por `movedAt`, laços, apego e pressão social |
+
 ## Os 19 padrões no código
 
 | Padrão | Onde vive hoje | O que falta |
@@ -166,19 +187,19 @@ Para acrescentar uma parte:
 | **Prototype** | `makeVariant` (`src/sim/species.ts`): a espécie nova nasce de outra | Nada |
 | **Singleton** | Evitado: só buffers de rascunho no módulo e a conexão do IndexedDB (`src/save/store.ts`) | Nada |
 | **State** | A mão do jogador (`src/client/surface/toolStates.ts`, `ToolMachine`) e a pilha do Esc (`overlays.ts`); a ação dos bichos (`ACT` em `src/sim/eco/constants.ts`) é enum com switch, sem entrar e sair | State para a fissão do grupo (estável, tenso, cisma, partida) |
-| **Double Buffer** | Posições do passo anterior no `SimDriver` (`prevX`, `prevY`) para interpolar | O `Weather` atualiza no lugar (viés pela direção do vento); o futuro mapa de influência precisa de dois buffers |
+| **Double Buffer** | Posições do passo anterior no `SimDriver` (`prevX`, `prevY`) para interpolar; umidade do clima (`humidPrev` no `Weather`, sem o viés do vento); campo de notas dos sítios (`raw`/`rawNext` em `siteField.ts`) | Nada |
 | **Game Loop** | `SimDriver` (`src/client/surface/SimDriver.ts`): passo fixo de 0,25 s, teto, acumulador e interpolação; `requestAnimationFrame` em cada modo (`src/client/mode.ts`) | No Worker, o relógio vai junto com o motor e o cliente só interpola |
 | **Update Method** | `Ecosystem.step` por criatura; `Weather.step`; `HudComponent.tick` no HUD | Sistemas com relógio declarado (por passo, por segundo, por ano) |
-| **Bytecode** | Não se aplica: as considerações da IA são funções (`src/ai/utility.ts`) | Nada |
+| **Bytecode** | Não se aplica: as considerações da IA são funções (`src/ai/utility.ts`, usadas pela jornada, pelo trabalho, pela vida social, pelo líder e por ficar/migrar/fundar em `src/ai/decisions/`) | Nada |
 | **Subclass Sandbox** | Os contextos do motor (`PlanContext` em `src/sim/plan.ts`, `RoleContext` em `src/sim/roles.ts`, `BuildContext` em `src/sim/eco/types.ts`); `ToolContext` e `HudComponent` no cliente | Nada |
-| **Type Object** | `Species`, `TECHS` (`src/sim/progress.ts`), `BOATS` e `ERAS` (`src/sim/eco/constants.ts`), `ITEMS` (`src/sim/items.ts`), `ROLES` (`src/sim/roles.ts`) | Um tipo único de construção (`BuildingType`), em andamento em outra frente |
+| **Type Object** | `Species`, `TECHS` (`src/sim/progress.ts`), `BOATS` e `ERAS` (`src/sim/eco/constants.ts`), `ITEMS` (`src/sim/items.ts`), `ROLES` (`src/sim/roles.ts`), `BUILDING_TYPES` (`src/sim/buildingTypes.ts`) | Nada |
 | **Component** | `SurfaceMode` e `SpaceMode` compostos de partes (`Viewport`, `SimDriver`, `MapRaster`, `SpriteCollector`, `hud/*`); o `Ecosystem` dividido por domínio (classe parcial) | O `Ecosystem` ainda é um objeto só; `Creatures`, `FaunaSystem` e `TradeSystem` no molde do `Weather` |
 | **Event Queue** | `src/sim/api/events.ts` e `Ecosystem.events`/`emit`/`drainEvents`; a fila de comandos do `SimDriver`; `ProbeEvent` em `src/explore/probes.ts` | Crônica, luto e vitais como consumidores da fila em vez de chamadas diretas |
 | **Service Locator** | Não usado, de propósito: são poucos serviços, e eles entram por parâmetro (`ToolContext`, construtores do HUD, `EngineHooks`) | Nada. Um locator esconderia a dependência que a fronteira quer deixar à vista |
 | **Data Locality** | Criaturas em cerca de 40 arrays tipados SoA no `Ecosystem`; terreno e ruas por tile em arrays | Carcaças, barcos e caravanas ainda são objetos com `splice` |
-| **Dirty Flag** | Tiles sujos do mapa (`src/client/surface/dirty.ts`, `MapRaster`); `HtmlSlot` no HUD; janela do assentamento suja por evento (`SettlementView`); caches do motor (`footprint` em `v.foot`, `lotCache`, `fieldCache`) | Painel e janelas ainda são refeitos por tempo |
-| **Object Pool** | Lista livre dos slots de criatura (`eco.free`), sem geração; partículas em `src/client/surface/pool.ts`; vetores reaproveitados no espaço | Validar referências por `uid` (líder, caçada) |
-| **Spatial Partition** | Grade de células com lista ligada no motor (`gridHead`, `gridNext`, `forEachNear` em `eco/core/entities.ts`); células ecológicas (`src/sim/eco/cells.ts`); `CreatureGrid` do desenho (`src/client/surface/spatial.ts`); octree das estrelas (`src/universe/manifest.ts`, `starIndex.ts`) | Índice vila→moradores; grade própria para as consultas do cliente (ver determinismo) |
+| **Dirty Flag** | Tiles sujos do mapa (`src/client/surface/dirty.ts`, `MapRaster`); `HtmlSlot` no HUD; janela do assentamento suja por evento (`SettlementView`); caches do motor (`footprint` em `v.foot`, `lotCache`, `fieldCache`); moradores por vila (`residents`); células do campo de sítios | Painel e janelas ainda são refeitos por tempo; `plan(v)` (mede 0,4% do passo e dependeria de umas 15 entradas) |
+| **Object Pool** | Lista livre dos slots de criatura (`eco.free`), com o `uid` como handle (líder e caçada validados por ele); partículas em `src/client/surface/pool.ts`; vetores reaproveitados no espaço | Nada |
+| **Spatial Partition** | Grade de células com lista ligada no motor (`gridHead`, `gridNext`, `forEachNear` em `eco/core/entities.ts`); células ecológicas (`src/sim/eco/cells.ts`) e o campo de sítios na mesma grade; `CreatureGrid` do desenho (`src/client/surface/spatial.ts`); octree das estrelas (`src/universe/manifest.ts`, `starIndex.ts`) | Grade própria para as consultas do cliente (ver determinismo); índice para carcaças (`carcassNear` ainda varre a lista) |
 
 ## Caminho para a separação
 
