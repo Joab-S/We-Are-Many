@@ -104,15 +104,6 @@ export const FISHING_CAST_RATE = 3;
 
 // Crescimento controlado (seção 19.3) ------------------------------------------
 
-/** Fração da chance de colonos quando a planta está incompleta (completa = 1). */
-export const COLONY_MIN_FACTOR = 0.2;
-/** Moradores a partir dos quais um assentamento pensa em mandar colonos mesmo com lote livre. */
-export const COLONY_MIN_POP = 40;
-/**
- * Nível mínimo para mandar colonos, e só quando o assentamento não tem mais lote, reforma nem rua para crescer
- * (antes: qualquer nível, a partir de COLONY_MIN_POP moradores, mesmo com espaço; o povo se espalhava em aldeias pequenas).
- */
-export const COLONY_MIN_TIER = 1;
 /** Completude mínima da planta para subir de nível. */
 export const TIER_UP_COMPLETENESS = 0.7;
 /** Reformas por ano por construtor (casa que melhora de padrão). */
@@ -152,7 +143,7 @@ export const MOVE_OTHER_KINGDOM = 0.15;
 export const MOVE_TEMPER = 0.25;
 /** No êxodo (anos de falta), parte das famílias que sai para o melhor lugar conhecido ao alcance; sem nenhum, funda outro lugar. */
 export const EXODUS_SHARE = 0.35;
-/** Pesos da nota de um lugar: comida, lenha, casa sobrando, tamanho (log da população), nível, estabilidade e guerra. */
+/** Pesos da nota de um lugar: comida, lenha, casa sobrando, tamanho (log da população), nível, estabilidade e guerra (a pressão, abaixo). */
 export const MOVE_FOOD = 1.5;
 export const MOVE_FUEL = 0.5;
 export const MOVE_ROOM = 0.4;
@@ -160,12 +151,101 @@ export const MOVE_CITY_PULL = 0.25;
 export const MOVE_TIER_PULL = 0.1;
 export const MOVE_STABLE = 0.3;
 export const MOVE_WAR = 0.4;
+
+// ---- Quando sair e fissão (agente 3B, proposta de assentamentos 3.2 e 3.3) ----
+
+/**
+ * Pressão social: (pop/DUNBAR)² / (1 + instituições). O tamanho pesa ao quadrado; as instituições somam
+ * INST_ORG × o nível do pilar organização (0 a 1), INST_TIER por degrau (aldeia 0 ... metrópole 3),
+ * INST_TEMPLE com templo, INST_POLITY pelo degrau político do reino, INST_WRITING com escrita, INST_COIN com
+ * moeda e até INST_CIRCUM pela circunscrição (sem para onde ir, o lugar se organiza). Uma aldeia da Pedra
+ * pesa 1 perto de 160 moradores; uma cidade com templo, escrita e reino, perto de 380.
+ */
+export const DUNBAR = 150;
+export const INST_ORG = 1;
+export const INST_TIER = 1;
+export const INST_TEMPLE = 0.5;
+export const INST_POLITY = { livre: 0, chefia: 0.3, reino: 1, império: 1.5 } as const;
+export const INST_WRITING = 0.5;
+export const INST_COIN = 0.5;
+export const INST_CIRCUM = 1;
+/** Anos de circunscrição para o efeito cheio nas instituições (e na guerra por terra). */
+export const CIRCUM_FULL = 20;
+/**
+ * Circunscrição (Carneiro): com CIRCUM_NOTE anos seguidos o lugar vira notícia; cada ano rende até
+ * CIRCUM_ORG_POINTS pontos no pilar organização (sem para onde ir, o lugar se organiza). O reino com um
+ * lugar circunscrito, mais forte que o vizinho em LAND_WAR_FORCE vezes e com a relação abaixo de
+ * LAND_WAR_REL, planeja guerra por terra com chance LAND_WAR_CIRCUM por ano (vezes o aperto, de 0 a 1).
+ */
+export const CIRCUM_NOTE = 5;
+export const CIRCUM_ORG_POINTS = 1;
+export const LAND_WAR_CIRCUM = 0.15;
+export const LAND_WAR_FORCE = 1;
+export const LAND_WAR_REL = 30;
+/**
+ * Reus: quem domina e saqueia é quem tem fartura e força, não quem passa fome. A fartura do próprio reino
+ * (0 a 1) vezes a vantagem de força (de 1× a 3×, de 0 a 1) soma REUS_LOOT à chance de saque e REUS_DOMINION à de domínio.
+ */
+export const REUS_LOOT = 0.04;
+export const REUS_DOMINION = 0.06;
+/** Estabilidade: a pressão acima de PRESSURE_CALM tira PRESSURE_STABILITY por ponto, até PRESSURE_STABILITY_MAX. */
+export const PRESSURE_CALM = 0.6;
+export const PRESSURE_STABILITY = 0.15;
+export const PRESSURE_STABILITY_MAX = 0.25;
+/**
+ * Nota do lugar (`placeScore`): a pressão de lá, vezes MOVE_PRESSURE, sai da nota. O prêmio de tamanho
+ * (MOVE_CITY_PULL e MOVE_TIER_PULL) cresce com o log da população; a pressão, com o quadrado, então a cidade
+ * atrai até encher para as instituições que tem, e não sem fim.
+ */
+export const MOVE_PRESSURE = 0.5;
+/**
+ * Fissão por pressão: com a pressão acima de PRESSURE_SCOUT os batedores procuram sítios e as famílias podem
+ * escolher fundar (src/ai/decisions/move.ts); a pressão acima dele também faz mais famílias pensarem em sair
+ * (MOVE_PRESS_THINK por ponto, por ano, somado a MOVE_THINK). Acima de PRESSURE_FISSION, sem sítio nenhum, o
+ * lugar está circunscrito. A colônia se organiza quando FISSION_CORE famílias escolhem fundar no mesmo ano (o
+ * núcleo: na partida, as mais dispostas completam o grupo) e leva até FISSION_SHARE do povo (no mínimo COLONY_GROUP_MAX).
+ */
+export const PRESSURE_SCOUT = 0.7;
+export const PRESSURE_FISSION = 1;
+/**
+ * Pressão da terra (`landPressure`): com menos de HUNGER_LEVEL comendo bem e sem lote para mais roça ao
+ * alcance, LAND_PRESSURE × a fome soma à pressão social na fissão (a colônia sai atrás de terra).
+ */
+export const LAND_PRESSURE = 4;
+export const MOVE_PRESS_THINK = 0.4;
+export const FISSION_CORE = 2;
+export const FISSION_SHARE = 0.3;
+/** Peso a mais, na vontade de ir com a colônia, das famílias que escolheram fundar. */
+export const FISSION_KEEN = 2;
+/**
+ * Êxodo (agente 3B): a partir de quantos moradores o lugar em falta manda colônia atrás de terra antes de buscar refúgio.
+ * Calibração conjunta (4B): 30, o menor lugar que manda colônia pela fome (`canSplit`, 2,5 × COLONY_GROUP_MIN); antes 60.
+ * Com 60, o lugar médio em falta despejava 35% das famílias no vizinho, que lotava e entrava em falta também (a fome
+ * e a falta de lenha rodavam entre os mesmos lugares): na longa de 500 anos, 390 moradores contra 950 com a colônia
+ * antes. A nota mínima do sítio (SITE_MIN_VALUE, onda 3A) já segura as colônias para lugar ruim, o que a ordem
+ * de 60 fazia antes dela.
+ */
+export const FAMINE_COLONY_POP = 30;
+/** Grupo mínimo (pessoas, famílias inteiras) para uma família de um lugar em falta partir sozinha para longe (`colonizeByLand`). */
+export const LONE_GROUP_MIN = 6;
+/**
+ * Quem anda sozinho (`loner`, andarilho ou solto pelo jogador) não funda vila de uma pessoa: procura outros
+ * solitários do povo a até LONER_SEEK tiles e só funda com LONER_GROUP_MIN juntos (a até LONER_MEET tiles do
+ * guia, o de menor uid). Num lugar bom, o grupo funda com LONER_FOUND_RATE por ano (RF-VIDA-300; antes, 25% a
+ * cada decisão).
+ */
+export const LONER_GROUP_MIN = 3;
+export const LONER_SEEK = 40;
+export const LONER_MEET = 4;
+export const LONER_FOUND_RATE = 4;
 /** Epidemias por ano numa cidade grande sem saneamento, por 100 moradores (RF-VIDA-284). */
 export const EPIDEMIC_RATE = 0.02;
 /** Parte dos moradores que uma epidemia atinge. */
 export const EPIDEMIC_SHARE = 0.06;
-/** Peso da chance de colonos quando ainda há espaço (lote, reforma ou rua para crescer) e quando não há. */
-export const COLONY_PRESSURE_ROOM = 0.2;
+/**
+ * Peso da chance de colonos quando o lugar está lotado (`crowded`: sem lote nem reforma). Antes havia também
+ * COLONY_PRESSURE_ROOM (com espaço), COLONY_MIN_POP, COLONY_MIN_TIER e COLONY_MIN_FACTOR, que ninguém lia mais.
+ */
 export const COLONY_PRESSURE_CROWDED = 2;
 
 // Economia local: estoque próprio, tetos, consumo e perecimento (seção 19.4) ------
@@ -439,8 +519,15 @@ export const GATHER_REACH = 10;
 export const HUNT_FOOD = 2;
 export const HUNT_EAT = 0.15;
 
-/** Madeira de uma árvore cortada. */
-export const WOOD_PER_TREE = 2;
+/**
+ * Madeira de uma árvore cortada. Calibração conjunta (4B): 4 (antes 2). Com o corte presencial (PRESENCE_WOOD) o
+ * lenhador anda até a árvore no passo de gente (WALK_PACE, uns 4 tiles por ano de ação) e, no lugar grande, a mata
+ * fica além da borda: cada lenhador derrubava 0,3 árvore por ano, a lenha nunca bastava e o lugar com comida farta
+ * mandava embora um terço do povo de três em três anos (êxodo por lenha, 80% dos êxodos). A árvore do mapa vale um
+ * bosque, como a roça do mapa vale um lote grande. Na longa de 500 anos: êxodos de 1030 para 500, mediana de 24 para
+ * 50 moradores e parte do povo em cidades de 0,10 para 0,58.
+ */
+export const WOOD_PER_TREE = 4;
 /** Árvores que um lenhador derruba por ano com a mata logo na borda do assentamento. */
 export const CUT_RATE = 1.2;
 /** Alcance do corte e da pedreira além da borda (tiles), +REACH_PER_ERA por era (estradas, carroças). */
@@ -538,6 +625,13 @@ export const LABOR_CRISIS_MAX = 0.6;
 export const CHILD_NEED = 0.65;
 /** Atendimento abaixo do qual até soldados e guardas largam as armas para buscar comida ou lenha. */
 export const SEVERE_NEED = 0.4;
+/**
+ * Comida antes da lenha (calibração conjunta, 4B): na falta de lenha, quem planta, colhe, caça, pesca ou cria só vira
+ * lenhador com o atendimento de comida a partir disto. Antes, a crise de lenha levava até 60% dos adultos para a mata
+ * com o celeiro vazio, e a fome vinha no ano seguinte: na longa de 1000 anos, a fome caiu de 0,89 para 0,58 por 100
+ * por ano e o povo subiu de 2000 para 2900.
+ */
+export const FUEL_SPARES_FOOD = 0.9;
 
 // Guerras com motivo (seção 19.7, Etapa F).
 
@@ -660,7 +754,7 @@ export const SITE_W_FERTILE = 1.5;
 export const SITE_W_FOREST = 0.5;
 export const SITE_W_ROCK = 0.4;
 export const SITE_W_FLAT = 0.8;
-export const SITE_W_COAST = 0.5;
+export const SITE_W_COAST = 1;
 export const SITE_W_RUIN = 1.2;
 export const SITE_W_DEFENSE = 0.3;
 export const SITE_W_ROUTE = 0.4;
@@ -668,11 +762,88 @@ export const SITE_W_MOTIVE = 1.5;
 /** Distância ideal da origem (tiles) e quanto a nota cai por tile fora dela. */
 export const SITE_IDEAL_DIST = 30;
 export const SITE_DIST_COST = 0.03;
-/** Sítio rural (RF-AS-02): distância do núcleo, famílias por sítio, chance por ano quando falta roça e sítios por assentamento. */
+
+// ---- Onde assentar (onda 3, frente 3A): captação no alcance real, água graduada, penalidades graduais e campo de notas ----
+
+/**
+ * Captação (RF-AS-04): o lugar novo é avaliado no alcance de quem vai morar nele, não só no disco de SITE_RADIUS.
+ * O raio parte do território que o lugar terá com SITE_CATCH_POP moradores (`radius`) e soma o alcance da coleta
+ * (GATHER_REACH vezes o fator do modo de vida), do corte (WOOD_REACH) e da pedreira (STONE_REACH), como no trabalho
+ * (`reachOf`). SITE_CATCH_POP é também a gente que divide a captação na distribuição livre ideal (IFD).
+ */
+export const SITE_CATCH_POP = 25;
+/** Modo de vida pela era para o lugar novo, que ainda não tem `Village.lifeway` (`catchRadius`): coletores da Pedra vão mais longe atrás de comida. */
+export const SITE_LIFEWAY_GATHER = [1.4, 1.15, 1, 1, 1, 1];
+/** Decaimento da captação: cada célula pesa 1/(1 + d/SITE_DECAY), com d em tiles até o centro dela. */
+export const SITE_DECAY = 12;
+/** Árvores de pé e rocha (fração da área da captação) que já valem mata e pedreira cheias. */
+export const SITE_WOOD_FULL = 0.25;
+export const SITE_ROCK_FULL = 0.08;
+/** Pesca: quanto a fração de água (mar ou lago) na captação soma à comida (a terra conta só a vegetação). */
+export const SITE_FISH_FOOD = 0.35;
+/** Jazida conhecida pelo reino e útil na era (`wanted`): peso na nota, até a soma dos decaimentos chegar a 1. */
+export const SITE_W_ORE = 0.6;
+/** Peso da pedra e do minério por era (Pedra, Bronze, Ferro, Medieval...): a técnica muda o que vale ter por perto. */
+export const SITE_ERA_ROCK = [0.5, 1, 1.3, 1.5, 1.5, 1.5];
+export const SITE_ERA_ORE = [0.4, 1, 1.2, 1.2, 1.3, 1.3];
+/**
+ * Clima: quanto vale estar a até SITE_CLIMATE_EASY K do meio da faixa de temperatura da espécie; o valor cai a zero
+ * em mais SITE_CLIMATE_SPAN K (a faixa de quem vive é larga, a de quem prospera, não). Fora da faixa, com folga de
+ * SITE_TEMP_MARGIN K, ninguém funda.
+ */
+export const SITE_W_CLIMATE = 0.8;
+export const SITE_CLIMATE_EASY = 8;
+export const SITE_CLIMATE_SPAN = 15;
+export const SITE_TEMP_MARGIN = 0;
+/** Vegetação mínima no centro, igual em todas as entradas (antes ia de 0 a 0,3); com poço sobre água no subsolo, nenhuma. */
+export const SITE_CENTER_GREEN = 0.2;
+/**
+ * Água graduada: corpo d'água com SITE_SEA_SIZE tiles ou mais é mar, salgado (dá peixe e porto, não mata a sede).
+ * Água doce é lago a até SITE_WATER_RANGE, nascente e córrego no solo encharcado (SITE_SPRING_MOISTURE: o mapa não
+ * tem rios) ou, da Idade do Ferro em diante, poço sobre água no subsolo (SITE_WELL_MOISTURE).
+ */
+export const SITE_SEA_SIZE = 600;
+/**
+ * Calibração conjunta (4B): 0,5 (antes 0,6). Sem rios no mapa, a nascente faz as vezes do córrego; com 0,6 o exame
+ * da área vetava por falta de água doce um quarto da terra verde e habitável da Terra do jogo até o poço da Idade do
+ * Ferro, e a era chega lá devagar. Com 0,5 o veto cai para uns 14% (a umidade mediana dessa terra é 0,69); na longa
+ * de 500 anos, com a colônia antes do refúgio, 1060 moradores contra 950 com 0,6.
+ */
+export const SITE_SPRING_MOISTURE = 0.5;
+/** Nota da água doce (0 a 1): lago a até 3 tiles e na borda do alcance, nascente (no limiar e no solo mais úmido) e poço. */
+export const SITE_WATER_LAKE_NEAR = 1;
+export const SITE_WATER_LAKE_FAR = 0.4;
+export const SITE_WATER_SPRING = [0.5, 0.8];
+export const SITE_WATER_WELL = 0.5;
+/** Penalidades graduais: sobreposição da captação com a dos lugares vivos (0 a 1) e distância da capital do reino (como no Civ IV). */
+export const SITE_W_OVERLAP = 1.2;
+export const SITE_CAPITAL_FREE = 45;
+export const SITE_CAPITAL_COST = 0.02;
+/** Melhor de N: candidatos que entram na nota e quantos dos melhores passam, em ordem, pelo exame da área (`siteProblem`). */
+export const SITE_CANDIDATES = 24;
+export const SITE_VETO_K = 4;
+/**
+ * Nota mínima para uma colônia ou colonos de barco fundarem: abaixo dela ninguém vai (fundação ruim morre cedo).
+ * Uma família sozinha (`colonizeByLand`), sem ninguém por perto para ajudar, pede mais.
+ */
+export const SITE_MIN_VALUE = 4.2;
+export const SITE_MIN_SOLO = 5;
+/**
+ * Nota mínima do sítio para a fissão por pressão (calibração conjunta, 4B): o grupo da fissão é grande (até
+ * FISSION_SHARE do povo, no mínimo COLONY_GROUP_MAX) e leva enxoval, então aguenta um sítio pior que a colônia pequena
+ * (SITE_MIN_VALUE, pensada para que a fundação ruim não morra cedo). Com a mesma régua, quase todo lugar grande ficava
+ * sem sítio: na longa de 500 anos, de 394 anos de lugar com pressão para os batedores, 273 sem sítio e 17 com, e
+ * uma fissão só. Com 3,4, na longa de 1000 anos, 27 fissões nas três sementes (5, 12 e 10).
+ */
+export const SITE_MIN_FISSION = 3.4;
+/** Campo de notas (mapa de influência): anos de uma volta completa pelas células e células sujas refeitas por passo, além da fatia da volta. */
+export const SITE_FIELD_YEARS = 2;
+export const SITE_DIRTY_PER_STEP = 8;
+/** Desembarque: raio (tiles) em volta da praia onde os colonos procuram o melhor lugar antes de desistir. */
+export const SITE_LANDING_REACH = 8;
+/** Sítio rural (RF-AS-02): distância do núcleo e sítios por assentamento (FARMSTEAD_FAMILIES e FARMSTEAD_RATE não eram lidos e saíram). */
 export const FARMSTEAD_MIN = 6;
 export const FARMSTEAD_MAX = 15;
-export const FARMSTEAD_FAMILIES = 3;
-export const FARMSTEAD_RATE = 0.4;
 export const FARMSTEADS_MAX = 6;
 /** Sítio que se emancipa: moradores e distância mínima do núcleo. */
 export const FARMSTEAD_FREE_POP = 25;
@@ -807,3 +978,90 @@ export const TERRITORY_GROWTH = 1.7;
 export const TERRITORY_MAX = 34;
 /** Quanto a relação entre reinos anda por ano rumo à média das afinidades (RF-AS-53). */
 export const AFFINITY_PULL = 0.1;
+
+// Bioma e modo de vida (agente 3C: src/sim/biomeYield.ts, REQUISITOS-VIDA.md "Bioma e sociedade") -----------------
+
+/**
+ * Estação de crescimento da roça pela temperatura média do tile (K): abaixo de GROW_COLD_K rende só GROW_MIN,
+ * acima de GROW_WARM_K o ano inteiro serve. É o que deixa a tundra e a taiga desmatada com a roça curta.
+ */
+export const GROW_COLD_K = 266;
+export const GROW_WARM_K = 282;
+export const GROW_MIN = 0.1;
+/**
+ * Amplitude das estações (colheita, coleta e lenha do inverno) pela latitude: SEASON_AMP_EQUATOR no equador e
+ * SEASON_AMP_POLE no polo, vezes o `seasonAmp` do bioma, até SEASON_AMP_MAX (acima disso a primavera ficaria
+ * negativa). Com 1, a estação é a dos vetores SEASON_* (antes, igual no planeta inteiro), e é o que vale perto da
+ * latitude 0,25, onde vive quase todo o povo da Terra do jogo: com o trópico bem mais plano (0,4 no equador), a
+ * calibração curta perdia gente e era (a economia foi calibrada com a colheita concentrada no outono).
+ */
+export const SEASON_AMP_EQUATOR = 0.8;
+export const SEASON_AMP_POLE = 1.6;
+export const SEASON_AMP_MAX = 1.25;
+/** Relevo para a defesa: altura do centro acima de RELIEF_LOW (normalizada por RELIEF_HIGH_SPAN) e desvio da altura na área (RELIEF_RUGGED vale 1). */
+export const RELIEF_LOW = 0.15;
+export const RELIEF_HIGH_SPAN = 0.4;
+export const RELIEF_RUGGED = 0.12;
+/** Comida guardada no inverno gelado (abaixo de 0 °C) estraga menos: o perecimento multiplica por isto. */
+export const FROZEN_SPOIL = 0.4;
+/**
+ * Modo de vida (`lifewayFor`): nômade com a roça da área abaixo de NOMAD_FARM e menos de NOMAD_DENSITY moradores por
+ * 100 tiles do território; intensivo com arado, irrigação ou moinho, roça a partir de INTENSIVE_FARM e densidade a
+ * partir de INTENSIVE_DENSITY. As margens seguram o modo de agora (sair dele pede passar o limiar mais a margem).
+ */
+export const NOMAD_FARM = 0.4;
+export const NOMAD_DENSITY = 4.5;
+export const INTENSIVE_FARM = 0.7;
+export const INTENSIVE_DENSITY = 5;
+export const LIFEWAY_MARGIN = 0.08;
+export const LIFEWAY_DENSITY_MARGIN = 0.5;
+/** Captação relativa pelo modo de vida (`lifewayReach`, para a nota do sítio): o nômade anda mais, o intensivo trabalha perto. */
+export const NOMAD_REACH = 1.5;
+export const INTENSIVE_REACH = 0.8;
+/** O intensivo põe mais braços em cada roça (FIELD_HANDS × (1 + INTENSIVE_HANDS)) e tira mais dela (adubo, rotação, canteiros). */
+export const INTENSIVE_HANDS = 0.5;
+export const INTENSIVE_YIELD = 1.15;
+/** Coleta esgotada para o nômade: vegetação da área abaixo desta parte do que ela aguenta conta como falta (a família pensa em mudar o acampamento). */
+export const NOMAD_FORAGE = 0.45;
+/**
+ * Boserup (`needPull`): a fome puxa a descoberta das técnicas que intensificam a lavoura e o rebanho (BOSERUP_TECHS), que
+ * multiplica por 1 + BOSERUP_K × (1 − parte dos moradores que comeu bem); só a fome extrema (menos de BOSERUP_STARVING
+ * comendo bem) trava. As outras técnicas param com o atendimento de comida abaixo de DISCOVER_FED, como antes.
+ */
+export const BOSERUP_TECHS: readonly string[] = ['domesticacao', 'arado', 'irrigacao', 'moinho', 'moinhoagua'];
+export const BOSERUP_K = 2;
+export const BOSERUP_STARVING = 0.15;
+export const DISCOVER_FED = 0.4;
+/** Peças que o comércio traz (`tradedPieces`): cada ferramenta, arma ou armadura de metal recebida conta esta parte de uma peça forjada no lugar. */
+export const TRADED_PIECES = 0.5;
+/**
+ * Domesticação pelos critérios de Diamond (`meetsDiamond`, species.ts): pastador de DOMESTIC_MASS kg, adulto em até
+ * DOMESTIC_MATURITY anos, manada de DOMESTIC_HERD ou mais e medo até DOMESTIC_FEAR. Bicho de outro planeta a partir de
+ * DOMESTIC_BIG kg vira gado; menor, cabra.
+ */
+export const DOMESTIC_MASS: readonly [number, number] = [25, 1200];
+export const DOMESTIC_MATURITY = 4;
+export const DOMESTIC_HERD = 6;
+export const DOMESTIC_FEAR = 0.8;
+export const DOMESTIC_BIG = 250;
+/** Região onde o lugar procura bicho para domesticar: o território mais estes tiles (antes, a domesticação valia com qualquer herbívoro vivo no planeta). */
+export const DOMESTIC_REACH = 20;
+/**
+ * Rebanho que se espalha pelos vizinhos (`herdNeighbor`): o parceiro (reino ou acordo) a até HERD_SHARE_RANGE tiles com
+ * HERD_SHARE_MIN cabeças ou mais cede HERD_SHARE_HEAD a quem não tem o bicho selvagem por perto. Com 60 tiles, 8 e 3, a calibragem
+ * curta (20 sementes, planeta pequeno) tinha menos gente, menos era e menos vocações diferentes.
+ */
+export const HERD_SHARE_RANGE = 90;
+export const HERD_SHARE_MIN = 5;
+export const HERD_SHARE_HEAD = 2;
+/**
+ * Preço por utilidade (`usefulness`, trade.ts): o bem que a técnica do lugar ainda não usa vale USELESS_GOOD do preço;
+ * o cobre e o estanho, depois da siderurgia, BRONZE_AFTER_IRON; o carvão, com o vapor, STEAM_COAL.
+ */
+export const USELESS_GOOD = 0.4;
+export const BRONZE_AFTER_IRON = 0.8;
+export const STEAM_COAL = 1.5;
+/** Defesa pelo relevo (`homeGround`): quem luta no próprio território vale 1 + DEFENSE_RELIEF × relevo (0 plano, 1 serra). */
+export const DEFENSE_RELIEF = 0.5;
+/** Densidade na costa: o porto abriga PORT_HOUSING + era moradores (cais, armazéns e casas de pescadores; antes, nenhum). */
+export const PORT_HOUSING = 3;

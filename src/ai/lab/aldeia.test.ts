@@ -21,22 +21,27 @@ describe('IA local: um povo inteiro', () => {
   });
 
   it('quem está num ofício combina com ele mais que a média do povo', () => {
-    const adults = people.filter((i) => eco.role[i] !== CHILD);
-    // Média ponderada pelo tamanho de cada ofício: um ofício de 5 pessoas não pesa o mesmo que um de 100.
+    // Três povos (este e mais dois): num só, quantos ofícios passam de 5 pessoas aos 150 anos e o ganho
+    // variam demais de semente para semente (na mesma versão do jogo, duas de cinco sementes ficavam abaixo).
     let gain = 0;
     let n = 0;
     let groups = 0;
-    for (const r of ['hunter', 'farmer', 'woodcutter', 'builder', 'miner', 'gatherer'] as const) {
-      const inRole = adults.filter((i) => eco.role[i] === ROLE[r]);
-      if (inRole.length < 5) continue;
-      const mean = (list: number[]) => list.reduce((s, i) => s + roleFit(eco.traits, i, r), 0) / list.length;
-      gain += (mean(inRole) - mean(adults)) * inRole.length;
-      n += inRole.length;
-      groups++;
+    for (const w of [eco, runWorld(12, 150).eco, runWorld(13, 150).eco]) {
+      const adults: number[] = [];
+      for (let i = 0; i < w.count; i++) if (w.alive[i] && w.village[i] >= 0 && w.species[w.kind[i]].kind === 'sapient' && w.role[i] !== CHILD) adults.push(i);
+      // Média ponderada pelo tamanho de cada ofício: um ofício de 5 pessoas não pesa o mesmo que um de 100.
+      for (const r of ['hunter', 'farmer', 'woodcutter', 'builder', 'miner', 'gatherer'] as const) {
+        const inRole = adults.filter((i) => w.role[i] === ROLE[r]);
+        if (inRole.length < 5) continue;
+        const mean = (list: number[]) => list.reduce((s, i) => s + roleFit(w.traits, i, r), 0) / list.length;
+        gain += (mean(inRole) - mean(adults)) * inRole.length;
+        n += inRole.length;
+        groups++;
+      }
     }
-    expect(groups).toBeGreaterThan(2);
+    expect(groups).toBeGreaterThan(6);
     expect(gain / n).toBeGreaterThan(0.02);
-  });
+  }, 120000);
 
   it('a curiosidade vem do traço e a média fica perto da antiga', () => {
     const mean = people.reduce((s, i) => s + eco.curiosity(i), 0) / people.length;
@@ -58,18 +63,23 @@ describe('IA local: um povo inteiro', () => {
     const adults = people.filter((i) => eco.role[i] !== CHILD);
     let friends = 0;
     let married = 0;
+    let couples = 0;
     let together = 0;
     for (const i of adults) {
       friends += countKind(eco.bonds, eco.uid[i], BOND.friend);
       const p = partnerOf(eco.bonds, eco.uid[i]);
       if (!p) continue;
       married++;
+      // Só os casais com os dois vivos em terra: o laço com quem morreu ou está embarcado fica, e quantos são
+      // depende da história da semente.
       const ties = eco.tiesOf(i);
-      if (ties.partner >= 0 && eco.village[ties.partner] === eco.village[i]) together++;
+      if (ties.partner < 0) continue;
+      couples++;
+      if (eco.village[ties.partner] === eco.village[i]) together++;
     }
     expect(friends / adults.length).toBeGreaterThan(1);
     expect(married / adults.length).toBeGreaterThan(0.2);
-    expect(together / married).toBeGreaterThan(0.8);
+    expect(together / couples).toBeGreaterThan(0.8);
     expect(eco.tally.marriages).toBeGreaterThan(20);
   });
 

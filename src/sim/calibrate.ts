@@ -133,6 +133,19 @@ export interface Indicators {
   newPeoples: number;
   aid: number;
   rivalries: number;
+  /**
+   * Quando sair e fissão (agente 3B): parte das fundações por pressão (social ou da terra) contra as por fome
+   * (as por recurso não entram na conta), quantas foram pela pressão da terra e quantas por fome, fissões (pela
+   * pressão social) e o tamanho médio da origem na hora da fissão (alvo 100 a 300).
+   */
+  pressureShare: number;
+  landFounds: number;
+  famineFounds: number;
+  fissions: number;
+  fissionPop: number;
+  /** Lugares que chegaram a ficar circunscritos (CIRCUM_NOTE anos sem sítio livre) e guerras por terra que nasceram disso. */
+  circumscribed: number;
+  landHungerWars: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -140,11 +153,8 @@ export function earthParams(radius = 0.4): PlanetParams {
   return { id: 'sol-3', name: 'Terra', radiusEarth: radius, temperatureK: 288, water: 0.6, life: 0.85 };
 }
 
-/**
- * Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, rodando
- * `years` anos em passos de 0,25 s.
- */
-export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecosystem; indicators: Indicators } {
+/** Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, ainda sem rodar (`placed` é quantas couberam). */
+export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: ReturnType<typeof generateSurface>; placed: number } {
   const params = earthParams(radius);
   const map = generateSurface(params);
   const eco = new Ecosystem(map, seed);
@@ -164,6 +174,22 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       placed++;
     }
   }
+  return { eco, map, placed };
+}
+
+/**
+ * Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, rodando
+ * `years` anos em passos de 0,25 s.
+ *
+ * `yearSpan` é a duração do ano de calendário em segundos (eco/core/clock.ts). O padrão é o ano de ação
+ * (`YEAR_SECONDS`), em que os dois relógios coincidem e toda a calibração foi feita; com o ano do jogo
+ * (`REAL_YEAR_SECONDS`, 12 s) mede o que o jogador vê: `years` anos exibidos, cada um com dois anos de ação.
+ * Nos scripts de calibração, pela variável de ambiente YEAR_SPAN.
+ */
+export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = YEAR_SECONDS): { eco: Ecosystem; indicators: Indicators } {
+  const { eco, map, placed } = seedWorld(seed, radius);
+  // Como no jogo: o ano da tela é definido depois de povoar o mundo.
+  eco.yearSpan = yearSpan;
   let wars = 0;
   let cavalry = 0;
   let caravans = 0;
@@ -183,7 +209,7 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
   const sapient = () => eco.villages.reduce((n, v) => n + (v.abandoned ? 0 : v.population), 0);
   for (let y = 0; y < years; y++) {
     watch();
-    for (let t = 0; t < YEAR_SECONDS; t += 0.25) eco.step(0.25);
+    for (let t = 0; t < yearSpan; t += 0.25) eco.step(0.25);
     if (y === Math.floor(years * 0.6)) mid = sapient();
     wars += eco.wars.length;
     for (let i = 0; i < eco.count; i++) if (eco.alive[i] && eco.mounted(i)) cavalry++;
@@ -319,6 +345,13 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       newPeoples: eco.tally.newPeoples,
       aid: eco.tally.aid,
       rivalries: eco.tally.rivalries,
+      pressureShare: (eco.tally.foundPressure + eco.tally.foundLand) / Math.max(1, eco.tally.foundPressure + eco.tally.foundLand + eco.tally.foundFamine),
+      landFounds: eco.tally.foundLand,
+      famineFounds: eco.tally.foundFamine,
+      fissions: eco.tally.fissions,
+      fissionPop: eco.tally.fissions ? eco.tally.fissionPop / eco.tally.fissions : 0,
+      circumscribed: eco.tally.circumscribed,
+      landHungerWars: eco.tally.landHunger,
     },
   };
 }
@@ -487,6 +520,13 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   mercenaries: 'Mercenários contratados',
   retreats: 'Exércitos que voltaram sem comida',
   cavalry: 'Soldados montados (média por ano)',
+  pressureShare: 'Parte das fundações por pressão, social ou da terra (contra as por fome)',
+  landFounds: 'Fundações pela pressão da terra',
+  famineFounds: 'Fundações por fome',
+  fissions: 'Fissões por pressão',
+  fissionPop: 'Tamanho médio da origem na fissão (alvo 100 a 300)',
+  circumscribed: 'Lugares que ficaram circunscritos (sem terra livre para a fissão)',
+  landHungerWars: 'Guerras por terra de reinos circunscritos',
 };
 
 /** Linhas da tabela do relatório: média, mediana, faixa de 10% a 90% e, quando há meta, se ficou dentro. */

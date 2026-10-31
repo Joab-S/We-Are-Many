@@ -21,6 +21,13 @@ export class Weather {
   readonly n: number;
   /** Umidade do ar (0 a 1), chuva da última volta (0 a 1, para o visual), neve no chão e água no solo (0 a 1). */
   readonly humid: Float32Array;
+  /**
+   * Umidade do fim da volta anterior (Double Buffer, Game Programming Patterns): o vento traz o ar de
+   * barlavento lido daqui, não de `humid`. Lendo de `humid`, a célula de barlavento já atualizada nesta
+   * volta (as de antes no cursor) dava um passo a mais à umidade num sentido do vento e não no outro.
+   * Copiada de `humid` no fim de cada volta.
+   */
+  readonly humidPrev: Float32Array;
   readonly rain: Float32Array;
   readonly snow: Float32Array;
   readonly soil: Float32Array;
@@ -42,6 +49,7 @@ export class Weather {
     this.rows = Math.ceil(height / ECO_CELL);
     this.n = this.cols * this.rows;
     this.humid = new Float32Array(this.n);
+    this.humidPrev = new Float32Array(this.n);
     this.rain = new Float32Array(this.n);
     this.snow = new Float32Array(this.n);
     this.soil = new Float32Array(this.n);
@@ -113,6 +121,7 @@ export class Weather {
       this.survey(map, k);
       this.at[k] = year;
     }
+    this.humidPrev.set(this.humid);
     this.ready = true;
   }
 
@@ -129,6 +138,8 @@ export class Weather {
       // O terreno muda devagar (vulcões, o jogador): o retrato fixo é refeito numa volta de cada 12.
       if (this.cursor === 0 && Math.floor(year * WEATHER_PASSES) % 12 === 0) this.survey(map, k);
       this.update(k, map, year, phase, dryness);
+      // Fim da volta: a umidade desta volta vira a "anterior" da próxima.
+      if (this.cursor === 0) this.humidPrev.set(this.humid);
     }
   }
 
@@ -145,7 +156,8 @@ export class Weather {
     const up = uy * this.cols + ux;
     const T = this.tempNow(k, phase);
     const warm = Math.max(0, Math.min(1, (T - 263) / 35));
-    let h = this.humid[k] * 0.4 + this.humid[up] * 0.6;
+    const prev = this.humidPrev;
+    let h = prev[k] * 0.4 + prev[up] * 0.6;
     // Evaporação: o mar muito (mais no calor), a terra pela água do solo.
     h += (this.water[k] * 2.5 * warm + this.land[k] * this.soil[k] * 0.6 * warm) * dt;
     const dry = Math.max(-1, Math.min(1.5, dryness(cx * ECO_CELL + 8, cy * ECO_CELL + 8)));

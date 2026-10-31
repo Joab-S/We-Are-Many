@@ -24,16 +24,18 @@ sorteios do mundo (fluxo `mente`), então a mesma semente dá a mesma história.
 | `decisions/work.ts` | Escolha do ofício e quem troca de ofício na falta |
 | `decisions/social.ts` | Um ano de vida social: encontros, amizade, rivalidade, casamento, brigas |
 | `decisions/leader.ts` | Escolha do líder, herdeiro do rei e temperamento do rei para a guerra |
+| `decisions/move.ts` | Quando sair: a família compara ficar, migrar para um lugar conhecido e fundar num sítio (pressão social, laços, apego e histerese) |
 | `lab/` | O laboratório: testes que olham uma pessoa, um casal, um grupo e um povo inteiro |
 
-## Onde a simulação chama a IA (`src/sim/ecosystem.ts`)
+## Onde a simulação chama a IA (métodos do `Ecosystem`, em `src/sim/eco/core/`, `people/` e `settlements/`)
 
 - `spawn` e o nascimento: traços sorteados ou herdados dos pais (o outro pai é o cônjuge).
 - `firstRole` / `thinkProfession`: ofício de quem vira adulto. Soldados e guardas continuam sendo chamados pelo líder.
 - `shiftLabor`: na falta, quem muda de ofício primeiro é quem tem mais vontade (`switchWill`).
 - `socialize`: um ano de vida social por lugar.
 - Natalidade: casados têm mais filhos que solteiros (`SOCIAL.coupleBirth` e `singleBirth`).
-- `migrate`: o casal e os filhos se mudam juntos.
+- `migrate`: o casal e os filhos se mudam juntos. Cada família escolhe entre ficar, migrar e fundar (`chooseMove`); as que
+  escolhem fundar viram o grupo da colônia de fissão, que sai quando a pressão social (ou a da terra) aperta.
 - `updateLeader`: o povo escolhe o líder; `warMood` soma o temperamento do rei à agressividade do reino.
 - `curiosity`: a curiosidade para descobrir técnicas vem do traço.
 
@@ -44,6 +46,7 @@ sorteios do mundo (fluxo `mente`), então a mesma semente dá a mesma história.
    - `pessoa.test.ts`: uma pessoa sozinha. O corajoso caça? A falta fala mais alto que o gosto?
    - `casal.test.ts`: duas pessoas e um grupo de 40. Quem combina casa? Quem é agressivo briga?
    - `aldeia.test.ts`: um povo de verdade por 150 anos. Os ofícios juntam gente com o jeito deles? Os líderes são carismáticos?
+   - `mudanca.test.ts`: uma família diante de ficar, migrar e fundar. A fome manda migrar? A pressão manda fundar? Quem acabou de chegar fica?
 3. Veja o mundo inteiro: `npm run calibrar:longa` (3 mundos × 1000 anos).
 4. No jogo, clique numa pessoa: a ficha mostra os traços marcantes, o cônjuge, os amigos, os rivais e as
    últimas decisões com o porquê. "Seguir" mantém a câmera nela.

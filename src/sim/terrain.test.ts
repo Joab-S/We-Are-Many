@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateSurface, Biome, Decor, decorAt, type PlanetParams } from '../procgen/surface';
+import { generateSurface, Biome, Decor, decorAt, temperatureAt, type PlanetParams } from '../procgen/surface';
 import { Ecosystem, isLand, isWater, YEAR_SECONDS } from './ecosystem';
 import { runEvent } from './events';
 import { nativeSpecies } from './species';
@@ -152,6 +152,14 @@ describe('construções e o terreno', () => {
       map.elevation[i] = 0.1;
       map.vegetation[i] = 0.8;
       map.biome[i] = Biome.Forest;
+      // Mata de verdade: sem rua nem casa (o que é rua ou casa não é natureza, e o pincel não mexe). Sem isto o
+      // teste dependia de onde o mundo da semente pôs as ruas do primeiro lugar.
+      eco.road[i] = 0;
+      eco.built[i] = 0;
+      // Clima temperado e úmido no quadrado: cortada, a mata vira campo, e não deserto ou tundra (com cacto ou
+      // pinheiro) conforme a latitude em que a semente pôs o primeiro lugar.
+      map.moisture[i] = 0.6;
+      map.heat[i] += 288 - temperatureAt(map, i);
     }
     const gold = eco.addDeposit(x + 0.5, y + 0.5, 'gold', 100, false);
     v.stock.wood = 0;
@@ -179,11 +187,17 @@ describe('construções e o terreno', () => {
     run(eco, YEAR_SECONDS * 15);
     const x = Math.floor(v.x);
     const y = Math.floor(v.y);
-    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) map.vegetation[(y + dy) * map.width + x + dx] = 0.8;
-    for (let k = -4; k <= 4; k++) map.biome[(y + k) * map.width + x + 6] = Biome.Lava;
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 8; dx++) map.vegetation[(y + dy) * map.width + x + dx] = 0.8;
+    // Lava quente de verdade (como a do vulcão): só pintada, sem calor, a mata em volta a reclassificava de volta
+    // na primeira rebrota. E a mata contada é a do alcance do fogo (os dois lados da lava), para o teste não
+    // depender de onde a aldeia caiu nem de quão rápido a mata dali rebrota.
+    for (let k = -4; k <= 4; k++) {
+      map.biome[(y + k) * map.width + x + 6] = Biome.Lava;
+      eco.pourLava((y + k) * map.width + x + 6, 500);
+    }
     const green = () => {
       let n = 0;
-      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) if (map.vegetation[(y + dy) * map.width + x + dx] > 0.5) n++;
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 8; dx++) if (dx !== 6 && map.vegetation[(y + dy) * map.width + x + dx] > 0.5) n++;
       return n;
     };
     const before = green();

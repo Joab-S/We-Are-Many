@@ -160,7 +160,7 @@ function summaryHtml(eco: Ecosystem, v: Village): string {
   const c = v.culture;
   const era = Math.floor(v.tech);
   const need = eco.eraNeed(v);
-  const leader = v.leader >= 0 && eco.alive[v.leader] ? v.leader : -1;
+  const leader = eco.leaderOf(v);
   const st = economicState(v);
   const w = v.needs ? welfare(v.needs) : 1;
   const next = era < ERAS.length - 1 ? `rumo à ${ERAS[era + 1]}` : 'última era';
@@ -455,10 +455,19 @@ function spark(values: number[], label: string, color: string): string {
   return `<div class="wb-spark"><span>${label}: ${values[values.length - 1]} (máximo ${max})</span><svg viewBox="0 0 200 40" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5"/></svg></div>`;
 }
 
+/**
+ * A linha da crônica é deste lugar: pelo id que o motor guarda na linha (`villages`) ou, nas linhas de saves
+ * antigos (sem ids), pelo nome no texto; e, nas duas, por ter acontecido dentro da área dele.
+ */
+export function aboutVillage(e: Ecosystem['chronicle'][number], v: Village, width: number, r: number): boolean {
+  const named = e.villages ? e.villages.includes(v.id) : e.text.includes(v.name);
+  return named || (e.x >= 0 && Math.hypot(((e.x - v.x + width * 1.5) % width) - width / 2, e.y - v.y) <= r);
+}
+
 function historyHtml(eco: Ecosystem, v: Village, describe: (e: Ecosystem['chronicle'][number]) => string): string {
   const w = eco.map.width;
   const r = eco.radius(v) + 2;
-  const mine = eco.chronicle.filter((e) => e.text.includes(v.name) || (e.x >= 0 && Math.hypot(((e.x - v.x + w * 1.5) % w) - w / 2, e.y - v.y) <= r)).slice(0, 60);
+  const mine = eco.chronicle.filter((e) => aboutVillage(e, v, w, r)).slice(0, 60);
   const h = v.history ?? [];
   const years = h.length ? `dos anos ${h[0].year} a ${h[h.length - 1].year}` : '';
   return `

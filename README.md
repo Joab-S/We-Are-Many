@@ -5,6 +5,8 @@ Jogo de navegador de exploração espacial, replicação de sondas e terraforma�
 - Requisitos e plano de desenvolvimento: [docs/REQUISITOS.md](docs/REQUISITOS.md) e vida nos planetas: [docs/REQUISITOS-VIDA.md](docs/REQUISITOS-VIDA.md). Cada requisito tem a sua situação (feito, parcial, a fazer).
 - Estado atual: **Fase 0** concluída e ampliada (navegação com o GUIA, sondas e quase toda a vida nos planetas já existem); próximos passos na [seção 8.1](docs/REQUISITOS.md#81-backlog-revisado-em-20102026-próximos-passos).
 - Regra do projeto: nada que já foi implementado é removido sem necessidade ou pedido, e toda remoção é registrada com o motivo ([seção 0](docs/REQUISITOS.md#0-como-manter-este-documento)).
+- Arquitetura: camadas (motor, plataforma e cliente), protocolo de comandos e eventos, regras de determinismo e os padrões do *Game Programming Patterns* no código em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+- Ajuste automático das constantes de equilíbrio por CMA-ES (`npm run calibrar:ajustar -- <plano.json>`) em [docs/AJUSTE-AUTOMATICO.md](docs/AJUSTE-AUTOMATICO.md).
 
 ## Rodando
 
@@ -69,14 +71,33 @@ npm run data
 ## Estrutura
 
 ```
-src/core/       Núcleo sem three.js: unidades, PRNG determinístico, voo, astrofísica
-src/procgen/    Geração procedural determinística (ruído, superfícies)
-src/sim/        Simulação sem three.js: espécies, ecossistema e aldeias
-src/universe/   Manifesto da octree, seleção e carregamento de chunks
-src/client/     three.js: modo espaço (3D), modo superfície (2D), HUD
-tools/pipeline/ Pipeline Python que gera os chunks a partir do catálogo
-public/universe Chunks gerados
+src/core/                 Núcleo sem three.js: unidades, PRNG determinístico, voo, astrofísica
+src/procgen/              Geração procedural determinística (ruído, superfícies)
+src/sim/                  Simulação sem three.js: espécies, ecossistema e aldeias
+src/sim/ecosystem.ts      Classe Ecosystem: estado, construtor, crônica, fila de eventos e escalonador (step, yearly)
+src/sim/api/              Fronteira do motor: comandos (entrada), eventos (saída) e a fachada Engine
+src/sim/eco/              Tipos, constantes, funções puras, tiles e células ecológicas do ecossistema
+src/sim/eco/core/         Partes do Ecosystem: criaturas (nascer, morrer, andar), save e consultas da interface
+src/sim/eco/people/       Pessoas: decisão, migração, sociedade, vocação e rebanhos
+src/sim/eco/fauna/        Bichos de terra: células ecológicas, comida, decisão e espaço
+src/sim/eco/flora/        Vegetação e matas
+src/sim/eco/settlements/  Assentamentos: fundação, planta, prédios, ruas, ciclo de vida, colônias, política e forma
+src/sim/eco/economy/      Economia: o ano, estoque, técnicas e produção
+src/sim/eco/community/    Jornadas do modo completo, desgaste das ruas e relações entre lugares
+src/sim/eco/work/         Ações presenciais e recursos do mapa (árvores, pedra, minas)
+src/sim/eco/war/          Guerras
+src/sim/eco/politics/     Diplomacia entre reinos
+src/sim/eco/naval/        Portos, jangadas e barcos
+src/sim/eco/trade/        Mercados e caravanas
+src/sim/eco/world/        Eventos do mundo e ferramentas do jogador
+src/universe/             Manifesto da octree, seleção e carregamento de chunks
+src/save/                 Save: retrato do mundo (motor) e armazenamento no IndexedDB (plataforma)
+src/client/               three.js: modo espaço (3D), modo superfície (2D), HUD
+tools/pipeline/           Pipeline Python que gera os chunks a partir do catálogo
+public/universe           Chunks gerados
 ```
+
+O `Ecosystem` é uma classe parcial: cada arquivo em `src/sim/eco/<domínio>/` exporta um objeto com métodos `this: Ecosystem`, que `ecosystem.ts` instala no protótipo (não enumeráveis, fora do save). O cliente fala com ele pela fachada `src/sim/api/engine.ts` (comandos que entram, eventos que saem, vista de leitura); o teste `src/core/purity.test.ts` garante que o motor não alcança three.js, o DOM nem `src/client`. A impressão digital do mundo (`src/sim/fingerprint.ts`) protege refatorações: `npx vitest run --config vitest.calib.config.ts src/sim/fingerprint.calib.ts` compara três mundos fixos com o baseline.
 
 ## Créditos dos dados
 

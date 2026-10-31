@@ -1,8 +1,9 @@
 import { bvToTemperature, stellarRadius } from '../core/astro';
+import { LruCache } from '../core/lru';
 import { mulberry32, seedFor } from '../core/rng';
 import { KM_PER_AU } from '../core/units';
 import { alienName, nativeLifeTier, type LifeTier } from '../sim/species';
-import { compressOrbit, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData } from '../client/space/bodies';
+import { compressOrbit, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData } from './planets';
 
 /**
  * Sistemas planetários de todas as estrelas (RF-SYS-01). O Sistema Solar é
@@ -48,8 +49,16 @@ export interface SystemData {
 
 export const SOL_ID = 0;
 
+/** Estrela do catálogo (id, magnitude absoluta e índice de cor), com ou sem nome. */
+export type StarRef = Pick<StarInfo, 'id' | 'absmag' | 'ci'>;
+
+/** Dados da estrela com o nome do catálogo; sem nome próprio, "Sol" ou "HYG <id>". */
+export function starInfo(s: StarRef, names: ReadonlyMap<number, string>): StarInfo {
+  return { id: s.id, name: names.get(s.id) ?? (s.id === SOL_ID ? 'Sol' : `HYG ${s.id}`), absmag: s.absmag, ci: s.ci };
+}
+
 /** Raio visual da estrela, em UA (mesma regra de createStarBody). */
-export function starVisualRadius(star: StarInfo): number {
+export function starVisualRadius(star: StarRef): number {
   if (star.id === SOL_ID) return SUN_VISUAL_RADIUS;
   return SUN_VISUAL_RADIUS * Math.min(Math.max(stellarRadius(star.absmag, star.ci), 0.15), 30);
 }
@@ -118,7 +127,13 @@ function rockyColor(rnd: () => number, temperatureK: number, water: number): num
   return pick(rnd, ROCKY_COLORS);
 }
 
-const cache = new Map<number, SystemData>();
+/**
+ * Sistemas já gerados. A varredura gera até 400 de uma vez e o GUIA consulta
+ * as 30 estrelas mais próximas 4 vezes por segundo; 1024 cobre os dois com
+ * folga e não cresce sem limite numa viagem longa.
+ */
+const SYSTEM_CACHE_LIMIT = 1024;
+const cache = new LruCache<number, SystemData>(SYSTEM_CACHE_LIMIT);
 
 /** Sistema da estrela, sempre o mesmo para o mesmo id. */
 export function generateSystem(star: StarInfo): SystemData {
