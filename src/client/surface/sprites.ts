@@ -12,6 +12,8 @@ export type { SpriteName };
 const CELL = 24;
 
 export interface SpriteFrame {
+  /** Posição do sprite no atlas (chave numérica do cache de cores). */
+  index: number;
   /** Retângulo no atlas, em UV (x, y, largura, altura). */
   uv: [number, number, number, number];
   /** Tamanho em pixels de arte. */
@@ -19,9 +21,18 @@ export interface SpriteFrame {
   h: number;
 }
 
+/** Cor RGB (0 a 255) num inteiro de 24 bits, para chave de cache sem texto. */
+export function packRgb(c: readonly number[]): number {
+  const r = Math.min(255, Math.max(0, c[0] | 0));
+  const g = Math.min(255, Math.max(0, c[1] | 0));
+  const b = Math.min(255, Math.max(0, c[2] | 0));
+  return (r << 16) | (g << 8) | b;
+}
+
 export class SpriteAtlas {
   readonly texture: THREE.CanvasTexture;
   readonly frames = {} as Record<SpriteName, SpriteFrame>;
+  private readonly names: string[];
 
   constructor() {
     const names = Object.keys(SPRITES);
@@ -47,30 +58,40 @@ export class SpriteAtlas {
       const h = art.length;
       // UV com origem embaixo (flipY da textura).
       this.frames[name] = {
+        index: k,
         uv: [ox / canvas.width, 1 - (oy + h) / canvas.height, w / canvas.width, h / canvas.height],
         w,
         h,
       };
     });
+    this.names = names;
     this.texture = new THREE.CanvasTexture(canvas);
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.minFilter = THREE.NearestFilter;
     this.texture.generateMipmaps = false;
   }
 
-  private readonly tintCache = new Map<string, HTMLCanvasElement>();
+  /** Sprites já pintados: sprite e roupa numa chave numérica, e a pele dentro dela (Flyweight). */
+  private readonly tintCache = new Map<number, Map<number, HTMLCanvasElement>>();
 
   /** Sprite já pintado com a cor da instância (para o renderizador por software). */
   tinted(name: SpriteName, tint: readonly number[], skin: readonly number[] = tint): HTMLCanvasElement {
-    const key = `${name}:${tint.map((v) => v | 0).join(',')}:${skin.map((v) => v | 0).join(',')}`;
-    let c = this.tintCache.get(key);
+    return this.tintedKey(this.frames[name].index, packRgb(tint), packRgb(skin));
+  }
+
+  /** O mesmo, pelas chaves numéricas (sem criar texto por sprite por quadro). */
+  tintedKey(index: number, tint: number, skin: number): HTMLCanvasElement {
+    const outer = index * 16777216 + tint;
+    let bySkin = this.tintCache.get(outer);
+    if (!bySkin) this.tintCache.set(outer, (bySkin = new Map()));
+    let c = bySkin.get(skin);
     if (!c) {
-      const art = SPRITES[name];
+      const art = SPRITES[this.names[index]];
       c = document.createElement('canvas');
       c.width = art[0].length;
       c.height = art.length;
       const g = c.getContext('2d')!;
-      const rgb = (c: readonly number[], k: number) => `rgb(${c.map((v) => Math.min(255, v * k) | 0).join(',')})`;
+      const rgb = (p: number, k: number) => `rgb(${Math.min(255, ((p >> 16) & 255) * k) | 0},${Math.min(255, ((p >> 8) & 255) * k) | 0},${Math.min(255, (p & 255) * k) | 0})`;
       const marks: Record<string, string> = { M: rgb(tint, 1), m: rgb(tint, 0.62), '+': rgb(tint, 1.3), $: rgb(skin, 1), '%': rgb(skin, 0.62) };
       art.forEach((row, y) => {
         [...row].forEach((ch, x) => {
@@ -80,7 +101,7 @@ export class SpriteAtlas {
           g.fillRect(x, y, 1, 1);
         });
       });
-      this.tintCache.set(key, c);
+      bySkin.set(skin, c);
     }
     return c;
   }
@@ -140,9 +161,12 @@ export class SpriteLayer {
   private readonly tint: Float32Array;
   private readonly skin: Float32Array;
   private n = 0;
-  private readonly names: SpriteName[] = [];
-  private readonly tints: (readonly number[])[] = [];
-  private readonly skins: (readonly number[])[] = [];
+  // Por instância, em números: o sprite e as cores empacotadas (o desenho por software lê daqui).
+  private readonly frame: Int32Array;
+  private readonly tintKey: Int32Array;
+  private readonly skinKey: Int32Array;
+  private readonly dotIndex: number;
+  private readonly dotFill = new Map<number, string>();
 
   constructor(
     readonly atlas: SpriteAtlas,
@@ -159,6 +183,10 @@ export class SpriteLayer {
     this.uv = new Float32Array(max * 4);
     this.tint = new Float32Array(max * 3);
     this.skin = new Float32Array(max * 3);
+    this.frame = new Int32Array(max);
+    this.tintKey = new Int32Array(max);
+    this.skinKey = new Int32Array(max);
+    this.dotIndex = atlas.frames.dot?.index ?? -1;
     const attr = (name: string, arr: Float32Array, k: number) => {
       const a = new THREE.InstancedBufferAttribute(arr, k);
       a.setUsage(THREE.DynamicDrawUsage);
@@ -195,9 +223,9 @@ export class SpriteLayer {
     if (this.n >= this.max) return;
     const f = this.atlas.frames[name];
     const k = this.n++;
-    this.names[k] = name;
-    this.tints[k] = tint;
-    this.skins[k] = skin;
+    this.frame[k] = f.index;
+    this.tintKey[k] = packRgb(tint);
+    this.skinKey[k] = skin === tint ? this.tintKey[k] : packRgb(skin);
     const w = (h * f.w) / f.h;
     this.offset[k * 2] = Math.round(x - w / 2);
     this.offset[k * 2 + 1] = Math.round(y);
@@ -230,12 +258,13 @@ export class SpriteLayer {
       const h = this.size[k * 2 + 1];
       const x = this.offset[k * 2];
       const y = height - this.offset[k * 2 + 1] - h;
-      const name = this.names[k];
-      if (name === 'dot') {
-        const t = this.tints[k];
-        ctx.fillStyle = `rgb(${t[0] | 0},${t[1] | 0},${t[2] | 0})`;
+      if (this.frame[k] === this.dotIndex) {
+        const t = this.tintKey[k];
+        let fill = this.dotFill.get(t);
+        if (!fill) this.dotFill.set(t, (fill = `rgb(${(t >> 16) & 255},${(t >> 8) & 255},${t & 255})`));
+        ctx.fillStyle = fill;
         ctx.fillRect(x, y, w, h);
-      } else ctx.drawImage(this.atlas.tinted(name, this.tints[k], this.skins[k]), x, y, w, h);
+      } else ctx.drawImage(this.atlas.tintedKey(this.frame[k], this.tintKey[k], this.skinKey[k]), x, y, w, h);
     }
   }
 
