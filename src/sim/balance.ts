@@ -882,3 +882,5 @@ export const DOMESTIC_REACH = 20;
 export const USELESS_GOOD = 0.4;
 export const BRONZE_AFTER_IRON = 0.8;
 export const STEAM_COAL = 1.5;
+/** Defesa pelo relevo (`homeGround`): quem luta no próprio território vale 1 + DEFENSE_RELIEF × relevo (0 plano, 1 serra). */
+export const DEFENSE_RELIEF = 0.5;

@@ -8,6 +8,7 @@ import { fullNeeds, herdFor } from './needs';
 import { TECH_BY_ID } from './progress';
 import { domesticable, earthCatalog, herdFormsOf, nativeSpecies } from './species';
 import { usefulness } from './trade';
+import { ROLE } from './roles';
 
 /**
  * Bioma, flora e sociedade (agente 3C): regras pequenas, cada uma conferida sem depender da história
@@ -353,6 +354,25 @@ describe('preço por utilidade na era', () => {
     const before = eco.priceAt(v, 'iron');
     v.techs = ['ceramica', 'fundicao', 'siderurgia'];
     expect(eco.priceAt(v, 'iron')).toBeCloseTo(before / B.USELESS_GOOD, 5);
+  });
+});
+
+describe('defesa pelo relevo e densidade na costa', () => {
+  it('quem luta em casa, no alto e no acidentado, vale mais; longe de casa, não', () => {
+    const { eco } = world();
+    const v = eco.villages[0];
+    let i = -1;
+    for (const j of eco.residents(v.id)) i = j;
+    expect(i).toBeGreaterThanOrEqual(0);
+    eco.role[i] = ROLE.soldier;
+    eco.x[i] = v.x;
+    eco.y[i] = v.y;
+    v.area = { ...eco.sampleArea(v), relief: 0 };
+    const flat = eco.strength(i);
+    v.area = { ...v.area, relief: 1 };
+    expect(eco.strength(i)).toBeCloseTo(flat * (1 + B.DEFENSE_RELIEF), 5);
+    eco.x[i] = (v.x + eco.radius(v) + 5) % eco.map.width;
+    expect(eco.homeGround(i, v)).toBe(1);
   });
 });
 

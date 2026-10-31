@@ -69,7 +69,16 @@ export const warPart = {
     const arms = 1 + 0.5 * st.weaponTier * Math.min(1, st.weapons / 10);
     const armor = 1 + 0.25 * st.armorTier * Math.min(1, st.armor / 10);
     const arena = this.villages[v.kingdom].houses.some((h) => h.kind === 'wonder') && this.villages[v.kingdom].culture.value === 'guerra' ? 1.15 : 1;
-    return base * (1 + 0.15 * Math.floor(v.tech)) * arms * armor * arena * this.campaign(i, v);
+    return base * (1 + 0.15 * Math.floor(v.tech)) * arms * armor * arena * this.campaign(i, v) * this.homeGround(i, v);
+  },
+
+  /**
+   * Quem luta no próprio território, num lugar alto e acidentado, vale mais (bioma e sociedade: a montanha defende):
+   * 1 + DEFENSE_RELIEF × relevo da área (`AreaYield.relief`, 0 plano a 1 serra). Fora de casa, nada.
+   */
+  homeGround(this: Ecosystem, i: number, v: Village): number {
+    if (this.distance(v, this.x[i], this.y[i]) > this.radius(v)) return 1;
+    return 1 + B.DEFENSE_RELIEF * this.areaOf(v).relief;
   },
 
   /** Soldado montado: a parte dos soldados do assentamento que tem cavalo, do Bronze em diante (RF-VIDA-223). */
