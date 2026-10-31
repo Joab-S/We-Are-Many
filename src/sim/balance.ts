@@ -668,6 +668,60 @@ export const SITE_W_MOTIVE = 1.5;
 /** Distância ideal da origem (tiles) e quanto a nota cai por tile fora dela. */
 export const SITE_IDEAL_DIST = 30;
 export const SITE_DIST_COST = 0.03;
+
+// ---- Onde assentar (onda 3, frente 3A): captação no alcance real, água graduada, penalidades graduais e campo de notas ----
+
+/**
+ * Captação (RF-AS-04): o lugar novo é avaliado no alcance de quem vai morar nele, não só no disco de SITE_RADIUS.
+ * O raio parte do território que o lugar terá com SITE_CATCH_POP moradores (`radius`) e soma o alcance da coleta
+ * (GATHER_REACH vezes o fator do modo de vida), do corte (WOOD_REACH) e da pedreira (STONE_REACH), como no trabalho
+ * (`reachOf`). SITE_CATCH_POP é também a gente que divide a captação na distribuição livre ideal (IFD).
+ */
+export const SITE_CATCH_POP = 25;
+/** Modo de vida pela era (`catchRadius`, até haver `Village.lifeway`): coletores da Pedra vão mais longe atrás de comida. */
+export const SITE_LIFEWAY_GATHER = [1.4, 1.15, 1, 1, 1, 1];
+/** Decaimento da captação: cada célula pesa 1/(1 + d/SITE_DECAY), com d em tiles até o centro dela. */
+export const SITE_DECAY = 12;
+/** Árvores de pé e rocha (fração da área da captação) que já valem mata e pedreira cheias. */
+export const SITE_WOOD_FULL = 0.25;
+export const SITE_ROCK_FULL = 0.08;
+/** Pesca: quanto a fração de água (mar ou lago) na captação soma à comida (a terra conta só a vegetação). */
+export const SITE_FISH_FOOD = 0.35;
+/** Jazida conhecida pelo reino e útil na era (`wanted`): peso na nota, até a soma dos decaimentos chegar a 1. */
+export const SITE_W_ORE = 0.6;
+/** Peso da pedra e do minério por era (Pedra, Bronze, Ferro, Medieval...): a técnica muda o que vale ter por perto. */
+export const SITE_ERA_ROCK = [0.5, 1, 1.3, 1.5, 1.5, 1.5];
+export const SITE_ERA_ORE = [0.4, 1, 1.2, 1.2, 1.3, 1.3];
+/** Clima: quanto vale o centro da faixa de temperatura da espécie (0 na borda). Fora da faixa, com folga de SITE_TEMP_MARGIN K, ninguém funda. */
+export const SITE_W_CLIMATE = 0.4;
+export const SITE_TEMP_MARGIN = 0;
+/** Vegetação mínima no centro, igual em todas as entradas (antes ia de 0 a 0,3); com poço sobre água no subsolo, nenhuma. */
+export const SITE_CENTER_GREEN = 0.2;
+/**
+ * Água graduada: corpo d'água com SITE_SEA_SIZE tiles ou mais é mar, salgado (dá peixe e porto, não mata a sede).
+ * Água doce é lago a até SITE_WATER_RANGE, nascente e córrego no solo encharcado (SITE_SPRING_MOISTURE: o mapa não
+ * tem rios) ou, da Idade do Ferro em diante, poço sobre água no subsolo (SITE_WELL_MOISTURE).
+ */
+export const SITE_SEA_SIZE = 600;
+export const SITE_SPRING_MOISTURE = 0.6;
+/** Nota da água doce (0 a 1): lago a até 3 tiles e na borda do alcance, nascente (no limiar e no solo mais úmido) e poço. */
+export const SITE_WATER_LAKE_NEAR = 1;
+export const SITE_WATER_LAKE_FAR = 0.4;
+export const SITE_WATER_SPRING = [0.5, 0.8];
+export const SITE_WATER_WELL = 0.5;
+/** Penalidades graduais: sobreposição da captação com a dos lugares vivos (0 a 1) e distância da capital do reino (como no Civ IV). */
+export const SITE_W_OVERLAP = 1.2;
+export const SITE_CAPITAL_FREE = 45;
+export const SITE_CAPITAL_COST = 0.02;
+/** Melhor de N: candidatos que entram na nota e quantos dos melhores passam, em ordem, pelo exame da área (`siteProblem`). */
+export const SITE_CANDIDATES = 24;
+export const SITE_VETO_K = 4;
+/** Nota mínima para uma família, uma colônia ou colonos de barco fundarem: abaixo dela ninguém vai (fundação ruim morre cedo). */
+export const SITE_MIN_VALUE = 2.5;
+/** Campo de notas (mapa de influência): células sujas refeitas por passo, além da fatia da volta anual. */
+export const SITE_DIRTY_PER_STEP = 8;
+/** Desembarque: raio (tiles) em volta da praia onde os colonos procuram o melhor lugar antes de desistir. */
+export const SITE_LANDING_REACH = 8;
 /** Sítio rural (RF-AS-02): distância do núcleo, famílias por sítio, chance por ano quando falta roça e sítios por assentamento. */
 export const FARMSTEAD_MIN = 6;
 export const FARMSTEAD_MAX = 15;

@@ -36,23 +36,77 @@ export interface SiteLook {
   motive: number;
   /** Distância (tiles) até a origem. */
   dist: number;
+  // Onda 3 (onde assentar): os campos abaixo são opcionais, e ausentes não mudam a nota.
+  /** Jazidas conhecidas pelo reino e úteis na era, ao alcance da pedreira (0 a 1, com decaimento). */
+  ore?: number;
+  /** Era de quem funda: a técnica muda o peso da pedra e do minério. */
+  era?: number;
+  /** Parte da captação que já é de lugares vivos (0 a 1). */
+  overlap?: number;
+  /** Gente que já explora a captação: os moradores de cada vizinho na parte da área dele que cai nela (IFD). */
+  crowd?: number;
+  /** Distância (tiles) até a capital do reino de quem funda. */
+  capital?: number;
+  /** Clima no centro: 1 no meio da faixa de temperatura da espécie, 0 na borda. */
+  climate?: number;
 }
 
-/** Nota de um sítio: soma ponderada do que ele tem, menos o desvio da distância ideal. */
+/**
+ * Nota de um sítio: soma ponderada do que ele tem, menos o desvio da distância ideal (RF-AS-04).
+ * O que a captação dá (comida, mata, pedra, minério) é dividido com quem já a explora (distribuição livre
+ * ideal: o valor cai com a densidade); a sobreposição com outros lugares e a distância da capital descontam.
+ */
 export function siteValue(s: SiteLook): number {
+  const era = s.era === undefined ? -1 : Math.max(0, Math.min(B.SITE_ERA_ROCK.length - 1, Math.floor(s.era)));
+  const rockW = era < 0 ? 1 : B.SITE_ERA_ROCK[era];
+  const oreW = era < 0 ? 1 : B.SITE_ERA_ORE[era];
+  const share = 1 / (1 + (s.crowd ?? 0) / B.SITE_CATCH_POP);
   return (
     B.SITE_W_WATER * s.water +
-    B.SITE_W_FERTILE * s.fertile +
-    B.SITE_W_FOREST * s.forest +
-    B.SITE_W_ROCK * s.rock +
+    share * (B.SITE_W_FERTILE * s.fertile + B.SITE_W_FOREST * s.forest + B.SITE_W_ROCK * rockW * s.rock + B.SITE_W_ORE * oreW * (s.ore ?? 0)) +
     B.SITE_W_FLAT * s.flat +
     B.SITE_W_COAST * s.coast +
     B.SITE_W_RUIN * s.ruin +
     B.SITE_W_DEFENSE * s.defense +
     B.SITE_W_ROUTE * s.route +
-    B.SITE_W_MOTIVE * s.motive -
+    B.SITE_W_MOTIVE * s.motive +
+    B.SITE_W_CLIMATE * (s.climate ?? 0) -
+    B.SITE_W_OVERLAP * (s.overlap ?? 0) -
+    B.SITE_CAPITAL_COST * Math.max(0, (s.capital ?? 0) - B.SITE_CAPITAL_FREE) -
     B.SITE_DIST_COST * Math.abs(s.dist - B.SITE_IDEAL_DIST)
   );
+}
+
+/** Peso de uma célula da captação a `d` tiles do centro do sítio (decaimento). */
+export function siteDecay(d: number): number {
+  return 1 / (1 + d / B.SITE_DECAY);
+}
+
+/** Área da interseção de dois discos de raios `r1` e `r2` com centros a `d` (a lente). */
+export function lensArea(r1: number, r2: number, d: number): number {
+  if (r1 <= 0 || r2 <= 0 || d >= r1 + r2) return 0;
+  const small = Math.min(r1, r2);
+  if (d <= Math.abs(r1 - r2)) return Math.PI * small * small;
+  const a1 = r1 * r1 * Math.acos(Math.max(-1, Math.min(1, (d * d + r1 * r1 - r2 * r2) / (2 * d * r1))));
+  const a2 = r2 * r2 * Math.acos(Math.max(-1, Math.min(1, (d * d + r2 * r2 - r1 * r1) / (2 * d * r2))));
+  const k = 0.5 * Math.sqrt(Math.max(0, (-d + r1 + r2) * (d + r1 - r2) * (d - r1 + r2) * (d + r1 + r2)));
+  return a1 + a2 - k;
+}
+
+/**
+ * Água doce de um sítio, de 0 (nenhuma: ninguém funda) a 1. `lake` é a distância (tiles) até o lago mais
+ * perto (Infinity sem lago ao alcance; o mar não conta), `moisture` a umidade do solo no centro e `well` se
+ * o povo cava poço (Idade do Ferro). Sem rios no mapa, o solo encharcado faz as vezes de nascente e córrego.
+ */
+export function waterGrade(lake: number, moisture: number, well: boolean): number {
+  let g = 0;
+  if (lake <= B.SITE_WATER_RANGE) g = lake <= 3 ? B.SITE_WATER_LAKE_NEAR : B.SITE_WATER_LAKE_NEAR - ((B.SITE_WATER_LAKE_NEAR - B.SITE_WATER_LAKE_FAR) * (lake - 3)) / Math.max(1, B.SITE_WATER_RANGE - 3);
+  if (moisture >= B.SITE_SPRING_MOISTURE) {
+    const [lo, hi] = B.SITE_WATER_SPRING;
+    g = Math.max(g, lo + ((hi - lo) * (moisture - B.SITE_SPRING_MOISTURE)) / Math.max(0.01, 1 - B.SITE_SPRING_MOISTURE));
+  }
+  if (well && moisture >= B.SITE_WELL_MOISTURE) g = Math.max(g, B.SITE_WATER_WELL);
+  return g;
 }
 
 /** Menor distância permitida entre um lugar novo e um lugar de nível `tier` (RF-AS-05). */
