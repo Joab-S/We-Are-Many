@@ -128,6 +128,41 @@ describe('campo de notas dos sítios (mapa de influência)', () => {
   });
 });
 
+describe('água graduada no exame da área', () => {
+  it('o mar não mata a sede; lago, nascente no solo encharcado e poço sobre água no subsolo, sim', () => {
+    const { map, eco, s } = flatWorld(256, 64, 0.5);
+    const dry = (m: number) => paint(map, 0, 0, 255, 63, (i) => (map.moisture[i] = m));
+    dry(0.3);
+    // Mar grande a 10 tiles: dá peixe, não água doce.
+    paint(map, 50, 0, 120, 63, water(map));
+    expect(eco.waterBodies()[32 * map.width + 60]).toBe(2);
+    expect(eco.siteProblem(s, 40, 32)).toContain('água');
+    // Um lago a 10 tiles resolve.
+    paint(map, 180, 30, 184, 34, water(map));
+    eco.sweep(182, 32, 3);
+    expect(eco.waterBodies()[32 * map.width + 182]).toBe(1);
+    expect(eco.siteProblem(s, 170, 32)).toBeNull();
+    expect(eco.siteProblem(s, 210, 32)).toContain('água');
+    // Solo encharcado: nascentes e córregos.
+    dry(B.SITE_SPRING_MOISTURE + 0.05);
+    expect(eco.siteProblem(s, 210, 32)).toBeNull();
+    // Poço: só da Idade do Ferro em diante e com água no subsolo.
+    dry(B.SITE_WELL_MOISTURE + 0.05);
+    expect(eco.siteProblem(s, 210, 32, 0)).toContain('água');
+    expect(eco.siteProblem(s, 210, 32, 2)).toBeNull();
+    dry(B.SITE_WELL_MOISTURE - 0.05);
+    expect(eco.siteProblem(s, 210, 32, 2)).toContain('água');
+  });
+
+  it('o poço sobre água no subsolo também alivia o verde que falta (poços abrem o deserto)', () => {
+    const { map, eco, s } = flatWorld(128, 64, B.SITE_MIN_FOOD * 0.7);
+    paint(map, 0, 0, 127, 63, (i) => (map.moisture[i] = B.SITE_SPRING_MOISTURE + 0.05));
+    // Com nascente mas sem pesca nem poço, o verde não basta.
+    expect(eco.siteProblem(s, 60, 32, 0)).toContain('comida');
+    expect(eco.siteProblem(s, 60, 32, 2)).toBeNull();
+  });
+});
+
 describe('filtro único e caminho a pé', () => {
   it('o filtro rápido pede a faixa de temperatura da espécie, verde no centro (ou poço sobre água no subsolo) e espaço', () => {
     const { map, eco, s } = flatWorld();

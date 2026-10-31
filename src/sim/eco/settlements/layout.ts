@@ -7,7 +7,7 @@ import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
 import { Biome, temperatureAt } from '../../../procgen/surface';
 import { planItems, type PlanItem } from '../../plan';
-import { spacingFor } from '../../community';
+import { spacingFor, waterGrade } from '../../community';
 import { VOCATION_BUILDING } from '../../needs';
 import { wrapDx } from '../../settlement';
 import { buildingType } from '../../buildingTypes';
@@ -319,9 +319,11 @@ export const layoutPart = {
    * assentamento, ou null se serve (seção 19.18). Antes de se estabelecer, o
    * povo olha a área em volta (SITE_RADIUS): nada de lava ou chão em brasa
    * por perto (pegaria fogo nas redondezas), área plana e firme suficiente
-   * para as casas, sem penhasco cortando a área, água a uma caminhada (rio,
-   * lago ou mar; da Idade do Ferro em diante, um poço no solo úmido) e comida
-   * (vegetação para coletar, caçar e plantar, ou o mar para pescar).
+   * para as casas, sem penhasco cortando a área, água doce a uma caminhada
+   * (lago; nascente no solo encharcado; da Idade do Ferro em diante, poço
+   * sobre água no subsolo; o mar é salgado e não conta, onda 3) e comida
+   * (vegetação para coletar, caçar e plantar; com água para pescar na área
+   * ou poço para irrigar, basta a metade).
    */
   siteProblem(this: Ecosystem, s: number, x: number, y: number, tech = 0): string | null {
     const map = this.map;
@@ -330,6 +332,7 @@ export const layoutPart = {
     const center = this.tileAt(cx, cy);
     if (center < 0 || !isLand(map, center) || !this.habitable(s, center)) return 'o lugar não é habitável para eles';
     const sp = this.species[s];
+    const bodies = this.waterBodies();
     const R = B.SITE_RADIUS;
     let total = 0;
     let land = 0;
@@ -337,7 +340,9 @@ export const layoutPart = {
     let veg = 0;
     let lo = Infinity;
     let hi = -Infinity;
-    let water = false;
+    // Lago mais perto (tiles) e água na área (pesca, mar ou lago).
+    let lake = Infinity;
+    let fish = false;
     for (let dy = -R; dy <= R; dy++) {
       for (let dx = -R; dx <= R; dx++) {
         if (dx * dx + dy * dy > R * R) continue;
@@ -346,7 +351,8 @@ export const layoutPart = {
         total++;
         if (map.biome[t] === Biome.Lava) return 'tem lava ali: o fogo pegaria nas casas e na mata em volta';
         if (isWater(map, t)) {
-          water = true;
+          fish = true;
+          if (bodies[t] === 1) lake = Math.min(lake, Math.hypot(dx, dy));
           continue;
         }
         land++;
@@ -370,12 +376,14 @@ export const layoutPart = {
         const t = this.tileAt(cx + dx, cy + dy);
         if (t < 0) continue;
         if (d2 <= L * L && (map.biome[t] === Biome.Lava || temperatureAt(map, t) > 500)) return 'tem lava por perto: o fogo pegaria nas redondezas';
-        if (!water && d2 <= W * W && isWater(map, t)) water = true;
+        if (d2 <= W * W && d2 < lake * lake && bodies[t] === 1 && isWater(map, t)) lake = Math.sqrt(d2);
       }
     }
-    if (!water && !(tech >= 2 && map.moisture[center] >= B.SITE_WELL_MOISTURE)) return 'não há água por perto';
+    const moist = map.moisture[center];
+    if (waterGrade(lake, moist, tech >= 2) <= 0) return 'não há água doce por perto: o mar é salgado e o solo é seco demais para nascentes ou poço';
+    const well = tech >= 2 && moist >= B.SITE_WELL_MOISTURE;
     const food = veg / Math.max(1, land);
-    if (food < B.SITE_MIN_FOOD * (water && (land < total || tech >= 2) ? 0.5 : 1)) return 'não há comida por perto: quase nada verde para coletar, caçar ou plantar';
+    if (food < B.SITE_MIN_FOOD * (fish || well ? 0.5 : 1)) return 'não há comida por perto: quase nada verde para coletar, caçar ou plantar';
     return null;
   },
 
