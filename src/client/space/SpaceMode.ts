@@ -10,6 +10,7 @@ import type { AdaptiveResolution } from '../quality';
 import type { GameRenderer } from '../renderer';
 import type { GameState } from '../state';
 import { disposeGlowTexture } from './bodies';
+import { CommandMap, KeyBindings, MANEUVERS } from './commands';
 import { disposeObject } from './dispose';
 import { FloatingOrigin } from './FloatingOrigin';
 import { GuideHud } from './GuideHud';
@@ -23,7 +24,6 @@ import { SystemManager } from './SystemManager';
 
 /** Passo máximo do laço do espaço, em segundos (ver mode.ts). */
 export const SPACE_MAX_DT = 0.25;
-const MANUAL_KEYS = ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyQ', 'KeyE'];
 
 export interface SpaceCallbacks {
   onObserve(planet: PlanetData): void;
@@ -43,6 +43,7 @@ export interface SpaceCallbacks {
  * - NavDirector: GUIA, alvo, sugestões, varredura e piloto automático;
  * - SpaceHud: HUD em DOM, com atualização estrangulada;
  * - StarField, GuideHud e ProbeControl, como antes.
+ * Teclas e botões passam pelos comandos (commands.ts).
  */
 export class SpaceMode implements GameMode {
   private readonly scene = new THREE.Scene();
@@ -58,6 +59,8 @@ export class SpaceMode implements GameMode {
   private readonly probes: ProbeControl;
   private readonly director: NavDirector;
   private readonly world: FlightWorld;
+  private readonly bindings = new KeyBindings();
+  private readonly commands: CommandMap;
   private readonly keys: FlightKeys = { thrust: false, brake: false, left: false, right: false, up: false, down: false, rollLeft: false, rollRight: false, turbo: false };
   private raf = 0;
   private lastTime = performance.now();
@@ -86,13 +89,15 @@ export class SpaceMode implements GameMode {
     this.scene.add(this.stars.group);
     this.input = new Input(renderer.domElement, true);
     this.ship = new ShipController(state.shipPos, state.shipQuat);
+    this.commands = this.buildCommands();
 
-    this.hud = new SpaceHud(hud);
+    this.hud = new SpaceHud(hud, this.commands, this.bindings);
     this.guide = new GuideHud(this.hud.root, {
       select: (t) => this.director.setTarget(t),
       engage: (t) => this.director.engage(t),
       search: (text) => this.director.searchStars(text),
       bookmarkRemove: (id) => this.director.removeBookmark(id),
+      keyOf: (action) => this.bindings.label(action),
     });
     this.probes = new ProbeControl(this.hud.root, state.probes, this.scene, (text, tone) => this.guide.say(text, tone), (text) => this.director.addLog(text));
     this.director = new NavDirector(state, this.stars, this.systems, this.guide, this.probes);
@@ -157,14 +162,16 @@ export class SpaceMode implements GameMode {
     const nav = state.nav;
     state.time += dt;
 
-    this.handleKeys(now);
+    // Comandos das teclas apertadas neste quadro (observar troca de modo: nada mais deste quadro).
+    this.commands.dispatch(this.input, this.bindings, () => this.disposed);
+    if (this.disposed) return;
     this.systems.update(this.director.nearestStar);
     this.systems.updateBodies(state.time, nav.autopilot ? nav.target?.id ?? null : null);
     const view = this.director.resolveView();
 
     // Voo: o piloto automático desliga se o piloto mexer em algo ou o alvo sumir.
     if (nav.autopilot) {
-      const manual = this.ship.takesOver(MANUAL_KEYS.some((c) => this.input.hit(c)), this.input);
+      const manual = this.ship.takesOver(this.bindings.anyHit(this.input, MANEUVERS), this.input);
       if (manual || !view) this.director.disengage(manual);
     }
     this.readFlightKeys();
@@ -185,13 +192,6 @@ export class SpaceMode implements GameMode {
       this.hud.renderOrbitMenu();
       this.director.orbitEntered(this.systems.orbitBody);
     }
-    const orbit = this.systems.orbitBody;
-    if (orbit && this.input.hit('KeyF') && orbit.planet?.kind === 'rocky') {
-      state.orbitPlanetId = orbit.planet.id;
-      this.callbacks.onObserve(orbit.planet);
-      // Ao observar, o modo é trocado e descartado na hora: nada mais deste quadro.
-      if (this.disposed) return;
-    }
 
     this.renderer.autoClear = false;
     this.renderer.clear();
@@ -204,36 +204,57 @@ export class SpaceMode implements GameMode {
     this.input.endFrame();
   };
 
+  /** Teclas de voo seguradas, pelas ligações de teclas. */
   private readFlightKeys(): void {
     const input = this.input;
+    const b = this.bindings;
     const k = this.keys;
-    k.thrust = input.down('KeyW');
-    k.brake = input.down('KeyS');
-    k.left = input.down('KeyA');
-    k.right = input.down('KeyD');
-    k.up = input.down('Space');
-    k.down = input.down('ShiftLeft') || input.down('ShiftRight');
-    k.rollLeft = input.down('KeyQ');
-    k.rollRight = input.down('KeyE');
-    k.turbo = input.down('Tab');
+    k.thrust = b.down(input, 'thrust');
+    k.brake = b.down(input, 'brake');
+    k.left = b.down(input, 'left');
+    k.right = b.down(input, 'right');
+    k.up = b.down(input, 'up');
+    k.down = b.down(input, 'down');
+    k.rollLeft = b.down(input, 'rollLeft');
+    k.rollRight = b.down(input, 'rollRight');
+    k.turbo = b.down(input, 'turbo');
   }
 
-  private handleKeys(now: number): void {
-    const input = this.input;
-    if (input.hit('Digit1')) this.jumpToEarth();
-    if (input.hit('Digit2')) this.jumpToStar('Rigil Kentaurus');
-    if (input.hit('Digit3')) this.jumpToStar('Sirius');
-    if (input.hit('KeyG')) this.guide.togglePanel();
-    if (input.hit('KeyC')) this.director.toggleCruise();
-    if (input.hit('KeyJ')) this.director.toggleAutopilot();
-    if (input.hit('KeyN')) this.director.nextSuggestion();
-    if (input.hit('KeyM')) this.probes.send(this.probes.pick(false), this.state.shipPos);
-    if (input.hit('KeyR')) this.probes.send(this.probes.pick(true), this.state.shipPos);
-    if (input.hit('KeyT')) this.director.lockAtCrosshair();
-    if (input.hit('KeyV')) this.director.scan(now);
-    if (input.hit('KeyB')) this.director.addBookmark();
-    if (input.hit('KeyH')) this.director.goHome();
-    if (input.hit('KeyX')) this.director.dropTarget();
+  /**
+   * Ação → comando (Command). A ordem é a ordem em que as teclas são lidas
+   * a cada quadro; rótulo e ícone servem aos botões do HUD. Os comandos só
+   * usam os componentes quando executam, então a tabela pode ser montada
+   * antes deles.
+   */
+  private buildCommands(): CommandMap {
+    const send = (rings: boolean) => this.probes.send(this.probes.pick(rings), this.state.shipPos);
+    return new CommandMap({
+      jumpEarth: { label: 'Terra', execute: () => this.jumpToEarth() },
+      jumpAlpha: { label: 'Alfa Centauri', execute: () => this.jumpToStar('Rigil Kentaurus') },
+      jumpSirius: { label: 'Sirius', execute: () => this.jumpToStar('Sirius') },
+      panel: { label: 'Painel do GUIA', execute: () => this.guide.togglePanel() },
+      cruise: { label: 'Cruzeiro', icon: 'cruise', execute: () => this.director.toggleCruise() },
+      autopilot: { label: 'Piloto automático', icon: 'auto', execute: () => this.director.toggleAutopilot() },
+      suggest: { label: 'Rastrear', icon: 'target', execute: () => this.director.nextSuggestion() },
+      probe: { label: 'Sonda', icon: 'probe', execute: () => send(false) },
+      probeRings: { label: 'Sonda aos anéis', icon: 'orbit', execute: () => send(true) },
+      lock: { label: 'Travar alvo na mira', execute: () => this.director.lockAtCrosshair() },
+      scan: { label: 'Varredura', icon: 'scan', execute: () => this.director.scan(performance.now()) },
+      bookmark: { label: 'Marcador', icon: 'flag', execute: () => this.director.addBookmark() },
+      home: { label: 'Casa', execute: () => this.director.goHome() },
+      clearTarget: { label: 'Limpar alvo', execute: () => this.director.dropTarget() },
+      observe: { label: 'Observar superfície', icon: 'eye', execute: () => this.observe() },
+      probesPanel: { label: 'Sondas', execute: () => this.hud.toggleProbes() },
+      devPanel: { label: 'Dados técnicos', execute: () => this.hud.toggleDev() },
+    });
+  }
+
+  /** F: em órbita de um planeta rochoso, desce para a superfície (o modo é trocado na hora). */
+  private observe(): void {
+    const p = this.systems.orbitBody?.planet;
+    if (p?.kind !== 'rocky') return;
+    this.state.orbitPlanetId = p.id;
+    this.callbacks.onObserve(p);
   }
 
   // Atalhos de teste da Fase 0 para saltar entre estrelas.

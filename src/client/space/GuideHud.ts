@@ -45,6 +45,8 @@ export interface GuideHandlers {
   engage(target: NavTarget): void;
   search(text: string): NavEntry[];
   bookmarkRemove(id: string): void;
+  /** Tecla ligada a um comando (commands.ts), para os botões e dicas. */
+  keyOf(action: 'panel' | 'suggest' | 'scan' | 'autopilot'): string;
 }
 
 const GROUP_TITLES: Record<EntryGroup, string> = {
@@ -114,10 +116,10 @@ export class GuideHud {
         <div class="guide-panel-head">
           <div class="hud-title">GUIA · NAVEGAÇÃO</div>
           <input type="text" placeholder="Buscar estrela, planeta, ponto..." spellcheck="false" />
-          <button class="guide-close" title="Fechar (G)">✕</button>
+          <button class="guide-close" title="Fechar (${handlers.keyOf('panel')})">✕</button>
         </div>
         <div class="guide-panel-body"></div>
-        <div class="guide-panel-foot"><kbd>↑↓</kbd>escolher <kbd>Enter</kbd>ir (piloto automático) · clique seleciona, <b>Ir</b> liga o piloto · <kbd>G</kbd>fecha</div>
+        <div class="guide-panel-foot"><kbd>↑↓</kbd>escolher <kbd>Enter</kbd>ir (piloto automático) · clique seleciona, <b>Ir</b> liga o piloto · <kbd>${handlers.keyOf('panel')}</kbd>fecha</div>
       </div>`;
     parent.appendChild(this.root);
     this.markers = this.root.querySelector('.nav-markers')!;
@@ -277,16 +279,16 @@ export class GuideHud {
       html = top
         ? `<div class="gc-head">${icon('scan')}<span>Sinal detectado</span>${chev}</div>
           <div class="gc-body"><span class="gc-ring">${icon('target')}</span><div><b class="tname">${esc(top.target.name)}</b><small>≈ ${formatEta(top.eta)}</small></div></div>
-          <button class="gc-btn" data-key="KeyN" title="${esc(top.reason)}">${icon('target')}Rastrear<kbd>N</kbd></button>`
+          <button class="gc-btn" data-cmd="suggest" title="${esc(top.reason)}">${icon('target')}Rastrear<kbd>${this.handlers.keyOf('suggest')}</kbd></button>`
         : `<div class="gc-head">${icon('scan')}<span>Sem sinais</span>${chev}</div>
           <div class="gc-body"><small>Faça uma varredura para achar destinos.</small></div>
-          <button class="gc-btn" data-key="KeyV">${icon('scan')}Varredura<kbd>V</kbd></button>`;
+          <button class="gc-btn" data-cmd="scan">${icon('scan')}Varredura<kbd>${this.handlers.keyOf('scan')}</kbd></button>`;
     } else {
       const auto = mode === 'auto';
       html = `<div class="gc-head">${icon('target')}<span>Alvo${auto ? ' · piloto automático' : mode === 'cruise' ? ' · cruzeiro' : ''}</span>${chev}</div>
         <div class="gc-body"><span class="gc-ring">${icon('target')}</span><div><b class="tname">${esc(view.target.name)}</b><small>${formatDistance(Math.max(0, view.dist))} · ≈ ${formatEta(this.etaFor(view))}</small></div></div>
         <div class="nav-cue" data-cue></div>
-        <button class="gc-btn${auto ? ' on' : ''}" data-key="KeyJ">${icon('auto')}${auto ? 'Desligar piloto' : 'Piloto automático'}<kbd>J</kbd></button>`;
+        <button class="gc-btn${auto ? ' on' : ''}" data-cmd="autopilot">${icon('auto')}${auto ? 'Desligar piloto' : 'Piloto automático'}<kbd>${this.handlers.keyOf('autopilot')}</kbd></button>`;
     }
     this.card.hidden = false;
     if (html === this.cardHtml) return;

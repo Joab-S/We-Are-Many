@@ -9,6 +9,7 @@ import type { AdaptiveResolution } from '../quality';
 import type { GameRenderer } from '../renderer';
 import type { GameState } from '../state';
 import { icon as svgIcon } from '../ui/icons';
+import type { CommandMap, KeyBindings, SpaceAction } from './commands';
 import type { GuideHud } from './GuideHud';
 import type { NavDirector } from './NavDirector';
 import type { ProbeControl } from './ProbeControl';
@@ -31,14 +32,11 @@ const COMPASS_TAPE = (() => {
   return html;
 })();
 
-/** Barra de comandos embaixo: tecla, ícone e nome. Clicar faz o mesmo que apertar a tecla; o resto fica na busca (G ou Ctrl K). */
-const CMDS: [string, string, string][] = [
-  ['KeyJ', 'auto', 'Piloto automático'],
-  ['KeyC', 'cruise', 'Cruzeiro'],
-  ['KeyV', 'scan', 'Varredura'],
-  ['KeyM', 'probe', 'Sonda'],
-  ['KeyB', 'flag', 'Marcador'],
-];
+/**
+ * Barra de comandos embaixo: ícone, nome e tecla de cada comando (commands.ts).
+ * Clicar executa o mesmo comando da tecla; o resto fica na busca (G ou Ctrl K).
+ */
+const CMDS: SpaceAction[] = ['autopilot', 'cruise', 'scan', 'probe', 'bookmark'];
 
 const TARGET_ICON = svgIcon('target');
 
@@ -86,12 +84,16 @@ export class SpaceHud {
   private readonly fwd = new THREE.Vector3();
   private readonly zero = new THREE.Vector3();
 
-  constructor(parent: HTMLElement) {
+  constructor(
+    parent: HTMLElement,
+    private readonly commands: CommandMap,
+    private readonly keys: KeyBindings,
+  ) {
     this.root = document.createElement('div');
     this.root.className = 'space-hud';
     this.root.innerHTML = `
       <div class="hud-panel hud-top-left">
-        <button class="sp-head" data-a="probes" title="Mostrar ou esconder as sondas">${svgIcon('ship')}<span>We Are Many</span>${svgIcon('play', 'chev')}</button>
+        <button class="sp-head" data-cmd="probesPanel" title="Mostrar ou esconder as sondas">${svgIcon('ship')}<span>We Are Many</span>${svgIcon('play', 'chev')}</button>
         <div class="sp-row">${svgIcon('bolt')}<span>Potência</span><b data-h="throttle"></b></div>
         <div class="sp-row turbo">${svgIcon('cruise')}<span>Turbo</span><span class="turbo-bar"><i data-h="turbo"></i></span></div>
         <div class="sp-row">${svgIcon('probe')}<span>Sondas</span><b data-h="probes"></b></div>
@@ -113,27 +115,25 @@ export class SpaceHud {
         <div><span class="k">Resolução</span> <b data-h="resolution"></b></div>
         <div><span class="k">Posição</span> <b data-h="position"></b></div>
       </div>
-      <button class="dev-pill" data-a="dev" title="Dados técnicos"><i></i>DEV</button>
+      <button class="dev-pill" data-cmd="devPanel" title="Dados técnicos"><i></i>DEV</button>
       <div class="hud-crosshair"></div>
       <div class="hud-orbit hud-panel" data-h="orbit" hidden></div>
       <div class="hud-help">
-        ${CMDS.map(([key, ico, name]) => `<button class="cmd" data-key="${key}" title="${name} (${key.replace('Key', '')})">${svgIcon(ico)}<span>${name}</span><kbd>${key.replace('Key', '')}</kbd></button>`).join('')}
+        ${CMDS.map((a) => {
+          const cmd = commands.get(a)!;
+          const key = keys.label(a);
+          return `<button class="cmd" data-cmd="${a}" title="${cmd.label} (${key})">${svgIcon(cmd.icon!)}<span>${cmd.label}</span><kbd>${key}</kbd></button>`;
+        }).join('')}
       </div>
       <div class="hud-labels" data-h="labels"></div>
       <div class="hud-lock" data-h="lock">Clique para pilotar</div>`;
     parent.appendChild(this.root);
-    // Botões com tecla (barra de comandos, cartões) fazem o mesmo que apertar a tecla.
+    // Botões (barra de comandos, cartão do GUIA, menu de órbita, painéis) executam o comando direto.
     this.root.addEventListener('click', (e) => {
-      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-key], [data-a]');
+      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-cmd]');
       if (!el) return;
       e.stopPropagation();
-      if (el.dataset.a === 'probes') this.root.classList.toggle('show-probes');
-      else if (el.dataset.a === 'dev') this.els.dev.hidden = !this.els.dev.hidden;
-      else {
-        const code = el.dataset.key!;
-        window.dispatchEvent(new KeyboardEvent('keydown', { code }));
-        window.dispatchEvent(new KeyboardEvent('keyup', { code }));
-      }
+      this.commands.run(el.dataset.cmd!);
     });
     this.root.querySelectorAll<HTMLElement>('[data-h]').forEach((el) => {
       this.els[el.dataset.h!] = el;
@@ -142,6 +142,22 @@ export class SpaceHud {
 
   connect(src: HudSources): void {
     this.src = src;
+  }
+
+  /** Mostra ou esconde o painel das sondas. */
+  toggleProbes(): void {
+    this.root.classList.toggle('show-probes');
+  }
+
+  /** Mostra ou esconde os dados técnicos (DEV). */
+  toggleDev(): void {
+    this.els.dev.hidden = !this.els.dev.hidden;
+  }
+
+  /** Botão de um comando no menu de órbita, com a tecla ligada a ele. */
+  private cmdButton(action: SpaceAction, cls: string, content: string, extra = ''): string {
+    const cmd = this.commands.get(action)!;
+    return `<button class="${cls}" data-cmd="${action}">${svgIcon(cmd.icon!)}${content}<kbd>${this.keys.label(action)}</kbd>${extra}</button>`;
   }
 
   /** Escreve o texto só se mudou. */
@@ -243,9 +259,9 @@ export class SpaceHud {
         <span>${svgIcon('sprout')}Vida nativa</span><b>${p.id === 'sol-3' ? 'Sim' : tier === 'none' ? 'Nenhum sinal' : LIFE_LABEL[tier].replace('sinais de ', '')}</b>
       </div>
       <div class="orbit-actions">
-        ${p.kind === 'rocky' ? `<button class="oc-btn main" data-key="KeyF">${svgIcon('eye')}Observar superfície<kbd>F</kbd></button>` : '<div class="oc-btn off">Sem superfície sólida</div>'}
-        ${p.kind === 'rocky' ? `<button class="oc-btn" data-key="KeyM">${svgIcon('probe')}Enviar sonda<kbd>M</kbd>${res(p.id)}</button>` : ''}
-        ${p.rings ? `<button class="oc-btn" data-key="KeyR">${svgIcon('orbit')}Sonda aos anéis<kbd>R</kbd>${res(`${p.id}:aneis`)}</button>` : ''}
+        ${p.kind === 'rocky' ? this.cmdButton('observe', 'oc-btn main', 'Observar superfície') : '<div class="oc-btn off">Sem superfície sólida</div>'}
+        ${p.kind === 'rocky' ? this.cmdButton('probe', 'oc-btn', 'Enviar sonda', res(p.id)) : ''}
+        ${p.rings ? this.cmdButton('probeRings', 'oc-btn', 'Sonda aos anéis', res(`${p.id}:aneis`)) : ''}
       </div>
       <div class="source">${source}</div>`;
     // Refeito 10 vezes por segundo: só toca no DOM (e nos botões sob o mouse) quando algo mudou.
