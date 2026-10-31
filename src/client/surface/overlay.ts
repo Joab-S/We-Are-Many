@@ -4,6 +4,7 @@ import type { BrushFx } from './fx';
 import type { SurfaceSettings } from './hud/Windows';
 import type { Selection } from './selection';
 import type { SiteView } from './siteView';
+import type { Trails } from './trails';
 import type { CreaturePositions } from './SpriteCollector';
 import type { Viewport } from './Viewport';
 import type { WeatherView } from './weatherView';
@@ -11,8 +12,8 @@ import type { WeatherView } from './weatherView';
 /**
  * Canvas transparente por cima do mapa: a camada de depuração dos sítios, o
  * assentamento com a janela aberta, os marcadores de seleção, o clima, a
- * animação das ferramentas e o território de cada assentamento na cor do seu
- * reino.
+ * animação das ferramentas, as setas das mudanças de lugar e o território de
+ * cada assentamento na cor do seu reino.
  */
 export class MapOverlay {
   private readonly ctx: CanvasRenderingContext2D;
@@ -27,6 +28,7 @@ export class MapOverlay {
     private readonly weather: WeatherView,
     private readonly fx: BrushFx,
     private readonly sites: SiteView,
+    private readonly trails: Trails,
   ) {
     this.ctx = canvas.getContext('2d')!;
   }
@@ -52,6 +54,7 @@ export class MapOverlay {
     this.drawSelection(pos);
     this.weather.draw(ctx, view);
     this.fx.draw(ctx, view, brush);
+    this.trails.draw(ctx, view);
     if (!this.settings.showTerritory) return;
     const z = view.zoom;
     const eco = this.eco;

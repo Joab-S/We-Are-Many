@@ -20,6 +20,7 @@ import { SimDriver, SPEEDS } from './SimDriver';
 import { CreatureGrid } from './spatial';
 import { Viewport } from './Viewport';
 import { BrushFx } from './fx';
+import { Trails } from './trails';
 import { WeatherView } from './weatherView';
 import { SiteView, siteLegend } from './siteView';
 import { Selection } from './selection';
@@ -77,6 +78,8 @@ export class SurfaceMode {
   private gridKey = '';
   private applied = 0;
   private readonly fx = new BrushFx();
+  /** Setas das colônias e das famílias que se mudam (eventos do motor). */
+  private readonly trails = new Trails();
   private weather!: WeatherView;
   private sites!: SiteView;
   private sel!: Selection;
@@ -373,9 +376,12 @@ export class SurfaceMode {
     this.toast = new Toast(q('[data-toast]'));
     this.windows = new Windows(root, this.icons, this.settings, this.state.knownSpecies, this.params.id);
     this.vwin = new SettlementView(root, this.icons);
-    // Consumidores da fila de eventos do motor (Observer): avisos dos acontecimentos e a janela do assentamento.
+    // Consumidores da fila de eventos do motor (Observer): avisos dos acontecimentos, a janela do assentamento e as
+    // setas das colônias e das famílias que se mudam.
     bindNotices(this.driver.bus, () => this.engine.view, (t) => this.toast.notice(t));
     this.driver.bus.onAny((e) => this.vwin.onEvent(e));
+    this.driver.bus.on('colony', (e) => this.trails.colony(e, this.engine.view));
+    this.driver.bus.on('migrate', (e) => this.trails.migrate(e, this.engine.view));
     this.sel = new Selection(eco, view, q('[data-crowd]'), {
       openSettlement: (id) => this.openSettlement(id),
       refreshInfo: () => this.info.refresh(this.eco),
@@ -393,7 +399,7 @@ export class SurfaceMode {
     this.panel = new SidePanel(root, this.settings, () => this.driver.speed, () => this.raster.version);
     this.minimap = new Minimap(q<HTMLCanvasElement>('[data-mini]'), view, () => this.raster.canvas());
     this.labels = new Labels(q('[data-l]'));
-    this.overlay = new MapOverlay(q<HTMLCanvasElement>('[data-terr]'), eco, view, this.sel, this.settings, this.weather, this.fx, this.sites);
+    this.overlay = new MapOverlay(q<HTMLCanvasElement>('[data-terr]'), eco, view, this.sel, this.settings, this.weather, this.fx, this.sites, this.trails);
     const mode = this;
     this.toolbar = new Toolbar(
       root,
@@ -686,7 +692,10 @@ export class SurfaceMode {
     }
     const steps = this.driver.update(dt);
     this.vwin.onSteps(steps);
-    if (!this.driver.paused) this.weather.step(dt, view);
+    if (!this.driver.paused) {
+      this.weather.step(dt, view);
+      this.trails.step(dt);
+    }
     this.raster.flush(view);
 
     // Parado e sem mudanças, não redesenha.
@@ -694,7 +703,7 @@ export class SurfaceMode {
     // Seleção, destaque e janela do assentamento pulsam: redesenha mesmo parado.
     const sel = this.sel;
     const marked = !!sel.pinned || !!sel.highlight || this.vwin.open !== null || sel.hoverPick >= 0;
-    if (!this.driver.paused || steps || this.dirty || sig !== this.lastView || eco.effects.length || marked || this.fx.active || this.raster.pending) {
+    if (!this.driver.paused || steps || this.dirty || sig !== this.lastView || eco.effects.length || marked || this.fx.active || (this.trails.active && !this.driver.paused) || this.raster.pending) {
       this.lastView = sig;
       this.dirty = false;
       this.render();

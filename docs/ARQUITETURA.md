@@ -91,9 +91,10 @@ No `Ecosystem`, `events` é a fila (FIFO, vai no save), `emit(e)` empurra e `dra
 
 A crônica continua com o texto longo, e cada linha ganhou `villages`: os ids do lugar onde aconteceu (quando `at` é um assentamento) e dos citados pelo nome no texto, preenchidos em `note()`. A janela do assentamento (`src/client/surface/settlementWindow.ts`) acha a história pelo id; só as linhas de saves antigos, sem `villages`, ainda são procuradas pelo nome.
 
-No cliente, o `SimDriver` drena a fila depois dos passos de cada quadro (e dos comandos do quadro sem passo) e entrega pelo seu `bus`, um `EventBus` (`src/client/surface/EventBus.ts`) com `on(kind, fn)` e `onAny(fn)`. Hoje há dois consumidores:
+No cliente, o `SimDriver` drena a fila depois dos passos de cada quadro (e dos comandos do quadro sem passo) e entrega pelo seu `bus`, um `EventBus` (`src/client/surface/EventBus.ts`) com `on(kind, fn)` e `onAny(fn)`. Hoje há três consumidores:
 
 - **Avisos** (`src/client/surface/hud/notices.ts` e `hud/Toast.ts`): fundação, colônia, fissão, cerco (`circumscribed`), guerra e a primeira era do mundo viram uma linha no balão. A guerra por terra de um reino com lugar cercado ganha um texto que liga uma coisa à outra. Os avisos de uma entrega saem juntos no fim dela (numa microtarefa), para a fissão tomar o lugar do aviso da colônia que vem logo antes dela no mesmo instante. Os avisos do jogador passam na frente, e o aviso do motor sobre um comando inválido agora volta no resultado do comando (`CommandResult.hint`) em vez de ficar em `eco.hint` para o cliente ler e limpar.
+- **Setas das mudanças de lugar** (`src/client/surface/trails.ts`): `colony` (por terra na partida, pelo mar na chegada) e `migrate` viram um traço curto, na cor da origem, que anda até o destino e some em alguns segundos. Os traços ficam numa piscina de tamanho fixo (`pool.ts`).
 - **Janela do assentamento** (`hud/SettlementView.ts`): Dirty Flag em vez de consulta por tempo. Fica suja por um evento que envolve o lugar (`eventVillages`), por linha nova na crônica (aba História) ou pelos passos da simulação (abas de números). Na pausa, não é refeita.
 
 ### Vista de leitura
@@ -184,7 +185,7 @@ Para acrescentar uma parte:
 | **Service Locator** | Não usado, de propósito: são poucos serviços, e eles entram por parâmetro (`ToolContext`, construtores do HUD, `EngineHooks`) | Nada. Um locator esconderia a dependência que a fronteira quer deixar à vista |
 | **Data Locality** | Criaturas em cerca de 40 arrays tipados SoA no `Ecosystem`; terreno e ruas por tile em arrays | Carcaças, barcos e caravanas ainda são objetos com `splice` |
 | **Dirty Flag** | Tiles sujos do mapa (`src/client/surface/dirty.ts`, `MapRaster`); `HtmlSlot` no HUD; janela do assentamento suja por evento (`SettlementView`); camada dos sítios repintada só quando a versão do campo muda (`siteView.ts`, `EngineView.siteField`); caches do motor (`footprint` em `v.foot`, `lotCache`, `fieldCache`) | Painel e janelas ainda são refeitos por tempo |
-| **Object Pool** | Lista livre dos slots de criatura (`eco.free`), sem geração; partículas em `src/client/surface/pool.ts`; vetores reaproveitados no espaço | Validar referências por `uid` (líder, caçada) |
+| **Object Pool** | Lista livre dos slots de criatura (`eco.free`), sem geração; partículas e setas das mudanças em `src/client/surface/pool.ts` (`fx.ts`, `trails.ts`); vetores reaproveitados no espaço | Validar referências por `uid` (líder, caçada) |
 | **Spatial Partition** | Grade de células com lista ligada no motor (`gridHead`, `gridNext`, `forEachNear` em `eco/core/entities.ts`); células ecológicas (`src/sim/eco/cells.ts`); `CreatureGrid` do desenho (`src/client/surface/spatial.ts`); octree das estrelas (`src/universe/manifest.ts`, `starIndex.ts`) | Índice vila→moradores; grade própria para as consultas do cliente (ver determinismo) |
 
 ## Caminho para a separação
