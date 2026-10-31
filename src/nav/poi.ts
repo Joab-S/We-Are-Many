@@ -1,3 +1,4 @@
+import { LruCache } from '../core/lru';
 import { mulberry32, seedFor } from '../core/rng';
 import { AU_PER_PC, KM_PER_AU } from '../core/units';
 import { alienName } from '../sim/species';
@@ -92,7 +93,9 @@ function make(id: string, kind: PoiKind, pos: [number, number, number], rnd: () 
   }
 }
 
-const cellCache = new Map<string, Poi[]>();
+/** Células já geradas; a lista do GUIA (6 pc) consulta 343 por vez. Antes, o cache era esvaziado inteiro ao passar de 4000. */
+const CELL_CACHE_LIMIT = 4096;
+const cellCache = new LruCache<string, Poi[]>(CELL_CACHE_LIMIT);
 
 /** Pontos de interesse da célula (ix, iy, iz). */
 export function poisInCell(ix: number, iy: number, iz: number): Poi[] {
@@ -109,7 +112,6 @@ export function poisInCell(ix: number, iy: number, iz: number): Poi[] {
     if (Math.hypot(...pos) < SOL_CLEAR_AU) continue;
     list.push(make(`poi:${key}:${k}`, kind, pos, rnd));
   }
-  if (cellCache.size > 4000) cellCache.clear();
   cellCache.set(key, list);
   return list;
 }

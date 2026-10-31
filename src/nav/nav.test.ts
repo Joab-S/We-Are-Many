@@ -147,3 +147,16 @@ describe('cometas visitantes', () => {
     expect(seen).toBeLessThan(45);
   });
 });
+
+describe('caches com limite', () => {
+  it('sistemas e células de pontos de interesse continuam iguais depois de sair do cache', () => {
+    const s = star(70890, 9, 1.2, 'Teste');
+    const first = JSON.stringify(generateSystem(s));
+    const cell = JSON.stringify(poisInCell(7, -3, 2));
+    // Mais do que cabe nos caches (1024 sistemas e 4096 células).
+    for (let i = 1; i <= 1100; i++) generateSystem(star(200000 + i, 5, 0.6, `X${i}`));
+    for (let i = 0; i < 4200; i++) poisInCell(100 + (i % 70), 50 + Math.floor(i / 70), 9);
+    expect(JSON.stringify(generateSystem(s))).toBe(first);
+    expect(JSON.stringify(poisInCell(7, -3, 2))).toBe(cell);
+  });
+});

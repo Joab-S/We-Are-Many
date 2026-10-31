@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { bvToTemperature, stellarRadius, temperatureToRgb } from '../../core/astro';
+import { LruCache } from '../../core/lru';
 import { mulberry32, seedFor } from '../../core/rng';
 import { EARTH_RADIUS_KM, KM_PER_AU } from '../../core/units';
 import { compressOrbit, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
@@ -131,8 +132,14 @@ function surfaceTexture(map: SurfaceMap): THREE.Texture {
   return tex;
 }
 
-/** Mapas de 256 pixels dos planetas ainda não visitados: a geração é determinística, então guarda-se para as próximas voltas ao espaço. */
-const previews = new Map<string, SurfaceMap>();
+/**
+ * Mapas de 256 pixels dos planetas ainda não visitados: a geração é
+ * determinística, então guarda-se para as próximas voltas ao espaço. Cada
+ * um tem ~0,8 MB; o cache guarda os 16 usados mais recentemente (o bastante
+ * para alguns sistemas) e não segura memória da GPU (a textura é do corpo).
+ */
+const PREVIEW_LIMIT = 16;
+const previews = new LruCache<string, SurfaceMap>(PREVIEW_LIMIT);
 
 function previewSurface(id: string, params: PlanetParams): SurfaceMap {
   let map = previews.get(id);

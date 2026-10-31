@@ -1,4 +1,5 @@
 import { bvToTemperature, stellarRadius } from '../core/astro';
+import { LruCache } from '../core/lru';
 import { mulberry32, seedFor } from '../core/rng';
 import { KM_PER_AU } from '../core/units';
 import { alienName, nativeLifeTier, type LifeTier } from '../sim/species';
@@ -126,7 +127,13 @@ function rockyColor(rnd: () => number, temperatureK: number, water: number): num
   return pick(rnd, ROCKY_COLORS);
 }
 
-const cache = new Map<number, SystemData>();
+/**
+ * Sistemas já gerados. A varredura gera até 400 de uma vez e o GUIA consulta
+ * as 30 estrelas mais próximas 4 vezes por segundo; 1024 cobre os dois com
+ * folga e não cresce sem limite numa viagem longa.
+ */
+const SYSTEM_CACHE_LIMIT = 1024;
+const cache = new LruCache<number, SystemData>(SYSTEM_CACHE_LIMIT);
 
 /** Sistema da estrela, sempre o mesmo para o mesmo id. */
 export function generateSystem(star: StarInfo): SystemData {
