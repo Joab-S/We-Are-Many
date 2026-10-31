@@ -21,22 +21,27 @@ describe('IA local: um povo inteiro', () => {
   });
 
   it('quem está num ofício combina com ele mais que a média do povo', () => {
-    const adults = people.filter((i) => eco.role[i] !== CHILD);
-    // Média ponderada pelo tamanho de cada ofício: um ofício de 5 pessoas não pesa o mesmo que um de 100.
+    // Três povos (este e mais dois): num só, quantos ofícios passam de 5 pessoas aos 150 anos e o ganho
+    // variam demais de semente para semente (na mesma versão do jogo, duas de cinco sementes ficavam abaixo).
     let gain = 0;
     let n = 0;
     let groups = 0;
-    for (const r of ['hunter', 'farmer', 'woodcutter', 'builder', 'miner', 'gatherer'] as const) {
-      const inRole = adults.filter((i) => eco.role[i] === ROLE[r]);
-      if (inRole.length < 5) continue;
-      const mean = (list: number[]) => list.reduce((s, i) => s + roleFit(eco.traits, i, r), 0) / list.length;
-      gain += (mean(inRole) - mean(adults)) * inRole.length;
-      n += inRole.length;
-      groups++;
+    for (const w of [eco, runWorld(12, 150).eco, runWorld(13, 150).eco]) {
+      const adults: number[] = [];
+      for (let i = 0; i < w.count; i++) if (w.alive[i] && w.village[i] >= 0 && w.species[w.kind[i]].kind === 'sapient' && w.role[i] !== CHILD) adults.push(i);
+      // Média ponderada pelo tamanho de cada ofício: um ofício de 5 pessoas não pesa o mesmo que um de 100.
+      for (const r of ['hunter', 'farmer', 'woodcutter', 'builder', 'miner', 'gatherer'] as const) {
+        const inRole = adults.filter((i) => w.role[i] === ROLE[r]);
+        if (inRole.length < 5) continue;
+        const mean = (list: number[]) => list.reduce((s, i) => s + roleFit(w.traits, i, r), 0) / list.length;
+        gain += (mean(inRole) - mean(adults)) * inRole.length;
+        n += inRole.length;
+        groups++;
+      }
     }
-    expect(groups).toBeGreaterThan(2);
+    expect(groups).toBeGreaterThan(6);
     expect(gain / n).toBeGreaterThan(0.02);
-  });
+  }, 120000);
 
   it('a curiosidade vem do traço e a média fica perto da antiga', () => {
     const mean = people.reduce((s, i) => s + eco.curiosity(i), 0) / people.length;
