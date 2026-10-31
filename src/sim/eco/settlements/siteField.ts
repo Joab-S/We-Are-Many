@@ -493,8 +493,13 @@ export const siteFieldPart = {
     return out;
   },
 
+  /** Nota de fundar em (x, y): a nota única de toda entrada de fundação (`siteValue` do que os batedores veem, `siteLook`). */
+  siteScore(this: Ecosystem, s: number, x: number, y: number, from: Village | null, motive: ColonyMotive, tech = from ? from.tech : 0): number {
+    return siteValue(this.siteLook(s, x, y, from, motive, tech));
+  },
+
   /**
-   * Escolhe onde fundar (RF-AS-04), igual para todas as entradas: dá nota (`siteLook` e `siteValue`) a todos os
+   * Escolhe onde fundar (RF-AS-04), igual para todas as entradas: dá nota (`siteScore`) a todos os
    * candidatos que passam no filtro rápido (`siteQuick`), e só os melhores passam, em ordem, pelo caminho a pé
    * (com `walk`, a partir desse ponto, com desvio) e pelo exame da área (`siteProblem`): até `veto` (SITE_VETO_K)
    * por sítio pedido. Devolve até `count` sítios, os melhores primeiro, a pelo menos `apart` tiles um do outro; com
@@ -522,7 +527,7 @@ export const siteFieldPart = {
       if (seen.has(t)) continue;
       seen.add(t);
       if (this.siteQuick(s, x, y, tech)) continue;
-      scored.push({ x, y, value: siteValue(this.siteLook(s, x, y, from, motive, tech)) });
+      scored.push({ x, y, value: this.siteScore(s, x, y, from, motive, tech) });
     }
     // Ordenação estável: empate fica na ordem dos candidatos.
     scored.sort((p, q) => q.value - p.value);

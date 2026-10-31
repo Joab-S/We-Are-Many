@@ -726,8 +726,8 @@ export const SITE_VETO_K = 4;
  * Nota mínima para uma colônia ou colonos de barco fundarem: abaixo dela ninguém vai (fundação ruim morre cedo).
  * Uma família sozinha (`colonizeByLand`), sem ninguém por perto para ajudar, pede mais.
  */
-export const SITE_MIN_VALUE = 3.6;
-export const SITE_MIN_SOLO = 4.4;
+export const SITE_MIN_VALUE = 4.2;
+export const SITE_MIN_SOLO = 5;
 /** Campo de notas (mapa de influência): anos de uma volta completa pelas células e células sujas refeitas por passo, além da fatia da volta. */
 export const SITE_FIELD_YEARS = 2;
 export const SITE_DIRTY_PER_STEP = 8;
