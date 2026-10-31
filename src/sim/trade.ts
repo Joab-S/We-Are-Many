@@ -155,8 +155,11 @@ export interface Crew {
 
 export interface Caravan {
   id: number;
-  /** Comércio, tributo pedido pela capital (RF-VIDA-289) ou rebanho rumo ao pasto alto (RF-VIDA-293). */
-  kind: 'trade' | 'tribute' | 'flock';
+  /**
+   * Comércio, tributo pedido pela capital (RF-VIDA-289), rebanho rumo ao pasto alto (RF-VIDA-293), enxoval
+   * de colonos (RF-AS-03), ajuda a um vizinho com fome (RF-AS-45) ou visita a parentes (RF-AS-42).
+   */
+  kind: 'trade' | 'tribute' | 'flock' | 'settlers' | 'aid' | 'visit';
   home: number;
   /** Assentamento de destino; -1 no pasto. */
   target: number;

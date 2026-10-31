@@ -125,7 +125,13 @@ export const AVENUE = 6;
 /** Estrada de cascalho, fora das cidades, que nasce do uso das caravanas (RF-VIDA-233). */
 export const GRAVEL = 7;
 
-/** Rua de qualquer tipo: terra (1), pedra (2), praça (3), avenida (6) ou cascalho (7). */
+/** Trilha pisada (RF-AS-13): nasce do uso dentro do assentamento e vira rua de terra com mais uso. */
+export const TRAIL = 8;
+
+/** Rua de qualquer tipo: terra (1), pedra (2), praça (3), avenida (6), cascalho (7) ou trilha (8). */
 export function isStreet(road: number): boolean {
-  return (road >= 1 && road <= 3) || road === AVENUE || road === GRAVEL;
+  return (road >= 1 && road <= 3) || road === AVENUE || road === GRAVEL || road === TRAIL;
 }
+
+/** Muralha (RF-AS-18, em `Ecosystem.wall`): paliçada, muralha de pedra e portão. */
+export const WALL = { palisade: 1, stone: 2, gate: 3 } as const;

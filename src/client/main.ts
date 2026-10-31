@@ -181,6 +181,11 @@ async function boot(): Promise<void> {
   else startFrom(newState(manifest, names), { mode: 'space' });
 }
 
+// `?debug`: atalho para entrar na Terra direto (captura de telas em tools/capture-settlements.mjs).
+if (new URLSearchParams(location.search).has('debug')) {
+  (window as unknown as { debugEarth: () => void }).debugEarth = () => current && enterSurface(current, planetParams(SOL_PLANETS[2]));
+}
+
 boot().catch((err) => {
   loading.textContent = `Falha ao carregar o universo: ${String(err)}`;
   console.error(err);

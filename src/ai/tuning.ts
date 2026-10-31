@@ -104,3 +104,19 @@ export const LEADER = {
   /** Quanto o temperamento do rei soma à agressividade do reino (−1 a 1). */
   temper: 0.5,
 };
+
+/** Jornadas (src/ai/decisions/day.ts, plano novo dos assentamentos RF-AS-22 e 25). */
+export const DAY_W = {
+  /** Peso de uma tarefa urgente (colheita, fogo, alarme) e de uma necessidade pessoal. */
+  urgent: 1.6,
+  need: 1.4,
+  /** Nota mínima da prioridade (tarefa de prioridade 0 ainda vale um pouco). */
+  prioFloor: 0.25,
+  /** Nota do ofício quando a tarefa é de outro: na urgência todo mundo ajuda, fora dela quase ninguém. */
+  helpUrgent: 0.7,
+  helpOther: 0.08,
+  /** Distância (tiles) em que "perto" chega ao piso. */
+  far: 40,
+  /** Abaixo disso não vale sair: a pessoa fica pela praça (conta como parada). */
+  floor: 0.03,
+};

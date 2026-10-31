@@ -249,6 +249,8 @@ describe('terreiro em volta das casas (mapa organizado)', () => {
     }
     expect(t).toBeGreaterThanOrEqual(0);
     v.stock.wood = 0;
+    // Modo agregado (fora da tela): o que é colhido vai direto ao estoque, sem esperar a entrega no celeiro (RF-AS-23).
+    eco.watch([]);
     (eco as unknown as { clearYards(v: Village): void }).clearYards(v);
     expect(eco.standingTree(t)).toBe(false);
     expect(decorAt(map, t)).toBe(Decor.None);

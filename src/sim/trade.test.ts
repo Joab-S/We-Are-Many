@@ -54,7 +54,8 @@ describe('caravanas num mundo de 200 anos', () => {
     for (let y = 0; y < 200; y++) {
       for (let t = 0; t < YEAR_SECONDS; t += 0.25) {
         eco.step(0.25);
-        const moving = eco.caravans.filter((c) => c.kind !== 'flock').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
+        // O teto é das caravanas de comércio; colonos, ajuda e visitas (plano novo dos assentamentos) andam por fora dele.
+        const moving = eco.caravans.filter((c) => c.kind === 'trade' || c.kind === 'tribute').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
         most = Math.max(most, moving);
         for (const v of eco.villages) if (!v.abandoned && eco.caravansOf(v) > 1 + v.tier + 1 + 1) over++;
       }

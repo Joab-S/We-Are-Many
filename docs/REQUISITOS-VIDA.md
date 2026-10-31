@@ -493,6 +493,7 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 | 20/10/2026 | Ícone da vocação no rótulo, de forma simples, e no painel. Requisitos de seleção de criaturas (realce, escolha entre amontoadas, marcador, seguir, nome, ficha completa, grupo) e da janela do assentamento com abas (seção 19.17). |
 | 21/10/2026 | Etapa F implementada (seção 19.7). Visual do mapa no estilo das referências do Joab (organizado e bonito, sem poluição): terreiro limpo em volta de casas, prédios, ruas, roças e pastos dentro da área (a madeira vai para o estoque; o mato volta quando as ruínas somem); ruas de terra com três quartos do tile e de pedra com quase o tile todo; casas alinhadas na beira da rua, à mesma distância dela; o véu e a borda do território somem aos poucos bem de perto (continuam de longe e na tecla T). |
 | 21/10/2026 | Pedidos do Joab: guerra sem limite e sem trégua fixa, decidida por preparo e vantagem percebida (RF-VIDA-245 a 251); jogador influencia os povos com animação (RF-VIDA-252, 253); região orgânica do assentamento (RF-VIDA-379); casas deixam de desabar em massa (RF-VIDA-378). Removidos por pedido dele: `WARS_MAX`/`WARS_PER_KINGDOMS`, `WAR_COOLDOWN` e o texto de moderação do RF-VIDA-241. |
+| 30/10/2026 | Plano novo de comunidade, assentamentos e relações (seção 20), todas as fases: degraus por funções com limiares novos (vila 40, cidade 120, metrópole 400, além das funções), com o porte econômico pelos limiares antigos; produção só por entrega no lugar na tela; ruas pelo uso; lealdade no lugar da independência só por distância. |
 
 ---
 
@@ -1152,3 +1153,92 @@ Cada etapa fecha com `npm test` e uma rodada de `npm run calibrar`, e não deixa
 - **Sem a trava da ferramenta,** o desmatamento depende de presença, tempo de gesto, viagem, corte seletivo e `WOOD_TARGET`; se a calibração mostrar mata acabando, o primeiro ajuste é `FELL_SECONDS`, não uma exigência nova.
 - **Muitos NPCs em poucos tiles:** reserva e `JOB_SLOTS` evitam fila infinita numa árvore, mas lenhadores sem ordem ficam ociosos; `WOOD_TARGET` os redireciona.
 - **Determinismo e save:** o quadro de serviços precisa iterar em ordem estável (sem `Set`/`Map` de ordem de inserção variável) para o teste de RF-VIDA-382 passar.
+
+---
+
+## 20. Comunidade, assentamentos e relações (RF-AS)
+
+> Pedido do Joab em 30/10/2026: "ainda não gosto do visual e progressão dos assentamentos, preciso que eles façam as coisas de forma mais inteligente e fluida". O plano completo (diagnóstico, princípios e metas) está no documento [Plano novo: comunidade, assentamentos e relações](https://claude.ai/artifact/FH44FCN2N3m9SBwMVPjYvj). Depois o Joab pediu todas as fases. **Situação: fases 0 a 6 implementadas** (branch `claude/project-thread-21kgi1`). Todas as constantes novas ficam em `src/sim/balance.ts`, nos blocos "Fase 1" a "Fase 5", e os pesos da jornada em `DAY_W` (`src/ai/tuning.ts`).
+
+**Princípios**
+
+1. **Cada coisa no mapa tem um motivo.** Lugar novo nasce de batedores que avaliam o sítio; rua nasce do passo; casa nasce de família; muralha segue as casas.
+2. **Degrau é função, não só gente.** Um lugar só é vila, cidade ou metrópole quando tem as funções do degrau (celeiro, ferraria, mercado, templo, capital ou mercado regional).
+3. **Gente faz, gente leva.** No lugar que está na tela nada entra no estoque sem alguém carregar; o modo agregado, fora da tela, produz o mesmo por pessoa.
+4. **Relações nascem de convivência.** Afinidade, lealdade, reino e cultura vêm de casamentos, trocas, ajudas, rivalidades e distância, não de sorteio.
+5. **Todo porquê na ficha.** A pessoa mostra a tarefa, o motivo e as alternativas que perderam.
+
+### 20.1 Fase 0: medir antes de mudar
+
+- **Indicadores novos** em `src/sim/calibrate.ts`: reinos, fração de lugares pequenos e de uma família só, lugares de vida curta, colônias, sítios, fusões, quedas de degrau, densidade e árvores no núcleo, roças perto das casas, fração com tarefa e parada, passos na rua, casamentos entre lugares, cobertura de cidade de referência, anexações, povos novos, ajudas e rivalidades. `settlementForm` mede a forma de um lugar.
+- **Metas** em `LONG_TARGETS`, conferidas pela calibragem longa (`npm run calibrar:longa`, [CALIBRACAO-LONGA.md](CALIBRACAO-LONGA.md)).
+- **Captura de telas** por degrau, de perto e de longe: `node tools/capture-settlements.mjs [url] [anos] [pasta]` com `npm run dev` aberto. Usa o atalho `?debug` (`window.debugEarth`) e o Playwright instalado na máquina.
+
+### 20.2 Fase 1: nascimento e espaçamento
+
+| Requisito | Descrição |
+|---|---|
+| RF-AS-01 | Família sem lugar melhor conhecido tenta sítio, colônia ou refúgio; só funda sozinha longe de tudo (`LONE_FOUND_DIST`). |
+| RF-AS-02 | Sítio rural: uma casa e uma roça a 6 a 15 tiles do núcleo, ligada por trilha; sítios que juntam gente viram aldeia. |
+| RF-AS-03 | Colônia com motivo: só de quem tem gente de sobra (`COLONY_SOURCE_POP`), com intervalo (`COLONY_COOLDOWN`); batedores visitam sítios e a colônia parte com enxoval visível. |
+| RF-AS-04 | Nota do sítio (`siteValue`): água, terra boa, mata, pedra, plano, costa, ruína, defesa, rota, motivo e distância ideal da origem. |
+| RF-AS-05 | Espaçamento pela hierarquia: 14 tiles de uma aldeia, 22 de uma vila, 30 de uma cidade. |
+| RF-AS-06 | Fusão: aldeia encostada no núcleo de uma cidade do mesmo reino vira bairro. |
+| RF-AS-08 | Abandono com destino: lugar minúsculo e em falta se muda inteiro, e a crônica diz para onde. |
+
+### 20.3 Fase 2: degraus por funções e forma
+
+| Requisito | Descrição |
+|---|---|
+| RF-AS-10 | Pegada orgânica: a área do lugar é a das casas com folga, não um círculo fixo. |
+| RF-AS-11 e 12 | Casa no melhor lote pelo valor do solo (distância da praça, vizinhos, água, frente de rua); núcleo denso. |
+| RF-AS-16 | Roças e cercados num anel em volta das casas, que anda para fora quando o núcleo cresce. |
+| RF-AS-17 | Casa por família; casa vazia por `IDLE_HOUSE_YEARS` começa a cair. |
+| RF-AS-18 | Muralha que segue a pegada: paliçada na vila, pedra na cidade, com portões nas ruas. |
+| Degraus | Acampamento (tendas, menos de `CAMP_POP`), aldeia, vila, cidade e metrópole por `TIER_POPULATION_NEW` e funções (`tierAllowed`, `missingFunctions`); cai abaixo de `TIER_DOWN_SHARE` por `TIER_DOWN_YEARS`. A janela do lugar mostra o que falta. O porte econômico (`scale`) continua pelos limiares antigos (`SCALE_POPULATION`). |
+
+### 20.4 Fase 3: jornadas e produção por entrega
+
+| Requisito | Descrição |
+|---|---|
+| RF-AS-20 e 21 | Quadro de tarefas do lugar (trabalho, colheita, carga, obra, água, baldes, milícia) com prioridade e vagas. |
+| RF-AS-22 e 25 | A pessoa escolhe a próxima jornada pelo quadro e pelas necessidades (fome, descanso, convívio, fé), com o ofício pesando muito e a urgência abrindo para todos (`chooseDay`, `src/ai/decisions/day.ts`). Tarefa cheia não é escolhida. |
+| RF-AS-23 e 24 | Produção só por entrega: o que é colhido vai ao pátio e alguém leva ao celeiro com a carga na mão (`CARRY_LOAD`, carroça da vila em diante). Na virada do ano o pátio vai ao celeiro. |
+| RF-AS-26 | Caminho por custo: rua e trilha baratas, roça e mato caros, casa evitada. |
+| RF-AS-27 | Gesto no lugar da tarefa, com ferramenta e carga visíveis. |
+| RF-AS-28 e 29 | Eventos que juntam gente: colheita coletiva, festa, enterro, alarme (milícia e abrigo), curiosos na caravana. |
+| RF-AS-30 | Ficha com o porquê: tarefa, motivo e as duas alternativas que perderam. |
+| RF-AS-31 | Nível de detalhe: só os lugares na tela (e o da pessoa aberta) rodam as jornadas; os outros ficam no modo agregado, que produz quase o mesmo por pessoa (teste de 60 anos, diferença menor que 5%). |
+
+### 20.5 Fase 4: ruas pelo uso
+
+| Requisito | Descrição |
+|---|---|
+| RF-AS-13 | O passo gasta o chão (`STEP_WEAR`; no modo agregado, o tráfego anual de casa à praça e de roça ao celeiro). Desgaste acima de `TRAIL_WEAR` vira trilha, acima de `ROAD_WEAR` vira rua; sem uso por `ROAD_FORGET_YEARS` some. Trilha nunca fecha bloco 2×2 de rua. |
+| RF-AS-14 | Calçamento acompanha a era nas ruas que o uso abriu. |
+
+### 20.6 Fase 5: relações entre lugares
+
+| Requisito | Descrição |
+|---|---|
+| RF-AS-40 | Casamento entre lugares vizinhos quando não há par em casa. |
+| RF-AS-41 | Memória de origem: quem se muda guarda o laço com o lugar de onde veio. |
+| RF-AS-42 | Visitas visíveis de parentes, mascates e peregrinos. |
+| RF-AS-43 | Afinidade entre pares de lugares, de −100 a 100, de parentes, trocas, fé, povo, rivalidade, rancor, ajuda e festas. |
+| RF-AS-44 | Cidade de referência de cada aldeia e vila, por distância, tamanho e afinidade. |
+| RF-AS-45 | Ajuda na fome e dívida: quem ajuda ganha afinidade e cobra depois; quem recusa perde. |
+| RF-AS-46 | Rivalidade por mata, pasto ou jazida comum. |
+| RF-AS-47 | Casamento de líderes e festas com convidados aproximam os reinos. |
+| RF-AS-48 | Degrau político: livre, chefia, reino (cidade capital e 3 leais) e império (`polityOf`). |
+| RF-AS-49 e 50 | Lealdade por afinidade, comércio, proteção, distância, carga e cultura; lugar desleal muda de lado ou se revolta (substitui a independência só por distância). |
+| RF-AS-51 | Capital que se move para a cidade bem maior por muitos anos. |
+| RF-AS-52 | Deriva cultural de lugares isolados até um povo novo. |
+| RF-AS-53 | A diplomacia puxa a relação entre reinos para a média das afinidades entre os lugares deles. |
+
+### 20.7 Fase 6: visual
+
+Tendas no acampamento, muralhas e portões, trilhas de desejo meio apagadas, cargas na mão (cesto, feixe, pedra, minério, balde), gesto com ferramenta, caravanas de visita e de colonos, nome do degrau e do degrau político no rótulo e na janela, aba de relações (cidade de referência, lealdade, dívidas e afinidades) e a linha da jornada na ficha (🧭).
+
+### 20.8 Resultado medido e metas fora
+
+Ver [CALIBRACAO-LONGA.md](CALIBRACAO-LONGA.md) (3 sementes, 1000 anos). Pontos que ficaram fora da meta estão listados lá, com o que mexer.

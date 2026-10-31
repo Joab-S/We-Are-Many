@@ -134,6 +134,33 @@ export const ART = {
   shark: ['...K....', '..KMK...', '.KMMmK..', 'KmMMMmmK'],
   dot: ['M'],
 
+  // Tenda do acampamento (plano novo dos assentamentos, seção 4): couro sobre varas, antes das casas fixas.
+  tent: [
+    '................',
+    '................',
+    '.......K........',
+    '......KtK.......',
+    '......KAK.......',
+    '.....KAAaK......',
+    '.....KAAaK......',
+    '....KAAAaaK.....',
+    '....KAAKaaK.....',
+    '...KAAKdKaaK....',
+    '...KAAKdKaaK....',
+    '..KAAAKdKaaaK...',
+    '..KKKKKKKKKKK...',
+    '................',
+    '................',
+    '................',
+  ],
+  // Carga na mão (RF-AS-24): cesto, feixe de lenha, pedra, minério e balde.
+  'load:food': ['KKKK', 'KYyK', 'KyuK', '.KK.'],
+  'load:wood': ['.KKK', 'KPpK', 'KpqK', 'KKK.'],
+  'load:stone': ['.KK.', 'KGgK', 'KgnK', '.KK.'],
+  'load:ore': ['.KK.', 'KgnK', 'KnRK', '.KK.'],
+  'load:water': ['K..K', 'KVvK', 'KvvK', '.KK.'],
+  // Ferramenta do gesto (RF-AS-27): o cabo e a ponta, desenhados ao lado de quem trabalha.
+  tool: ['..G', '.t.', 't..'],
   // Casas, uma por era (16x16).
   hut: [
     '................',

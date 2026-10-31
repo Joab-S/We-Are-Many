@@ -1,4 +1,4 @@
-import { STREET_GAP } from './balance';
+import { STREET_GAP, TIER_POPULATION_NEW } from './balance';
 
 /**
  * Planta dos assentamentos (REQUISITOS-VIDA.md, seção de assentamentos):
@@ -9,8 +9,8 @@ import { STREET_GAP } from './balance';
 export const TIER_NAMES = ['Aldeia', 'Vila', 'Cidade', 'Metrópole'];
 /** Raio da área de cada nível, em tiles. */
 export const TIER_RADIUS = [8, 12, 18, 25];
-/** População mínima de cada nível. */
-export const TIER_POPULATION = [0, 25, 60, 140];
+/** População mínima de cada nível (plano novo, RF-AS seção 4; antes 0, 25, 60 e 140). */
+export const TIER_POPULATION = TIER_POPULATION_NEW;
 
 /**
  * Raio da área: o do nível, crescendo até metade do caminho para o do nível
@@ -273,7 +273,7 @@ export function pruneBlocks(
 
 /** Blocos 2x2 inteiramente de rua (terra ou pedra) fora das praças: deve ser zero (RF-VIDA-191). */
 export function roadBlocks(road: Uint8Array, width: number, height: number): number {
-  const isRoad = (i: number) => road[i] === 1 || road[i] === 2;
+  const isRoad = (i: number) => road[i] === 1 || road[i] === 2 || road[i] === 8;
   let n = 0;
   for (let y = 0; y + 1 < height; y++) {
     for (let x = 0; x < width; x++) {
