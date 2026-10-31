@@ -11,7 +11,8 @@ import { CHILD, ROLE, ROLES } from '../../roles';
 import { herdFor } from '../../needs';
 import { maxPensOf } from '../../settlement';
 import { ecologyOf, hunts } from '../../fauna';
-import type { Village } from '../types';
+import { herdFormsOf } from '../../species';
+import type { HerdKind, Village } from '../types';
 import * as constantsModule from '../constants';
 import * as tilesModule from '../tiles';
 
@@ -99,19 +100,31 @@ export const herdsPart = {
     return w;
   },
 
-  /** Domestica herbívoros da região: um bicho por perto é capturado e começa o rebanho. */
-  domesticate(this: Ecosystem, v: Village): void {
-    let wild = -1;
-    this.forEachNear(v.x, v.y, this.radius(v) + 20, (j) => {
+  /**
+   * Bichos domesticáveis da região do lugar (Diamond: só quem passa pelos critérios, `herdFormsOf`), com a forma de
+   * curral que cada um dá e o primeiro indivíduo visto de cada forma. Com `abundant`, só as espécies que não estão
+   * raras no planeta (capturar a última manada acabaria com ela).
+   */
+  wildHerdsNear(this: Ecosystem, v: Village, abundant: boolean): Map<HerdKind, number> {
+    const found = new Map<HerdKind, number>();
+    this.forEachNear(v.x, v.y, this.radius(v) + B.DOMESTIC_REACH, (j) => {
       const k = this.kind[j];
-      if (wild < 0 && this.species[k].kind === 'herbivore' && this.population[k] > this.caps[k] * 0.2) wild = j;
+      if (abundant && this.population[k] <= this.caps[k] * 0.2) return;
+      for (const f of herdFormsOf(this.species[k])) if (!found.has(f)) found.set(f, j);
     });
-    if (wild < 0) return;
+    return found;
+  },
+
+  /** Domestica bichos da região: um domesticável por perto é capturado e começa o rebanho do tipo que ele dá. */
+  domesticate(this: Ecosystem, v: Village): void {
+    const wild = this.wildHerdsNear(v, true);
+    if (!wild.size) return;
     const s = this.siteSample(v);
     const b = this.map.biome[this.tileAt(v.x, Math.floor(v.y))] as Biome;
-    const kind = herdFor(v.vocation, s, b === Biome.Desert || b === Biome.Savanna);
+    const kind = herdFor(v.vocation, s, b === Biome.Desert || b === Biome.Savanna, [...wild.keys()]);
+    if (!kind) return;
     if (!v.pens?.length && !this.addPen(v)) return;
-    this.kill(wild, true);
+    this.kill(wild.get(kind)!, true);
     v.herd = { kind, head: 3 };
     this.note(`${v.name} domesticou ${HERD_NAMES[kind]}`, 'economia', v);
   },

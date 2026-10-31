@@ -94,7 +94,8 @@ export const techPart = {
       else if (d.ore === 'iron') ironOre = true;
       else if (d.ore === 'coal') coal = true;
     }
-    const herbivores = (!!v.herd && v.herd.head > 0) || this.species.some((sp, k) => sp.kind === 'herbivore' && this.population[k] > 0);
+    // Domesticar pede bicho domesticável na região do lugar (Diamond), não qualquer herbívoro vivo no planeta.
+    const herbivores = (!!v.herd && v.herd.head > 0) || this.wildHerdsNear(v, false).size > 0;
     return {
       tech: v.tech,
       tier: this.scale(v),
@@ -331,10 +332,8 @@ export const techPart = {
     const r = this.radius(v) + 12;
     const ores = new Set<string>();
     for (const d of this.deposits) if (d.amount > 0 && this.distance(v, d.x + 0.5, d.y + 0.5) < r) ores.add(d.ore);
-    let herbivores = false;
-    this.forEachNear(v.x, v.y, this.radius(v) + 20, (j) => {
-      if (this.species[this.kind[j]].kind === 'herbivore') herbivores = true;
-    });
+    // Só os bichos que dariam rebanho contam como recurso latente (Diamond).
+    const herbivores = this.wildHerdsNear(v, false).size > 0;
     return P.latentResources({ wet: !!v.wet, ores: [...ores], era: Math.floor(v.tech), techs: this.knows(v), herbivores: herbivores && v.tech < 1.5, tools: v.stock.tools >= 1 });
   },
 

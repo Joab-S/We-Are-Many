@@ -863,3 +863,15 @@ export const BOSERUP_STARVING = 0.15;
 export const DISCOVER_FED = 0.4;
 /** Peças que o comércio traz (`tradedPieces`): cada ferramenta, arma ou armadura de metal recebida conta esta parte de uma peça forjada no lugar. */
 export const TRADED_PIECES = 0.5;
+/**
+ * Domesticação pelos critérios de Diamond (`meetsDiamond`, species.ts): pastador de DOMESTIC_MASS kg, adulto em até
+ * DOMESTIC_MATURITY anos, manada de DOMESTIC_HERD ou mais e medo até DOMESTIC_FEAR. Bicho de outro planeta a partir de
+ * DOMESTIC_BIG kg vira gado; menor, cabra.
+ */
+export const DOMESTIC_MASS: readonly [number, number] = [25, 1200];
+export const DOMESTIC_MATURITY = 4;
+export const DOMESTIC_HERD = 6;
+export const DOMESTIC_FEAR = 0.8;
+export const DOMESTIC_BIG = 250;
+/** Região onde o lugar procura bicho para domesticar: o território mais estes tiles (antes, a domesticação valia com qualquer herbívoro vivo no planeta). */
+export const DOMESTIC_REACH = 20;

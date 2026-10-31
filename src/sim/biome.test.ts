@@ -4,9 +4,9 @@ import { generateSurface, type PlanetParams, type SurfaceMap } from '../procgen/
 import * as B from './balance';
 import { areaYield, BIOME_YIELD, latitudeAmp, lifewayFor, lifewayReach, seasonWeight } from './biomeYield';
 import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
-import { fullNeeds } from './needs';
+import { fullNeeds, herdFor } from './needs';
 import { TECH_BY_ID } from './progress';
-import { nativeSpecies } from './species';
+import { domesticable, earthCatalog, herdFormsOf, nativeSpecies } from './species';
 
 /**
  * Bioma, flora e sociedade (agente 3C): regras pequenas, cada uma conferida sem depender da história
@@ -278,6 +278,52 @@ describe('trava local da era', () => {
     expect(village.made.iron).toBeCloseTo(4 * B.TRADED_PIECES, 5);
     eco.develop(village, 1, []);
     expect(Math.floor(village.tech)).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('domesticação (Diamond)', () => {
+  const byName = new Map(earthCatalog().map((sp) => [sp.name, sp]));
+  const forms = (name: string) => [...herdFormsOf(byName.get(name)!)];
+
+  it('só vira rebanho quem come capim, tem porte de curral, vive em manada e não é bravo', () => {
+    expect(forms('Bisão')).toEqual(['cattle']);
+    expect(forms('Cabra-montesa')).toEqual(['goat', 'sheep']);
+    expect(forms('Camelo')).toEqual(['camel']);
+    expect(forms('Cavalo-selvagem')).toEqual(['horse']);
+    expect(forms('Ovelha')).toEqual(['sheep']);
+    expect(forms('Lhama')).toEqual(['camel']);
+    // A zebra é brava; o elefante é grande e lento demais; o cervo come ramagem e foge; o sapo e o caranguejo, nem pensar.
+    for (const name of ['Zebra', 'Elefante', 'Mamute', 'Cervo', 'Coelho', 'Sapo', 'Caranguejo', 'Tartaruga', 'Pinguim', 'Macaco', 'Javali', 'Galinha', 'Lobo', 'Humano']) {
+      expect(domesticable(byName.get(name)!), name).toBe(false);
+    }
+  });
+
+  it('o rebanho sai da fauna da região: a vocação escolhe entre o que há, e sem domesticável não há rebanho', () => {
+    const site = { cold: 0, dry: 0, hills: 0, open: 0.8 };
+    expect(herdFor('ovelhas', site, false, [])).toBeNull();
+    expect(herdFor(undefined, site, false, ['cattle'])).toBe('cattle');
+    // Quer ovelhas, mas só há bisão por perto: cria gado.
+    expect(herdFor('ovelhas', site, false, ['cattle'])).toBe('cattle');
+    expect(herdFor('ovelhas', site, false, ['goat', 'sheep'])).toBe('sheep');
+    expect(herdFor('cavalos', site, false, ['cattle', 'horse'])).toBe('horse');
+    expect(herdFor(undefined, { ...site, cold: 0.8 }, false, ['goat', 'sheep'])).toBe('sheep');
+  });
+
+  it('domesticar só captura bicho domesticável da região', () => {
+    const { eco } = world();
+    const v = eco.villages[0];
+    eco.buildGrid();
+    for (const [, j] of eco.wildHerdsNear(v, false)) expect(domesticable(eco.species[eco.kind[j]])).toBe(true);
+    // Sem nenhum domesticável vivo, nem os outros herbívoros da região viram rebanho.
+    for (let j = 0; j < eco.count; j++) if (eco.alive[j] && domesticable(eco.species[eco.kind[j]])) eco.kill(j, true);
+    let others = 0;
+    eco.forEachNear(v.x, v.y, eco.radius(v) + B.DOMESTIC_REACH, (j) => {
+      if (eco.species[eco.kind[j]].kind === 'herbivore') others++;
+    });
+    expect(others).toBeGreaterThan(0);
+    v.herd = undefined;
+    eco.domesticate(v);
+    expect(v.herd).toBeUndefined();
   });
 });
 
