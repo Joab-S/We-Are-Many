@@ -128,6 +128,50 @@ describe('campo de notas dos sítios (mapa de influência)', () => {
   });
 });
 
+describe('o que os batedores veem (siteLook)', () => {
+  it('minério só conta se o reino conhece a jazida e ela serve na era', () => {
+    const { eco, s } = flatWorld(256, 64);
+    const v = eco.foundVillage(s, 30, 32, 6);
+    const copper = eco.addDeposit(110, 32, 'copper', 100, false)!;
+    const iron = eco.addDeposit(190, 32, 'iron', 100, false)!;
+    const look = (x: number) => eco.siteLook(s, x, 32, v, 'jazida');
+    expect(look(105).ore).toBe(0);
+    copper.known.add(v.kingdom);
+    iron.known.add(v.kingdom);
+    expect(look(105).ore).toBeGreaterThan(0.5);
+    expect(look(105).motive).toBe(look(105).ore);
+    // Ferro na Pedra não serve (`wanted`); na Idade do Bronze em diante, sim.
+    expect(look(185).ore).toBe(0);
+    v.tech = 1.2;
+    expect(look(185).ore).toBeGreaterThan(0.5);
+  });
+
+  it('a mata no alcance do corte e a gente que já explora a área entram na nota', () => {
+    const { map, eco, s } = flatWorld(256, 64);
+    paint(map, 60 + 14, 0, 60 + 24, 63, (i) => {
+      map.biome[i] = Biome.Forest;
+      map.vegetation[i] = 0.8;
+    });
+    expect(eco.siteLook(s, 60, 32, null, 'espaço').forest).toBeGreaterThan(eco.siteLook(s, 200, 32, null, 'espaço').forest + 0.2);
+    const alone = eco.siteLook(s, 200, 32, null, 'espaço');
+    expect(alone.overlap).toBe(0);
+    expect(alone.crowd).toBe(0);
+    eco.foundVillage(s, 220, 32, 20);
+    const shared = eco.siteLook(s, 200, 32, null, 'espaço');
+    expect(shared.overlap).toBeGreaterThan(0.3);
+    expect(shared.crowd).toBeGreaterThan(3);
+  });
+
+  it('a distância conta da capital do reino, não só da origem', () => {
+    const { eco, s } = flatWorld(384, 64);
+    const capital = eco.foundVillage(s, 30, 32, 6);
+    const colony = eco.foundVillage(s, 130, 32, 6, capital, 'colônia');
+    const look = eco.siteLook(s, 160, 32, colony, 'espaço');
+    expect(look.dist).toBeCloseTo(30, 0);
+    expect(look.capital).toBeCloseTo(130, 0);
+  });
+});
+
 describe('água graduada no exame da área', () => {
   it('o mar não mata a sede; lago, nascente no solo encharcado e poço sobre água no subsolo, sim', () => {
     const { map, eco, s } = flatWorld(256, 64, 0.5);

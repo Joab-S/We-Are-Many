@@ -462,8 +462,9 @@ export const siteFieldPart = {
   /**
    * Escolhe onde fundar (RF-AS-04), igual para todas as entradas: dá nota (`siteLook` e `siteValue`) a todos os
    * candidatos que passam no filtro rápido (`siteQuick`), e só os melhores passam, em ordem, pelo caminho a pé
-   * (com `walk`, a partir de `from`) e pelo exame da área (`siteProblem`): até SITE_VETO_K por sítio pedido. Devolve
-   * até `count` sítios, os melhores primeiro, a pelo menos `apart` tiles um do outro; com `min`, nenhum abaixo dela.
+   * (com `walk`, a partir desse ponto, com desvio) e pelo exame da área (`siteProblem`): até `veto` (SITE_VETO_K)
+   * por sítio pedido. Devolve até `count` sítios, os melhores primeiro, a pelo menos `apart` tiles um do outro; com
+   * `min`, nenhum abaixo dessa nota.
    */
   chooseSite(
     this: Ecosystem,
@@ -472,7 +473,7 @@ export const siteFieldPart = {
     from: Village | null,
     motive: ColonyMotive,
     tech: number,
-    opts: { count?: number; min?: number; walk?: boolean; apart?: number } = {},
+    opts: { count?: number; min?: number; walk?: { x: number; y: number }; apart?: number; veto?: number } = {},
   ): { x: number; y: number; value: number }[] {
     const map = this.map;
     const w = map.width;
@@ -493,13 +494,13 @@ export const siteFieldPart = {
     scored.sort((p, q) => q.value - p.value);
     const out: { x: number; y: number; value: number }[] = [];
     const apart = opts.apart ?? 0;
-    let tries = B.SITE_VETO_K * count;
+    let tries = (opts.veto ?? B.SITE_VETO_K) * count;
     for (const p of scored) {
       if (out.length >= count || tries <= 0) break;
       if (opts.min !== undefined && p.value < opts.min) break;
       if (apart && out.some((o) => Math.hypot(wrapDx(o.x - p.x, w), o.y - p.y) < apart)) continue;
       tries--;
-      if (opts.walk && from && !this.landPath(from.x, from.y, p.x + 0.5, p.y + 0.5, true)) continue;
+      if (opts.walk && !this.landPath(opts.walk.x, opts.walk.y, p.x + 0.5, p.y + 0.5, true)) continue;
       if (this.siteProblem(s, p.x, p.y, tech)) continue;
       out.push(p);
     }
