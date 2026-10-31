@@ -217,8 +217,15 @@ export const FISSION_CORE = 2;
 export const FISSION_SHARE = 0.3;
 /** Peso a mais, na vontade de ir com a colônia, das famílias que escolheram fundar. */
 export const FISSION_KEEN = 2;
-/** Êxodo (agente 3B): a partir de quantos moradores o lugar em falta manda colônia atrás de terra antes de buscar refúgio. */
-export const FAMINE_COLONY_POP = 60;
+/**
+ * Êxodo (agente 3B): a partir de quantos moradores o lugar em falta manda colônia atrás de terra antes de buscar refúgio.
+ * Calibração conjunta (4B): 30, o menor lugar que manda colônia pela fome (`canSplit`, 2,5 × COLONY_GROUP_MIN); antes 60.
+ * Com 60, o lugar médio em falta despejava 35% das famílias no vizinho, que lotava e entrava em falta também (a fome
+ * e a falta de lenha rodavam entre os mesmos lugares): na longa de 500 anos, 390 moradores contra 950 com a colônia
+ * antes. A nota mínima do sítio (SITE_MIN_VALUE, onda 3A) já segura as colônias para lugar ruim, o que a ordem
+ * de 60 fazia antes dela.
+ */
+export const FAMINE_COLONY_POP = 30;
 /** Grupo mínimo (pessoas, famílias inteiras) para uma família de um lugar em falta partir sozinha para longe (`colonizeByLand`). */
 export const LONE_GROUP_MIN = 6;
 /**

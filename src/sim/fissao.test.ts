@@ -224,6 +224,28 @@ describe('êxodo', () => {
   });
 });
 
+describe('êxodo do lugar médio', () => {
+  it('lugar em falta que já tem gente para uma colônia manda a colônia antes de buscar refúgio', () => {
+    const { eco, s, spot } = world();
+    const v = town(eco, s, lush(eco, spot()), B.FAMINE_COLONY_POP + 4, 6);
+    expect(v.population).toBeLessThan(60);
+    v.needs = { food: 0.2, water: 1, fuel: 1, material: 1, cloth: 1, tools: 1 };
+    v.fedShare = 0.2;
+    // Sem roça possível (o sítio rural não tira ninguém e também não conta).
+    v.houses.push(...Array.from({ length: B.FARMSTEADS_MAX }, (_, k) => ({ x: Math.floor(v.x) + k, y: Math.floor(v.y) - 3, kind: 'house' as const, variant: 0, era: 0, farm: true })));
+    // Há para onde fugir: com o refúgio antes, parte das famílias iria para lá.
+    expect(neighbour(eco, s, v, 20)).not.toBeNull();
+    // A escolha do sítio tem os testes dela (sites.test.ts): aqui vale o primeiro que passa no exame da área.
+    const scout = eco.scoutSites;
+    eco.scoutSites = (o, motive, count) => scout.call(eco, o, motive, count, 0);
+    const before = v.population;
+    eco.exodusWithoutPlace(v, eco.familyGroups().get(v.id));
+    expect(v.colony?.cause).toBe('fome');
+    expect(v.population).toBe(before);
+    expect(eco.tally.exodus).toBe(1);
+  });
+});
+
 describe('migração por utilidade', () => {
   it('com fome em casa, famílias inteiras vão para o lugar com comida', () => {
     const { eco, s, spot } = world();

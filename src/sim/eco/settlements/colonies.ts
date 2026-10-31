@@ -386,7 +386,9 @@ export const coloniesPart = {
    * e, só longe de tudo, um grupo de famílias para longe. Agente 3B: com FAMINE_COLONY_POP moradores ou mais a
    * colônia vem antes do refúgio; nos menores, o refúgio vem antes. (Com o refúgio sempre antes, a fome ficava
    * presa nos lugares que já existem e o povo encolhia; com a colônia sempre antes, as colônias da fome de
-   * lugares pequenos, que morrem cedo, mais que dobravam as fundações.) A colônia conta como fundação por fome.
+   * lugares pequenos, que morrem cedo, mais que dobravam as fundações; com a nota mínima do sítio da onda 3A, quem
+   * segura a colônia ruim é o sítio, e o limite caiu para o menor lugar que manda colônia.) A colônia conta como
+   * fundação por fome.
    */
   exodusWithoutPlace(this: Ecosystem, v: Village, families: Map<number, number[]> | undefined): void {
     const why = this.lackName(v);
