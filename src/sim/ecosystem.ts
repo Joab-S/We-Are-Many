@@ -239,9 +239,6 @@ export class Ecosystem {
    * morte, o `uid` não). Mantido por `spawn`, `kill` e `restore`; refeito dos vetores depois de carregar.
    */
   readonly uidIndex = new Map<number, number>();
-  /** Cache anual de `uid` -> índice que `indexOfUid` usa: refeito uma vez por ano (vai no save junto com o ano, então volta coerente). */
-  readonly uidCache = new Map<number, number>();
-  uidYear = -1;
   /** Tiles que ninguém alcançou, e o ano até o qual saem do quadro de serviços. */
   readonly jobBlocked = new Map<number, number>();
   /** Obra que cada construtor atende (cache; se faltar, é refeito pelo tile da ordem). */

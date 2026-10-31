@@ -14,10 +14,10 @@ export const savePart = {
   /** Depois de carregar um save de antes das ações presenciais: os vetores novos nascem zerados, do tamanho dos demais. */
   fixAfterLoad(this: Ecosystem): void {
     const n = this.x.length;
-    // Índice uid -> índice: refeito dos vetores (em saves antigos, `uidIndex` era o cache anual, que agora é `uidCache`).
+    // Índice uid -> índice: refeito dos vetores (em saves antigos, `uidIndex` era um cache anual, com o ano em `uidYear`).
     this.uidIndex.clear();
     for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidIndex.set(this.uid[k], k);
-    if (!this.uidCache.size) this.uidYear = -1;
+    delete (this as { uidYear?: number }).uidYear;
     if (this.jobKind.length < n) this.jobKind = new Uint8Array(n);
     if (this.job.length < n) this.job = new Int32Array(n);
     if (this.jobWork.length < n) this.jobWork = new Float32Array(n);

@@ -225,19 +225,12 @@ export const societyPart = {
   },
 
   /**
-   * Índice de quem tem esse `uid` (-1 se morreu ou não existe), pelo cache anual `uidCache`: quem nasceu
-   * ou desembarcou depois da última recontagem do ano ainda não aparece (o índice exato, `uidIndex`, é o
-   * de `findUid`).
+   * Índice de quem tem esse `uid` (-1 se morreu ou não existe). O `uid` é o handle estável da criatura
+   * (Object Pool: o índice é reaproveitado depois da morte); o mapa `uidIndex` acompanha `spawn`, `kill`
+   * e `restore`, então vale na hora, inclusive para quem nasceu ou desembarcou neste ano.
    */
   indexOfUid(this: Ecosystem, uid: number): number {
-    if (!uid) return -1;
-    if (this.uidYear !== Math.floor(this.year)) {
-      this.uidYear = Math.floor(this.year);
-      this.uidCache.clear();
-      for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidCache.set(this.uid[k], k);
-    }
-    const k = this.uidCache.get(uid);
-    return k !== undefined && this.alive[k] && this.uid[k] === uid ? k : -1;
+    return uid ? this.findUid(uid) : -1;
   },
 
   /**
