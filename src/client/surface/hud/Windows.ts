@@ -10,6 +10,8 @@ import { ecologyOf, guildName } from '../../../sim/fauna';
 import { CURRENCY_NAMES } from '../../../sim/trade';
 import { compareHtml, type CompareKey } from '../settlementWindow';
 import { bodyOf, KIND_ICONS, plain, spriteOf, WINDOWS, type Win } from '../tools';
+import { keyLabel } from '../keys';
+import { SPEEDS } from '../SimDriver';
 import { HtmlSlot, HudComponent } from './component';
 import type { IconCache } from './icons';
 
@@ -22,6 +24,8 @@ export interface SurfaceSettings {
   layer: 'kingdoms' | 'vocation' | 'economy';
   /** Visão de depuração do gerador no lugar do mapa normal. */
   geoView: GeoView;
+  /** Camada de depuração do campo de sítios (notas de onde assentar) por cima do mapa, e o porquê na ficha. */
+  showSites: boolean;
 }
 
 /**
@@ -251,8 +255,11 @@ export class Windows extends HudComponent {
       <div class="wb-section">Geologia e clima (depuração do gerador)</div>
       <div class="wb-filters">${GEO_VIEWS.map(([k, l]) => `<button data-opt="geo:${k}" class="${on(s.geoView === k)}">${l}</button>`).join('')}</div>
       <div class="wb-note">${this.geoNote(eco)}</div>
+      <div class="wb-section">Onde assentar (depuração)</div>
+      <div class="wb-filters"><button data-opt="sites" class="${on(s.showSites)}">Notas dos sítios (${keyLabel('sites')})</button></div>
+      <div class="wb-note">A nota de cada célula de 16×16 tiles para fundar (laranja escuro é melhor) e, na ficha do tile, a nota do ponto fator por fator e por que ali não dá para fundar.</div>
       <div class="wb-section">Atalhos</div>
-      <div class="wb-note">Espaço pausa · 1 a 5 mudam a velocidade · C crônica · R reinos · E espécies · I itens · Ctrl+Z desfaz o último traço do pincel de terreno ou clima · Esc fecha a janela ou volta à órbita.</div>`;
+      <div class="wb-note">${keyLabel('pause')} pausa · 1 a ${SPEEDS.length} mudam a velocidade · ${keyLabel('chronicle')} crônica · ${keyLabel('kingdoms')} reinos · ${keyLabel('species')} espécies · ${keyLabel('items')} itens · Ctrl+Z desfaz o último traço do pincel de terreno ou clima · Esc fecha a janela ou volta à órbita.</div>`;
   }
 
   /** Legenda da visão de depuração aberta. */
