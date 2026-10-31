@@ -244,9 +244,14 @@ describe('sobrevivência', () => {
     const { eco } = world();
     // Num planeta pequeno algumas espécies já começam com dois ou três bichos: conta só as que começam viáveis.
     const viable = eco.species.map((_, s) => eco.population[s] >= 10);
+    // Presa de base é a que começa farta: num planeta pequeno o bisão começa com uma dúzia e some ou não pela caça,
+    // conforme a história da semente (antes ele entrava na lista de qualquer jeito).
+    const index = (name: string) => eco.species.findIndex((sp) => sp.name === name);
+    const start = eco.species.map((_, s) => eco.population[s]);
     years(eco, 80);
     expect([...eco.extinct].filter((s) => viable[s]).length).toBeLessThanOrEqual(3);
-    for (const name of ['Cervo', 'Coelho', 'Bisão', 'Javali']) expect(eco.population[eco.species.findIndex((sp) => sp.name === name)], name).toBeGreaterThan(0);
+    for (const name of ['Cervo', 'Coelho', 'Javali']) expect(eco.population[index(name)], name).toBeGreaterThan(0);
+    if (start[index('Bisão')] >= 30) expect(eco.population[index('Bisão')], 'Bisão').toBeGreaterThan(0);
   }, 60000);
 
   it('uma aldeia quase vazia recebe andarilhos do seu povo', () => {

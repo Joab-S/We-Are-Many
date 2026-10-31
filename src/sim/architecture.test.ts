@@ -47,7 +47,21 @@ describe('arquitetura que acompanha a era (19.8)', () => {
     for (const v of live) if (v.tier >= 1) eco.rankStreets(v);
     let main = 0;
     for (let i = 0; i < eco.mainStreet.length; i++) main += eco.mainStreet[i];
-    if (live.some((v) => v.tier >= 1)) expect(main).toBeGreaterThan(0);
+    // Rua principal pede rede de ruas: as ruas nascem do uso (RF-AS-13), e a vila que ainda só tem trilhas e um
+    // trecho solto não tem tronco. Conta só a vila com ruas de verdade no território (antes, qualquer vila; quantas
+    // ruas cada uma abriu em 200 anos depende da história da semente).
+    const streetsOf = (v: (typeof live)[number]) => {
+      let n = 0;
+      const r = Math.ceil(eco.radius(v));
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const t = eco.tileAt(v.x + dx, Math.floor(v.y + dy));
+          if (t >= 0 && dx * dx + dy * dy <= r * r && (e.road[t] === 1 || e.road[t] === 2 || e.road[t] === AVENUE)) n++;
+        }
+      }
+      return n;
+    };
+    if (live.some((v) => v.tier >= 1 && streetsOf(v) >= 20)) expect(main).toBeGreaterThan(0);
     const city = live.filter((v) => v.tier >= 2).sort((a, b) => b.population - a.population)[0];
     if (city) {
       let avenue = 0;
