@@ -76,8 +76,9 @@ export const vocationPart = {
       if (isForestBiome(b) || veg > 0.6) forest++;
     }
     n = Math.max(1, n);
+    // Só as jazidas que o reino conhece (ou que o lugar já explora): a vocação mineira não adivinha o subsolo.
     let deposits = 0;
-    for (const d of this.deposits) if (d.amount > 0 && this.distance(v, d.x + 0.5, d.y + 0.5) < r + 12) deposits++;
+    for (const d of this.deposits) if (d.amount > 0 && (d.known.has(v.kingdom) || d.mine === v.id) && this.distance(v, d.x + 0.5, d.y + 0.5) < r + 12) deposits++;
     let roads = 0;
     for (const o of this.villages) if (o !== v && !o.abandoned && this.distance(o, v.x, v.y) < 40) roads++;
     return { fertile: fertile / n, open: open / n, hills: hills / n, cold: cold / n, dry: dry / n, forest: forest / n, coast: this.coastal(v), deposits, roads, value: v.culture.value };
