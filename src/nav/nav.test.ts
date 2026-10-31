@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { adaptiveMaxSpeed, directionalDistance } from '../core/flight';
 import { stepSpeedFactor, THROTTLE } from '../core/shipControl';
 import { AU_PER_PC } from '../core/units';
-import { compressOrbit } from '../client/space/bodies';
+import { compressOrbit } from './planets';
 import { etaSeconds, radarRadius, rankSuggestions, starInterest, type Candidate, type NavTarget } from './guide';
 import { CELL_PC, findPoi, poisInCell, poisNear, TUTORIAL_POI } from './poi';
 import { cometOffset, describeSystem, generateSystem, habitableZone, starVisualRadius, summarize, systemViewRadius } from './systemGen';

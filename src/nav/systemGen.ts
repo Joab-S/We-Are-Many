@@ -2,7 +2,7 @@ import { bvToTemperature, stellarRadius } from '../core/astro';
 import { mulberry32, seedFor } from '../core/rng';
 import { KM_PER_AU } from '../core/units';
 import { alienName, nativeLifeTier, type LifeTier } from '../sim/species';
-import { compressOrbit, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData } from '../client/space/bodies';
+import { compressOrbit, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData } from './planets';
 
 /**
  * Sistemas planetários de todas as estrelas (RF-SYS-01). O Sistema Solar é
