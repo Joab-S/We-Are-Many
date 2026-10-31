@@ -26,7 +26,7 @@ export interface BiomeYield {
   readonly graze: number;
   /** Pesca na beira: mangue, delta e mar frio dão mais peixe. */
   readonly fish: number;
-  /** Quanto o bioma marca as estações, sobre a amplitude da latitude (a mata tropical quase não tem inverno). */
+  /** Quanto o bioma marca as estações, sobre a amplitude da latitude (a mata tropical tem estação mais branda, só a das chuvas). */
   readonly seasonAmp: number;
   /** Perecimento da comida guardada (1 = o temperado; o calor úmido estraga mais, o frio e o seco conservam). */
   readonly spoil: number;
@@ -68,7 +68,7 @@ export const BIOME_YIELD: Readonly<Record<Biome, BiomeYield>> = {
   [Biome.Beach]: row(0.7, 0.85, 0.75, 1.25, 0.8, 1, 0.6, 'coco e mandioca'),
   [Biome.Grass]: row(1.45, 1.6, 1.35, 1, 1, 1, 0.7, 'trigo'),
   [Biome.Forest]: row(1.05, 1.15, 1, 1, 1, 1, 1.25, 'cevada'),
-  [Biome.Jungle]: row(1, 1.1, 0.95, 1.1, 0.3, 1, 1.1, 'mandioca'),
+  [Biome.Jungle]: row(1, 1.1, 0.95, 1.1, 0.8, 1, 1.1, 'mandioca'),
   [Biome.Savanna]: row(1.15, 1.3, 1.25, 0.9, 1, 1, 0.8, 'sorgo e milhete'),
   [Biome.Desert]: row(0.15, 1, 0.55, 0.85, 0.8, 0.75, 0.4, 'tâmara'),
   [Biome.Tundra]: row(0.2, 0.2, 0.75, 1.25, 1.25, 0.55, 0.5, 'nada'),
@@ -79,7 +79,7 @@ export const BIOME_YIELD: Readonly<Record<Biome, BiomeYield>> = {
   [Biome.Barren]: row(0.05, 0.5, 0.25, 0.75, 0.9, 0.85, 0.4, 'nada'),
   [Biome.Taiga]: row(0.6, 0.65, 0.7, 1.15, 1.15, 0.75, 1.15, 'centeio'),
   [Biome.Swamp]: row(0.95, 1.4, 0.85, 1.25, 0.8, 1, 0.9, 'arroz'),
-  [Biome.Mangrove]: row(0.45, 0.65, 0.4, 1.45, 0.3, 1, 0.8, 'arroz'),
+  [Biome.Mangrove]: row(0.45, 0.65, 0.4, 1.45, 0.8, 1, 0.8, 'arroz'),
   [Biome.Cliff]: row(0.2, 0.25, 0.45, 0.9, 1, 0.85, 0.6, 'nada'),
 };
 

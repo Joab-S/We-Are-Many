@@ -820,9 +820,11 @@ export const GROW_MIN = 0.1;
 /**
  * Amplitude das estações (colheita, coleta e lenha do inverno) pela latitude: SEASON_AMP_EQUATOR no equador e
  * SEASON_AMP_POLE no polo, vezes o `seasonAmp` do bioma, até SEASON_AMP_MAX (acima disso a primavera ficaria
- * negativa). Com 1, a estação é a dos vetores SEASON_* (antes, igual no planeta inteiro).
+ * negativa). Com 1, a estação é a dos vetores SEASON_* (antes, igual no planeta inteiro), e é o que vale perto da
+ * latitude 0,25, onde vive quase todo o povo da Terra do jogo: com o trópico bem mais plano (0,4 no equador), a
+ * calibração curta perdia gente e era (a economia foi calibrada com a colheita concentrada no outono).
  */
-export const SEASON_AMP_EQUATOR = 0.4;
+export const SEASON_AMP_EQUATOR = 0.8;
 export const SEASON_AMP_POLE = 1.6;
 export const SEASON_AMP_MAX = 1.25;
 /** Relevo para a defesa: altura do centro acima de RELIEF_LOW (normalizada por RELIEF_HIGH_SPAN) e desvio da altura na área (RELIEF_RUGGED vale 1). */

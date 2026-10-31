@@ -125,11 +125,11 @@ describe('estações pela latitude', () => {
     expect(seasonWeight(B.SEASON_HARVEST, 2, 1)).toBeCloseTo(B.SEASON_HARVEST[2], 5);
   });
 
-  it('o mesmo bioma tem estação mais marcada perto do polo, e a mata tropical quase não tem estação', () => {
+  it('o mesmo bioma tem estação mais marcada perto do polo, e a mata tropical tem estação mais branda', () => {
     const map = flatMap(Biome.Grass, { size: 96 });
     const equator = areaYield(map, 48, 48, 6).amp;
     const north = areaYield(map, 48, 6, 6).amp;
-    expect(north).toBeGreaterThan(equator * 2);
+    expect(north).toBeGreaterThan(equator * 1.4);
     expect(north).toBeLessThanOrEqual(B.SEASON_AMP_MAX);
     expect(areaYield(flatMap(Biome.Jungle, { size: 96 }), 48, 48, 6).amp).toBeLessThan(equator);
   });
