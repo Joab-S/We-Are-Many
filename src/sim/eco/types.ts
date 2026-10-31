@@ -26,6 +26,8 @@ export interface ChronicleEntry {
   count: number;
   /** Lugares envolvidos nas repetições (ex.: assentamentos). */
   places: string[];
+  /** Ids dos assentamentos da linha (`note`); saves antigos não têm, e a janela do assentamento procura pelo nome. */
+  villages?: number[];
 }
 
 /** Efeito visual na superfície; `age` e `life` em segundos de jogo. */

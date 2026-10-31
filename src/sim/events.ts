@@ -202,6 +202,7 @@ function comet(eco: Ecosystem, px?: number, py?: number): boolean {
     { x, y },
     { major: true },
   );
+  eco.emit({ kind: 'disaster', year: eco.year, what: 'comet', x, y, village: nearest(eco, x, y)?.id ?? -1 });
   return true;
 }
 
@@ -325,6 +326,7 @@ function quake(eco: Ecosystem, px?: number, py?: number): boolean {
     { x, y },
     { major: mag >= 5.5 || fallen > 0 || dead > 0 },
   );
+  eco.emit({ kind: 'disaster', year: eco.year, what: 'quake', x, y, village: nearest(eco, x, y)?.id ?? -1 });
   return true;
 }
 
@@ -383,6 +385,7 @@ function volcano(eco: Ecosystem, px: number | undefined, py: number | undefined,
     { x, y },
     { major: true },
   );
+  eco.emit({ kind: 'disaster', year: eco.year, what: sea ? 'island' : 'volcano', x, y, village: nearest(eco, x, y)?.id ?? -1 });
   return true;
 }
 
@@ -408,6 +411,7 @@ function fire(eco: Ecosystem, px?: number, py?: number): boolean {
   eco.killAround(x, y, r * 0.8, 0.5);
   const fallen = eco.destroyAround(x, y, r * 0.7, 0.3);
   eco.note(`Um incêndio queimou a floresta${near(eco, x, y)}${fallen ? ` e ${fallen} construções` : ''}`, 'natureza', { x, y }, { major: burned > 40 });
+  eco.emit({ kind: 'disaster', year: eco.year, what: 'fire', x, y, village: nearest(eco, x, y)?.id ?? -1 });
   return true;
 }
 
@@ -428,6 +432,7 @@ function drought(eco: Ecosystem, px?: number, py?: number): boolean {
     if (!v.abandoned && Math.hypot(wrap(eco, v.x - x), v.y - y) < r) v.food = 0;
   }
   eco.note(`Uma seca castigou a região${near(eco, x, y)}`, 'natureza', { x, y }, { major: true });
+  eco.emit({ kind: 'disaster', year: eco.year, what: 'drought', x, y, village: nearest(eco, x, y)?.id ?? -1 });
   return true;
 }
 
@@ -455,6 +460,7 @@ function plague(eco: Ecosystem): boolean {
     eco.effect('skull', v.x, v.y - 2, 12, 1);
   }
   eco.note(`Uma peste atingiu ${start.name}${hit.size > 1 ? ` e mais ${hit.size - 1} assentamentos` : ''}: ${dead} mortos`, 'natureza', start, { major: true });
+  eco.emit({ kind: 'disaster', year: eco.year, what: 'plague', x: start.x, y: start.y, village: start.id });
   return dead > 0;
 }
 

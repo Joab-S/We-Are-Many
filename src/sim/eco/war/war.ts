@@ -264,6 +264,7 @@ export const warPart = {
     const war = this.wars[k];
     this.wars.splice(k, 1);
     this.truces.set(this.key(war.a, war.b), this.year + B.TRUCE_MIN);
+    this.emit({ kind: 'warEnd', year: this.year, a: war.a, b: war.b, target: war.target, motive: war.motive, years: war.years });
     for (const i of this.mercenaries) {
       if (!this.alive[i] || this.village[i] < 0) {
         this.mercenaries.delete(i);
@@ -295,6 +296,7 @@ export const warPart = {
     else t.landWars++;
     t.wars++;
     t.warsPeak = Math.max(t.warsPeak, this.wars.length);
+    this.emit({ kind: 'warStart', year: this.year, a: war.a, b: war.b, target: war.target, motive: war.motive, naval: war.naval });
     return full;
   },
 
@@ -446,6 +448,7 @@ export const warPart = {
     target.lastCause = 'na guerra';
     this.abandon(target, true);
     this.effect('flame', target.x, target.y, 40, 2);
+    this.emit({ kind: 'conquest', year: this.year, winner: war.a, loser: war.b, village: target.id, razed: true });
     this.tally.burned += 1;
     // Os soldados que estão no lugar ficam e fundam o assentamento novo.
     const settlers: number[] = [];
@@ -500,6 +503,7 @@ export const warPart = {
     this.relations.set(this.key(war.a, war.b), -20);
     this.grudge(war.a, war.b);
     this.vengeance.set(`${war.b}>${war.a}`, this.year + B.GRUDGE_YEARS);
+    this.emit({ kind: 'conquest', year: this.year, winner: war.a, loser: war.b, village: target.id, razed: false });
     this.note(`${winner.name} conquistou ${target.name}${burn > 0 ? `; ${burn > 1 ? `${burn} casas queimaram` : 'uma casa queimou'}` : ''}`, 'guerra', target, { major: true });
   },
 };

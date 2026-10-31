@@ -339,6 +339,7 @@ export const relationsPart = {
           v.color = best.color;
           v.lure = undefined;
           this.tally.annexations++;
+          this.emit({ kind: 'annex', year: this.year, village: v.id, from: from?.id ?? -1, to: best.id });
           this.note(from ? `${v.name} deixou ${from.name} e passou, em paz, para o lado de ${best.name}` : `${v.name} se juntou, em paz, a ${best.name}`, 'povo', v, { major: true });
         }
         continue;
@@ -352,6 +353,7 @@ export const relationsPart = {
         this.relations.set(this.key(old, v.id), -45);
         this.tally.revolts++;
         this.tally.newPeoples++;
+        this.emit({ kind: 'revolt', year: this.year, village: v.id, against: old, cause: 'loyalty' });
         this.note(`${v.name}, sem lealdade a ${k.name}, se revoltou e declarou independência: nasce o povo ${v.culture.name}`, 'povo', v, { major: true });
       }
     }

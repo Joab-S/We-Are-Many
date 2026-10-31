@@ -51,6 +51,7 @@ export const coloniesPart = {
         }
       }
       this.note(`Colonos de ${v.name} fundaram ${nv.name}`, 'povo', nv);
+      this.emit({ kind: 'colony', year: this.year, phase: 'depart', from: v.id, to: nv.id, people: moved, by: 'land' });
       return true;
     }
     return false;
@@ -261,6 +262,7 @@ export const coloniesPart = {
     }
     this.tally.colonies++;
     this.note(`${n} famílias de ${v.name} partiram atrás de ${MOTIVE_TEXT[c.motive]} e fundaram ${nv.name}`, 'povo', nv, { major: v.tier >= 1 });
+    this.emit({ kind: 'colony', year: this.year, phase: 'depart', from: v.id, to: nv.id, people: group.length, by: 'land' });
   },
 
   /**
@@ -308,6 +310,7 @@ export const coloniesPart = {
     v.want = 0;
     this.tally.exodus++;
     if (why === 'lenha') this.tally.exodusFuel++;
+    this.emit({ kind: 'exodus', year: this.year, village: v.id, lack: why });
     if (why === 'comida' && this.openFarmstead(v)) return;
     if (this.organizeColony(v, why === 'comida' ? 'terra' : 'espaço')) return;
     if (families && this.seekRefuge(v, families, why)) return;
@@ -338,6 +341,7 @@ export const coloniesPart = {
     for (const m of families.values()) {
       if (m.includes(v.leader) || !happens(this.civRnd, B.EXODUS_SHARE, 1)) continue;
       for (const i of m) this.relocate(i, v, best);
+      this.emit({ kind: 'migrate', year: this.year, family: this.family[m[0]] ?? -1, from: v.id, to: best.id, people: m.length, cause: 'refuge' });
       moved += m.length;
       this.tally.familyMoves++;
     }
@@ -384,6 +388,7 @@ export const coloniesPart = {
       this.layAccess(v, x0, y0, Math.ceil(d) + 8);
       this.tally.farmsteads++;
       this.note(`Famílias de ${v.name} abriram um sítio a ${Math.round(d)} tiles do centro`, 'povo', { x: x0 + 1, y: y0 + 1 }, { key: `farmstead-${v.id}` });
+      this.emit({ kind: 'farmstead', year: this.year, village: v.id, x: x0 + 1, y: y0 + 1 });
       void w;
       return true;
     }

@@ -189,6 +189,7 @@ export const disastersPart = {
       if (center >= 0 && !isLand(map, center) && v.population > 0) {
         for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] === v.id) this.kill(i, true, 'desastre');
         this.note(`${v.name} foi tomada pelas águas, pelo fogo ou pelo gelo`, 'natureza', v, { major: v.tier >= 1 });
+        this.emit({ kind: 'disaster', year: this.year, what: 'engulfed', x: v.x, y: v.y, village: v.id });
       }
     }
     for (let k = this.ruins.length - 1; k >= 0; k--) {
@@ -329,6 +330,7 @@ export const disastersPart = {
     }
     this.tally.wildfires++;
     const near = this.settlementAt(x, y) ?? this.villages.find((v) => !v.abandoned && Math.hypot(wrapDx(v.x - x, map.width), v.y - y) < 30);
+    this.emit({ kind: 'disaster', year: this.year, what: 'wildfire', x: Math.floor(x), y: Math.floor(y), village: near?.id ?? -1 });
     this.note(`Um raio pôs fogo na mata seca${near ? ` perto de ${near.name}` : ''}: ${burnt} tiles queimados, o capim volta primeiro`, 'natureza', { x: Math.floor(x), y: Math.floor(y) }, { key: 'wildfire' });
   },
 };

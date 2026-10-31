@@ -41,6 +41,7 @@ export const societyPart = {
         this.kill(i, true, 'doença');
         toll--;
       }
+      this.emit({ kind: 'disaster', year: this.year, what: 'epidemic', x: v.x, y: v.y, village: v.id });
       this.note(`Uma epidemia matou ${dead - toll} pessoas em ${v.name}${clean < 1 && clean > 0.3 ? '' : clean <= 0.3 ? ', mesmo com o aqueduto' : ': faltam poços e esgoto'}`, 'natureza', v);
     }
   },

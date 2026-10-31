@@ -64,6 +64,7 @@ export const techPart = {
     const first = !this.techsSeen.has(t.id);
     this.techsSeen.add(t.id);
     this.note(`${v.name} ${how} ${t.name}: ${t.gives}`, 'economia', v, first ? { major: true } : { key: `tech-${t.id}` });
+    this.emit({ kind: 'tech', year: this.year, village: v.id, tech: t.id, first, lost: false });
   },
 
   /** Assentamentos de onde vêm ideias: o mesmo reino e os parceiros de acordo comercial (RF-VIDA-74). */
@@ -246,6 +247,7 @@ export const techPart = {
         const t = lost[Math.floor(this.lore() * lost.length)];
         v.techs = v.techs!.filter((id) => id !== t.id);
         this.note(`${v.name} esqueceu ${t.name} depois do colapso`, 'economia', v, { major: true });
+        this.emit({ kind: 'tech', year: this.year, village: v.id, tech: t.id, first: false, lost: true });
       }
     }
   },

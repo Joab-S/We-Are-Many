@@ -82,6 +82,7 @@ export const polityPart = {
     v.foot = undefined;
     o.foot = undefined;
     this.tally.merged++;
+    this.emit({ kind: 'merge', year: this.year, village: o.id, into: v.id });
     const foreign = o.culture !== v.culture ? `, um bairro do povo ${o.culture.name}` : '';
     this.note(`${o.name} foi engolida pelo crescimento de ${v.name} e virou o bairro ${o.name}${foreign}`, 'povo', v, { major: true });
   },
@@ -105,6 +106,7 @@ export const polityPart = {
       const cities = list.filter((o) => o !== v && o.tier >= 2).length;
       const before = v.polity;
       v.polity = polityOf(v.tier, list.length, cities >= 2 && list.length >= 10 ? 1 : 0);
+      if (before && before !== v.polity) this.emit({ kind: 'polity', year: this.year, village: v.id, polity: v.polity, was: before, places: list.length });
       if (before && before !== v.polity && (v.polity === 'reino' || v.polity === 'império')) {
         this.note(`${v.name} é agora a capital ${v.polity === 'império' ? 'de um império' : 'de um reino'} com ${list.length} lugares`, 'povo', v, { major: true });
       }

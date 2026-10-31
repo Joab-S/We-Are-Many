@@ -399,6 +399,7 @@ export const diplomacyPart = {
       target.leader = -1;
       this.grudge(war.a, war.b, B.GRUDGE_YEARS / 2);
       this.vengeance.set(`${war.b}>${war.a}`, this.year + B.GRUDGE_YEARS / 2);
+      this.emit({ kind: 'conquest', year: this.year, winner: war.a, loser: war.b, village: target.id, razed: false });
       this.note(`Paz entre ${a.name} e ${b.name}: ${b.name} cedeu ${target.name}`, 'guerra', target, { major: true });
       return;
     }
@@ -575,6 +576,7 @@ export const diplomacyPart = {
       for (const c of this.villages) {
         if (c.abandoned || c === v || c.kingdom !== c.id || c.species !== v.species || (members.get(c.id)?.length ?? 0) < 2) continue;
         if (this.distance(c, v.x, v.y) > 45 || this.relation(c.id, v.id) < 20 || this.polRnd() > 0.03) continue;
+        this.emit({ kind: 'annex', year: this.year, village: v.id, from: -1, to: c.id });
         v.kingdom = c.id;
         v.color = c.color;
         this.note(`${v.name} pediu proteção e passou a fazer parte do reino de ${c.name}`, 'povo', v);
@@ -610,6 +612,7 @@ export const diplomacyPart = {
   /** Torna `v` capital de um reino novo saído de `old`: cultura, cor, estoque inicial. */
   newKingdom(this: Ecosystem, v: Village, old: Village): void {
     v.kingdom = v.id;
+    this.emit({ kind: 'independence', year: this.year, village: v.id, from: old.id });
     v.culture = makeCulture(this.cultures++, v.name, this.polRnd);
     v.color = this.freshColor();
     for (const o of this.villages) if (o.kingdom === v.id) o.color = v.color;
