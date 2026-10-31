@@ -64,6 +64,28 @@ describe('índice de moradores (Spatial Partition com Dirty Flag)', () => {
   }, 60000);
 });
 
+describe('relógios (Game Loop)', () => {
+  it('com o ano do jogo cabem dois anos de ação em cada ano exibido, e as compensações seguem a razão', () => {
+    const { eco } = seedWorld(7);
+    expect(eco.actionScale()).toBe(1);
+    expect(eco.eraPace()).toBe(1);
+    eco.yearSpan = 12;
+    let yearly = 0;
+    const original = eco.yearly;
+    eco.yearly = function (this: Ecosystem) {
+      yearly++;
+      original.call(this);
+    };
+    run(eco, 24);
+    expect(eco.year).toBeCloseTo(2, 6);
+    expect(yearly).toBe(4);
+    expect(eco.actionScale()).toBe(0.5);
+    expect(eco.eraPace()).toBe(1.5);
+    expect(eco.actionPhase()).toBeGreaterThanOrEqual(0);
+    expect(eco.actionPhase()).toBeLessThan(1);
+  }, 60000);
+});
+
 describe('tipos de construção (Type Object)', () => {
   it('a lista, os nomes e a ordem das especiais continuam os mesmos', () => {
     expect([...BUILDINGS]).toEqual(['granary', 'smithy', 'market', 'warehouse', 'pottery', 'windmill', 'loom', 'corral', 'stable', 'sawmill', 'temple', 'barracks', 'factory', 'aqueduct', 'statue', 'wonder']);

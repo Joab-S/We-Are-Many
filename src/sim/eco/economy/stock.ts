@@ -10,17 +10,12 @@ import { buildCost, emptyStock, GOODS, type Good, type Stock } from '../../econo
 import type { RoleContext } from '../../roles';
 import { foodCap, goodCap, room, seasonOf, VOCATION_ROLE, type CapContext } from '../../needs';
 import type { BuildingKind, Village } from '../types';
-import * as constantsModule from '../constants';
-
-// Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
-const { YEAR_SECONDS } = constantsModule;
-
 export const stockPart = {
   // Economia ---------------------------------------------------------------
 
   /** Estação do ano econômico agora (0 primavera … 3 inverno, RF-VIDA-290). */
   season(this: Ecosystem): number {
-    return seasonOf(this.yearClock / YEAR_SECONDS);
+    return seasonOf(this.actionPhase());
   },
 
   /** Estoque do próprio assentamento: nada é compartilhado com o reino (RF-VIDA-212). */
@@ -130,7 +125,7 @@ export const stockPart = {
    */
   consume(this: Ecosystem, v: Village, fedShare: number, yr: number): void {
     const st = v.stock;
-    const season = seasonOf(this.yearClock / YEAR_SECONDS);
+    const season = seasonOf(this.actionPhase());
     const cold = temperatureAt(this.map, this.tileAt(v.x, Math.floor(v.y))) < B.COLD_K ? 2 : 1;
     const fuel = v.population * B.CONSUME_FUEL * cold * B.SEASON_FUEL[season] * yr;
     const burnt = this.spend(v, 'wood', fuel);

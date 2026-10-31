@@ -51,7 +51,7 @@ export const productionPart = {
     if (happens(this.civRnd, B.SURVEY_RATE, yr) || v.forest === 0) this.survey(v);
     const tools = st.tools > 0 ? 1.4 : 1;
     const bonus = (voc: Vocation) => (v.vocation === voc ? 1 + B.VOCATION_BONUS : 1);
-    const season = seasonOf(this.yearClock / YEAR_SECONDS);
+    const season = seasonOf(this.actionPhase());
     // Lenha (seção 19.19): os lenhadores derrubam árvores de verdade, da mais perto para a mais longe;
     // quanto mais longe a mata, menos madeira chega por ano. A serraria aproveita mais de cada tronco.
     v.crew = w[ROLE.builder];

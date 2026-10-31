@@ -254,8 +254,7 @@ export const lifecyclePart = {
         continue;
       }
       const before = Math.floor(v.tech);
-      const eraPace = this.yearSpan > YEAR_SECONDS ? 1.5 : 1;
-      this.develop(v, dt * eraPace, adults[v.id] ?? []);
+      this.develop(v, dt * this.eraPace(), adults[v.id] ?? []);
       if (Math.floor(v.tech) > before) {
         this.note(`${v.name} entrou na ${ERAS[Math.floor(v.tech)]}`, 'era', v, { major: true });
         // Cada era nova refaz o calçamento das ruas que o uso abriu (RF-VIDA-253 e RF-AS-13).
@@ -302,7 +301,7 @@ export const lifecyclePart = {
         const mill = v.houses.some((h) => h.kind === 'windmill') ? 1 + (this.knew(v, 'moinhoagua') ? 0.45 : 0.3) * Math.min(1, w[ROLE.miller]) : 1;
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
-        const season = B.SEASON_HARVEST[seasonOf(this.yearClock / YEAR_SECONDS)];
+        const season = B.SEASON_HARVEST[seasonOf(this.actionPhase())];
         this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * B.ERA_YIELD[Math.min(B.ERA_YIELD.length - 1, Math.floor(v.tech))] * this.harvest(v) * (this.knew(v, 'irrigacao') ? 1.1 : 1) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
       }
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
@@ -338,11 +337,7 @@ export const lifecyclePart = {
       }
     }
     this.updateWars(dt);
-    this.yearClock += dt;
-    if (this.yearClock >= YEAR_SECONDS) {
-      this.yearClock = 0;
-      this.yearly();
-    }
+    if (this.tickActionYear(dt)) this.yearly();
   },
 };
 export type LifecyclePart = typeof lifecyclePart;

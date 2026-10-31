@@ -491,7 +491,7 @@ export const caravansPart = {
     if (c.kind === 'flock') {
       if (!c.back) {
         // No pasto alto até o outono.
-        const phase = this.yearClock / YEAR_SECONDS;
+        const phase = this.actionPhase();
         c.wait = Math.max(0.5, (0.5 - phase) * YEAR_SECONDS);
         c.back = true;
         c.path.reverse();

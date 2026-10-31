@@ -54,6 +54,7 @@ import { disastersPart, type DisastersPart } from './eco/world/disasters';
 import { playerPart, type PlayerPart } from './eco/world/player';
 import { queriesPart, type QueriesPart } from './eco/core/queries';
 import { residentsPart, ResidentIndex, type ResidentsPart } from './eco/core/residents';
+import { clockPart, type ClockPart } from './eco/core/clock';
 
 export * from './eco/types';
 export * from './eco/constants';
@@ -120,7 +121,8 @@ export interface Ecosystem
     DisastersPart,
     PlayerPart,
     QueriesPart,
-    ResidentsPart {}
+    ResidentsPart,
+    ClockPart {}
 
 export class Ecosystem {
   readonly species: Species[] = [];
@@ -282,6 +284,7 @@ export class Ecosystem {
   readonly affinities = new Map<string, number>();
   readonly wars: War[] = [];
   cultures = 0;
+  /** Segundos do ano de ação em curso (o relógio de `yearly()`; os dois relógios estão em eco/core/clock.ts). */
   yearClock = 0;
   /**
    * Clima do ano por região (RF-VIDA-304 e 305): 0 é um ano normal, negativo
@@ -408,9 +411,12 @@ export class Ecosystem {
   readonly everLived: boolean[] = [];
   /** Chamado quando uma espécie entra no planeta (variantes novas vão para o catálogo). */
   onSpecies: (sp: Species) => void = () => {};
-  /** Anos de jogo desde a chegada. */
+  /** Anos de calendário desde a chegada (o ano que a tela mostra). */
   year = 0;
-  /** Segundos de simulação que formam um ano no relógio (padrão YEAR_SECONDS; maior na tela para o ano durar mais sem desacelerar ações e eventos). */
+  /**
+   * Segundos de simulação que formam um ano de calendário (padrão YEAR_SECONDS; maior na tela para o ano durar
+   * mais sem desacelerar ações e eventos, que seguem o ano de ação). Os dois relógios estão em eco/core/clock.ts.
+   */
   yearSpan = YEAR_SECONDS;
   /** Crônica do planeta, do mais novo para o mais antigo (RF-VIDA-156). */
   readonly chronicle: ChronicleEntry[] = [];
@@ -559,10 +565,10 @@ export class Ecosystem {
     this.buildGrid();
     const map = this.map;
     const w = map.width;
-    // Dois relógios: bichos de terra decidem DECISIONS_PER_YEAR vezes por ano; os aquáticos vivem no
-    // tempo em que foram calibrados (ano de YEAR_SECONDS), então a biologia não muda com a duração do ano.
+    // Dois relógios (eco/core/clock.ts): bichos de terra decidem DECISIONS_PER_YEAR vezes por ano de calendário;
+    // os aquáticos vivem no ano de ação, em que foram calibrados, então a biologia não muda com a duração do ano.
     const animalThink = this.yearSpan / DECISIONS_PER_YEAR;
-    const legacy = YEAR_SECONDS / this.yearSpan;
+    const legacy = this.actionScale();
     for (let i = 0; i < this.count; i++) {
       if (!this.alive[i]) continue;
       const sk = this.species[this.kind[i]].kind;
@@ -749,6 +755,7 @@ for (const part of [
   playerPart,
   queriesPart,
   residentsPart,
+  clockPart,
 ]) {
   for (const [k, f] of Object.entries(part)) Object.defineProperty(Ecosystem.prototype, k, { value: f, writable: true, configurable: true, enumerable: false });
 }
