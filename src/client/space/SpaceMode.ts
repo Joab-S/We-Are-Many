@@ -68,6 +68,7 @@ export class SpaceMode implements GameMode {
   private lastH = 0;
   private lastDpr = 0;
   private disposed = false;
+  private readonly isDisposed = (): boolean => this.disposed;
 
   constructor(
     private readonly renderer: GameRenderer,
@@ -163,7 +164,7 @@ export class SpaceMode implements GameMode {
     state.time += dt;
 
     // Comandos das teclas apertadas neste quadro (observar troca de modo: nada mais deste quadro).
-    this.commands.dispatch(this.input, this.bindings, () => this.disposed);
+    this.commands.dispatch(this.input, this.bindings, this.isDisposed);
     if (this.disposed) return;
     this.systems.update(this.director.nearestStar);
     this.systems.updateBodies(state.time, nav.autopilot ? nav.target?.id ?? null : null);

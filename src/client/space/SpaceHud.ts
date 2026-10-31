@@ -43,7 +43,11 @@ const TARGET_ICON = svgIcon('target');
 interface Label {
   el: HTMLDivElement;
   visible: boolean;
-  html: string;
+  /** O que está escrito no elemento agora: nome, distância e posição na tela. */
+  name: string;
+  dist: string;
+  x: number;
+  y: number;
 }
 
 /** Tudo o que o HUD mostra; ligado depois que GUIA e sondas já existem dentro de `root`. */
@@ -298,16 +302,23 @@ export class SpaceHud {
       const el = document.createElement('div');
       el.className = 'hud-label';
       this.els.labels.appendChild(el);
-      label = { el, visible: true, html: '' };
+      label = { el, visible: true, name: '', dist: '', x: NaN, y: NaN };
       this.labels.set(key, label);
     }
     label.visible = true;
-    const html = `<span>${TARGET_ICON}${name}</span><small>${formatDistance(dist)}</small>`;
-    if (label.html !== html) {
-      label.html = html;
-      label.el.innerHTML = html;
+    const distText = formatDistance(dist);
+    if (label.name !== name || label.dist !== distText) {
+      label.name = name;
+      label.dist = distText;
+      label.el.innerHTML = `<span>${TARGET_ICON}${name}</span><small>${distText}</small>`;
     }
-    label.el.style.transform = `translate(${((v.x + 1) / 2) * window.innerWidth}px, ${((1 - v.y) / 2) * window.innerHeight}px)`;
+    const x = ((v.x + 1) / 2) * window.innerWidth;
+    const y = ((1 - v.y) / 2) * window.innerHeight;
+    if (x !== label.x || y !== label.y) {
+      label.x = x;
+      label.y = y;
+      label.el.style.transform = `translate(${x}px, ${y}px)`;
+    }
   }
 
   dispose(): void {

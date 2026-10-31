@@ -271,6 +271,8 @@ function scanCell(c: StarChunk, slot: number, cellIndex: number, sx: number, sy:
     }
     const sq = dx * dx + dy * dy + dz * dz;
     if (!(sq < maxSq) || d[o + 5] === skipId) continue;
+    // Já há K e este não ganha do pior: descarta aqui, sem chamar o heap (chamada com double aloca).
+    if (top.n >= top.k && (sq > top.sq[0] || (sq === top.sq[0] && (c.seq > top.seq[0] || (c.seq === top.seq[0] && i > top.idx[0]))))) continue;
     top.offer(sq, c.seq, i, slot);
   }
 }

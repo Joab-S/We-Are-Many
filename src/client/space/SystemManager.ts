@@ -172,13 +172,10 @@ export class SystemManager {
     const sys = this.system;
     if (!sys) return;
     const ship = this.state.shipPos;
-    // Com o piloto automático indo a um corpo que se move, a nave acompanha o movimento dele
-    // na reta final; sem isso ela persegue o planeta sem nunca alcançar a órbita.
-    const chasing = (b: Body) => chaseId !== null && chaseId === (b.planet?.id ?? b.id) && b.pos.distanceTo(ship) < b.radius * 40;
     for (const b of sys.planets) {
       const prev = this.prev.copy(b.pos);
       planetOffset(b.planet!, time, b.pos).add(sys.star.pos);
-      if ((this.orbitBody === b || chasing(b)) && prev.lengthSq() > 0) ship.add(prev.sub(b.pos).negate());
+      if ((this.orbitBody === b || this.chasing(b, chaseId)) && prev.lengthSq() > 0) ship.add(prev.sub(b.pos).negate());
       b.surface!.rotation.y = time * 0.05;
     }
     const window = Math.floor(time / VISITOR_WINDOW_S);
@@ -188,9 +185,18 @@ export class SystemManager {
       const prev = this.prev.copy(b.pos);
       const realR = cometOffset(sys.cometData[i], time, b.pos);
       b.pos.add(sys.star.pos);
-      if (chasing(b) && prev.lengthSq() > 0) ship.add(prev.sub(b.pos).negate());
+      if (this.chasing(b, chaseId) && prev.lengthSq() > 0) ship.add(prev.sub(b.pos).negate());
       b.object.userData.realR = realR;
     }
+  }
+
+  /**
+   * Com o piloto automático indo a um corpo que se move, a nave acompanha o
+   * movimento dele na reta final; sem isso ela persegue o planeta sem nunca
+   * alcançar a órbita.
+   */
+  private chasing(b: Body, chaseId: string | null): boolean {
+    return chaseId !== null && chaseId === (b.planet?.id ?? b.id) && b.pos.distanceTo(this.state.shipPos) < b.radius * 40;
   }
 
   /** Troca o cometa visitante quando muda a janela de tempo. */
@@ -324,8 +330,9 @@ export class SystemManager {
   updateOrbit(): boolean {
     const ship = this.state.shipPos;
     let orbit: Body | null = null;
-    for (const b of this.system?.planets ?? []) {
-      if (b.pos.distanceTo(ship) < b.radius * 4) orbit = b;
+    const planets = this.system?.planets;
+    if (planets) {
+      for (const b of planets) if (b.pos.distanceTo(ship) < b.radius * 4) orbit = b;
     }
     if (orbit === this.orbitBody) return false;
     this.orbitBody = orbit;

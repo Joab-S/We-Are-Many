@@ -147,9 +147,18 @@ export function poisNear(p: { x: number; y: number; z: number }, radiusAu: numbe
     if (d < radiusAu) out.push({ ...poi, dist: d });
   };
   test(TUTORIAL_POI);
+  // Os pontos ficam dentro da própria célula: células inteiras além do raio nem são geradas
+  // (nos cantos do cubo de células são quase metade). A folga cobre o arredondamento.
+  const limit = (radiusAu * (1 + 1e-9)) ** 2;
+  const gap = (i: number, v: number) => Math.max(0, i * CELL_AU - v, v - (i + 1) * CELL_AU);
   for (let x = cx - r; x <= cx + r; x++) {
+    const gx = gap(x, p.x) ** 2;
     for (let y = cy - r; y <= cy + r; y++) {
-      for (let z = cz - r; z <= cz + r; z++) for (const poi of poisInCell(x, y, z)) test(poi);
+      const gxy = gx + gap(y, p.y) ** 2;
+      for (let z = cz - r; z <= cz + r; z++) {
+        if (gxy + gap(z, p.z) ** 2 >= limit) continue;
+        for (const poi of poisInCell(x, y, z)) test(poi);
+      }
     }
   }
   return out.sort((a, b) => a.dist - b.dist);

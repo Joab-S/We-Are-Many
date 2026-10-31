@@ -148,6 +148,30 @@ describe('cometas visitantes', () => {
   });
 });
 
+describe('busca de pontos de interesse por raio', () => {
+  it('pular células fora do raio dá o mesmo resultado que olhar todas', () => {
+    const CELL_AU = CELL_PC * AU_PER_PC;
+    const brute = (p: { x: number; y: number; z: number }, radiusAu: number) => {
+      const r = Math.ceil(radiusAu / CELL_AU);
+      const [cx, cy, cz] = [p.x, p.y, p.z].map((v) => Math.floor(v / CELL_AU));
+      const out: { id: string; dist: number }[] = [];
+      const test = (poi: { id: string; pos: [number, number, number] }) => {
+        const d = Math.hypot(poi.pos[0] - p.x, poi.pos[1] - p.y, poi.pos[2] - p.z);
+        if (d < radiusAu) out.push({ id: poi.id, dist: d });
+      };
+      test(TUTORIAL_POI);
+      for (let x = cx - r; x <= cx + r; x++) for (let y = cy - r; y <= cy + r; y++) for (let z = cz - r; z <= cz + r; z++) for (const poi of poisInCell(x, y, z)) test(poi);
+      return out.sort((a, b) => a.dist - b.dist);
+    };
+    for (let i = 0; i < 40; i++) {
+      const p = { x: Math.sin(i * 1.7) * 30 * AU_PER_PC, y: Math.cos(i * 0.9) * 12 * AU_PER_PC, z: (i % 5 - 2) * 3.1 * AU_PER_PC };
+      for (const pc of [1, 4, 6]) {
+        expect(poisNear(p, pc * AU_PER_PC).map((q) => ({ id: q.id, dist: q.dist }))).toEqual(brute(p, pc * AU_PER_PC));
+      }
+    }
+  });
+});
+
 describe('caches com limite', () => {
   it('sistemas e células de pontos de interesse continuam iguais depois de sair do cache', () => {
     const s = star(70890, 9, 1.2, 'Teste');
