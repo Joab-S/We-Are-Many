@@ -95,15 +95,15 @@ export type CatchKind = 'food' | 'wood' | 'stone';
 export const siteFieldPart = {
   /**
    * Raio de captação (tiles) de um lugar ou de quem vai fundar com a técnica `of`: o território mais o alcance da
-   * coleta, do corte ou da pedreira, como no trabalho (`reachOf`). É o ponto único do modo de vida: hoje a era faz
-   * as vezes dele (coletores da Pedra vão mais longe atrás de comida); quando houver `Village.lifeway` (frente 3C),
-   * o raio lê o modo de vida aqui.
+   * coleta, do corte ou da pedreira, como no trabalho (`reachOf`). É o ponto único do modo de vida: o lugar que
+   * existe usa o dele (`catchmentOf`: o nômade anda mais atrás de comida, o intensivo trabalha perto); o lugar novo,
+   * que ainda não tem modo de vida, usa a era de quem funda (coletores da Pedra vão mais longe).
    */
   catchRadius(this: Ecosystem, of: Village | number, kind: CatchKind = 'food'): number {
     const v = typeof of === 'number' ? null : of;
     const era = Math.max(0, Math.floor(v ? v.tech : (of as number)));
     const core = this.radius(v ?? NEW_PLACE);
-    if (kind === 'food') return core + B.GATHER_REACH * B.SITE_LIFEWAY_GATHER[Math.min(era, B.SITE_LIFEWAY_GATHER.length - 1)];
+    if (kind === 'food') return core + B.GATHER_REACH * (v ? this.catchmentOf(v) : B.SITE_LIFEWAY_GATHER[Math.min(era, B.SITE_LIFEWAY_GATHER.length - 1)]);
     return core + (kind === 'wood' ? B.WOOD_REACH : B.STONE_REACH) * (1 + B.REACH_PER_ERA * era);
   },
 

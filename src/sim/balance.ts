@@ -751,7 +751,7 @@ export const SITE_DIST_COST = 0.03;
  * (`reachOf`). SITE_CATCH_POP é também a gente que divide a captação na distribuição livre ideal (IFD).
  */
 export const SITE_CATCH_POP = 25;
-/** Modo de vida pela era (`catchRadius`, até haver `Village.lifeway`): coletores da Pedra vão mais longe atrás de comida. */
+/** Modo de vida pela era para o lugar novo, que ainda não tem `Village.lifeway` (`catchRadius`): coletores da Pedra vão mais longe atrás de comida. */
 export const SITE_LIFEWAY_GATHER = [1.4, 1.15, 1, 1, 1, 1];
 /** Decaimento da captação: cada célula pesa 1/(1 + d/SITE_DECAY), com d em tiles até o centro dela. */
 export const SITE_DECAY = 12;
