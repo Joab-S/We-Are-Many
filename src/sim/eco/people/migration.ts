@@ -167,7 +167,7 @@ export const migrationPart = {
         if (exodus) v.want = 0;
         continue;
       }
-      // Êxodo sem lugar conhecido melhor ao alcance: sítio, refúgio, colônia e, só longe de tudo, um grupo para longe (RF-AS-01).
+      // Êxodo sem lugar conhecido melhor ao alcance: sítio, colônia, refúgio e, só longe de tudo, um grupo para longe (RF-AS-01).
       if (exodus && !targets.length) this.exodusWithoutPlace(v, fams);
     }
   },

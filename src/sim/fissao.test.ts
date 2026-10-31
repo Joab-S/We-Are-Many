@@ -185,7 +185,7 @@ describe('fissão por pressão: quem sai, quando e com quem', () => {
 });
 
 describe('êxodo', () => {
-  it('só conta como êxodo quando alguém sai; a família com fome busca refúgio antes de fundar', () => {
+  it('só conta como êxodo quando alguém sai; lugar pequeno demais para colônia busca refúgio', () => {
     const { eco, s, spot } = world();
     // Sozinha no mundo, pequena demais para colônia ou grupo e sem ninguém para receber: ninguém sai, e não é êxodo.
     const alone = town(eco, s, spot(), B.LONE_GROUP_MIN - 2);

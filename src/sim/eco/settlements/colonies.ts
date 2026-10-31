@@ -371,9 +371,11 @@ export const coloniesPart = {
   },
 
   /**
-   * Família sem lugar melhor conhecido (RF-AS-01): sítio, refúgio num lugar do povo, colônia atrás de terra e,
-   * só longe de tudo, um grupo de famílias para longe. A fome manda primeiro para um lugar que já existe:
-   * fundar é o último recurso (agente 3B; antes a colônia vinha antes do refúgio).
+   * Família sem lugar melhor conhecido (RF-AS-01): sítio, colônia atrás de terra ou refúgio num lugar do povo
+   * e, só longe de tudo, um grupo de famílias para longe. Agente 3B: com FAMINE_COLONY_POP moradores ou mais a
+   * colônia vem antes do refúgio; nos menores, o refúgio vem antes. (Com o refúgio sempre antes, a fome ficava
+   * presa nos lugares que já existem e o povo encolhia; com a colônia sempre antes, as colônias da fome de
+   * lugares pequenos, que morrem cedo, mais que dobravam as fundações.) A colônia conta como fundação por fome.
    */
   exodusWithoutPlace(this: Ecosystem, v: Village, families: Map<number, number[]> | undefined): void {
     const why = this.lackName(v);
@@ -386,8 +388,11 @@ export const coloniesPart = {
       if (why === 'lenha') this.tally.exodusFuel++;
       this.emit({ kind: 'exodus', year: this.year, village: v.id, lack: why });
     };
-    if (families && this.seekRefuge(v, families, why)) return exodus();
-    if (this.organizeColony(v, why === 'comida' ? 'terra' : 'espaço', undefined, undefined, 'fome')) return exodus();
+    // Lugar grande tem gente e enxoval para mandar uma colônia atrás de terra; o pequeno se abriga num vizinho
+    // primeiro e só então tenta a colônia.
+    const colony = () => this.organizeColony(v, why === 'comida' ? 'terra' : 'espaço', undefined, undefined, 'fome');
+    const refuge = () => !!families && this.seekRefuge(v, families, why);
+    if (v.population >= B.FAMINE_COLONY_POP ? colony() || refuge() : refuge() || colony()) return exodus();
     const near = this.villages.some((o) => o !== v && !o.abandoned && o.species === v.species && this.distance(o, v.x, v.y) < B.LONE_FOUND_DIST);
     if (!near && this.colonizeByLand(v, families)) {
       exodus();

@@ -217,6 +217,8 @@ export const FISSION_CORE = 2;
 export const FISSION_SHARE = 0.3;
 /** Peso a mais, na vontade de ir com a colônia, das famílias que escolheram fundar. */
 export const FISSION_KEEN = 2;
+/** Êxodo (agente 3B): a partir de quantos moradores o lugar em falta manda colônia atrás de terra antes de buscar refúgio. */
+export const FAMINE_COLONY_POP = 60;
 /** Grupo mínimo (pessoas, famílias inteiras) para uma família de um lugar em falta partir sozinha para longe (`colonizeByLand`). */
 export const LONE_GROUP_MIN = 6;
 /**
