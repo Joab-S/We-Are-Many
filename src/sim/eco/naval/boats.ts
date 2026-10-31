@@ -353,8 +353,20 @@ export const boatsPart = {
     const lx = b.landing % w;
     const ly = Math.floor(b.landing / w);
     let target: Village | null = null;
-    if (this.canSettle(from.species, lx, ly, from.tech)) {
-      target = this.foundVillage(from.species, lx, ly, 0, from);
+    // A praia não serve mais (a costa mudou, alguém fundou perto): os colonos procuram a pé o melhor lugar em volta,
+    // pela nota e pelo veto de toda fundação (`chooseSite`), antes de desistir.
+    let site = this.canSettle(from.species, lx, ly, from.tech) ? { x: lx, y: ly } : null;
+    if (!site && !this.settlementAt(lx, ly)) {
+      const cands: { x: number; y: number }[] = [];
+      for (let k = 0; k < B.SITE_CANDIDATES; k++) {
+        const a = (k / B.SITE_CANDIDATES) * Math.PI * 2 * 3;
+        const d = 2 + ((B.SITE_LANDING_REACH - 2) * (k + 1)) / B.SITE_CANDIDATES;
+        cands.push({ x: Math.floor(lx + 0.5 + Math.cos(a) * d), y: Math.floor(ly + 0.5 + Math.sin(a) * d) });
+      }
+      site = this.chooseSite(cands, from.species, from, 'porto', from.tech, { walk: { x: lx + 0.5, y: ly + 0.5 }, veto: cands.length })[0] ?? null;
+    }
+    if (site) {
+      target = this.foundVillage(from.species, site.x, site.y, 0, from);
       this.note(`Colonos de ${from.name} cruzaram o mar de ${BOATS[b.kind].name.toLowerCase()} e fundaram ${target.name}`, 'mar', target, { major: true });
     } else {
       const other = this.settlementAt(lx, ly);

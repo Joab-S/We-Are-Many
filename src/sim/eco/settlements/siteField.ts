@@ -117,6 +117,23 @@ export const siteFieldPart = {
     return f;
   },
 
+  /**
+   * Os rótulos dos corpos d'água discordam do mapa no retângulo (terra que virou água ou o contrário)? Só então
+   * vale refazê-los (a busca no mapa inteiro custa caro, e quase todo terreno mudado não mexe na água).
+   */
+  waterChanged(this: Ecosystem, f: SiteField, x0: number, y0: number, x1: number, y1: number): boolean {
+    const map = this.map;
+    const w = map.width;
+    const water = f.water;
+    for (let y = Math.max(0, y0); y <= Math.min(map.height - 1, y1); y++) {
+      for (let x = x0; x <= x1; x++) {
+        const t = y * w + (((x % w) + w) % w);
+        if (isWater(map, t) !== water[t] > 0) return true;
+      }
+    }
+    return false;
+  },
+
   /** Corpo d'água de cada tile (0 terra, 1 lago, 2 mar), com o rótulo em dia. */
   waterBodies(this: Ecosystem): Uint8Array {
     const f = this.siteField();
@@ -165,6 +182,12 @@ export const siteFieldPart = {
    * completa (`raw`), para a criação do campo e para o terreno que mudou de repente (Dirty Flag).
    */
   refreshSiteCell(this: Ecosystem, f: SiteField, k: number, both: boolean): void {
+    // Mar aberto continua mar aberto (o terreno que muda suja a célula e vem com `both`).
+    if (!both && f.raw[k * L + LL] === 0 && f.raw[k * L + LH] === 0) {
+      f.rawNext.set(f.raw.subarray(k * L, k * L + L), k * L);
+      f.anchorNext[k] = f.anchor[k];
+      return;
+    }
     const map = this.map;
     const w = map.width;
     const water = f.water;
@@ -203,8 +226,15 @@ export const siteFieldPart = {
         if (isRockyBiome(map.biome[t] as Biome)) rock++;
         if (!this.flat(t)) continue;
         level++;
-        // Âncora: o tile plano mais verde e úmido, perto do meio da célula.
-        const q = (veg >= SITE_CENTER_GREEN ? 1 : 0) + veg + 0.3 * m - 0.004 * ((x - cx) * (x - cx) + (y - cy) * (y - cy));
+        // Âncora: o tile plano mais verde e úmido, perto do meio da célula e de água (a 3 tiles, nos quatro rumos).
+        let q = (veg >= SITE_CENTER_GREEN ? 1 : 0) + veg + 0.3 * m - 0.004 * ((x - cx) * (x - cx) + (y - cy) * (y - cy));
+        for (let d = 0; d < 4; d++) {
+          const u = this.tileAt(x + 3 * NEIGHBORS4[d][0], y + 3 * NEIGHBORS4[d][1]);
+          if (u >= 0 && isWater(map, u)) {
+            q += 0.5;
+            break;
+          }
+        }
         if (q > best) {
           best = q;
           anchor = t;
@@ -370,7 +400,8 @@ export const siteFieldPart = {
   siteDirty(this: Ecosystem, x: number, y: number, r: number, raw = false): void {
     const f = this.sites;
     if (!f) return;
-    if (raw) f.waterDirty = true;
+    const ri = Math.ceil(r) + 1;
+    if (raw && !f.waterDirty && this.waterChanged(f, Math.floor(x) - ri, Math.floor(y) - ri, Math.floor(x) + ri, Math.floor(y) + ri)) f.waterDirty = true;
     const w = this.map.width;
     const span = Math.ceil(r / C) + (raw ? SPAN : 0);
     const ccx = Math.floor((((x % w) + w) % w) / C);
@@ -389,9 +420,10 @@ export const siteFieldPart = {
   },
 
   /**
-   * Relógio do campo: primeiro as células sujas (até SITE_DIRTY_PER_STEP por passo), depois a fatia da volta anual,
-   * que refaz as camadas na volta em curso e a nota pela volta completa. Na virada, as voltas trocam (Double Buffer)
-   * e os corpos d'água são rotulados de novo. Sem campo (mundo sem povos), nada.
+   * Relógio do campo: primeiro as células sujas (até SITE_DIRTY_PER_STEP por passo), depois a fatia da volta (uma a
+   * cada SITE_FIELD_YEARS anos), que refaz as camadas na volta em curso e a nota pela volta completa. Na virada, as
+   * voltas trocam (Double Buffer) e os corpos d'água são rotulados de novo se a água mudou por um caminho que não
+   * passou por `sweep`. Sem campo (mundo sem povos), nada.
    */
   updateSites(this: Ecosystem, yr: number): void {
     const f = this.sites;
@@ -404,7 +436,7 @@ export const siteFieldPart = {
       if (flag & DIRTY_RAW) this.refreshSiteCell(f, c, true);
       this.scoreSiteCell(f, c);
     }
-    let slice = Math.ceil(f.n * yr);
+    let slice = Math.ceil((f.n * yr) / B.SITE_FIELD_YEARS);
     while (slice-- > 0) {
       this.refreshSiteCell(f, f.cursor, false);
       this.scoreSiteCell(f, f.cursor);
@@ -417,7 +449,8 @@ export const siteFieldPart = {
       const anchor = f.anchor;
       f.anchor = f.anchorNext;
       f.anchorNext = anchor;
-      f.waterDirty = true;
+      // Rede de segurança: a água que mudou por um caminho que não passou por `sweep`.
+      if (!f.waterDirty && this.waterChanged(f, 0, 0, this.map.width - 1, this.map.height - 1)) f.waterDirty = true;
     }
   },
 

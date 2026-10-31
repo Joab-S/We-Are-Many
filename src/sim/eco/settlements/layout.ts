@@ -387,9 +387,9 @@ export const layoutPart = {
     return null;
   },
 
-  /** O lugar serve para fundar: longe de outros assentamentos e com o que é preciso para viver (seção 19.18). */
+  /** O lugar serve para fundar: o filtro rápido (clima, verde no centro, espaçamento) e o exame da área (seção 19.18, onda 3). */
   canSettle(this: Ecosystem, s: number, x: number, y: number, tech = 0): boolean {
-    return this.canFound(x, y) && this.siteProblem(s, x, y, tech) === null;
+    return this.siteFilter(s, x, y, tech) === null;
   },
 
   /** Capital do reino do assentamento. */

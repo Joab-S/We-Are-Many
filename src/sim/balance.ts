@@ -660,7 +660,7 @@ export const SITE_W_FERTILE = 1.5;
 export const SITE_W_FOREST = 0.5;
 export const SITE_W_ROCK = 0.4;
 export const SITE_W_FLAT = 0.8;
-export const SITE_W_COAST = 0.5;
+export const SITE_W_COAST = 1;
 export const SITE_W_RUIN = 1.2;
 export const SITE_W_DEFENSE = 0.3;
 export const SITE_W_ROUTE = 0.4;
@@ -692,8 +692,14 @@ export const SITE_W_ORE = 0.6;
 /** Peso da pedra e do minério por era (Pedra, Bronze, Ferro, Medieval...): a técnica muda o que vale ter por perto. */
 export const SITE_ERA_ROCK = [0.5, 1, 1.3, 1.5, 1.5, 1.5];
 export const SITE_ERA_ORE = [0.4, 1, 1.2, 1.2, 1.3, 1.3];
-/** Clima: quanto vale o centro da faixa de temperatura da espécie (0 na borda). Fora da faixa, com folga de SITE_TEMP_MARGIN K, ninguém funda. */
-export const SITE_W_CLIMATE = 0.4;
+/**
+ * Clima: quanto vale estar a até SITE_CLIMATE_EASY K do meio da faixa de temperatura da espécie; o valor cai a zero
+ * em mais SITE_CLIMATE_SPAN K (a faixa de quem vive é larga, a de quem prospera, não). Fora da faixa, com folga de
+ * SITE_TEMP_MARGIN K, ninguém funda.
+ */
+export const SITE_W_CLIMATE = 0.8;
+export const SITE_CLIMATE_EASY = 8;
+export const SITE_CLIMATE_SPAN = 15;
 export const SITE_TEMP_MARGIN = 0;
 /** Vegetação mínima no centro, igual em todas as entradas (antes ia de 0 a 0,3); com poço sobre água no subsolo, nenhuma. */
 export const SITE_CENTER_GREEN = 0.2;
@@ -716,9 +722,14 @@ export const SITE_CAPITAL_COST = 0.02;
 /** Melhor de N: candidatos que entram na nota e quantos dos melhores passam, em ordem, pelo exame da área (`siteProblem`). */
 export const SITE_CANDIDATES = 24;
 export const SITE_VETO_K = 4;
-/** Nota mínima para uma família, uma colônia ou colonos de barco fundarem: abaixo dela ninguém vai (fundação ruim morre cedo). */
-export const SITE_MIN_VALUE = 2.5;
-/** Campo de notas (mapa de influência): células sujas refeitas por passo, além da fatia da volta anual. */
+/**
+ * Nota mínima para uma colônia ou colonos de barco fundarem: abaixo dela ninguém vai (fundação ruim morre cedo).
+ * Uma família sozinha (`colonizeByLand`), sem ninguém por perto para ajudar, pede mais.
+ */
+export const SITE_MIN_VALUE = 3.6;
+export const SITE_MIN_SOLO = 4.4;
+/** Campo de notas (mapa de influência): anos de uma volta completa pelas células e células sujas refeitas por passo, além da fatia da volta. */
+export const SITE_FIELD_YEARS = 2;
 export const SITE_DIRTY_PER_STEP = 8;
 /** Desembarque: raio (tiles) em volta da praia onde os colonos procuram o melhor lugar antes de desistir. */
 export const SITE_LANDING_REACH = 8;

@@ -183,13 +183,18 @@ export const portsPart = {
     return boat;
   },
 
-  /** Procura pelo mar uma costa livre para fundar uma colônia e manda colonos de barco. */
+  /**
+   * Procura pelo mar uma costa livre para fundar uma colônia e manda colonos de barco. Os trechos de costa ao
+   * alcance do barco que passam no filtro rápido (`siteQuick`) entram na nota, e o melhor que passa no exame da
+   * área é o destino (`chooseSite`, melhor de N); abaixo de SITE_MIN_VALUE ninguém embarca.
+   */
   colonizeBySea(this: Ecosystem, v: Village): boolean {
     if (v.port < 0 || this.boats.some((b) => b.village === v.id && b.purpose === 'colonize' && b.sunk < 0)) return false;
     const map = this.map;
     const w = map.width;
     const type = BOATS[Math.min(BOATS.length - 1, Math.floor(v.tech))];
-    const candidates: { water: number; land: number }[] = [];
+    const coast = new Map<number, number>();
+    const candidates: { x: number; y: number }[] = [];
     const home = this.radius(v) + TIER_RADIUS[0];
     this.searchSea(v.port, 400000, type.range, (t, d) => {
       if (d < 6) return false;
@@ -197,19 +202,21 @@ export const portsPart = {
       const y = (t - x) / w;
       for (const [ox, oy] of NEIGHBORS4) {
         const l = this.tileAt(x + ox, y + oy);
-        if (l < 0 || isWater(map, l) || !this.habitable(v.species, l) || map.vegetation[l] < this.minFertility(v)) continue;
+        if (l < 0 || isWater(map, l)) continue;
         const lx = l % w;
         const ly = Math.floor(l / w);
-        if (this.distance(v, lx, ly) < home || !this.canFound(lx, ly)) continue;
-        if (candidates.some((c) => Math.hypot(wrapDx((c.land % w) - lx, w), Math.floor(c.land / w) - ly) < 8)) continue;
-        if (this.siteProblem(v.species, lx, ly, v.tech)) continue;
-        candidates.push({ water: t, land: l });
+        if (this.distance(v, lx, ly) < home || this.siteQuick(v.species, lx, ly, v.tech)) continue;
+        if (candidates.some((c) => Math.hypot(wrapDx(c.x - lx, w), c.y - ly) < 8)) continue;
+        candidates.push({ x: lx, y: ly });
+        // A busca é em largura: a primeira água que encosta nesta costa é a rota mais curta até ela.
+        coast.set(l, t);
         break;
       }
-      return candidates.length >= 6;
+      return candidates.length >= B.SITE_CANDIDATES;
     });
-    if (!candidates.length) return false;
-    const pick = candidates[Math.floor(this.civRnd() * candidates.length)];
+    const site = this.chooseSite(candidates, v.species, v, 'porto', v.tech, { min: B.SITE_MIN_VALUE })[0];
+    if (!site) return false;
+    const pick = { water: coast.get(site.y * w + site.x)!, land: site.y * w + site.x };
     const path: number[] = [];
     for (let t = pick.water; t >= 0; t = this.searchParent[t]) path.push(t);
     path.reverse();

@@ -47,7 +47,7 @@ export interface SiteLook {
   crowd?: number;
   /** Distância (tiles) até a capital do reino de quem funda. */
   capital?: number;
-  /** Clima no centro: 1 no meio da faixa de temperatura da espécie, 0 na borda. */
+  /** Clima no centro: 1 perto do meio da faixa de temperatura da espécie, 0 longe dele (SITE_CLIMATE_EASY e SITE_CLIMATE_SPAN). */
   climate?: number;
 }
 

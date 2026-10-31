@@ -161,8 +161,9 @@ export const playerPart = {
         this.hint = `Muito perto de ${other?.name ?? 'outro assentamento'}: escolha um lugar fora da área`;
         return 0;
       }
-      // Lugar ruim para morar (seção 19.18): eles chegam, olham em volta e saem procurando um lugar melhor.
-      const why = this.siteProblem(s, x, y);
+      // Lugar ruim para morar (seção 19.18): eles chegam, olham em volta e saem procurando um lugar melhor. O veto é o
+      // de toda fundação (`siteFilter`: clima, verde no centro e o exame da área), com a técnica de quem chega (Pedra).
+      const why = this.siteFilter(s, x, y, 0);
       if (why) {
         for (let k = 0; k < Math.max(4, amount); k++) {
           if (this.spawn(s, (((x + (this.rnd() - 0.5) * 3) % w) + w) % w, y + (this.rnd() - 0.5) * 3, -1, this.species[s].maturity + this.rnd() * 10) >= 0) born++;

@@ -4,11 +4,11 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import { mulberry32 } from '../../../core/rng';
+import * as B from '../../balance';
 import { temperatureAt } from '../../../procgen/surface';
 import { CHILD, pickRole } from '../../roles';
 import { emptyVital } from '../../people';
-import { plotSeed, wrapDx } from '../../settlement';
+import { wrapDx } from '../../settlement';
 import { ecologyOf } from '../../fauna';
 import type { Village } from '../types';
 import * as tilesModule from '../tiles';
@@ -114,42 +114,31 @@ export const foundingPart = {
   },
 
   /**
-   * Lugar onde um inteligente sozinho consegue viver: verde ou na beira da
-   * água, no clima da espécie e, para fundar, um lugar que passa no exame da
-   * área (água, comida, chão plano e longe de lava, seção 19.18).
+   * Lugar onde um inteligente sozinho consegue viver e fundar: o mesmo veto de todas as entradas de fundação
+   * (`siteFilter`: clima da espécie, verde no centro, espaço e o exame da área, seção 19.18), com a técnica de
+   * quem anda sozinho (a da Pedra: o lugar que ele fundar começa do zero).
    */
   goodSite(this: Ecosystem, s: number, tile: number): boolean {
-    const sp = this.species[s];
-    const temp = temperatureAt(this.map, tile);
-    if (!this.habitable(s, tile) || temp < sp.tempMin + 2 || temp > sp.tempMax - 2) return false;
-    if (!(this.map.vegetation[tile] >= 0.3 || (this.map.vegetation[tile] > 0.1 && this.nearWater(tile)))) return false;
     const w = this.map.width;
-    return this.siteProblem(s, tile % w, Math.floor(tile / w)) === null;
+    return this.siteFilter(s, tile % w, Math.floor(tile / w), 0) === null;
   },
 
   /**
-   * Direção do melhor lugar para fundar a até 25 tiles. A amostra só muda
-   * quando a criatura troca de região, para ela não ficar indo e voltando.
+   * Direção do melhor lugar para fundar a até 25 tiles, pelo campo de notas dos sítios: as células de melhor
+   * nota em volta, e a primeira cuja âncora passa no veto (`goodSite`, até SITE_VETO_K). O campo muda devagar
+   * (uma volta por ano), então ele não fica indo e voltando.
    */
   betterSite(this: Ecosystem, i: number): { x: number; y: number } | undefined {
     const s = this.kind[i];
-    const r = mulberry32((plotSeed(Math.floor(this.x[i] / 6), Math.floor(this.y[i] / 6)) ^ (i * 2654435761)) >>> 0);
-    let best: { x: number; y: number } | undefined;
-    let bv = -1;
-    for (let k = 0; k < 20; k++) {
-      const a = r() * Math.PI * 2;
-      const d = 3 + r() * 22;
-      const x = this.x[i] + Math.cos(a) * d;
-      const y = this.y[i] + Math.sin(a) * d;
-      const t = this.tileAt(x, Math.floor(y));
-      if (t < 0 || !this.goodSite(s, t)) continue;
-      const value = this.map.vegetation[t] + (this.nearWater(t) ? 0.3 : 0);
-      if (value > bv) {
-        bv = value;
-        best = { x: x - this.x[i], y: y - this.y[i] };
-      }
+    const w = this.map.width;
+    const x = this.x[i];
+    const y = this.y[i];
+    const cands = this.siteRing(x, y, 3, 25, B.SITE_CANDIDATES, 0);
+    for (let k = 0; k < cands.length && k < B.SITE_VETO_K; k++) {
+      const c = cands[k];
+      if (this.goodSite(s, c.y * w + c.x)) return { x: wrapDx(c.x + 0.5 - x, w), y: c.y + 0.5 - y };
     }
-    return best;
+    return undefined;
   },
 
   /** Ruínas (assentamento abandonado ainda não limpo) mais perto, a até `range` tiles e onde dá para recomeçar. */

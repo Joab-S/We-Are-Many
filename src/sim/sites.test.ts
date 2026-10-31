@@ -207,6 +207,35 @@ describe('água graduada no exame da área', () => {
   });
 });
 
+describe('melhor de N (chooseSite)', () => {
+  it('fica com o candidato de melhor nota que passa no exame da área; abaixo da nota mínima, nenhum', () => {
+    const { map, eco, s } = flatWorld(320, 64, 0.5);
+    paint(map, 0, 0, 319, 63, (i) => (map.moisture[i] = 0.65));
+    // A tem um lago colado e B um lago a 6 tiles: A vale mais, mas tem lava ao lado (veto). C só tem nascente.
+    paint(map, 62, 31, 64, 33, water(map));
+    paint(map, 146, 31, 148, 33, water(map));
+    map.biome[38 * map.width + 60] = Biome.Lava;
+    const A = { x: 60, y: 32 };
+    const B2 = { x: 140, y: 32 };
+    const C2 = { x: 260, y: 32 };
+    const look = (p: { x: number; y: number }) => eco.siteLook(s, p.x, p.y, null, 'terra');
+    expect(look(A).water).toBeGreaterThan(look(B2).water);
+    expect(look(B2).water).toBeGreaterThan(look(C2).water);
+    expect(eco.siteProblem(s, A.x, A.y)).toContain('lava');
+    const got = eco.chooseSite([C2, A, B2], s, null, 'terra', 0);
+    expect(got).toHaveLength(1);
+    expect(got[0]).toMatchObject(B2);
+    // Só um examinado: o melhor é vetado e ninguém funda.
+    expect(eco.chooseSite([C2, A, B2], s, null, 'terra', 0, { veto: 1 })).toHaveLength(0);
+    // Nota mínima acima de todos: ninguém funda.
+    expect(eco.chooseSite([C2, A, B2], s, null, 'terra', 0, { min: 99 })).toHaveLength(0);
+    // Vários pedidos: os melhores primeiro, e um lugar no clima frio demais nem entra.
+    map.heat[32 * map.width + 200] = -55;
+    const many = eco.chooseSite([C2, A, B2, { x: 200, y: 32 }], s, null, 'terra', 0, { count: 3 });
+    expect(many.map((p) => p.x)).toEqual([140, 260]);
+  });
+});
+
 describe('filtro único e caminho a pé', () => {
   it('o filtro rápido pede a faixa de temperatura da espécie, verde no centro (ou poço sobre água no subsolo) e espaço', () => {
     const { map, eco, s } = flatWorld();

@@ -10,7 +10,7 @@ import { temperatureAt } from '../../../procgen/surface';
 import { CHILD, ROLE } from '../../roles';
 import { TRAIT, TRAIT_COUNT } from '../../../ai/traits';
 import { partnerOf } from '../../../ai/relations';
-import { MOTIVE_TEXT, siteValue, spacingFor, waterGrade, type ColonyMotive, type SiteLook } from '../../community';
+import { MOTIVE_TEXT, spacingFor, waterGrade, type ColonyMotive, type SiteLook } from '../../community';
 import { isStreet } from '../../architecture';
 import { cartOf, packAnimal, type Cargo } from '../../trade';
 import { emptyVital } from '../../people';
@@ -24,20 +24,17 @@ const { elderAge } = helpersModule;
 const { isWater, isLand } = tilesModule;
 
 export const coloniesPart = {
-  /** Funda um assentamento por terra perto de `v`, sem atravessar água. Retorna se conseguiu. */
+  /**
+   * Funda um assentamento por terra perto de `v`, sem atravessar água. Retorna se conseguiu. O lugar é o melhor
+   * de N num anel em volta (`chooseSite`: as células de melhor nota no campo e pontos sorteados); abaixo de
+   * SITE_MIN_SOLO ninguém vai: uma família sozinha num lugar ruim morre cedo.
+   */
   colonizeByLand(this: Ecosystem, v: Village): boolean {
-    const map = this.map;
-    for (let t = 0; t < 12; t++) {
-      const a = this.civRnd() * Math.PI * 2;
-      const d = this.radius(v) + TIER_RADIUS[0] + 2 + this.civRnd() * 22;
-      const nx = Math.floor(v.x + Math.cos(a) * d);
-      const ny = Math.floor(v.y + Math.sin(a) * d);
-      if (ny < 2 || ny >= map.height - 2) continue;
-      const tx = ((nx % map.width) + map.width) % map.width;
-      const tile = ny * map.width + tx;
-      if (!this.habitable(v.species, tile) || map.vegetation[tile] < this.minFertility(v) || !this.canSettle(v.species, tx, ny, v.tech)) continue;
-      if (!this.landPath(v.x, v.y, tx + 0.5, ny + 0.5)) continue;
-      const nv = this.foundVillage(v.species, tx, ny, 0, v, 'família');
+    const lo = this.radius(v) + TIER_RADIUS[0] + 2;
+    const half = B.SITE_CANDIDATES / 2;
+    const site = this.chooseSite(this.siteRing(v.x, v.y, lo, lo + 22, half, half), v.species, v, 'terra', v.tech, { walk: v, min: B.SITE_MIN_SOLO })[0];
+    if (site) {
+      const nv = this.foundVillage(v.species, site.x, site.y, 0, v, 'família');
       let moved = 0;
       const here = this.residents(v.id);
       const leader = this.leaderOf(v);
@@ -106,6 +103,8 @@ export const coloniesPart = {
     let road = 0;
     let elev = 0;
     let lake = Infinity;
+    // Mar a até SITE_WATER_RANGE: porto, peixe e barro (a costa).
+    let shore = false;
     for (let dy = -W; dy <= W; dy++) {
       for (let dx = -W; dx <= W; dx++) {
         const d2 = dx * dx + dy * dy;
@@ -114,6 +113,7 @@ export const coloniesPart = {
         if (t < 0) continue;
         if (d2 > R * R) {
           if (bodies[t] === 1 && d2 < lake * lake && isWater(map, t)) lake = Math.sqrt(d2);
+          else if (bodies[t] === 2) shore = true;
           continue;
         }
         if (isWater(map, t)) {
@@ -136,11 +136,10 @@ export const coloniesPart = {
     const c = this.catchmentAt(cx, cy, rf, this.catchRadius(tech, 'wood'), rs);
     const fertile = Math.min(1, c.food + B.SITE_FISH_FOOD * c.water);
     const ore = from ? this.siteOre(from, cx, cy, rs) : 0;
-    const coast = sea > 0 && wet < (land + wet) * 0.6 ? 1 : 0;
+    const coast = (sea > 0 || shore) && wet < (land + wet) * 0.6 ? 1 : 0;
     const pres = this.sitePresence(cx, cy, rf);
     const sp = this.species[s];
     const temp = center >= 0 ? temperatureAt(map, center) : sp.tempMin;
-    const half = Math.max(1, (sp.tempMax - sp.tempMin) / 2);
     const capital = from ? this.villages[from.kingdom] ?? from : null;
     const height = land && center >= 0 ? Math.max(0, Math.min(1, (map.elevation[center] - elev / land) * 20)) : 0;
     const fit = motive === 'terra' ? fertile : motive === 'jazida' ? ore : motive === 'porto' ? coast : 0.5;
@@ -162,28 +161,18 @@ export const coloniesPart = {
       overlap: pres.overlap,
       crowd: pres.crowd,
       capital: capital ? this.distance(capital, cx, cy) : 0,
-      climate: Math.max(0, 1 - Math.abs(temp - (sp.tempMin + sp.tempMax) / 2) / half),
+      climate: Math.max(0, Math.min(1, 1 - (Math.abs(temp - (sp.tempMin + sp.tempMax) / 2) - B.SITE_CLIMATE_EASY) / B.SITE_CLIMATE_SPAN)),
     };
   },
 
-  /** Sítios bons para um grupo de `v` fundar, os melhores primeiro (RF-AS-04). */
+  /**
+   * Sítios bons para um grupo de `v` fundar, os melhores primeiro (RF-AS-04): melhor de N no anel do espaçamento
+   * até COLONY_REACH além dele (`chooseSite`), a pé, a 6 tiles um do outro e nenhum abaixo de SITE_MIN_VALUE.
+   */
   scoutSites(this: Ecosystem, v: Village, motive: ColonyMotive, count: number): { x: number; y: number; value: number }[] {
-    const map = this.map;
-    const out: { x: number; y: number; value: number }[] = [];
     const base = spacingFor(v.tier) + this.footprint(v);
-    for (let k = 0; k < 28; k++) {
-      const a = (k / 28) * Math.PI * 2 + this.civRnd() * 0.2;
-      const d = base + this.civRnd() * B.COLONY_REACH;
-      const ny = Math.floor(v.y + Math.sin(a) * d);
-      if (ny < 2 || ny >= map.height - 2) continue;
-      const nx = ((Math.floor(v.x + Math.cos(a) * d) % map.width) + map.width) % map.width;
-      const tile = ny * map.width + nx;
-      if (!this.habitable(v.species, tile) || map.vegetation[tile] < this.minFertility(v) || !this.canSettle(v.species, nx, ny, v.tech)) continue;
-      if (!this.landPath(v.x, v.y, nx + 0.5, ny + 0.5)) continue;
-      if (out.some((o) => Math.hypot(wrapDx(o.x - nx, map.width), o.y - ny) < 6)) continue;
-      out.push({ x: nx, y: ny, value: siteValue(this.siteLook(v.species, nx, ny, v, motive)) });
-    }
-    return out.sort((p, q) => q.value - p.value).slice(0, count);
+    const cands = this.siteRing(v.x, v.y, base, base + B.COLONY_REACH, B.SITE_CANDIDATES, B.SITE_CANDIDATES);
+    return this.chooseSite(cands, v.species, v, motive, v.tech, { count, walk: v, apart: 6, min: B.SITE_MIN_VALUE });
   },
 
   /** Começa a juntar uma colônia em `v`: batedores saem para ver os sítios (RF-AS-03). */
