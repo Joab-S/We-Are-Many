@@ -1,4 +1,5 @@
 import { Boundary, BOUNDARY_NAMES, temperatureAt, type SurfaceMap } from '../procgen/surface';
+import * as B from './balance';
 import { makeCulture, type Ore } from './economy';
 import { isLand, isWater, type Ecosystem, type Village } from './ecosystem';
 import { CHILD } from './roles';
@@ -476,15 +477,17 @@ function nomads(eco: Ecosystem): boolean {
   if (!kinds.length) return false;
   const { s } = kinds[Math.floor(eco.random() * kinds.length)];
   const map = eco.map;
-  const i = randomTile(
-    eco,
-    (t) => eco.habitable(s, t) && map.vegetation[t] > 0.3 && farFromVillages(eco, t, 25) && eco.canSettle(s, t % map.width, Math.floor(t / map.width), 1),
-    600,
-  );
-  if (i < 0) return false;
   const live = eco.villages.filter((v) => !v.abandoned);
   const tech = live.length ? Math.min(...live.map((v) => v.tech)) * 0.7 : 0;
-  const v = eco.foundVillage(s, i % map.width, Math.floor(i / map.width), 7 + Math.floor(eco.random() * 5));
+  // Longe dos outros povos, o melhor de N lugares sorteados, pela nota e pelo veto de toda fundação (com a técnica deles).
+  const cands: { x: number; y: number }[] = [];
+  for (let k = 0; k < 600 && cands.length < B.SITE_CANDIDATES; k++) {
+    const t = Math.floor(eco.random() * map.width * map.height);
+    if (farFromVillages(eco, t, 25) && !eco.siteQuick(s, t % map.width, Math.floor(t / map.width), tech)) cands.push({ x: t % map.width, y: Math.floor(t / map.width) });
+  }
+  const site = eco.chooseSite(cands, s, null, 'terra', tech, { veto: cands.length })[0];
+  if (!site) return false;
+  const v = eco.foundVillage(s, site.x, site.y, 7 + Math.floor(eco.random() * 5));
   v.tech = Math.min(tech, Math.floor(tech) + 0.5);
   v.culture = makeCulture(v.culture.id, v.name, () => eco.random());
   v.stock.wood += 20;

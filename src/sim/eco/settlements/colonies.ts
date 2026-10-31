@@ -6,11 +6,11 @@
 import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
 import { happens } from '../../stochastic';
-import { type Biome, isRockyBiome } from '../../../procgen/surface';
+import { temperatureAt } from '../../../procgen/surface';
 import { CHILD, ROLE } from '../../roles';
 import { TRAIT, TRAIT_COUNT } from '../../../ai/traits';
 import { partnerOf } from '../../../ai/relations';
-import { MOTIVE_TEXT, siteValue, spacingFor, type ColonyMotive, type SiteLook } from '../../community';
+import { MOTIVE_TEXT, spacingFor, waterGrade, type ColonyMotive, type SiteLook } from '../../community';
 import { isStreet } from '../../architecture';
 import { cartOf, packAnimal, type Cargo } from '../../trade';
 import { emptyVital } from '../../people';
@@ -28,38 +28,31 @@ export const coloniesPart = {
    * Funda um assentamento por terra perto de `v`, sem atravessar água, com famílias inteiras (o casal e os
    * filhos, nunca o líder): as mais dispostas primeiro, até LONE_GROUP_MIN pessoas. Sem gente bastante que
    * queira ir, ninguém parte (antes saíam até 6 adultos pela ordem do array, separando casais e deixando
-   * as crianças). Retorna se conseguiu.
+   * as crianças). O lugar é o melhor de N num anel em volta (`chooseSite`: as células de melhor nota no campo
+   * e pontos sorteados); abaixo de SITE_MIN_SOLO ninguém vai: um grupo pequeno num lugar ruim morre cedo.
+   * Retorna se conseguiu.
    */
   colonizeByLand(this: Ecosystem, v: Village, families?: Map<number, number[]>): boolean {
     const { group } = this.departingFamilies(v, families, B.LONE_GROUP_MIN, B.LONE_GROUP_MIN * 2);
     if (group.length < B.LONE_GROUP_MIN) return false;
-    const map = this.map;
-    for (let t = 0; t < 12; t++) {
-      const a = this.civRnd() * Math.PI * 2;
-      const d = this.radius(v) + TIER_RADIUS[0] + 2 + this.civRnd() * 22;
-      const nx = Math.floor(v.x + Math.cos(a) * d);
-      const ny = Math.floor(v.y + Math.sin(a) * d);
-      if (ny < 2 || ny >= map.height - 2) continue;
-      const tx = ((nx % map.width) + map.width) % map.width;
-      const tile = ny * map.width + tx;
-      if (!this.habitable(v.species, tile) || map.vegetation[tile] < this.minFertility(v) || !this.canSettle(v.species, tx, ny, v.tech)) continue;
-      if (!this.landPath(v.x, v.y, tx + 0.5, ny + 0.5)) continue;
-      const nv = this.foundVillage(v.species, tx, ny, 0, v, 'família');
-      for (const i of group) {
-        this.setVillage(i, nv.id);
-        this.movedAt[i] = this.year;
-        this.home[i] = -1;
-        v.population--;
-        nv.population++;
-        (v.vitalNow ??= emptyVital()).left++;
-        (nv.vitalNow ??= emptyVital()).arrived++;
-      }
-      this.tally.foundFamine++;
-      this.note(`Colonos de ${v.name} fundaram ${nv.name}`, 'povo', nv);
-      this.emit({ kind: 'colony', year: this.year, phase: 'depart', from: v.id, to: nv.id, people: group.length, by: 'land' });
-      return true;
+    const lo = this.radius(v) + TIER_RADIUS[0] + 2;
+    const half = B.SITE_CANDIDATES / 2;
+    const site = this.chooseSite(this.siteRing(v.x, v.y, lo, lo + 22, half, half), v.species, v, 'terra', v.tech, { walk: v, min: B.SITE_MIN_SOLO })[0];
+    if (!site) return false;
+    const nv = this.foundVillage(v.species, site.x, site.y, 0, v, 'família');
+    for (const i of group) {
+      this.setVillage(i, nv.id);
+      this.movedAt[i] = this.year;
+      this.home[i] = -1;
+      v.population--;
+      nv.population++;
+      (v.vitalNow ??= emptyVital()).left++;
+      (nv.vitalNow ??= emptyVital()).arrived++;
     }
-    return false;
+    this.tally.foundFamine++;
+    this.note(`Colonos de ${v.name} fundaram ${nv.name}`, 'povo', nv);
+    this.emit({ kind: 'colony', year: this.year, phase: 'depart', from: v.id, to: nv.id, people: group.length, by: 'land' });
+    return true;
   },
 
   /**
@@ -126,78 +119,96 @@ export const coloniesPart = {
     return families;
   },
 
-  /** O que os batedores veem num sítio (RF-AS-04). */
-  siteLook(this: Ecosystem, s: number, x: number, y: number, from: Village | null, motive: ColonyMotive): SiteLook {
+  /**
+   * O que os batedores veem num sítio (RF-AS-04). De perto, no disco de SITE_RADIUS: chão plano, costa, defesa
+   * (altura e água em volta), rua, ruína e água doce (lago a até SITE_WATER_RANGE; o mar não mata a sede). Na
+   * captação, pelo campo de notas e no alcance real de quem vai morar ali (`catchRadius`, com decaimento): comida
+   * (com peixe), mata, pedra e as jazidas que o reino de `from` conhece e usa na era. E a presença dos lugares
+   * vivos (sobreposição e gente que já explora), a distância da capital e o clima. `tech` é a técnica de quem
+   * funda (a da origem, se houver).
+   */
+  siteLook(this: Ecosystem, s: number, x: number, y: number, from: Village | null, motive: ColonyMotive, tech = from ? from.tech : 0): SiteLook {
     const map = this.map;
-    const R = 8;
+    const bodies = this.waterBodies();
+    const R = B.SITE_RADIUS;
+    const W = Math.max(R, B.SITE_WATER_RANGE);
     let land = 0;
-    let veg = 0;
-    let trees = 0;
-    let rock = 0;
     let level = 0;
-    let water = 0;
+    let sea = 0;
+    let wet = 0;
     let road = 0;
     let elev = 0;
-    let ore = 0;
-    let near = 99;
-    for (let dy = -R; dy <= R; dy++) {
-      for (let dx = -R; dx <= R; dx++) {
-        if (dx * dx + dy * dy > R * R) continue;
+    let lake = Infinity;
+    // Mar a até SITE_WATER_RANGE: porto, peixe e barro (a costa).
+    let shore = false;
+    for (let dy = -W; dy <= W; dy++) {
+      for (let dx = -W; dx <= W; dx++) {
+        const d2 = dx * dx + dy * dy;
+        if (d2 > W * W) continue;
         const t = this.tileAt(x + dx, y + dy);
         if (t < 0) continue;
+        if (d2 > R * R) {
+          if (bodies[t] === 1 && d2 < lake * lake && isWater(map, t)) lake = Math.sqrt(d2);
+          else if (bodies[t] === 2) shore = true;
+          continue;
+        }
         if (isWater(map, t)) {
-          water++;
-          near = Math.min(near, Math.hypot(dx, dy));
+          wet++;
+          if (bodies[t] === 1) lake = Math.min(lake, Math.sqrt(d2));
+          else sea++;
           continue;
         }
         land++;
-        veg += map.vegetation[t];
         elev += map.elevation[t];
-        if (this.standingTree(t)) trees++;
-        if (isRockyBiome(map.biome[t] as Biome)) rock++;
         if (this.flat(t)) level++;
         if (isStreet(this.road[t])) road++;
-        const d = this.depositAt[t];
-        if (d >= 0 && this.deposits[d].mine < 0 && this.deposits[d].amount > 0) ore++;
       }
     }
+    const cx = x + 0.5;
+    const cy = y + 0.5;
     const center = this.tileAt(x, y);
-    const fertile = land ? veg / land : 0;
-    const coast = water > 0 && water < (land + water) * 0.6 ? 1 : 0;
-    const fit = motive === 'terra' ? fertile : motive === 'jazida' ? (ore ? 1 : 0) : motive === 'porto' ? coast : 0.5;
+    const rf = this.catchRadius(tech, 'food');
+    const rs = this.catchRadius(tech, 'stone');
+    const c = this.catchmentAt(cx, cy, rf, this.catchRadius(tech, 'wood'), rs);
+    const fertile = Math.min(1, c.food + B.SITE_FISH_FOOD * c.water);
+    const ore = from ? this.siteOre(from, cx, cy, rs) : 0;
+    const coast = (sea > 0 || shore) && wet < (land + wet) * 0.6 ? 1 : 0;
+    const pres = this.sitePresence(cx, cy, rf);
+    const sp = this.species[s];
+    const temp = center >= 0 ? temperatureAt(map, center) : sp.tempMin;
+    const capital = from ? this.villages[from.kingdom] ?? from : null;
+    const height = land && center >= 0 ? Math.max(0, Math.min(1, (map.elevation[center] - elev / land) * 20)) : 0;
+    const fit = motive === 'terra' ? fertile : motive === 'jazida' ? ore : motive === 'porto' ? coast : 0.5;
     return {
-      water: near <= 3 ? 1 : near <= 6 ? 0.5 : 0,
+      water: center >= 0 ? waterGrade(lake, map.moisture[center], tech >= 2) : 0,
       fertile,
-      forest: Math.min(1, trees / (land * 0.3 + 1)),
-      rock: Math.min(1, rock / (land * 0.1 + 1)),
+      forest: Math.min(1, c.wood / B.SITE_WOOD_FULL),
+      rock: Math.min(1, c.rock / B.SITE_ROCK_FULL),
       flat: land ? level / land : 0,
       coast,
-      ruin: this.ruinNear(x + 0.5, y + 0.5, 4, s) ? 1 : 0,
-      defense: land && center >= 0 ? Math.max(0, Math.min(1, (map.elevation[center] - elev / land) * 20)) : 0,
+      ruin: this.ruinNear(cx, cy, 4, s) ? 1 : 0,
+      // Altura sobre o entorno e água em volta (península, ilha de rio): o que protege de um ataque.
+      defense: 0.75 * height + 0.25 * Math.min(1, (2 * wet) / Math.max(1, land + wet)),
       route: road > 0 ? 1 : 0,
       motive: fit,
-      dist: from ? this.distance(from, x + 0.5, y + 0.5) : B.SITE_IDEAL_DIST,
+      dist: from ? this.distance(from, cx, cy) : B.SITE_IDEAL_DIST,
+      ore,
+      era: tech,
+      overlap: pres.overlap,
+      crowd: pres.crowd,
+      capital: capital ? this.distance(capital, cx, cy) : 0,
+      climate: Math.max(0, Math.min(1, 1 - (Math.abs(temp - (sp.tempMin + sp.tempMax) / 2) - B.SITE_CLIMATE_EASY) / B.SITE_CLIMATE_SPAN)),
     };
   },
 
-  /** Sítios bons para um grupo de `v` fundar, os melhores primeiro (RF-AS-04). */
+  /**
+   * Sítios bons para um grupo de `v` fundar, os melhores primeiro (RF-AS-04): melhor de N no anel do espaçamento
+   * até COLONY_REACH além dele (`chooseSite`), a pé, a 6 tiles um do outro e nenhum abaixo de SITE_MIN_VALUE.
+   */
   scoutSites(this: Ecosystem, v: Village, motive: ColonyMotive, count: number): { x: number; y: number; value: number }[] {
-    const map = this.map;
-    const out: { x: number; y: number; value: number }[] = [];
     const base = spacingFor(v.tier) + this.footprint(v);
-    for (let k = 0; k < 28; k++) {
-      const a = (k / 28) * Math.PI * 2 + this.civRnd() * 0.2;
-      const d = base + this.civRnd() * B.COLONY_REACH;
-      const ny = Math.floor(v.y + Math.sin(a) * d);
-      if (ny < 2 || ny >= map.height - 2) continue;
-      const nx = ((Math.floor(v.x + Math.cos(a) * d) % map.width) + map.width) % map.width;
-      const tile = ny * map.width + nx;
-      if (!this.habitable(v.species, tile) || map.vegetation[tile] < this.minFertility(v) || !this.canSettle(v.species, nx, ny, v.tech)) continue;
-      if (!this.landPath(v.x, v.y, nx + 0.5, ny + 0.5)) continue;
-      if (out.some((o) => Math.hypot(wrapDx(o.x - nx, map.width), o.y - ny) < 6)) continue;
-      out.push({ x: nx, y: ny, value: siteValue(this.siteLook(v.species, nx, ny, v, motive)) });
-    }
-    return out.sort((p, q) => q.value - p.value).slice(0, count);
+    const cands = this.siteRing(v.x, v.y, base, base + B.COLONY_REACH, B.SITE_CANDIDATES, B.SITE_CANDIDATES);
+    return this.chooseSite(cands, v.species, v, motive, v.tech, { count, walk: v, apart: 6, min: B.SITE_MIN_VALUE });
   },
 
   /** Pode mandar um grupo agora: sem colônia em formação, com gente de sobra e passado o intervalo desde a última. */

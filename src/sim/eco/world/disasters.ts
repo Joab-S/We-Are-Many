@@ -123,6 +123,8 @@ export const disastersPart = {
    * afundou se afoga. Retorna quantas construções caíram.
    */
   sweep(this: Ecosystem, cx: number, cy: number, r: number): number {
+    // O terreno mudou: o campo de notas dos sítios refaz as células dali e os corpos d'água (Dirty Flag).
+    this.siteDirty(cx, cy, r + 2, true);
     const map = this.map;
     const ri = Math.ceil(r) + 2;
     const x0 = Math.floor(cx);

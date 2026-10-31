@@ -7,7 +7,7 @@ import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
 import { Biome, temperatureAt } from '../../../procgen/surface';
 import { planItems, type PlanItem } from '../../plan';
-import { spacingFor } from '../../community';
+import { spacingFor, waterGrade } from '../../community';
 import { VOCATION_BUILDING } from '../../needs';
 import { wrapDx } from '../../settlement';
 import { buildingType } from '../../buildingTypes';
@@ -145,7 +145,8 @@ export const layoutPart = {
     // Currais (pastos 2x2).
     for (const p of v.pens ?? []) addDisk(p.x + 1, p.y + 1, 2.8);
     // Plantações (roças, road === 4) e ruas internas coladas em construções/roças/praça.
-    const scanR = Math.ceil(base) + 4;
+    // Até a casa mais longe (sítios rurais ficam além do território), para as roças dela entrarem no contorno.
+    const scanR = Math.ceil(Math.max(base, this.houseReach(v))) + 4;
     for (let dy = -scanR; dy <= scanR; dy++) {
       for (let dx = -scanR; dx <= scanR; dx++) {
         if (dx * dx + dy * dy > scanR * scanR) continue;
@@ -238,6 +239,13 @@ export const layoutPart = {
     return radii;
   },
 
+  /** Distância do centro até a casa mais longe (o sítio rural pode ficar além do território). */
+  houseReach(this: Ecosystem, v: Village): number {
+    let far = 0;
+    for (const h of v.houses) far = Math.max(far, this.distance(v, h.x + 1, h.y + 1));
+    return far;
+  },
+
   /** Assentamento cujo contorno real contém o ponto (x, y), se houver. */
   villageAt(this: Ecosystem, x: number, y: number): Village | null {
     const mw = this.map.width;
@@ -248,7 +256,7 @@ export const layoutPart = {
       const dx = wrapDx(x - v.x, mw);
       const dy = y - v.y;
       const d = Math.hypot(dx, dy);
-      if (d > this.radius(v) + 7) continue;
+      if (d > Math.max(this.radius(v), this.houseReach(v)) + 7) continue;
       for (const h of v.houses) {
         const s = h.kind === 'port' ? 1 : 2;
         if (Math.abs(wrapDx(x - (h.x + s * 0.5), mw)) <= s * 0.5 && Math.abs(y - (h.y + s * 0.5)) <= s * 0.5) return v;
@@ -292,13 +300,38 @@ export const layoutPart = {
   },
 
   /**
+   * Filtro rápido de um lugar novo, igual em todas as entradas de fundação (onda 3): o centro é habitável, está
+   * na faixa de temperatura da espécie (com folga de SITE_TEMP_MARGIN K), tem verde (SITE_CENTER_GREEN; com poço
+   * sobre água no subsolo, ou numa praça ou rua antiga, não precisa) e respeita o espaçamento (`canFound`).
+   * Devolve o porquê ou null. Não lê a área em volta: isso é `siteProblem`, mais caro, só para os melhores.
+   */
+  siteQuick(this: Ecosystem, s: number, x: number, y: number, tech = 0): string | null {
+    const map = this.map;
+    const center = this.tileAt(Math.floor(x), Math.floor(y));
+    if (center < 0 || !isLand(map, center) || !this.habitable(s, center)) return 'o lugar não é habitável para eles';
+    const sp = this.species[s];
+    const temp = temperatureAt(map, center);
+    if (temp < sp.tempMin - B.SITE_TEMP_MARGIN || temp > sp.tempMax + B.SITE_TEMP_MARGIN) return temp < sp.tempMin ? 'é frio demais para eles' : 'é quente demais para eles';
+    if (!this.road[center] && map.vegetation[center] < this.minFertility(tech, center)) return 'o chão é pelado: nada verde onde as casas ficariam';
+    if (!this.canFound(Math.floor(x), Math.floor(y))) return 'é perto demais de outro assentamento';
+    return null;
+  },
+
+  /** Por que o lugar não serve para fundar (filtro rápido e exame da área), ou null: o veto único das entradas de fundação. */
+  siteFilter(this: Ecosystem, s: number, x: number, y: number, tech = 0): string | null {
+    return this.siteQuick(s, x, y, tech) ?? this.siteProblem(s, x, y, tech);
+  },
+
+  /**
    * Por que o lugar (x, y) não serve para a espécie `s` fundar um
    * assentamento, ou null se serve (seção 19.18). Antes de se estabelecer, o
    * povo olha a área em volta (SITE_RADIUS): nada de lava ou chão em brasa
    * por perto (pegaria fogo nas redondezas), área plana e firme suficiente
-   * para as casas, sem penhasco cortando a área, água a uma caminhada (rio,
-   * lago ou mar; da Idade do Ferro em diante, um poço no solo úmido) e comida
-   * (vegetação para coletar, caçar e plantar, ou o mar para pescar).
+   * para as casas, sem penhasco cortando a área, água doce a uma caminhada
+   * (lago; nascente no solo encharcado; da Idade do Ferro em diante, poço
+   * sobre água no subsolo; o mar é salgado e não conta, onda 3) e comida
+   * (vegetação para coletar, caçar e plantar; com água para pescar na área
+   * ou poço para irrigar, basta a metade).
    */
   siteProblem(this: Ecosystem, s: number, x: number, y: number, tech = 0): string | null {
     const map = this.map;
@@ -307,6 +340,7 @@ export const layoutPart = {
     const center = this.tileAt(cx, cy);
     if (center < 0 || !isLand(map, center) || !this.habitable(s, center)) return 'o lugar não é habitável para eles';
     const sp = this.species[s];
+    const bodies = this.waterBodies();
     const R = B.SITE_RADIUS;
     let total = 0;
     let land = 0;
@@ -314,7 +348,9 @@ export const layoutPart = {
     let veg = 0;
     let lo = Infinity;
     let hi = -Infinity;
-    let water = false;
+    // Lago mais perto (tiles) e água na área (pesca, mar ou lago).
+    let lake = Infinity;
+    let fish = false;
     for (let dy = -R; dy <= R; dy++) {
       for (let dx = -R; dx <= R; dx++) {
         if (dx * dx + dy * dy > R * R) continue;
@@ -323,7 +359,8 @@ export const layoutPart = {
         total++;
         if (map.biome[t] === Biome.Lava) return 'tem lava ali: o fogo pegaria nas casas e na mata em volta';
         if (isWater(map, t)) {
-          water = true;
+          fish = true;
+          if (bodies[t] === 1) lake = Math.min(lake, Math.hypot(dx, dy));
           continue;
         }
         land++;
@@ -347,18 +384,20 @@ export const layoutPart = {
         const t = this.tileAt(cx + dx, cy + dy);
         if (t < 0) continue;
         if (d2 <= L * L && (map.biome[t] === Biome.Lava || temperatureAt(map, t) > 500)) return 'tem lava por perto: o fogo pegaria nas redondezas';
-        if (!water && d2 <= W * W && isWater(map, t)) water = true;
+        if (d2 <= W * W && d2 < lake * lake && bodies[t] === 1 && isWater(map, t)) lake = Math.sqrt(d2);
       }
     }
-    if (!water && !(tech >= 2 && map.moisture[center] >= B.SITE_WELL_MOISTURE)) return 'não há água por perto';
+    const moist = map.moisture[center];
+    if (waterGrade(lake, moist, tech >= 2) <= 0) return 'não há água doce por perto: o mar é salgado e o solo é seco demais para nascentes ou poço';
+    const well = tech >= 2 && moist >= B.SITE_WELL_MOISTURE;
     const food = veg / Math.max(1, land);
-    if (food < B.SITE_MIN_FOOD * (water && (land < total || tech >= 2) ? 0.5 : 1)) return 'não há comida por perto: quase nada verde para coletar, caçar ou plantar';
+    if (food < B.SITE_MIN_FOOD * (fish || well ? 0.5 : 1)) return 'não há comida por perto: quase nada verde para coletar, caçar ou plantar';
     return null;
   },
 
-  /** O lugar serve para fundar: longe de outros assentamentos e com o que é preciso para viver (seção 19.18). */
+  /** O lugar serve para fundar: o filtro rápido (clima, verde no centro, espaçamento) e o exame da área (seção 19.18, onda 3). */
   canSettle(this: Ecosystem, s: number, x: number, y: number, tech = 0): boolean {
-    return this.canFound(x, y) && this.siteProblem(s, x, y, tech) === null;
+    return this.siteFilter(s, x, y, tech) === null;
   },
 
   /** Capital do reino do assentamento. */

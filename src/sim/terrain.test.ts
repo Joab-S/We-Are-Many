@@ -187,11 +187,17 @@ describe('construções e o terreno', () => {
     run(eco, YEAR_SECONDS * 15);
     const x = Math.floor(v.x);
     const y = Math.floor(v.y);
-    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) map.vegetation[(y + dy) * map.width + x + dx] = 0.8;
-    for (let k = -4; k <= 4; k++) map.biome[(y + k) * map.width + x + 6] = Biome.Lava;
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 8; dx++) map.vegetation[(y + dy) * map.width + x + dx] = 0.8;
+    // Lava quente de verdade (como a do vulcão): só pintada, sem calor, a mata em volta a reclassificava de volta
+    // na primeira rebrota. E a mata contada é a do alcance do fogo (os dois lados da lava), para o teste não
+    // depender de onde a aldeia caiu nem de quão rápido a mata dali rebrota.
+    for (let k = -4; k <= 4; k++) {
+      map.biome[(y + k) * map.width + x + 6] = Biome.Lava;
+      eco.pourLava((y + k) * map.width + x + 6, 500);
+    }
     const green = () => {
       let n = 0;
-      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) if (map.vegetation[(y + dy) * map.width + x + dx] > 0.5) n++;
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 8; dx++) if (dx !== 6 && map.vegetation[(y + dy) * map.width + x + dx] > 0.5) n++;
       return n;
     };
     const before = green();

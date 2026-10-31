@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as B from './balance';
-import { belowTier, loyaltyScore, missingFunctions, polityOf, siteValue, spacingFor, tierAllowed, type LoyaltyLook, type SiteLook, type TierCheck } from './community';
+import { belowTier, lensArea, loyaltyScore, missingFunctions, polityOf, siteValue, spacingFor, tierAllowed, waterGrade, type LoyaltyLook, type SiteLook, type TierCheck } from './community';
 import type { BuildingKind } from './ecosystem';
 import { chooseDay, DAY, type BoardTask, type DayContext } from '../ai/decisions/day';
 import { TRAIT_COUNT } from '../ai/traits';
@@ -13,6 +13,48 @@ describe('nascimento e degraus (RF-AS fases 1 e 2)', () => {
     expect(siteValue(site({ water: 1, fertile: 1 }))).toBeGreaterThan(siteValue(site({})));
     expect(siteValue(site({ dist: B.SITE_IDEAL_DIST }))).toBeGreaterThan(siteValue(site({ dist: B.SITE_IDEAL_DIST + 40 })));
     expect(siteValue(site({ motive: 1 }))).toBeGreaterThan(siteValue(site({ motive: 0 })));
+  });
+
+  it('penalidades graduais: quem já explora a captação, a sobreposição e a capital longe descontam (onda 3)', () => {
+    // Campos novos ausentes não mudam a nota.
+    expect(siteValue(site({ overlap: 0, crowd: 0, capital: 0 }))).toBeCloseTo(siteValue(site({})));
+    // Distribuição livre ideal: com tanta gente quanto a que o lugar novo terá, a captação rende a metade.
+    const full = siteValue(site({ fertile: 1, forest: 0, rock: 0, crowd: 0 }));
+    const half = siteValue(site({ fertile: 1, forest: 0, rock: 0, crowd: B.SITE_CATCH_POP }));
+    const none = siteValue(site({ fertile: 0, forest: 0, rock: 0, crowd: 0 }));
+    expect(full - half).toBeCloseTo((full - none) / 2);
+    expect(siteValue(site({ overlap: 0.5 }))).toBeLessThan(siteValue(site({ overlap: 0 })));
+    expect(siteValue(site({ capital: B.SITE_CAPITAL_FREE }))).toBeCloseTo(siteValue(site({ capital: 0 })));
+    expect(siteValue(site({ capital: B.SITE_CAPITAL_FREE + 50 }))).toBeLessThan(siteValue(site({ capital: 0 })));
+  });
+
+  it('a técnica muda o peso da pedra e do minério (onda 3)', () => {
+    const gain = (era: number, k: 'rock' | 'ore') => siteValue(site({ era, rock: 0, ore: 0, [k]: 1 })) - siteValue(site({ era, rock: 0, ore: 0 }));
+    expect(gain(2, 'rock')).toBeGreaterThan(gain(0, 'rock'));
+    expect(gain(1, 'ore')).toBeGreaterThan(gain(0, 'ore'));
+    expect(gain(0, 'ore')).toBeGreaterThan(0);
+  });
+
+  it('lente: interseção de dois discos', () => {
+    expect(lensArea(5, 5, 10)).toBe(0);
+    expect(lensArea(5, 3, 1)).toBeCloseTo(Math.PI * 9);
+    // Dois discos iguais com os centros na borda um do outro: 2π/3 − √3/2, vezes r².
+    expect(lensArea(2, 2, 2)).toBeCloseTo(4 * ((2 * Math.PI) / 3 - Math.sqrt(3) / 2));
+    expect(lensArea(5, 5, 4)).toBeGreaterThan(lensArea(5, 5, 6));
+  });
+
+  it('água graduada: lago perto vale mais que longe, o mar não mata a sede, o poço pede água no subsolo (onda 3)', () => {
+    const dry = B.SITE_WELL_MOISTURE - 0.1;
+    expect(waterGrade(2, dry, false)).toBe(B.SITE_WATER_LAKE_NEAR);
+    expect(waterGrade(B.SITE_WATER_RANGE, dry, false)).toBeCloseTo(B.SITE_WATER_LAKE_FAR);
+    expect(waterGrade(B.SITE_WATER_RANGE + 1, dry, false)).toBe(0);
+    // Sem lago e com o solo seco não há água doce, nem com poço; com água no subsolo o poço resolve.
+    expect(waterGrade(Infinity, dry, true)).toBe(0);
+    expect(waterGrade(Infinity, B.SITE_WELL_MOISTURE, false)).toBe(0);
+    expect(waterGrade(Infinity, B.SITE_WELL_MOISTURE, true)).toBe(B.SITE_WATER_WELL);
+    // Solo encharcado: nascentes e córregos, melhores quanto mais úmido.
+    expect(waterGrade(Infinity, B.SITE_SPRING_MOISTURE, false)).toBeCloseTo(B.SITE_WATER_SPRING[0]);
+    expect(waterGrade(Infinity, 1, false)).toBeCloseTo(B.SITE_WATER_SPRING[1]);
   });
 
   it('lugares maiores pedem mais espaço em volta', () => {

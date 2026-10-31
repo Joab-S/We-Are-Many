@@ -167,16 +167,16 @@ export const entitiesPart = {
         }
       }
       if (sp.kind === 'sapient') {
+        // Aldeias iniciais: o melhor de N tiles verdes sorteados, pela nota e pelo veto de toda fundação (`chooseSite`).
         const villages = Math.max(2, Math.min(6, Math.round(green / 60000)));
         for (let v = 0; v < villages; v++) {
+          const cands: { x: number; y: number }[] = [];
           for (let t = 0; t < 20; t++) {
             const tile = this.findTile(s, Math.floor(this.rnd() * n), 400, true);
-            const tx = tile % map.width;
-            const ty = Math.floor(tile / map.width);
-            if (tile < 0 || !this.canSettle(s, tx, ty)) continue;
-            this.foundVillage(s, tx, ty, 8);
-            break;
+            if (tile >= 0) cands.push({ x: tile % map.width, y: Math.floor(tile / map.width) });
           }
+          const site = this.chooseSite(cands, s, null, 'terra', 0, { veto: cands.length })[0];
+          if (site) this.foundVillage(s, site.x, site.y, 8);
         }
       }
     });

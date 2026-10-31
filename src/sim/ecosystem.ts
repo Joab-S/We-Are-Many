@@ -56,6 +56,7 @@ import { queriesPart, type QueriesPart } from './eco/core/queries';
 import { EVENT_QUEUE_LIMIT, type EngineEvent } from './api/events';
 import { residentsPart, ResidentIndex, type ResidentsPart } from './eco/core/residents';
 import { clockPart, type ClockPart } from './eco/core/clock';
+import { siteFieldPart, type SiteField, type SiteFieldPart } from './eco/settlements/siteField';
 
 export * from './eco/types';
 export * from './eco/constants';
@@ -123,7 +124,8 @@ export interface Ecosystem
     PlayerPart,
     QueriesPart,
     ResidentsPart,
-    ClockPart {}
+    ClockPart,
+    SiteFieldPart {}
 
 export class Ecosystem {
   readonly species: Species[] = [];
@@ -238,6 +240,11 @@ export class Ecosystem {
   cells: EcoCells | null = null;
   /** Clima vivo: vento, umidade, chuva, neve e água no solo por célula de 16×16 (Plano 2). */
   weather: Weather | null = null;
+  /**
+   * Campo de notas dos sítios (mapa de influência na grade das células ecológicas, eco/settlements/siteField.ts):
+   * criado na primeira consulta de onde fundar e refeito aos poucos; vai no save para a escolha seguir idêntica.
+   */
+  sites: SiteField | null = null;
   /** Tempo (anos) desde a última recontagem das células ecológicas. */
   wildClock = 0;
   readonly diary = new Map<number, Thought[]>();
@@ -678,6 +685,7 @@ export class Ecosystem {
       }
     }
     this.updateWildlife(yr);
+    this.updateSites(yr);
     this.updateBoats(dt);
     this.updateRafts(dt);
     this.updateCaravans(dt);
@@ -833,6 +841,7 @@ for (const part of [
   queriesPart,
   residentsPart,
   clockPart,
+  siteFieldPart,
 ]) {
   for (const [k, f] of Object.entries(part)) Object.defineProperty(Ecosystem.prototype, k, { value: f, writable: true, configurable: true, enumerable: false });
 }

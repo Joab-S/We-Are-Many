@@ -5,6 +5,7 @@ import { CHILD, ROLE } from '../../sim/roles';
 import { TRAIL } from '../../sim/architecture';
 import { roadBlocks } from '../../sim/settlement';
 import { DAY } from '../decisions/day';
+import { restoreEcosystem, snapshotEcosystem } from '../../save/snapshot';
 
 /**
  * Laboratório do plano novo dos assentamentos (seção 7.3 e 7.4): um povo de verdade com o maior lugar
@@ -42,6 +43,18 @@ describe('jornadas num povo de verdade', () => {
     step(YEAR_SECONDS, () => {
       for (const i of residents()) if (eco.day[i] === DAY.harvest && eco.role[i] !== ROLE.farmer) helpers++;
     });
+    if (!helpers) {
+      // Agricultores que bastam para as roças daquele ano (depende da semente e de onde as aldeias nasceram) não
+      // chamam ajuda. Numa cópia do mundo, para não mudar o que os testes seguintes encontram, todos os lugares
+      // ficam no modo completo por até três anos.
+      const copy = restoreEcosystem(structuredClone(snapshotEcosystem(eco, 7)), structuredClone(eco.map));
+      const ids = copy.villages.filter((v) => !v.abandoned && v.population > 0).map((v) => v.id);
+      for (let t = 0; t < YEAR_SECONDS * 3 && !helpers; t += 0.25) {
+        copy.watch(ids);
+        copy.step(0.25);
+        for (let i = 0; i < copy.count; i++) if (copy.alive[i] && copy.village[i] >= 0 && copy.day[i] === DAY.harvest && copy.role[i] !== ROLE.farmer) helpers++;
+      }
+    }
     expect(helpers).toBeGreaterThan(0);
   });
 
