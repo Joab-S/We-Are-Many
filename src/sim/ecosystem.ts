@@ -615,10 +615,15 @@ export class Ecosystem {
     this.updateRafts(dt);
     this.updateCaravans(dt);
     this.growVegetation(dt * legacy);
-    for (let k = this.effects.length - 1; k >= 0; k--) {
-      const fx = this.effects[k];
+    // Efeitos só se desenham (a simulação conta só quantos há): o que acabou sai trocando de lugar com o último
+    // (swap-remove, sem deslocar o resto). O laço vai de trás para frente, então o que vem para `k` já foi visto.
+    const effects = this.effects;
+    for (let k = effects.length - 1; k >= 0; k--) {
+      const fx = effects[k];
       fx.age += dt;
-      if (fx.age >= fx.life) this.effects.splice(k, 1);
+      if (fx.age < fx.life) continue;
+      const last = effects.pop()!;
+      if (k < effects.length) effects[k] = last;
     }
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt);
     this.villageClock += dt;

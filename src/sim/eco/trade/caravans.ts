@@ -299,6 +299,8 @@ export const caravansPart = {
   /** Movimento das caravanas e rebanhos, pedágios, neve e os perigos do caminho. */
   updateCaravans(this: Ecosystem, dt: number): void {
     const w = this.map.width;
+    // A ordem conta: cada caravana tira sorteios de civRnd e a chegada mexe no estoque e no preço do destino,
+    // então a que chega primeiro muda o que a outra encontra. Por isso splice (a ordem fica) e não troca com a última.
     for (let k = this.caravans.length - 1; k >= 0; k--) {
       const c = this.caravans[k];
       const home = this.villages[c.home];

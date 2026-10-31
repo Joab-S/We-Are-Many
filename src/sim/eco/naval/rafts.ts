@@ -120,6 +120,7 @@ export const raftsPart = {
   updateRafts(this: Ecosystem, dt: number): void {
     const map = this.map;
     const w = map.width;
+    // A ordem conta (quem desembarca primeiro pega o lugar livre): splice, não troca com a última.
     for (let k = this.rafts.length - 1; k >= 0; k--) {
       const r = this.rafts[k];
       const here = this.tileAt(r.x, Math.floor(r.y));

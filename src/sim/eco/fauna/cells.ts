@@ -477,6 +477,7 @@ export const faunaCellsPart = {
     const fade = Math.exp(-FEAR_DECAY_YEAR * span);
     for (let k = 0; k < this.fear.length; k++) this.fear[k] *= fade;
     // Carcaças apodrecem; o que sobra aduba o chão (o pasto em volta rebrota na hora).
+    // splice, não troca com a última: a ordem das carcaças conta (ver leaveCarcass).
     for (let k = this.carcasses.length - 1; k >= 0; k--) {
       const cc = this.carcasses[k];
       cc.kg *= Math.exp(-span / CARCASS_YEARS);

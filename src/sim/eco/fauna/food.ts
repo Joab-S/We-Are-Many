@@ -27,6 +27,9 @@ export const faunaFoodPart = {
   /** O bicho morto vira carcaça no lugar. */
   leaveCarcass(this: Ecosystem, i: number, kg = ecologyOf(this.species[this.kind[i]]).mass * EDIBLE): void {
     if (kg < 0.3) return;
+    // A ordem das carcaças conta (por isso shift e splice, e não troca com a última): a mais velha é a
+    // primeira a sair quando enche, a recém-deixada é a última (hunt come dela pelo índice), e
+    // carcassNear desempata pela ordem.
     if (this.carcasses.length >= MAX_CARCASSES) this.carcasses.shift();
     this.carcasses.push({ x: this.x[i], y: this.y[i], kg, at: this.year, sp: this.kind[i] });
   },

@@ -74,6 +74,7 @@ export const boatsPart = {
   updateBoats(this: Ecosystem, dt: number): void {
     const map = this.map;
     const w = map.width;
+    // A ordem conta (sorteios de civRnd por barco, chegadas que mexem no destino): splice, não troca com o último.
     for (let k = this.boats.length - 1; k >= 0; k--) {
       const b = this.boats[k];
       const v = this.villages[b.village];
