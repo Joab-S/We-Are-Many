@@ -789,7 +789,13 @@ export const SITE_CENTER_GREEN = 0.2;
  * tem rios) ou, da Idade do Ferro em diante, poço sobre água no subsolo (SITE_WELL_MOISTURE).
  */
 export const SITE_SEA_SIZE = 600;
-export const SITE_SPRING_MOISTURE = 0.6;
+/**
+ * Calibração conjunta (4B): 0,5 (antes 0,6). Sem rios no mapa, a nascente faz as vezes do córrego; com 0,6 o exame
+ * da área vetava por falta de água doce um quarto da terra verde e habitável da Terra do jogo até o poço da Idade do
+ * Ferro, e a era chega lá devagar. Com 0,5 o veto cai para uns 14% (a umidade mediana dessa terra é 0,69); na longa
+ * de 500 anos, com a colônia antes do refúgio, 1060 moradores contra 950 com 0,6.
+ */
+export const SITE_SPRING_MOISTURE = 0.5;
 /** Nota da água doce (0 a 1): lago a até 3 tiles e na borda do alcance, nascente (no limiar e no solo mais úmido) e poço. */
 export const SITE_WATER_LAKE_NEAR = 1;
 export const SITE_WATER_LAKE_FAR = 0.4;
