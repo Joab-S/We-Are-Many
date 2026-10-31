@@ -6,7 +6,7 @@
 import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
 import { binomial, happens } from '../../stochastic';
-import { Biome } from '../../../procgen/surface';
+import { Biome, classify } from '../../../procgen/surface';
 import { CHILD, ROLE, ROLES } from '../../roles';
 import { herdFor } from '../../needs';
 import { maxPensOf } from '../../settlement';
@@ -68,6 +68,8 @@ export const herdsPart = {
         const t = this.tileAt(p.x + Math.floor(this.civRnd() * 4) - 1, p.y + Math.floor(this.civRnd() * 4) - 1);
         if (t >= 0 && this.map.vegetation[t] > 0.1 && !this.road[t] && !this.built[t]) {
           this.map.vegetation[t] = Math.max(0, this.map.vegetation[t] - 0.04);
+          // O motor reclassifica o bioma antes de avisar (a tela só repinta o que o motor já decidiu).
+          this.map.biome[t] = classify(this.map, t);
           this.onTileChanged(t);
         }
       }

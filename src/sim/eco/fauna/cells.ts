@@ -19,7 +19,7 @@ import { EcoCells } from '../cells';
 // Cópias locais dos valores importados (eco/*, fauna, superfície; o porquê está em ecosystem.ts).
 const { CARCASS_YEARS, CARRION_RATIO, COAST_YIELD, ECO_CELL, ecologyOf, FEAR_DECAY_YEAR, FORAGE_USE, GRAZE_COST, GRAZE_MAX, hunts, INSECT_YIELD, BROWSE_YIELD, isLandAnimal, LAND_BUDGET, METABOLISM_YEAR, ration, PREDATOR_RATIO, REGROW_YEAR } = faunaModule;
 const { wrapDx } = settlementModule;
-const { temperatureAt, vegetationCap } = surfaceModule;
+const { classify, temperatureAt, vegetationCap } = surfaceModule;
 const { browseOf, floraOf, woody } = floraModule;
 const { MIN_WILD } = constantsModule;
 const { isWater, isLand } = tilesModule;
@@ -486,7 +486,12 @@ export const faunaCellsPart = {
       if (t >= 0 && isLand(this.map, t)) {
         this.graze[t] = 0;
         const cap = vegetationCap(this.map, t);
-        if (this.map.vegetation[t] < cap) this.map.vegetation[t] = Math.min(cap, this.map.vegetation[t] + 0.04);
+        if (this.map.vegetation[t] < cap) {
+          this.map.vegetation[t] = Math.min(cap, this.map.vegetation[t] + 0.04);
+          // Como em todo lugar que mexe na vegetação: o motor reclassifica e avisa a tela.
+          this.map.biome[t] = classify(this.map, t);
+          this.onTileChanged(t);
+        }
       }
       this.carcasses.splice(k, 1);
     }
