@@ -63,18 +63,23 @@ describe('IA local: um povo inteiro', () => {
     const adults = people.filter((i) => eco.role[i] !== CHILD);
     let friends = 0;
     let married = 0;
+    let couples = 0;
     let together = 0;
     for (const i of adults) {
       friends += countKind(eco.bonds, eco.uid[i], BOND.friend);
       const p = partnerOf(eco.bonds, eco.uid[i]);
       if (!p) continue;
       married++;
+      // Só os casais com os dois vivos em terra: o laço com quem morreu ou está embarcado fica, e quantos são
+      // depende da história da semente.
       const ties = eco.tiesOf(i);
-      if (ties.partner >= 0 && eco.village[ties.partner] === eco.village[i]) together++;
+      if (ties.partner < 0) continue;
+      couples++;
+      if (eco.village[ties.partner] === eco.village[i]) together++;
     }
     expect(friends / adults.length).toBeGreaterThan(1);
     expect(married / adults.length).toBeGreaterThan(0.2);
-    expect(together / married).toBeGreaterThan(0.8);
+    expect(together / couples).toBeGreaterThan(0.8);
     expect(eco.tally.marriages).toBeGreaterThan(20);
   });
 

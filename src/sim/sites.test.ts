@@ -116,7 +116,8 @@ describe('campo de notas dos sítios (mapa de influência)', () => {
   it('presença: sobreposição e gente que já explora a captação (IFD)', () => {
     const { eco, s } = flatWorld(256, 64);
     const v = eco.foundVillage(s, 60, 32, 20);
-    const r = eco.catchRadius(0);
+    // O raio do próprio lugar (pelo modo de vida dele): no centro, a captação nova cai inteira dentro da dele.
+    const r = eco.catchRadius(v);
     const here = eco.sitePresence(v.x, v.y, r);
     expect(here.overlap).toBeGreaterThan(0.9);
     expect(here.crowd).toBeGreaterThan(v.population * 0.5);

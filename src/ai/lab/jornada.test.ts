@@ -59,10 +59,10 @@ describe('jornadas num povo de verdade', () => {
   });
 
   it('quem tem fome vai comer antes de voltar ao trabalho', () => {
-    // Fora da safra: no verão a colheita é urgente e ganha da fome de propósito (colheita coletiva, RF-AS-28), e
-    // o teste cair nela depende da história da semente. O quadro do lugar é refeito para a estação nova.
-    for (let t = 0; t < YEAR_SECONDS && eco.season() === 2; t += 0.25) step(0.25);
+    // Sem tarefa urgente no quadro: a colheita da safra e a obra grande ganham da fome de propósito (colheita
+    // coletiva e mutirão, RF-AS-28), e haver uma delas neste instante depende da história da semente.
     eco.boards.delete(big.id);
+    eco.boards.set(big.id, { at: eco.year, tasks: eco.board(big).filter((t) => !t.urgent) });
     const adults = residents().filter((i) => eco.role[i] !== CHILD && eco.role[i] < ROLE.soldier && !eco.carry[i] && !eco.jobKind[i]);
     expect(adults.length).toBeGreaterThan(3);
     // Até 8 famintos; a escolha da jornada é sorteada entre as melhores, então basta a metade.
@@ -74,9 +74,14 @@ describe('jornadas num povo de verdade', () => {
     big.funeral = undefined;
     big.alarmUntil = undefined;
     big.curiousUntil = undefined;
+    // Só a fome: cansaço, solidão e fé também são necessidades pessoais, com o mesmo peso, e o quanto cada um
+    // acumulou depende da história.
     for (const i of hungry) {
       eco.dropDay(i, big);
       eco.energy[i] = 0.3;
+      eco.needRest[i] = 0;
+      eco.needSocial[i] = 0;
+      eco.needFaith[i] = 0;
       eco.day[i] = DAY.none;
     }
     // A escolha é feita já, com a fome posta: num passo da simulação a refeição do lugar (a volta dos
