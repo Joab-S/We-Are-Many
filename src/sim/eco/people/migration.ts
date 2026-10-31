@@ -137,15 +137,13 @@ export const migrationPart = {
       let movedAny = 0;
       let to: Village | null = null;
       const volunteers: number[] = [];
-      let ready = 0;
       if (targets.length || sites.length) {
         for (const [key, members] of fams) {
           if (members.includes(leader) || !happens(this.civRnd, think, 1)) continue;
           const pick = this.thinkMove(v, members, targets, score, crowd, lack, exodus, sites, pressure);
           if (pick?.kind === 'found') {
-            // Quem escolheu fundar espera o grupo: a colônia sai quando houver famílias bastantes.
+            // Quem escolheu fundar é o núcleo da colônia: na partida, as famílias mais dispostas completam o grupo.
             volunteers.push(key);
-            ready += members.length;
             continue;
           }
           if (pick?.kind !== 'migrate') continue;
@@ -162,7 +160,7 @@ export const migrationPart = {
           if (v.population <= 0) break;
         }
       }
-      if (ready >= B.COLONY_GROUP_MIN * B.FISSION_READY) this.organizeColony(v, motive, sites, volunteers);
+      if (volunteers.length >= B.FISSION_CORE) this.organizeColony(v, motive, sites, volunteers);
       if (movedAny && to) {
         const why = lack > 0 ? this.lackName(v) : to.tier > v.tier ? 'trabalho na cidade' : 'uma vida melhor';
         this.note(`Famílias de ${v.name} se mudaram para ${to.name} em busca de ${why}`, 'povo', to, { key: `migra-${v.id}-${to.id}` });

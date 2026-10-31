@@ -202,8 +202,8 @@ export const MOVE_PRESSURE = 0.5;
  * Fissão por pressão: com a pressão acima de PRESSURE_SCOUT os batedores procuram sítios e as famílias podem
  * escolher fundar (src/ai/decisions/move.ts); a pressão acima dele também faz mais famílias pensarem em sair
  * (MOVE_PRESS_THINK por ponto, por ano, somado a MOVE_THINK). Acima de PRESSURE_FISSION, sem sítio nenhum, o
- * lugar está circunscrito. A colônia sai quando as famílias que querem ir somam FISSION_READY × COLONY_GROUP_MIN
- * pessoas, e leva até FISSION_SHARE do povo (no mínimo COLONY_GROUP_MAX).
+ * lugar está circunscrito. A colônia se organiza quando FISSION_CORE famílias escolhem fundar no mesmo ano (o
+ * núcleo: na partida, as mais dispostas completam o grupo) e leva até FISSION_SHARE do povo (no mínimo COLONY_GROUP_MAX).
  */
 export const PRESSURE_SCOUT = 0.7;
 export const PRESSURE_FISSION = 1;
@@ -211,9 +211,9 @@ export const PRESSURE_FISSION = 1;
  * Pressão da terra (`landPressure`): com menos de HUNGER_LEVEL comendo bem e sem lote para mais roça ao
  * alcance, LAND_PRESSURE × a fome soma à pressão social na fissão (a colônia sai atrás de terra).
  */
-export const LAND_PRESSURE = 2;
+export const LAND_PRESSURE = 4;
 export const MOVE_PRESS_THINK = 0.4;
-export const FISSION_READY = 0.7;
+export const FISSION_CORE = 2;
 export const FISSION_SHARE = 0.3;
 /** Peso a mais, na vontade de ir com a colônia, das famílias que escolheram fundar. */
 export const FISSION_KEEN = 2;
