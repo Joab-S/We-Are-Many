@@ -47,7 +47,6 @@ export const productionPart = {
   produce(this: Ecosystem, v: Village, w: number[], adults: number, dt: number): void {
     const yr = dt / YEAR_SECONDS;
     const st = v.stock;
-    const made = this.villages[v.kingdom].made;
     if (happens(this.civRnd, B.SURVEY_RATE, yr) || v.forest === 0) this.survey(v);
     const tools = st.tools > 0 ? 1.4 : 1;
     const bonus = (voc: Vocation) => (v.vocation === voc ? 1 + B.VOCATION_BONUS : 1);
@@ -56,12 +55,12 @@ export const productionPart = {
     // quanto mais longe a mata, menos madeira chega por ano. A serraria aproveita mais de cada tronco.
     v.crew = w[ROLE.builder];
     const cutters = w[ROLE.woodcutter] + (this.scale(v) === 0 && v.population <= 4 && st.wood < 6 ? w[ROLE.leader] * 0.5 : 0);
-    if (cutters && !B.PRESENCE_WOOD) this.cutWood(v, cutters * B.CUT_RATE * yr * tools * bonus('madeireira'), this.has(v, 'sawmill') ? 1.3 : 1);
+    if (cutters && !B.PRESENCE_WOOD) this.cutWood(v, cutters * B.CUT_RATE * yr * tools * bonus('madeireira'), (this.has(v, 'sawmill') ? 1.3 : 1) * this.areaOf(v).wood);
     // Coletores trazem frutos, raízes e mel do mato, que se gasta e rebrota (seção 19.19). Numa aldeia pequenina, o líder também ajuda a colher.
     if (this.scale(v) === 0 && v.population <= 6 && w[ROLE.leader] && v.food < 6 && v.forest > 0.2) {
       this.book(v, '_gather', this.put(v, 'food', w[ROLE.leader] * B.GATHER_RATE * 0.6 * yr * this.harvest(v)), 0);
     }
-    if (w[ROLE.gatherer]) this.gather(v, w[ROLE.gatherer] * B.GATHER_RATE * yr * this.harvest(v) * B.SEASON_HARVEST[season] ** 0.5);
+    if (w[ROLE.gatherer]) this.gather(v, w[ROLE.gatherer] * B.GATHER_RATE * yr * this.harvest(v) * this.seasonWeightOf(v, B.SEASON_HARVEST) ** 0.5);
     // Minas: o minério sai da jazida (limitada) para o estoque do assentamento que a explora.
     const mines = v.mines.map((id) => this.deposits[id]);
     if (mines.length && w[ROLE.miner]) {
@@ -69,10 +68,8 @@ export const productionPart = {
       for (const d of mines) {
         const take = this.gain(v, d.ore, Math.min(d.amount, each));
         d.amount -= take;
-        if (d.ore === 'coal') {
-          v.made.coal += take;
-          if (v.kingdom !== v.id) made.coal += take;
-        }
+        // O que se extrai e forja conta para o próprio lugar (antes também para a capital, e a era do reino era a do mais rico).
+        if (d.ore === 'coal') v.made.coal += take;
         if (d.amount <= 0) {
           d.mine = -1;
           v.mines.splice(v.mines.indexOf(d.id), 1);
@@ -86,7 +83,6 @@ export const productionPart = {
     if (quarry) {
       const q = this.quarry(v, quarry * B.QUARRY_RATE * yr * tools);
       v.made.stone += q;
-      if (v.kingdom !== v.id) made.stone += q;
     }
     // Barro e tijolo (RF-VIDA-211): o oleiro tira barro perto da água e queima tijolo e telha na olaria.
     if (w[ROLE.potter] && v.wet && this.has(v, 'pottery')) {
@@ -94,12 +90,13 @@ export const productionPart = {
       const fired = this.spend(v, 'clay', Math.min(st.clay, w[ROLE.potter] * 1.5 * yr));
       this.gain(v, 'brick', fired);
     }
-    // Rebanho (RF-VIDA-215): leite, carne, couro e lã; a tosquia é na primavera (RF-VIDA-290).
+    // Rebanho (RF-VIDA-215): leite, carne, couro e lã; a tosquia é na primavera (RF-VIDA-290). O pasto do bioma
+    // (`graze`) dá mais leite e carne por cabeça na pradaria do que na mata fechada.
     const herd = v.herd;
     if (herd && herd.head > 0) {
       const tend = Math.min(1, 0.4 + (w[ROLE.shepherd] * 6) / herd.head);
       const extra = herd.kind === 'sheep' ? bonus('ovelhas') : herd.kind === 'cattle' || herd.kind === 'goat' ? bonus('gado') : bonus('cavalos');
-      const k = herd.head * tend * extra * yr;
+      const k = herd.head * tend * extra * this.areaOf(v).graze * yr;
       let meat = 0;
       if (herd.kind === 'sheep') {
         this.gain(v, 'wool', k * 0.35 * B.SEASON_WOOL[season]);
@@ -149,7 +146,6 @@ export const productionPart = {
         this.book(v, 'metal', 0, before - (st.copper + st.tin + st.iron + st.coal));
         v.forgeWork -= 1;
         v.made[piece.kind]++;
-        if (v.kingdom !== v.id) made[piece.kind]++;
         this.craft(v, st, this.needed(st, adults, soldiers, v), TIER_MATERIAL[piece.tier], era);
       }
     }

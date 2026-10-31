@@ -7,7 +7,7 @@ import type { Ecosystem } from '../../ecosystem';
 import { Weather } from '../../weather';
 import { randomTraits, TRAIT_COUNT } from '../../../ai/traits';
 import { ECO_CELL } from '../../fauna';
-import type { Identity } from '../types';
+import type { Identity, Village } from '../types';
 import { EcoCells } from '../cells';
 
 export const savePart = {
@@ -18,6 +18,8 @@ export const savePart = {
     this.uidIndex.clear();
     for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidIndex.set(this.uid[k], k);
     delete (this as { uidYear?: number }).uidYear;
+    // Saves de antes do modo de vida (bioma e sociedade): todo lugar era sedentário (todos plantavam).
+    for (const v of this.villages) (v as { lifeway?: Village['lifeway'] }).lifeway ??= 'sedentario';
     // Saves de antes do handle do líder: o uid do líder guardado sai do índice (se ele ainda vive ali).
     for (const v of this.villages) {
       if (v.leaderUid === undefined && v.leader >= 0 && this.alive[v.leader] && this.village[v.leader] === v.id) v.leaderUid = this.uid[v.leader];

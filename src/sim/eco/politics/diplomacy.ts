@@ -631,8 +631,8 @@ export const diplomacyPart = {
     v.culture = makeCulture(this.cultures++, v.name, this.polRnd);
     v.color = this.freshColor();
     for (const o of this.villages) if (o.kingdom === v.id) o.color = v.color;
-    // Cada assentamento já tem o próprio estoque (RF-VIDA-212); o reino novo leva só o que o povo sabe fazer.
-    v.made = { ...old.made };
+    // Cada assentamento já tem o próprio estoque (RF-VIDA-212) e as próprias peças forjadas (a era é local): o reino
+    // novo fica com o que ele mesmo fez (antes copiava as da capital antiga, e a era do rebelde subia com elas).
   },
 
   /**

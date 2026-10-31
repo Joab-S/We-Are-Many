@@ -9,7 +9,7 @@ import { happens } from '../../stochastic';
 import { Biome, isForestBiome, temperatureAt } from '../../../procgen/surface';
 import { GOODS, STOCK_NAMES, type Good } from '../../economy';
 import { GRAVEL } from '../../architecture';
-import { LUXURIES, LUXURY_ERA, currencyOf, pickLuxury, price, tradable, type Agreement, type Cargo, type Luxury } from '../../trade';
+import { LUXURIES, LUXURY_ERA, currencyOf, pickLuxury, price, tradable, usefulness, type Agreement, type Cargo, type Luxury } from '../../trade';
 import { welfare } from '../../needs';
 import type { Village } from '../types';
 import * as tilesModule from '../tiles';
@@ -34,10 +34,22 @@ export const marketsPart = {
     else v.stock[g] += n;
   },
 
-  /** Preço local de um bem (RF-VIDA-231). */
+  /** Preço local de um bem (RF-VIDA-231), pela escassez e pela utilidade dele nas técnicas do lugar (`usefulness`). */
   priceAt(this: Ecosystem, v: Village, g: Good | 'food'): number {
     const rich = v.needs ? welfare(v.needs) >= 0.75 : false;
-    return price(g, this.amountOf(v, g), this.capOf(v, g), v.needs, rich);
+    return price(g, this.amountOf(v, g), this.capOf(v, g), v.needs, rich) * usefulness(g, this.knows(v));
+  },
+
+  /**
+   * O comércio traz peças (trava local da era): ferramentas, armas e armaduras de metal que chegam de quem as
+   * forjou contam como peças do metal mais nobre que o vendedor forja, na proporção TRADED_PIECES, para quem as
+   * recebe. A era e as peças são do lugar, mas o lugar sem minério pode avançar comprando o que outros forjam.
+   */
+  tradedPieces(this: Ecosystem, seller: Village, buyer: Village, g: Good | 'food', n: number): void {
+    if (n <= 0 || (g !== 'tools' && g !== 'weapons' && g !== 'armor')) return;
+    const m = seller.made;
+    const metal = m.steel >= 1 ? 'steel' : m.iron >= 1 ? 'iron' : m.bronze >= 1 ? 'bronze' : null;
+    if (metal) buyer.made[metal] += n * B.TRADED_PIECES;
   },
 
   /** Caravanas e barcos mercantes de um assentamento na estrada ou no mar (rebanhos não contam). */

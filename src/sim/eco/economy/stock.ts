@@ -127,7 +127,8 @@ export const stockPart = {
     const st = v.stock;
     const season = seasonOf(this.actionPhase());
     const cold = temperatureAt(this.map, this.tileAt(v.x, Math.floor(v.y))) < B.COLD_K ? 2 : 1;
-    const fuel = v.population * B.CONSUME_FUEL * cold * B.SEASON_FUEL[season] * yr;
+    // O inverno pesa mais longe do equador (a amplitude da estação do lugar).
+    const fuel = v.population * B.CONSUME_FUEL * cold * this.seasonWeightOf(v, B.SEASON_FUEL) * yr;
     const burnt = this.spend(v, 'wood', fuel);
     this.book(v, '_fuel', burnt, fuel);
     // Consertos das casas ao longo do ano (seção 19.19); tijolo serve no lugar da pedra.
@@ -148,7 +149,8 @@ export const stockPart = {
     // Sal conserva carne e peixe (RF-VIDA-282 e 219a).
     const salted = !granary && st.salt >= 0.1;
     if (salted) this.spend(v, 'salt', v.population * B.SALT_USE * yr);
-    this.spend(v, 'food', v.food * (granary ? B.SPOIL_GRAIN : salted ? B.SPOIL_SALTED : B.SPOIL_MEAT) * yr);
+    // O frio e o seco conservam (`spoilOf`: bioma da área e celeiro gelado no inverno).
+    this.spend(v, 'food', v.food * (granary ? B.SPOIL_GRAIN : salted ? B.SPOIL_SALTED : B.SPOIL_MEAT) * this.spoilOf(v) * yr);
     this.spend(v, 'wood', st.wood * B.SPOIL_WOOD * yr);
     this.spend(v, 'tools', st.tools * 0.02 * yr);
     const goldCap = this.capOf(v, 'gold');

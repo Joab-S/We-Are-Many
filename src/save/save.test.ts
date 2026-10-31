@@ -167,6 +167,28 @@ describe('save: ida e volta', () => {
     expect(eco.villages.some((v) => !v.abandoned && v.population > 0 && (v.pressure ?? 0) > 0)).toBe(true);
   }, 60000);
 
+  it('save antigo, sem o modo de vida nem a área dos lugares, carrega sedentário e segue determinístico', () => {
+    const s = game();
+    const data = structuredClone(snapshotGame(s, space, seeds));
+    const snap = data.ecosystems.get('sol-3')!;
+    // Como um save de antes do bioma e sociedade: os lugares não têm `lifeway` nem `area`.
+    const old = snap.fields.villages as { lifeway?: string; area?: unknown }[];
+    expect(old.length).toBeGreaterThan(0);
+    for (const v of old) {
+      delete v.lifeway;
+      delete v.area;
+    }
+    const load = () => restoreGame(structuredClone(data), base).state.ecosystems.get('sol-3')!;
+    const a = load();
+    const b = load();
+    for (const v of a.villages) expect(v.lifeway).toBe('sedentario');
+    run(a, 20);
+    run(b, 20);
+    expect(a.villages).toEqual(b.villages);
+    expect(a.x).toEqual(b.x);
+    expect(a.population).toEqual(b.population);
+  }, 60000);
+
   it('salvar não altera o jogo em andamento', () => {
     const s = game();
     const eco = s.ecosystems.get('sol-3')!;

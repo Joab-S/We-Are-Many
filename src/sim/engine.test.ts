@@ -3,7 +3,7 @@ import { seedWorld } from './calibrate';
 import { BUILDING_NAMES, BUILDINGS, canBuild, Ecosystem, YEAR_SECONDS, type BuildContext, type BuildingKind } from './ecosystem';
 import { BUILDING_TYPES, buildingType } from './buildingTypes';
 import { buildCost } from './economy';
-import { LEVEL_HOUSING } from './balance';
+import { LEVEL_HOUSING, PORT_HOUSING } from './balance';
 
 /** Padrões do motor (Game Programming Patterns): índices, handles e tipos. */
 
@@ -173,10 +173,11 @@ describe('tipos de construção (Type Object)', () => {
     expect(buildCost('house', 0)).not.toBe(buildCost('house', 0));
   });
 
-  it('moradia: casa pela era e pelos andares, porto nada, as outras dois', () => {
+  it('moradia: casa pela era e pelos andares, porto pelo cais e pela era, as outras dois', () => {
     expect(buildingType('house').housing(2, 1, false)).toBe(4 + 2 + LEVEL_HOUSING);
     expect(buildingType('house').housing(2, 1, true)).toBe(0);
-    expect(buildingType('port').housing(3, 0, false)).toBe(0);
+    // O porto abriga o cais e as casas de pescadores (bioma e sociedade: a costa com porto é mais densa).
+    expect(buildingType('port').housing(3, 0, false)).toBe(PORT_HOUSING + 3);
     for (const k of BUILDINGS) expect(buildingType(k).housing(4, 2, false)).toBe(2);
     expect(buildingType('desconhecida').housing(0, 0, false)).toBe(2);
   });

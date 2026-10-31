@@ -11,7 +11,8 @@ import { CHILD, ROLE, ROLES } from '../../roles';
 import { herdFor } from '../../needs';
 import { maxPensOf } from '../../settlement';
 import { ecologyOf, hunts } from '../../fauna';
-import type { Village } from '../types';
+import { herdFormsOf } from '../../species';
+import type { HerdKind, Village } from '../types';
 import * as constantsModule from '../constants';
 import * as tilesModule from '../tiles';
 
@@ -99,21 +100,64 @@ export const herdsPart = {
     return w;
   },
 
-  /** Domestica herbívoros da região: um bicho por perto é capturado e começa o rebanho. */
-  domesticate(this: Ecosystem, v: Village): void {
-    let wild = -1;
-    this.forEachNear(v.x, v.y, this.radius(v) + 20, (j) => {
+  /**
+   * Bichos domesticáveis da região do lugar (Diamond: só quem passa pelos critérios, `herdFormsOf`), com a forma de
+   * curral que cada um dá e o primeiro indivíduo visto de cada forma. Com `abundant`, só as espécies que não estão
+   * raras no planeta (capturar a última manada acabaria com ela).
+   */
+  wildHerdsNear(this: Ecosystem, v: Village, abundant: boolean): Map<HerdKind, number> {
+    const found = new Map<HerdKind, number>();
+    this.forEachNear(v.x, v.y, this.radius(v) + B.DOMESTIC_REACH, (j) => {
       const k = this.kind[j];
-      if (wild < 0 && this.species[k].kind === 'herbivore' && this.population[k] > this.caps[k] * 0.2) wild = j;
+      if (abundant && this.population[k] <= this.caps[k] * 0.2) return;
+      for (const f of herdFormsOf(this.species[k])) if (!found.has(f)) found.set(f, j);
     });
-    if (wild < 0) return;
+    return found;
+  },
+
+  /**
+   * Vizinho que pode ceder animais já domesticados (Diamond: os rebanhos se espalham de quem os tem): o parceiro
+   * mais perto (mesmo reino ou acordo comercial, `partnersOf`) a até HERD_SHARE_RANGE tiles, com HERD_SHARE_MIN
+   * cabeças ou mais. Com `path`, só quem se alcança a pé.
+   */
+  herdNeighbor(this: Ecosystem, v: Village, path: boolean): Village | null {
+    let best: Village | null = null;
+    let bd = Infinity;
+    for (const o of this.partnersOf(v)) {
+      if (!o.herd || o.herd.head < B.HERD_SHARE_MIN) continue;
+      const d = this.distance(o, v.x, v.y);
+      if (d > B.HERD_SHARE_RANGE || d >= bd) continue;
+      if (path && !this.landPath(o.x, o.y, v.x, v.y)) continue;
+      best = o;
+      bd = d;
+    }
+    return best;
+  },
+
+  /**
+   * Começa o rebanho: um domesticável da região é capturado, ou o vizinho que já cria cede algumas cabeças (o gado
+   * chega a quem não tem o bicho selvagem por perto, como na Eurásia). A vocação e o clima escolhem entre o que há.
+   */
+  domesticate(this: Ecosystem, v: Village): void {
+    const wild = this.wildHerdsNear(v, true);
+    const near = this.herdNeighbor(v, true);
+    const kinds = [...wild.keys()];
+    if (near?.herd && !kinds.includes(near.herd.kind)) kinds.push(near.herd.kind);
+    if (!kinds.length) return;
     const s = this.siteSample(v);
     const b = this.map.biome[this.tileAt(v.x, Math.floor(v.y))] as Biome;
-    const kind = herdFor(v.vocation, s, b === Biome.Desert || b === Biome.Savanna);
+    const kind = herdFor(v.vocation, s, b === Biome.Desert || b === Biome.Savanna, kinds);
+    if (!kind) return;
     if (!v.pens?.length && !this.addPen(v)) return;
-    this.kill(wild, true);
-    v.herd = { kind, head: 3 };
-    this.note(`${v.name} domesticou ${HERD_NAMES[kind]}`, 'economia', v);
+    if (wild.has(kind)) {
+      this.kill(wild.get(kind)!, true);
+      v.herd = { kind, head: 3 };
+      this.note(`${v.name} domesticou ${HERD_NAMES[kind]}`, 'economia', v);
+      return;
+    }
+    near!.herd!.head -= B.HERD_SHARE_HEAD;
+    v.herd = { kind, head: B.HERD_SHARE_HEAD };
+    this.note(`${v.name} trouxe ${HERD_NAMES[kind]} de ${near!.name}`, 'economia', v, { key: `herd-in-${v.id}` });
   },
 
   /** Cercado de pasto na borda da área ou logo fora dela (tiles de pasto, 2x2). */

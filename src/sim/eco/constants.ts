@@ -10,15 +10,11 @@ import type { WarMotive, BuildingKind, HerdKind, Behaviour } from './types';
 /** Segundos de jogo (velocidade 1x) que formam um ano. */
 export const YEAR_SECONDS = 6;
 
-export const ERAS = ['Idade da Pedra', 'Idade do Bronze', 'Idade do Ferro', 'Era Medieval', 'Era Industrial'];
-
 /**
- * Anos para passar de cada era à seguinte num assentamento de 30 habitantes.
- * Lento de propósito: mesmo acelerando o tempo dá para acompanhar a história.
+ * Eras de cada assentamento. Não há relógio: a era sai do que o lugar domina e forja (`organicTech`,
+ * src/sim/progress.ts; tabela 9.2 de REQUISITOS-VIDA.md).
  */
-export const ERA_YEARS = [300, 350, 450, 550];
-
-/** Chance por ano de um assentamento cheio mandar colonos. */
+export const ERAS = ['Idade da Pedra', 'Idade do Bronze', 'Idade do Ferro', 'Era Medieval', 'Era Industrial'];
 
 /**
  * Embarcações por era: mais rápidas, maiores, com mais alcance e mais seguras

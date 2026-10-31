@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AVENUE, houseStyle, isStreet, mainStreets, pickMaterial } from './architecture';
 import { runWorld } from './calibrate';
+import { MAIN_STREET_SHARE } from './balance';
 import { YEAR_SECONDS } from './ecosystem';
 import { roadBlocks } from './settlement';
 
@@ -47,7 +48,29 @@ describe('arquitetura que acompanha a era (19.8)', () => {
     for (const v of live) if (v.tier >= 1) eco.rankStreets(v);
     let main = 0;
     for (let i = 0; i < eco.mainStreet.length; i++) main += eco.mainStreet[i];
-    if (live.some((v) => v.tier >= 1)) expect(main).toBeGreaterThan(0);
+    // Rua principal pede tronco: as ruas nascem do uso (RF-AS-13), e a vila com trilhas e trechos soltos, longe da
+    // praça, não tem tronco. Cobra a marcação só da vila cuja rede ligada à praça já forma um (antes, de qualquer vila;
+    // quantas ruas cada uma abriu em 200 anos, e onde, depende da história da semente).
+    const w = eco.map.width;
+    const trunk = (v: (typeof live)[number]) => {
+      const streets = new Set<number>();
+      const r = Math.ceil(eco.radius(v));
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const t = eco.tileAt(v.x + dx, Math.floor(v.y + dy));
+          if (t >= 0 && dx * dx + dy * dy <= r * r && (e.road[t] === 1 || e.road[t] === 2 || e.road[t] === AVENUE)) streets.add(t);
+        }
+      }
+      const square: number[] = [];
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) square.push(eco.tileAt(Math.floor(v.x) + dx, Math.floor(v.y) + dy));
+      const next = (t: number) => {
+        const x = t % w;
+        const y = (t - x) / w;
+        return [eco.tileAt(x + 1, y), eco.tileAt(x - 1, y), eco.tileAt(x, y + 1), eco.tileAt(x, y - 1)];
+      };
+      return mainStreets(streets, square.filter((t) => t >= 0), next, MAIN_STREET_SHARE).size;
+    };
+    if (live.some((v) => v.tier >= 1 && trunk(v) > 0)) expect(main).toBeGreaterThan(0);
     const city = live.filter((v) => v.tier >= 2).sort((a, b) => b.population - a.population)[0];
     if (city) {
       let avenue = 0;

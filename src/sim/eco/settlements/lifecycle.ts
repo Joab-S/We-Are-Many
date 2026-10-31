@@ -13,7 +13,7 @@ import { BOND, partnerOf } from '../../../ai/relations';
 import { LEADER } from '../../../ai/tuning';
 import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../../../ai/decisions/leader';
 import { completeness, missingText } from '../../plan';
-import { seasonOf, welfare } from '../../needs';
+import { welfare } from '../../needs';
 import { TIER_RADIUS } from '../../settlement';
 import { alienName } from '../../species';
 import type { Village } from '../types';
@@ -125,6 +125,7 @@ export const lifecyclePart = {
       mother: from?.id,
       pressure: 0,
       circumscribed: 0,
+      lifeway: 'sedentario',
     };
     if (!from) village.culture = makeCulture(village.culture.id, village.name, rnd);
     if (ruin) {
@@ -311,24 +312,28 @@ export const lifecyclePart = {
       // apertado de verdade, organiza uma colônia (abaixo).
       // Lavouras trabalhadas por agricultores enchem o celeiro (cada porção mata a fome de um morador).
       // A colheita vem quase toda no outono (RF-VIDA-290); boi ou cavalo no arado dobram a área de cada agricultor;
-      // o moinho faz pão (RF-VIDA-211); o solo cansado rende menos (RF-VIDA-294).
+      // o moinho faz pão (RF-VIDA-211); o solo cansado rende menos (RF-VIDA-294); o bioma da área (`farmYield`) faz a planície
+      // render mais que a mata e o deserto quase nada sem irrigação.
       if (v.fields > 0 && workers[v.id]) {
         const w = workers[v.id];
         const plough = v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' && this.knew(v, 'arado') ? 1 : 0.5;
         // Cada roça no mapa é um lote grande, maior quanto maior o lugar (o mapa tem no máximo 5 roças).
-        const worked = Math.min(v.fields * this.fieldHands(v), Math.ceil(w[ROLE.farmer] * plough) + 1);
+        // No modo intensivo cada roça leva mais braços (`intensity`).
+        const worked = Math.min(v.fields * this.fieldHands(v) * this.intensity(v), Math.ceil(w[ROLE.farmer] * plough) + 1);
         const mill = v.houses.some((h) => h.kind === 'windmill') ? 1 + (this.knew(v, 'moinhoagua') ? 0.45 : 0.3) * Math.min(1, w[ROLE.miller]) : 1;
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
-        const season = B.SEASON_HARVEST[seasonOf(this.actionPhase())];
-        this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * B.ERA_YIELD[Math.min(B.ERA_YIELD.length - 1, Math.floor(v.tech))] * this.harvest(v) * (this.knew(v, 'irrigacao') ? 1.1 : 1) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
+        // A colheita vem na estação do lugar: concentrada no outono longe do equador, espalhada no ano no trópico.
+        const season = this.seasonWeightOf(v, B.SEASON_HARVEST);
+        this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * B.ERA_YIELD[Math.min(B.ERA_YIELD.length - 1, Math.floor(v.tech))] * this.harvest(v) * this.farmYield(v) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
       }
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
       // Roças desde a Idade da Pedra (uma para cada quatro casas; da Idade do Bronze em diante, uma para cada duas).
       // Só planta o que os agricultores dão conta (mais uma); roça sem ninguém para trabalhar volta a ser campo.
       // As roças acompanham quem as trabalha, num anel em volta das casas (RF-AS-16; antes, no máximo 5 no mapa).
       const hands = Math.ceil((workers[v.id]?.[ROLE.farmer] ?? 0) * (v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' ? 1 : 0.5)) + 1;
-      const room = Math.min(B.FIELDS_MAX, Math.ceil(hands / this.fieldHands(v)) + 1);
+      // O nômade não planta (`plants`): as roças que tinha voltam a ser campo, uma a uma.
+      const room = this.plants(v) ? Math.min(B.FIELDS_MAX, Math.ceil(hands / this.fieldHands(v)) + 1) : 0;
       if (v.fields < Math.min(room, homes / (Math.floor(v.tech) >= 1 ? 2 : 4)) && (v.population >= 6 || v.tech >= 0.12) && happens(this.civRnd, B.FIELD_RATE, dt / YEAR_SECONDS)) this.plantField(v);
       else if (v.fields > room && happens(this.civRnd, B.FIELD_FALLOW_RATE, dt / YEAR_SECONDS)) this.dropField(v);
       // De vez em quando aparece um andarilho do mesmo povo, mais fácil quando o lugar tem pouca gente.

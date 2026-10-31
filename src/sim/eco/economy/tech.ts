@@ -4,6 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
+import * as B from '../../balance';
 import { happens } from '../../stochastic';
 import * as P from '../../progress';
 import { ERA_NEEDS } from '../../economy';
@@ -24,14 +25,8 @@ export const techPart = {
   advance(this: Ecosystem, v: Village, amount: number): void {
     const era = Math.floor(v.tech);
     let next = Math.min(ERAS.length - 1, v.tech + amount);
-    const kmade = this.villages[v.kingdom].made;
-    const m = {
-      bronze: Math.max(v.made.bronze, kmade.bronze),
-      iron: Math.max(v.made.iron, kmade.iron),
-      steel: Math.max(v.made.steel, kmade.steel),
-      stone: Math.max(v.made.stone, kmade.stone),
-      coal: Math.max(v.made.coal, kmade.coal),
-    };
+    // As peças contam as do próprio lugar (as forjadas ali e as que o comércio trouxe), não as do reino.
+    const m = v.made;
     const techGate =
       (era === 0 && this.knew(v, 'fundicao')) ||
       (era === 1 && this.knew(v, 'siderurgia')) ||
@@ -88,7 +83,6 @@ export const techPart = {
 
   useContext(this: Ecosystem, v: Village): P.UseContext {
     const st = v.stock;
-    const kmade = this.villages[v.kingdom].made;
     const reach = this.radius(v) + 25;
     let softOre = st.copper + st.tin + st.gold > 0;
     let ironOre = st.iron > 0;
@@ -100,7 +94,8 @@ export const techPart = {
       else if (d.ore === 'iron') ironOre = true;
       else if (d.ore === 'coal') coal = true;
     }
-    const herbivores = (!!v.herd && v.herd.head > 0) || this.species.some((sp, k) => sp.kind === 'herbivore' && this.population[k] > 0);
+    // Domesticar pede bicho domesticável na região do lugar, ou um vizinho que já cria (Diamond), não qualquer herbívoro do planeta.
+    const herbivores = (!!v.herd && v.herd.head > 0) || this.wildHerdsNear(v, false).size > 0 || this.herdNeighbor(v, false) !== null;
     return {
       tech: v.tech,
       tier: this.scale(v),
@@ -116,9 +111,10 @@ export const techPart = {
       tools: st.tools >= 1,
       softOre,
       ironOre,
-      forgedBronze: v.made.bronze + kmade.bronze >= 1,
-      forgedIron: v.made.iron + kmade.iron >= 1,
-      stoneWorked: v.made.stone + kmade.stone >= 8 || st.stone >= 4,
+      // A experiência é do lugar: a vila sem forja não herda a do reino minerador.
+      forgedBronze: v.made.bronze >= 1,
+      forgedIron: v.made.iron >= 1,
+      stoneWorked: v.made.stone >= 8 || st.stone >= 4,
     };
   },
 
@@ -181,8 +177,8 @@ export const techPart = {
       }
     }
 
-    // Atualiza o nível tecnológico orgânico pelo que a aldeia já domina e produz.
-    const kmade = this.villages[v.kingdom].made;
+    // Atualiza o nível tecnológico orgânico pelo que a aldeia já domina e produz: as peças são as do próprio lugar
+    // (forjadas ali ou trazidas pelo comércio), não o máximo do reino.
     const organic = P.organicTech({
       techs: this.knows(v),
       tier: this.scale(v),
@@ -191,11 +187,11 @@ export const techPart = {
       port: v.port >= 0,
       smithy: this.has(v, 'smithy'),
       market: this.has(v, 'market'),
-      madeBronze: Math.max(v.made.bronze, kmade.bronze),
-      madeIron: Math.max(v.made.iron, kmade.iron),
-      madeSteel: Math.max(v.made.steel, kmade.steel),
-      madeStone: Math.max(v.made.stone, kmade.stone),
-      madeCoal: Math.max(v.made.coal, kmade.coal),
+      madeBronze: v.made.bronze,
+      madeIron: v.made.iron,
+      madeSteel: v.made.steel,
+      madeStone: v.made.stone,
+      madeCoal: v.made.coal,
       tools: v.stock.tools,
     });
     if (organic > v.tech) v.tech = organic;
@@ -212,16 +208,18 @@ export const techPart = {
       const press = known.has('imprensa') || partners.some((o) => o.techs?.includes('imprensa')) ? 1.5 : 1;
       const wise = v.culture.value === 'conhecimento' ? 1.25 : 1;
       const dev = P.devSpeed(levels) * wise * (known.has('escrita') ? 1.15 : 1);
-      const fedEnough = (v.needs?.food ?? 1) >= 0.4;
       for (const t of learnable) {
+        // Aprender com o vizinho pede a condição material do próprio lugar (antes, bastava conhecer técnicas suficientes).
         const taught = partners.some((o) => o.techs?.includes(t.id));
-        if (taught && (t.use(use) || known.size >= t.needs.length) && happens(this.lore, P.TECH_NEIGHBOR_RATE * press * 0.45, since)) {
+        if (taught && t.use(use) && happens(this.lore, P.TECH_NEIGHBOR_RATE * press * 0.45, since)) {
           if (v.pendingTech?.id === t.id) v.pendingTech = undefined;
           this.learn(v, t, 'aprendeu com os vizinhos');
           continue;
         }
         // Experimentação individual: trabalhadores do ofício com recursos disponíveis descobrem e ensinam.
-        if (!v.pendingTech && fedEnough && t.use(use) && adults.length > 0) {
+        // A fome trava a experimentação, menos a da lavoura e do rebanho, que ela puxa (Boserup: `needPull`).
+        const pull = this.needPull(v, t);
+        if (!v.pendingTech && pull > 0 && t.use(use) && adults.length > 0) {
           const workers = adults.filter((i) => t.roles.includes(ROLES[this.role[i]]));
           const pool = workers.length > 0 ? workers : adults.length <= 6 ? adults : [];
           if (pool.length > 0) {
@@ -229,7 +227,7 @@ export const techPart = {
             for (const i of pool) curiosity += this.curiosity(i);
             const effCuriosity = Math.min(4.5, curiosity);
             const sample = (v.samples?.[t.id] ?? -Infinity) > this.year ? P.TECH_SAMPLE_BOOST : 1;
-            if (happens(this.lore, P.TECH_DISCOVER_RATE * effCuriosity * dev * sample, since)) {
+            if (happens(this.lore, P.TECH_DISCOVER_RATE * effCuriosity * dev * sample * pull, since)) {
               // Escolhe o descobridor ponderado pela curiosidade individual.
               let pick = pool[0];
               let r = this.lore() * curiosity;
@@ -259,6 +257,20 @@ export const techPart = {
         this.emit({ kind: 'tech', year: this.year, village: v.id, tech: t.id, first: false, lost: true });
       }
     }
+  },
+
+  /**
+   * Quanto a necessidade puxa a descoberta de uma técnica (Boserup): para as que intensificam a lavoura e o
+   * rebanho (`BOSERUP_TECHS`), a taxa multiplica por 1 + BOSERUP_K × (1 − parte dos moradores que comeu bem),
+   * e só a fome extrema (abaixo de BOSERUP_STARVING) trava; as outras param quando o atendimento de comida
+   * cai abaixo de DISCOVER_FED (quem passa fome não experimenta forno nem escrita). 0 é travada.
+   */
+  needPull(this: Ecosystem, v: Village, t: P.Tech): number {
+    const food = v.needs?.food ?? 1;
+    if (!B.BOSERUP_TECHS.includes(t.id)) return food >= B.DISCOVER_FED ? 1 : 0;
+    const fed = v.fedShare ?? food;
+    if (fed < B.BOSERUP_STARVING) return 0;
+    return 1 + B.BOSERUP_K * Math.max(0, 1 - fed);
   },
 
   /**
@@ -294,11 +306,13 @@ export const techPart = {
     } else if (!quiet) this.note(`${p.name} ${verb} antes de ensinar ${t.name} a ${v.name}`, 'economia', v);
   },
 
-  /** Passa uma técnica entre dois assentamentos que se encontram (caravana, feira). */
+  /** Passa uma técnica entre dois assentamentos que se encontram (caravana, feira), se o lugar que aprende tem a condição material dela. */
   shareTech(this: Ecosystem, a: Village, b: Village, chance: number): void {
     for (const [from, to] of [[a, b], [b, a]] as const) {
       const known = this.knows(to);
-      const options = P.learnable(known, to.tech).filter((t) => from.techs?.includes(t.id));
+      const taught = P.learnable(known, to.tech).filter((t) => from.techs?.includes(t.id));
+      const use = taught.length ? this.useContext(to) : null;
+      const options = use ? taught.filter((t) => t.use(use)) : taught;
       if (options.length && happens(this.lore, chance, 1)) this.learn(to, options[Math.floor(this.lore() * options.length)], 'aprendeu com os mercadores');
     }
   },
@@ -318,10 +332,8 @@ export const techPart = {
     const r = this.radius(v) + 12;
     const ores = new Set<string>();
     for (const d of this.deposits) if (d.amount > 0 && this.distance(v, d.x + 0.5, d.y + 0.5) < r) ores.add(d.ore);
-    let herbivores = false;
-    this.forEachNear(v.x, v.y, this.radius(v) + 20, (j) => {
-      if (this.species[this.kind[j]].kind === 'herbivore') herbivores = true;
-    });
+    // Só os bichos que dariam rebanho contam como recurso latente (Diamond).
+    const herbivores = this.wildHerdsNear(v, false).size > 0;
     return P.latentResources({ wet: !!v.wet, ores: [...ores], era: Math.floor(v.tech), techs: this.knows(v), herbivores: herbivores && v.tech < 1.5, tools: v.stock.tools >= 1 });
   },
 
@@ -342,15 +354,7 @@ export const techPart = {
       pendingTech: v.pendingTech?.id,
       discovererName: v.pendingTech?.name,
     });
-    const kmade = this.villages[v.kingdom].made;
-    const m = {
-      bronze: Math.max(v.made.bronze, kmade.bronze),
-      iron: Math.max(v.made.iron, kmade.iron),
-      steel: Math.max(v.made.steel, kmade.steel),
-      stone: Math.max(v.made.stone, kmade.stone),
-      coal: Math.max(v.made.coal, kmade.coal),
-    };
-    const metal = ERA_NEEDS[era].met(m) ? null : ERA_NEEDS[era].text;
+    const metal = ERA_NEEDS[era].met(v.made) ? null : ERA_NEEDS[era].text;
     const points = P.pointsText(v.pts ?? P.emptyPoints(), era);
     if (step) return metal && !step.includes('bronze') && era === 0 ? `${step} (${metal})` : step;
     return metal && points ? `${metal}; ${points}` : metal ?? points;

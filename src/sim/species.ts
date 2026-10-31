@@ -1,6 +1,8 @@
 import { mulberry32, seedFor } from '../core/rng';
 import type { PlanetParams } from '../procgen/surface';
-import type { Ecology } from './fauna';
+import * as B from './balance';
+import { ecologyOf, type Ecology } from './fauna';
+import type { HerdKind } from './eco/types';
 
 /**
  * Espécies de um planeta (RF-SUP-08). O jogador gerencia e transporta
@@ -114,6 +116,7 @@ const EARTH_BANK: Entry[] = [
   ['Leão', 'predator', 'lion', [212, 168, 96], 285, 325, { maxAge: 14, maturity: 3, size: 1.05 }],
   ['Urubu', 'predator', 'vulture', [52, 46, 50], 265, 320, { speed: 5, maxAge: 15, maturity: 3, size: 0.6 }],
   ['Zebra', 'herbivore', 'zebra', [236, 236, 230], 283, 325, { maxAge: 20, maturity: 3, size: 1 }],
+  ['Cavalo-selvagem', 'herbivore', 'horse', [150, 104, 62], 240, 308, { speed: 1.7, maxAge: 25, maturity: 3, size: 1.1 }],
 ];
 
 /**
@@ -124,7 +127,7 @@ const EARTH_BANK: Entry[] = [
 const EARTH_NATIVE = new Set([
   'Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão', 'Coelho', 'Bisão', 'Raposa', 'Urso', 'Caranguejo', 'Tartaruga', 'Pinguim', 'Baleia', 'Camelo',
   'Elefante', 'Macaco', 'Javali', 'Onça', 'Hiena', 'Crocodilo', 'Sapo',
-  'Rena', 'Cabra-montesa', 'Leão', 'Urubu', 'Zebra',
+  'Rena', 'Cabra-montesa', 'Leão', 'Urubu', 'Zebra', 'Cavalo-selvagem',
 ]);
 
 const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -138,6 +141,60 @@ function fromEntry([name, kind, sprite, color, tempMin, tempMax, extra]: Entry):
 /** Todo o banco genético da Terra. */
 export function earthCatalog(): Species[] {
   return EARTH_BANK.map(fromEntry);
+}
+
+// Domesticação (Diamond, "Armas, germes e aço") -------------------------------------------------------
+
+/**
+ * O que cada bicho domesticável da Terra vira no curral, pelo desenho (que identifica a espécie): o bisão
+ * faz o papel do auroque, o antepassado do gado; a cabra-montesa, o dos caprinos (cabra e carneiro); o
+ * cavalo selvagem das estepes, o do cavalo; a lhama é camelídea. A rena e o javali passariam pelos
+ * critérios ou quase, mas o jogo não tem curral de rena nem de porco: na tundra se vive de caça e pesca.
+ */
+const DOMESTIC_FORMS: Partial<Record<string, readonly HerdKind[]>> = {
+  bison: ['cattle'],
+  ibex: ['goat', 'sheep'],
+  goat: ['goat'],
+  sheep: ['sheep'],
+  horse: ['horse'],
+  camel: ['camel'],
+  llama: ['camel'],
+};
+
+/**
+ * Passa pelos critérios de Diamond: come capim (dieta barata de dar), tem porte de curral (nem bicho
+ * miúdo que não paga o trabalho, nem gigante como o elefante), cresce depressa, vive em manada com
+ * hierarquia (segue um líder e aceita o pastor), não entra em pânico com facilidade e não é bravo.
+ */
+export function meetsDiamond(sp: Species): boolean {
+  if (sp.kind !== 'herbivore') return false;
+  const e = ecologyOf(sp);
+  return (
+    e.guild === 'pastador' &&
+    e.mass >= B.DOMESTIC_MASS[0] &&
+    e.mass <= B.DOMESTIC_MASS[1] &&
+    sp.maturity <= B.DOMESTIC_MATURITY &&
+    e.herd >= B.DOMESTIC_HERD &&
+    e.fear <= B.DOMESTIC_FEAR &&
+    !e.untamed
+  );
+}
+
+/**
+ * Os rebanhos que a espécie pode dar quando domesticada (vazio: não se domestica). Na Terra, só as formas
+ * conhecidas (`DOMESTIC_FORMS`); um bicho de outro planeta que passa pelos critérios vira gado se for
+ * grande e cabra se for menor.
+ */
+export function herdFormsOf(sp: Species): readonly HerdKind[] {
+  if (!meetsDiamond(sp)) return [];
+  const known = DOMESTIC_FORMS[sp.sprite ?? ''];
+  if (sp.origin === EARTH_ID) return known ?? [];
+  return known ?? (ecologyOf(sp).mass >= B.DOMESTIC_BIG ? ['cattle'] : ['goat']);
+}
+
+/** A espécie pode ser domesticada (vira rebanho). */
+export function domesticable(sp: Species): boolean {
+  return herdFormsOf(sp).length > 0;
 }
 
 const VARIANTS: [test: (t: number, e: number) => boolean, suffix: string, shift: number][] = [

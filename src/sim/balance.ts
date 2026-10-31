@@ -943,3 +943,90 @@ export const TERRITORY_GROWTH = 1.7;
 export const TERRITORY_MAX = 34;
 /** Quanto a relação entre reinos anda por ano rumo à média das afinidades (RF-AS-53). */
 export const AFFINITY_PULL = 0.1;
+
+// Bioma e modo de vida (agente 3C: src/sim/biomeYield.ts, REQUISITOS-VIDA.md "Bioma e sociedade") -----------------
+
+/**
+ * Estação de crescimento da roça pela temperatura média do tile (K): abaixo de GROW_COLD_K rende só GROW_MIN,
+ * acima de GROW_WARM_K o ano inteiro serve. É o que deixa a tundra e a taiga desmatada com a roça curta.
+ */
+export const GROW_COLD_K = 266;
+export const GROW_WARM_K = 282;
+export const GROW_MIN = 0.1;
+/**
+ * Amplitude das estações (colheita, coleta e lenha do inverno) pela latitude: SEASON_AMP_EQUATOR no equador e
+ * SEASON_AMP_POLE no polo, vezes o `seasonAmp` do bioma, até SEASON_AMP_MAX (acima disso a primavera ficaria
+ * negativa). Com 1, a estação é a dos vetores SEASON_* (antes, igual no planeta inteiro), e é o que vale perto da
+ * latitude 0,25, onde vive quase todo o povo da Terra do jogo: com o trópico bem mais plano (0,4 no equador), a
+ * calibração curta perdia gente e era (a economia foi calibrada com a colheita concentrada no outono).
+ */
+export const SEASON_AMP_EQUATOR = 0.8;
+export const SEASON_AMP_POLE = 1.6;
+export const SEASON_AMP_MAX = 1.25;
+/** Relevo para a defesa: altura do centro acima de RELIEF_LOW (normalizada por RELIEF_HIGH_SPAN) e desvio da altura na área (RELIEF_RUGGED vale 1). */
+export const RELIEF_LOW = 0.15;
+export const RELIEF_HIGH_SPAN = 0.4;
+export const RELIEF_RUGGED = 0.12;
+/** Comida guardada no inverno gelado (abaixo de 0 °C) estraga menos: o perecimento multiplica por isto. */
+export const FROZEN_SPOIL = 0.4;
+/**
+ * Modo de vida (`lifewayFor`): nômade com a roça da área abaixo de NOMAD_FARM e menos de NOMAD_DENSITY moradores por
+ * 100 tiles do território; intensivo com arado, irrigação ou moinho, roça a partir de INTENSIVE_FARM e densidade a
+ * partir de INTENSIVE_DENSITY. As margens seguram o modo de agora (sair dele pede passar o limiar mais a margem).
+ */
+export const NOMAD_FARM = 0.4;
+export const NOMAD_DENSITY = 4.5;
+export const INTENSIVE_FARM = 0.7;
+export const INTENSIVE_DENSITY = 5;
+export const LIFEWAY_MARGIN = 0.08;
+export const LIFEWAY_DENSITY_MARGIN = 0.5;
+/** Captação relativa pelo modo de vida (`lifewayReach`, para a nota do sítio): o nômade anda mais, o intensivo trabalha perto. */
+export const NOMAD_REACH = 1.5;
+export const INTENSIVE_REACH = 0.8;
+/** O intensivo põe mais braços em cada roça (FIELD_HANDS × (1 + INTENSIVE_HANDS)) e tira mais dela (adubo, rotação, canteiros). */
+export const INTENSIVE_HANDS = 0.5;
+export const INTENSIVE_YIELD = 1.15;
+/** Coleta esgotada para o nômade: vegetação da área abaixo desta parte do que ela aguenta conta como falta (a família pensa em mudar o acampamento). */
+export const NOMAD_FORAGE = 0.45;
+/**
+ * Boserup (`needPull`): a fome puxa a descoberta das técnicas que intensificam a lavoura e o rebanho (BOSERUP_TECHS), que
+ * multiplica por 1 + BOSERUP_K × (1 − parte dos moradores que comeu bem); só a fome extrema (menos de BOSERUP_STARVING
+ * comendo bem) trava. As outras técnicas param com o atendimento de comida abaixo de DISCOVER_FED, como antes.
+ */
+export const BOSERUP_TECHS: readonly string[] = ['domesticacao', 'arado', 'irrigacao', 'moinho', 'moinhoagua'];
+export const BOSERUP_K = 2;
+export const BOSERUP_STARVING = 0.15;
+export const DISCOVER_FED = 0.4;
+/** Peças que o comércio traz (`tradedPieces`): cada ferramenta, arma ou armadura de metal recebida conta esta parte de uma peça forjada no lugar. */
+export const TRADED_PIECES = 0.5;
+/**
+ * Domesticação pelos critérios de Diamond (`meetsDiamond`, species.ts): pastador de DOMESTIC_MASS kg, adulto em até
+ * DOMESTIC_MATURITY anos, manada de DOMESTIC_HERD ou mais e medo até DOMESTIC_FEAR. Bicho de outro planeta a partir de
+ * DOMESTIC_BIG kg vira gado; menor, cabra.
+ */
+export const DOMESTIC_MASS: readonly [number, number] = [25, 1200];
+export const DOMESTIC_MATURITY = 4;
+export const DOMESTIC_HERD = 6;
+export const DOMESTIC_FEAR = 0.8;
+export const DOMESTIC_BIG = 250;
+/** Região onde o lugar procura bicho para domesticar: o território mais estes tiles (antes, a domesticação valia com qualquer herbívoro vivo no planeta). */
+export const DOMESTIC_REACH = 20;
+/**
+ * Rebanho que se espalha pelos vizinhos (`herdNeighbor`): o parceiro (reino ou acordo) a até HERD_SHARE_RANGE tiles com
+ * HERD_SHARE_MIN cabeças ou mais cede HERD_SHARE_HEAD a quem não tem o bicho selvagem por perto. Com 60 tiles, 8 e 3, a calibragem
+ * curta (20 sementes, planeta pequeno) tinha menos gente, menos era e menos vocações diferentes.
+ */
+export const HERD_SHARE_RANGE = 90;
+export const HERD_SHARE_MIN = 5;
+export const HERD_SHARE_HEAD = 2;
+/**
+ * Preço por utilidade (`usefulness`, trade.ts): o bem que a técnica do lugar ainda não usa vale USELESS_GOOD do preço;
+ * o cobre e o estanho, depois da siderurgia, BRONZE_AFTER_IRON; o carvão, com o vapor, STEAM_COAL.
+ */
+export const USELESS_GOOD = 0.4;
+export const BRONZE_AFTER_IRON = 0.8;
+export const STEAM_COAL = 1.5;
+/** Defesa pelo relevo (`homeGround`): quem luta no próprio território vale 1 + DEFENSE_RELIEF × relevo (0 plano, 1 serra). */
+export const DEFENSE_RELIEF = 0.5;
+/** Densidade na costa: o porto abriga PORT_HOUSING + era moradores (cais, armazéns e casas de pescadores; antes, nenhum). */
+export const PORT_HOUSING = 3;

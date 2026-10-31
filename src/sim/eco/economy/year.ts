@@ -35,6 +35,9 @@ export const economyYearPart = {
       const count = new Array<number>(ROLES.length).fill(0);
       for (const i of people[v.id] ?? []) if (this.role[i] < ROLES.length) count[this.role[i]]++;
       this.roleCount.set(v.id, count);
+      // O bioma da área primeiro: a mata cortada, a roça aberta e o território que cresceu mudam o que a terra dá.
+      this.updateArea(v);
+      this.updateLifeway(v);
       this.updateNeeds(v, people[v.id]?.length ?? 0);
       this.updateStability(v);
       this.socialize(v, residents[v.id]);
@@ -99,7 +102,10 @@ export const economyYearPart = {
     if (v.forest < 0.1) next -= 0.004;
     v.soil = Math.max(0.2, Math.min(1, next));
     if (!fallow && v.soil < B.SOIL_FALLOW) this.note(`A terra de ${v.name} cansou: parte das roças ficou em pousio`, 'economia', v, { key: `pousio-${v.id}` });
-    if (v.fields > 0 && this.harvest(v) < B.CROP_FAILURE) this.note(`Quebra de safra em ${v.name}`, 'natureza', v, { key: `safra-${v.id}` });
+    if (v.fields > 0 && this.harvest(v) < B.CROP_FAILURE) {
+      const crop = this.cropOf(v);
+      this.note(crop === 'nada' ? `Quebra de safra em ${v.name}` : `Quebra da safra de ${crop} em ${v.name}`, 'natureza', v, { key: `safra-${v.id}` });
+    }
   },
 
   /**
@@ -122,7 +128,8 @@ export const economyYearPart = {
     // Comida: conta quem passou fome de verdade (celeiro vazio com todo mundo comendo não é falta).
     const food = Math.max(0, B.HUNGER_LEVEL - (v.fedShare ?? n.food)) / B.HUNGER_LEVEL;
     const fuel = Math.max(0, B.SCARCITY_LEVEL - n.fuel) / B.SCARCITY_LEVEL;
-    return Math.max(food, fuel);
+    // O nômade sente falta quando a coleta em volta se esgota: é a hora de mudar o acampamento.
+    return Math.max(food, fuel, this.forageLack(v));
   },
 
   /** O que passou do teto se perde (sobra que não cabe no armazém). */

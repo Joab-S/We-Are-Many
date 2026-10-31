@@ -381,7 +381,7 @@ export const relationsPart = {
       k.rival = undefined;
       this.rekeyKingdom(k.id, big.id);
       big.culture = k.culture;
-      big.made = { ...k.made };
+      // As peças forjadas são de cada lugar (a era é local): a corte se muda, a experiência da forja fica onde foi feita.
       this.tally.capitalMoves++;
       this.note(`A corte de ${k.name} se mudou para ${big.name}, que cresceu mais que a velha capital`, 'povo', big, { major: true });
     }
