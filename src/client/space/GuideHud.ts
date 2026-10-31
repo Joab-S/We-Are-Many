@@ -45,6 +45,8 @@ export interface GuideHandlers {
   engage(target: NavTarget): void;
   search(text: string): NavEntry[];
   bookmarkRemove(id: string): void;
+  /** Tecla ligada a um comando (commands.ts), para os botões e dicas. */
+  keyOf(action: 'panel' | 'suggest' | 'scan' | 'autopilot'): string;
 }
 
 const GROUP_TITLES: Record<EntryGroup, string> = {
@@ -97,6 +99,28 @@ export class GuideHud {
   private readonly abort = new AbortController();
   private readonly tmp = new THREE.Vector3();
   private readonly inv = new THREE.Quaternion();
+  // Rascunho do radar e dos marcadores, reaproveitado a cada quadro.
+  private readonly local = new THREE.Vector3();
+  private readonly ahead = new THREE.Vector3();
+  private readonly dash: number[] = [0, 0];
+  private readonly noDash: number[] = [];
+  private readonly sug = new Set<string>();
+  /** Rótulo de cada entrada ("nome · distância"), feito uma vez por atualização das listas. */
+  private labels = new WeakMap<NavEntry, string>();
+  private markerLabels: string[] = [];
+  private markerColors: string[] = [];
+  private glowCache: { size: number; c: number; gradient: CanvasGradient } | null = null;
+  private font = { dpr: 0, text: '' };
+  // Saída de project(): posição no radar (px) e raio.
+  private px = 0;
+  private py = 0;
+  private pr = 0;
+  // Saída de toScreen(): na tela, posição e direção local.
+  private sOn = false;
+  private sX = 0;
+  private sY = 0;
+  private sLx = 0;
+  private sLy = 0;
   panelOpen = false;
 
   constructor(parent: HTMLElement, private readonly handlers: GuideHandlers) {
@@ -114,10 +138,10 @@ export class GuideHud {
         <div class="guide-panel-head">
           <div class="hud-title">GUIA · NAVEGAÇÃO</div>
           <input type="text" placeholder="Buscar estrela, planeta, ponto..." spellcheck="false" />
-          <button class="guide-close" title="Fechar (G)">✕</button>
+          <button class="guide-close" title="Fechar (${handlers.keyOf('panel')})">✕</button>
         </div>
         <div class="guide-panel-body"></div>
-        <div class="guide-panel-foot"><kbd>↑↓</kbd>escolher <kbd>Enter</kbd>ir (piloto automático) · clique seleciona, <b>Ir</b> liga o piloto · <kbd>G</kbd>fecha</div>
+        <div class="guide-panel-foot"><kbd>↑↓</kbd>escolher <kbd>Enter</kbd>ir (piloto automático) · clique seleciona, <b>Ir</b> liga o piloto · <kbd>${handlers.keyOf('panel')}</kbd>fecha</div>
       </div>`;
     parent.appendChild(this.root);
     this.markers = this.root.querySelector('.nav-markers')!;
@@ -277,16 +301,16 @@ export class GuideHud {
       html = top
         ? `<div class="gc-head">${icon('scan')}<span>Sinal detectado</span>${chev}</div>
           <div class="gc-body"><span class="gc-ring">${icon('target')}</span><div><b class="tname">${esc(top.target.name)}</b><small>≈ ${formatEta(top.eta)}</small></div></div>
-          <button class="gc-btn" data-key="KeyN" title="${esc(top.reason)}">${icon('target')}Rastrear<kbd>N</kbd></button>`
+          <button class="gc-btn" data-cmd="suggest" title="${esc(top.reason)}">${icon('target')}Rastrear<kbd>${this.handlers.keyOf('suggest')}</kbd></button>`
         : `<div class="gc-head">${icon('scan')}<span>Sem sinais</span>${chev}</div>
           <div class="gc-body"><small>Faça uma varredura para achar destinos.</small></div>
-          <button class="gc-btn" data-key="KeyV">${icon('scan')}Varredura<kbd>V</kbd></button>`;
+          <button class="gc-btn" data-cmd="scan">${icon('scan')}Varredura<kbd>${this.handlers.keyOf('scan')}</kbd></button>`;
     } else {
       const auto = mode === 'auto';
       html = `<div class="gc-head">${icon('target')}<span>Alvo${auto ? ' · piloto automático' : mode === 'cruise' ? ' · cruzeiro' : ''}</span>${chev}</div>
         <div class="gc-body"><span class="gc-ring">${icon('target')}</span><div><b class="tname">${esc(view.target.name)}</b><small>${formatDistance(Math.max(0, view.dist))} · ≈ ${formatEta(this.etaFor(view))}</small></div></div>
         <div class="nav-cue" data-cue></div>
-        <button class="gc-btn${auto ? ' on' : ''}" data-key="KeyJ">${icon('auto')}${auto ? 'Desligar piloto' : 'Piloto automático'}<kbd>J</kbd></button>`;
+        <button class="gc-btn${auto ? ' on' : ''}" data-cmd="autopilot">${icon('auto')}${auto ? 'Desligar piloto' : 'Piloto automático'}<kbd>${this.handlers.keyOf('autopilot')}</kbd></button>`;
     }
     this.card.hidden = false;
     if (html === this.cardHtml) return;
@@ -360,50 +384,41 @@ export class GuideHud {
     // Vista de cima, norte (+y da eclíptica) para cima. Dentro de um sistema, a estrela fica no centro;
     // no espaço profundo, a nave fica no centro e as distâncias seguem a escala logarítmica do GUIA.
     const center = this.center;
-    const bodies = center ? this.entries.filter((e) => e.group === 'system') : [];
+    const entries = this.entries;
     let span = 1e-9;
     if (center) {
-      for (const e of bodies) span = Math.max(span, Math.hypot(e.pos.x - center.x, e.pos.y - center.y));
+      for (const e of entries) if (e.group === 'system') span = Math.max(span, Math.hypot(e.pos.x - center.x, e.pos.y - center.y));
       span = Math.max(span, Math.hypot(ship.x - center.x, ship.y - center.y)) * 1.08;
     }
     const origin = center ?? ship;
-    const project = (pos: THREE.Vector3): [number, number, number] => {
-      const dx = pos.x - origin.x;
-      const dy = pos.y - origin.y;
-      const d = Math.hypot(dx, dy);
-      if (d < 1e-12) return [c, c, 0];
-      const r = center ? Math.sqrt(Math.min(1, d / span)) * R : radarRadius(this.tmp.copy(pos).sub(ship).length()) * R;
-      return [c + (dx / d) * r, c - (dy / d) * r, r];
-    };
     if (center) {
       g.strokeStyle = 'rgba(80, 170, 255, 0.22)';
       g.lineWidth = dpr;
-      for (const e of bodies) {
-        const [, , r] = project(e.pos);
+      for (const e of entries) {
+        if (e.group !== 'system') continue;
+        this.project(e.pos, origin, ship, center, span, c, R);
         g.beginPath();
-        g.arc(c, c, r, 0, Math.PI * 2);
+        g.arc(c, c, this.pr, 0, Math.PI * 2);
         g.stroke();
       }
-      // A estrela.
-      const glow = g.createRadialGradient(c, c, 0, c, c, 9 * dpr);
-      glow.addColorStop(0, '#fff3c4');
-      glow.addColorStop(0.35, '#ffc94a');
-      glow.addColorStop(1, 'rgba(255, 180, 60, 0)');
-      g.fillStyle = glow;
+      // A estrela (o gradiente só é refeito se o tamanho do radar mudar).
+      g.fillStyle = this.starGlow(g, c, dpr);
       g.beginPath();
       g.arc(c, c, 9 * dpr, 0, Math.PI * 2);
       g.fill();
-      for (const e of bodies) {
-        const [x, y] = project(e.pos);
+      for (const e of entries) {
+        if (e.group !== 'system') continue;
+        this.project(e.pos, origin, ship, center, span, c, R);
         g.fillStyle = e.color;
         g.beginPath();
-        g.arc(x, y, 3 * dpr, 0, Math.PI * 2);
+        g.arc(this.px, this.py, 3 * dpr, 0, Math.PI * 2);
         g.fill();
       }
     } else {
       g.strokeStyle = 'rgba(80, 170, 255, 0.22)';
       g.lineWidth = dpr;
-      g.font = `${10 * dpr}px Inter, "Segoe UI", system-ui, sans-serif`;
+      if (this.font.dpr !== dpr) this.font = { dpr, text: `${10 * dpr}px Inter, "Segoe UI", system-ui, sans-serif` };
+      g.font = this.font.text;
       g.fillStyle = 'rgba(150, 190, 235, 0.7)';
       for (const [au, label] of RADAR_RINGS) {
         const r = radarRadius(au) * R;
@@ -412,18 +427,22 @@ export class GuideHud {
         g.stroke();
         g.fillText(label, c + 3 * dpr, c - r + 11 * dpr);
       }
-      for (const e of this.entries) {
-        const [x, y] = project(e.pos);
+      for (const e of entries) {
+        this.project(e.pos, origin, ship, center, span, c, R);
         g.fillStyle = e.color;
         g.beginPath();
-        g.arc(x, y, (e.group === 'star' ? 2 : 2.6) * dpr, 0, Math.PI * 2);
+        g.arc(this.px, this.py, (e.group === 'star' ? 2 : 2.6) * dpr, 0, Math.PI * 2);
         g.fill();
       }
     }
-    const [sx, sy] = project(ship);
+    this.project(ship, origin, ship, center, span, c, R);
+    const sx = this.px;
+    const sy = this.py;
     // Alvo: anel âmbar e linha tracejada desde a nave; fora da escala, fica na borda.
     if (view) {
-      let [tx, ty] = project(view.pos);
+      this.project(view.pos, origin, ship, center, span, c, R);
+      let tx = this.px;
+      let ty = this.py;
       const dr = Math.hypot(tx - c, ty - c);
       if (dr > R) {
         tx = c + ((tx - c) / dr) * R;
@@ -431,12 +450,13 @@ export class GuideHud {
       }
       g.strokeStyle = 'rgba(242, 180, 63, 0.85)';
       g.lineWidth = 1.4 * dpr;
-      g.setLineDash([4 * dpr, 4 * dpr]);
+      this.dash[0] = this.dash[1] = 4 * dpr;
+      g.setLineDash(this.dash);
       g.beginPath();
       g.moveTo(sx, sy);
       g.lineTo(tx, ty);
       g.stroke();
-      g.setLineDash([]);
+      g.setLineDash(this.noDash);
       g.lineWidth = 1.8 * dpr;
       g.beginPath();
       g.arc(tx, ty, 6 * dpr, 0, Math.PI * 2);
@@ -462,6 +482,39 @@ export class GuideHud {
     g.restore();
     this.inv.copy(shipQuat).invert();
     this.updateCue(ship, view);
+  }
+
+  /**
+   * Posição de `pos` no radar (em this.px, this.py e o raio em this.pr).
+   * Dentro de um sistema, escala pela raiz da distância à estrela; no espaço
+   * profundo, escala logarítmica do GUIA a partir da nave.
+   */
+  private project(pos: THREE.Vector3, origin: THREE.Vector3, ship: THREE.Vector3, center: THREE.Vector3 | null, span: number, c: number, R: number): void {
+    const dx = pos.x - origin.x;
+    const dy = pos.y - origin.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-12) {
+      this.px = c;
+      this.py = c;
+      this.pr = 0;
+      return;
+    }
+    const r = center ? Math.sqrt(Math.min(1, d / span)) * R : radarRadius(this.tmp.copy(pos).sub(ship).length()) * R;
+    this.px = c + (dx / d) * r;
+    this.py = c - (dy / d) * r;
+    this.pr = r;
+  }
+
+  private starGlow(g: CanvasRenderingContext2D, c: number, dpr: number): CanvasGradient {
+    const size = 9 * dpr;
+    if (this.glowCache?.size !== size || this.glowCache.c !== c) {
+      const glow = g.createRadialGradient(c, c, 0, c, c, size);
+      glow.addColorStop(0, '#fff3c4');
+      glow.addColorStop(0.35, '#ffc94a');
+      glow.addColorStop(1, 'rgba(255, 180, 60, 0)');
+      this.glowCache = { size, c, gradient: glow };
+    }
+    return this.glowCache.gradient;
   }
 
   /** Instrução de rumo: quanto virar e subir ou descer para ficar de frente para o alvo. */
@@ -491,30 +544,22 @@ export class GuideHud {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.inv.copy(camera.quaternion).invert();
-    const toScreen = (pos: THREE.Vector3) => {
-      const rel = this.tmp.copy(pos).sub(ship);
-      const local = rel.clone().applyQuaternion(this.inv);
-      const v = rel.project(camera);
-      const front = local.z < 0;
-      const on = front && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
-      return { on, x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h, lx: local.x, ly: local.y };
-    };
 
     // Marcador de rumo: para onde a nave está de fato indo.
     const speed = velocity.length();
     if (speed > 1e-9) {
-      const s = toScreen(this.tmp.copy(velocity).multiplyScalar(1e6 / speed).add(ship).clone());
-      this.progradeEl.hidden = !s.on;
-      if (s.on) this.progradeEl.style.transform = `translate(${s.x}px, ${s.y}px)`;
+      this.toScreen(this.ahead.copy(velocity).multiplyScalar(1e6 / speed).add(ship), ship, camera, w, h);
+      this.progradeEl.hidden = !this.sOn;
+      if (this.sOn) this.progradeEl.style.transform = `translate(${this.sX}px, ${this.sY}px)`;
     } else this.progradeEl.hidden = true;
 
     if (view) {
-      const s = toScreen(view.pos);
+      this.toScreen(view.pos, ship, camera, w, h);
       const label = `${view.target.name} · ${formatDistance(Math.max(0, view.dist))}`;
-      if (s.on) {
+      if (this.sOn) {
         this.targetEl.hidden = false;
         this.arrowEl.hidden = true;
-        this.targetEl.style.transform = `translate(${s.x}px, ${s.y}px)`;
+        this.targetEl.style.transform = `translate(${this.sX}px, ${this.sY}px)`;
         if (this.targetEl.dataset.label !== label) {
           this.targetEl.dataset.label = label;
           this.targetEl.innerHTML = `<span>${esc(label)}</span>`;
@@ -523,7 +568,7 @@ export class GuideHud {
         // Fora da tela: seta na borda, apontando para o lado em que o alvo está.
         this.targetEl.hidden = true;
         this.arrowEl.hidden = false;
-        const ang = Math.atan2(-s.ly, s.lx);
+        const ang = Math.atan2(-this.sLy, this.sLx);
         const rx = w / 2 - 50;
         const ry = h / 2 - 50;
         const x = w / 2 + Math.cos(ang) * rx;
@@ -537,11 +582,13 @@ export class GuideHud {
     }
 
     let n = 0;
-    const sug = new Set(this.suggestions.slice(0, 3).map((s) => s.target.id));
+    const sug = this.sug;
+    sug.clear();
+    for (let i = 0; i < Math.min(3, this.suggestions.length); i++) sug.add(this.suggestions[i].target.id);
     for (const e of this.entries) {
       if (!(e.marker || sug.has(e.target.id)) || (view && view.target.id === e.target.id)) continue;
-      const s = toScreen(e.pos);
-      if (!s.on) continue;
+      this.toScreen(e.pos, ship, camera, w, h);
+      if (!this.sOn) continue;
       let el = this.markerPool[n];
       if (!el) {
         el = document.createElement('div');
@@ -551,16 +598,36 @@ export class GuideHud {
       }
       el.hidden = false;
       el.classList.toggle('sug', sug.has(e.target.id));
-      el.style.transform = `translate(${s.x}px, ${s.y}px)`;
-      el.style.setProperty('--c', e.color);
-      const label = `${e.name} · ${formatDistance(e.dist)}`;
-      if (el.dataset.label !== label) {
+      el.style.transform = `translate(${this.sX}px, ${this.sY}px)`;
+      if (this.markerColors[n] !== e.color) {
+        this.markerColors[n] = e.color;
+        el.style.setProperty('--c', e.color);
+      }
+      let label = this.labels.get(e);
+      if (label === undefined) {
+        label = `${e.name} · ${formatDistance(e.dist)}`;
+        this.labels.set(e, label);
+      }
+      if (this.markerLabels[n] !== label) {
+        this.markerLabels[n] = label;
         el.dataset.label = label;
         el.innerHTML = `<span>${esc(label)}</span>`;
       }
       n++;
     }
     for (let i = n; i < this.markerPool.length; i++) this.markerPool[i].hidden = true;
+  }
+
+  /** Onde `pos` cai na tela (this.sOn, sX, sY) e para que lado fica no referencial da câmera (sLx, sLy). */
+  private toScreen(pos: THREE.Vector3, ship: THREE.Vector3, camera: THREE.PerspectiveCamera, w: number, h: number): void {
+    const rel = this.tmp.copy(pos).sub(ship);
+    const local = this.local.copy(rel).applyQuaternion(this.inv);
+    const v = rel.project(camera);
+    this.sOn = local.z < 0 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
+    this.sX = ((v.x + 1) / 2) * w;
+    this.sY = ((1 - v.y) / 2) * h;
+    this.sLx = local.x;
+    this.sLy = local.y;
   }
 
   dispose(): void {

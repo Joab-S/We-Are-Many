@@ -13,6 +13,7 @@ import { createProbeState } from '../explore/probes';
 import type { PlanetParams } from '../procgen/surface';
 import { planetParams, SOL_PLANETS } from './space/bodies';
 import { SpaceMode } from './space/SpaceMode';
+import type { GameMode } from './mode';
 import type { GameState } from './state';
 import { SurfaceMode } from './surface/SurfaceMode';
 import { mountIcons } from './ui/icons';
@@ -63,8 +64,9 @@ function createWebGLRenderer(): THREE.WebGLRenderer {
   return r;
 }
 
-type Mode = SpaceMode | SurfaceMode;
-let mode: Mode | null = null;
+// Modo atual (State): espaço ou superfície, vistos só pela interface GameMode (mode.ts).
+// O SurfaceMode a satisfaz pela forma (dispose e snapshotView), sem depender dela.
+let mode: GameMode | null = null;
 let current: GameState | null = null;
 
 const saves = new SaveManager(indexedDbStore, (planetId) => seedFor(`${planetId}:life`));
@@ -72,13 +74,14 @@ const saves = new SaveManager(indexedDbStore, (planetId) => seedFor(`${planetId}
 let canSave = true;
 
 /** Troca de modo: o modo atual é descartado por completo antes do próximo existir. */
-function switchTo(create: () => Mode): void {
+function switchTo(create: () => GameMode): void {
   mode?.dispose();
   mode = null;
   const fade = document.getElementById('fade')!;
   fade.classList.add('on');
   requestAnimationFrame(() => {
     mode = create();
+    mode.start?.();
     setTimeout(() => fade.classList.remove('on'), 50);
   });
 }
@@ -100,7 +103,7 @@ function startFrom(state: GameState, view: ViewSnapshot): void {
 }
 
 function currentView(): ViewSnapshot {
-  return mode instanceof SurfaceMode ? mode.snapshotView() : { mode: 'space' };
+  return mode ? mode.snapshotView() : { mode: 'space' };
 }
 
 async function autosave(view?: ViewSnapshot): Promise<boolean> {
