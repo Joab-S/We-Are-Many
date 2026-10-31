@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { bvToTemperature, temperatureToRgb } from '../../core/astro';
 import { AU_PER_PC } from '../../core/units';
-import { loadChunk } from '../../universe/loader';
+import { loadChunk, type ChunkLoader } from '../../universe/loader';
 import { selectNodes, type IndexedManifest, type ManifestNode } from '../../universe/manifest';
 import { findStar, indexChunk, nearbyStars, nearestStar, type StarChunk, type StarHit } from '../../universe/starIndex';
 
@@ -81,7 +81,11 @@ export class StarField {
   private lastSelect = 0;
   private disposed = false;
 
-  constructor(private readonly index: IndexedManifest) {
+  /** `load` é o adaptador de plataforma que traz os chunks (rede e IndexedDB no navegador). */
+  constructor(
+    private readonly index: IndexedManifest,
+    private readonly load: ChunkLoader = loadChunk,
+  ) {
     this.material = new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,
@@ -117,7 +121,7 @@ export class StarField {
         if (!wanted.has(id)) this.unload(id, chunk);
       }
       for (const id of wanted) {
-        if (!this.chunks.has(id) && !this.pending.has(id)) void this.load(id);
+        if (!this.chunks.has(id) && !this.pending.has(id)) void this.fetchChunk(id);
       }
     }
     for (const c of this.chunks.values()) c.points.position.subVectors(c.centerAu, shipAu);
@@ -158,12 +162,12 @@ export class StarField {
     return h ? { id, pos: new THREE.Vector3(h.x, h.y, h.z), absmag: h.absmag, ci: h.ci } : null;
   }
 
-  private async load(id: string): Promise<void> {
+  private async fetchChunk(id: string): Promise<void> {
     const node = this.index.byId.get(id);
     if (!node) return;
     this.pending.add(id);
     try {
-      const data = await loadChunk(this.index.manifest.version, id);
+      const data = await this.load(this.index.manifest.version, id);
       if (this.disposed) return;
       const count = data.length / 6;
       const positions = new Float32Array(count * 3);

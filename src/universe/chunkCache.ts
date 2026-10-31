@@ -1,4 +1,5 @@
 /**
+ * Adaptador de plataforma (navegador), usado só por loader.ts.
  * Cache de chunks no IndexedDB. Os chunks são imutáveis por versão, então
  * uma vez baixados nunca precisam ser buscados de novo. Se o IndexedDB não
  * estiver disponível (janela privada, bloqueio), o jogo segue sem cache.

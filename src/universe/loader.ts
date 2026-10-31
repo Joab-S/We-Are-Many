@@ -1,7 +1,17 @@
 import { cacheGet, cachePut } from './chunkCache';
 import { indexManifest, type IndexedManifest, type Manifest } from './manifest';
 
+/**
+ * Adaptador de plataforma (navegador): baixa o manifesto, os nomes e os
+ * chunks com fetch e guarda os chunks no IndexedDB (chunkCache.ts). O resto
+ * de src/universe (manifest.ts, starIndex.ts) é motor puro e não depende
+ * daqui; um servidor ou um teste pode trocar este módulo por outro que leia
+ * os mesmos arquivos de outro lugar (ver ChunkLoader).
+ */
 const BASE = `${import.meta.env.BASE_URL}universe/v1/`;
+
+/** Como os chunks chegam: no navegador, loadChunk; num servidor ou teste, leitura de arquivo. */
+export type ChunkLoader = (version: number, id: string) => Promise<Float32Array>;
 
 export async function loadManifest(): Promise<IndexedManifest> {
   const res = await fetch(`${BASE}manifest.json`);
