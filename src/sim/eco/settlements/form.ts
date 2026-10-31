@@ -10,6 +10,7 @@ import { ROLE } from '../../roles';
 import { belowTier, tierAllowed } from '../../community';
 import { isStreet, TRAIL, WALL } from '../../architecture';
 import { TIER_NAMES, wrapDx } from '../../settlement';
+import { BUILDING_TYPES } from '../../buildingTypes';
 import type { Building, Village } from '../types';
 import * as tilesModule from '../tiles';
 
@@ -230,7 +231,8 @@ export const formPart = {
     const era = Math.floor(v.tech);
     const homes = v.houses.filter((h) => h.kind === 'house' && !h.site);
     const room = new Map<Building, number>();
-    for (const h of homes) room.set(h, 4 + era + (h.level ?? 0) * B.LEVEL_HOUSING);
+    // Lugar de cada casa pela moradia do tipo (`BUILDING_TYPES`), como em `housing` (a casa vazia aqui ainda conta).
+    for (const h of homes) room.set(h, BUILDING_TYPES.house.housing(era, h.level ?? 0, false));
     const byCenter = [...homes].sort((p, q) => this.distance(v, p.x + 1, p.y + 1) - this.distance(v, q.x + 1, q.y + 1));
     const used = new Set<Building>();
     const fams = [...(families?.entries() ?? [])].sort((p, q) => (q[1].includes(v.leader) ? 1 : 0) - (p[1].includes(v.leader) ? 1 : 0) || q[1].length - p[1].length);
