@@ -15,6 +15,7 @@ import { SETTLEMENT_TABS, type CompareKey, type PeriodSpan, type SettlementTab }
 import { SpriteAtlas, SpriteLayer } from './sprites';
 import { SpriteCollector } from './SpriteCollector';
 import { MapRaster } from './MapRaster';
+import { keyLabel, pressed } from './keys';
 import { SimDriver, SPEEDS } from './SimDriver';
 import { CreatureGrid } from './spatial';
 import { Viewport } from './Viewport';
@@ -305,6 +306,7 @@ export class SurfaceMode {
   // Interface ----------------------------------------------------------------
 
   private buildUi(): void {
+    const key = keyLabel;
     this.root.innerHTML = `
       <canvas class="wb-terr" data-terr></canvas>
       <div class="wb-labels" data-l></div>
@@ -350,9 +352,9 @@ export class SurfaceMode {
           <span><kbd>Esquerdo</kbd> usa a ferramenta; de mão vazia arrasta o mapa e um clique fixa a ficha do que está embaixo. Clicar de novo no mesmo ponto passa para a próxima criatura</span>
           <span>Clique no nome, na praça ou num prédio para abrir a janela do assentamento · <kbd>Shift</kbd> + arrastar escolhe um grupo · <kbd>F</kbd> segue a criatura escolhida</span>
           <span><kbd>Direito</kbd><kbd>WASD</kbd> movem o mapa · <kbd>Roda</kbd> zoom</span>
-          <span><kbd>Espaço</kbd> pausa · <kbd>1</kbd>–<kbd>5</kbd> velocidade</span>
-          <span><kbd>[</kbd><kbd>]</kbd> tamanho do pincel · <kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz o último traço de terreno ou clima · <kbd>Esc</kbd> fecha o que abriu por último, guarda a ferramenta ou volta à órbita</span>
-          <span><kbd>C</kbd> crônica · <kbd>R</kbd> reinos · <kbd>E</kbd> espécies · <kbd>I</kbd> itens · <kbd>P</kbd> painel · <kbd>T</kbd> territórios · <kbd>H</kbd> esta ajuda</span>
+          <span><kbd>${key('pause')}</kbd> pausa · <kbd>1</kbd>–<kbd>${SPEEDS.length}</kbd> velocidade</span>
+          <span><kbd>${key('brushDown')}</kbd><kbd>${key('brushUp')}</kbd> tamanho do pincel · <kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz o último traço de terreno ou clima · <kbd>Esc</kbd> fecha o que abriu por último, guarda a ferramenta ou volta à órbita</span>
+          <span><kbd>${key('chronicle')}</kbd> crônica · <kbd>${key('kingdoms')}</kbd> reinos · <kbd>${key('species')}</kbd> espécies · <kbd>${key('items')}</kbd> itens · <kbd>${key('panel')}</kbd> painel · <kbd>${key('territory')}</kbd> territórios · <kbd>${key('help')}</kbd> esta ajuda</span>
           <span>Cada reino tem uma cor: a área dos assentamentos e a faixa do nome mostram de quem é. Borda cheia é a capital; tracejada, os outros assentamentos do reino.</span>
           <span>No minimapa, clique ou arraste para levar a câmera.</span>
         </div>
@@ -702,25 +704,19 @@ export class SurfaceMode {
       this.onExit();
       return false;
     }
-    if (input.hit('Space')) this.driver.setSpeed(this.driver.speed ? 0 : 1);
+    // As teclas de um aperto vêm da tabela (keys.ts, padrão Command).
+    if (pressed(input, 'pause')) this.driver.setSpeed(this.driver.speed ? 0 : 1);
     for (let k = 0; k < SPEEDS.length; k++) if (input.hit(`Digit${k + 1}`)) this.driver.setSpeed(k);
-    if (input.hit('KeyH')) this.toggleHelp();
-    if (input.hit('KeyT')) {
+    if (pressed(input, 'help')) this.toggleHelp();
+    if (pressed(input, 'territory')) {
       this.settings.showTerritory = !this.settings.showTerritory;
       this.dirty = true;
     }
-    if (input.hit('KeyP')) this.fold();
-    if (input.hit('KeyF')) this.sel.toggleFollow();
-    if (input.hit('BracketLeft')) this.toolbar.stepBrush(-2);
-    if (input.hit('BracketRight')) this.toolbar.stepBrush(2);
-    for (const [code, win] of [
-      ['KeyC', 'chronicle'],
-      ['KeyR', 'kingdoms'],
-      ['KeyE', 'species'],
-      ['KeyI', 'items'],
-    ] as const) {
-      if (input.hit(code)) this.openWindow(win);
-    }
+    if (pressed(input, 'panel')) this.fold();
+    if (pressed(input, 'follow')) this.sel.toggleFollow();
+    if (pressed(input, 'brushDown')) this.toolbar.stepBrush(-2);
+    if (pressed(input, 'brushUp')) this.toolbar.stepBrush(2);
+    for (const win of ['chronicle', 'kingdoms', 'species', 'items'] as const) if (pressed(input, win)) this.openWindow(win);
     const pan = 300 / view.zoom;
     view.center.x += ((input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0)) * pan * dt;
     view.center.y += ((input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0)) * pan * dt;
