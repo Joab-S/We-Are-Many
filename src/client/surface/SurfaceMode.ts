@@ -21,6 +21,8 @@ import { WeatherView } from './weatherView';
 import { Selection } from './selection';
 import { MapOverlay } from './overlay';
 import { BrushHistory } from './history';
+import { OverlayStack } from './overlays';
+import { PickSecond, ToolMachine } from './toolStates';
 import { IconCache } from './hud/icons';
 import { Toolbar } from './hud/Toolbar';
 import { InfoCard } from './hud/InfoCard';
@@ -78,17 +80,10 @@ export class SurfaceMode {
   private readonly input: Input;
   private readonly root: HTMLDivElement;
   private tools: Tool[] = [];
-  /** Ferramenta na mão; null é a mão vazia (só move o mapa e inspeciona). */
-  private tool: Tool | null = null;
-  private painting = false;
-  private clicked = false;
-  private dragging: { x: number; y: number } | null = null;
-  /** Onde começou o arraste da mão vazia, para separar clique de arraste. */
-  private pressAt: { x: number; y: number } | null = null;
-  /** Retângulo da seleção de grupo (Shift + arrastar, RF-VIDA-336), em pixels de tela. */
-  private box: { x0: number; y0: number; x1: number; y1: number } | null = null;
-  /** Ferramenta de dois cliques esperando o segundo assentamento. */
-  private pending: { tool: Tool; first: number } | null = null;
+  /** A mão do jogador (padrão State): mão vazia, pincel, clique, segundo clique, seleção de grupo, arraste. */
+  private machine!: ToolMachine;
+  /** Janelas e seleções abertas, na ordem em que abriram: o Esc fecha a de cima. */
+  private readonly overlays = new OverlayStack();
   private folded = false;
   /** Redesenhar no próximo quadro (algo mudou fora da câmera e do mundo). */
   private dirty = true;
@@ -249,7 +244,7 @@ export class SurfaceMode {
     enqueue: (cmd) => mode.driver.enqueue(cmd),
     burst: (kind: FxKind, x, y) => mode.fx.burst(kind, x, y),
     say: (text) => mode.toast.say(text),
-    pickSecond: (tool, first) => (mode.pending = { tool, first }),
+    pickSecond: (tool, first) => mode.machine.change(new PickSecond(mode.machine, tool, first)),
     goTo: (x, row) => mode.goTo(x, row),
   }))(this);
 
@@ -351,7 +346,12 @@ export class SurfaceMode {
       redraw,
       say: (t) => this.toast.say(t),
       goTo: (x, row) => this.goTo(x, row),
-      layer: () => {},
+      layer: (id, open) =>
+        this.overlays.set(id, open, () => {
+          if (id === 'crowd') this.sel.showCrowd(null);
+          else if (id === 'pinned') this.sel.unpin();
+          else this.sel.setHighlight(null);
+        }),
     });
     this.info = new InfoCard(q('[data-i]'), view, this.sel, this.weather, { say: (t) => this.toast.say(t), redraw });
     this.panel = new SidePanel(root, this.settings, () => this.driver.speed, () => this.raster.version);
@@ -366,12 +366,24 @@ export class SurfaceMode {
       {
         tools: () => mode.tools,
         get tool() {
-          return mode.tool;
+          return mode.machine.tool;
         },
         setTool: (t) => mode.setTool(t),
       },
       signal,
     );
+
+    this.machine = new ToolMachine({
+      view,
+      ctx: this.toolCtx,
+      history: this.history,
+      sel: this.sel,
+      brush: this.toolbar,
+      enqueue: (cmd) => this.driver.enqueue(cmd),
+      emitFx: (tool, dt) => this.emitFx(tool, dt),
+      showBox: (b) => this.showBox(b),
+      toolChanged: () => this.toolbar.refreshTool(),
+    });
 
     q('[data-a="back"]').addEventListener('click', () => this.onExit(), { signal });
     root.querySelectorAll('[data-a="help"]').forEach((b) => b.addEventListener('click', () => this.toggleHelp(), { signal }));
@@ -479,63 +491,24 @@ export class SurfaceMode {
     if (open) this.openWindow(open.dataset.open as Win);
   }
 
-  /** Mouse no mapa: pincel, clique de ferramenta, arraste e seleção de grupo. */
+  /** Mouse no mapa: os eventos vão para o estado da mão (ToolMachine). */
   private bindCanvas(signal: AbortSignal): void {
     const canvas = this.renderer.domElement;
-    const boxEl = this.root.querySelector<HTMLElement>('[data-box]')!;
     const view = this.view;
     canvas.addEventListener('contextmenu', (e) => e.preventDefault(), { signal });
     canvas.addEventListener(
       'pointerdown',
       (e) => {
-        if (e.button === 0 && !this.tool && e.shiftKey) {
-          this.box = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY };
-        } else if (e.button === 0 && this.tool) {
-          this.painting = true;
-          this.clicked = true;
-          if (this.tool.terraform) this.history.begin();
-        } else {
-          this.dragging = { x: e.clientX, y: e.clientY };
-          if (e.button === 0) this.pressAt = { x: e.clientX, y: e.clientY };
-        }
+        this.machine.down(e);
         canvas.setPointerCapture(e.pointerId);
       },
       { signal },
     );
-    canvas.addEventListener(
-      'pointerup',
-      (e) => {
-        if (this.box) {
-          this.sel.selectBox(this.box);
-          this.box = null;
-          boxEl.hidden = true;
-          this.pressAt = null;
-        }
-        // Clique curto da mão vazia: fixa (ou solta) a ficha do que está embaixo.
-        if (this.pressAt && Math.hypot(e.clientX - this.pressAt.x, e.clientY - this.pressAt.y) < 5) this.sel.pin();
-        if (this.painting) this.history.end();
-        this.pressAt = null;
-        this.painting = false;
-        this.dragging = null;
-      },
-      { signal },
-    );
+    canvas.addEventListener('pointerup', (e) => this.machine.up(e), { signal });
     canvas.addEventListener(
       'pointermove',
       (e) => {
-        if (this.box) {
-          this.box.x1 = e.clientX;
-          this.box.y1 = e.clientY;
-          boxEl.hidden = false;
-          Object.assign(boxEl.style, { left: `${Math.min(this.box.x0, this.box.x1)}px`, top: `${Math.min(this.box.y0, this.box.y1)}px`, width: `${Math.abs(this.box.x1 - this.box.x0)}px`, height: `${Math.abs(this.box.y1 - this.box.y0)}px` });
-        }
-        // Arrastar o mapa solta a câmera que seguia alguém.
-        if (this.dragging && this.sel.follow && Math.hypot(e.clientX - this.dragging.x, e.clientY - this.dragging.y) > 2) this.sel.follow = false;
-        if (this.dragging) {
-          view.center.x -= (e.clientX - this.dragging.x) / view.zoom;
-          view.center.y += (e.clientY - this.dragging.y) / view.zoom;
-          this.dragging = { x: e.clientX, y: e.clientY };
-        }
+        this.machine.move(e);
         view.mouse = { x: e.clientX, y: e.clientY };
       },
       { signal },
@@ -550,15 +523,26 @@ export class SurfaceMode {
     );
   }
 
+  /** Retângulo da seleção de grupo (Shift + arrastar), em pixels de tela; null esconde. */
+  private showBox(b: { x0: number; y0: number; x1: number; y1: number } | null): void {
+    const el = this.root.querySelector<HTMLElement>('[data-box]')!;
+    if (!b) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    Object.assign(el.style, { left: `${Math.min(b.x0, b.x1)}px`, top: `${Math.min(b.y0, b.y1)}px`, width: `${Math.abs(b.x1 - b.x0)}px`, height: `${Math.abs(b.y1 - b.y0)}px` });
+  }
+
+  /** Põe uma ferramenta na mão (ou guarda, com null). */
   private setTool(t: Tool | null): void {
-    this.tool = t;
-    this.pending = null;
-    this.toolbar.refreshTool();
+    this.machine.setTool(t);
   }
 
   private toggleHelp(): void {
     const el = this.root.querySelector<HTMLElement>('[data-help]')!;
     el.hidden = !el.hidden;
+    this.overlays.set('help', !el.hidden, () => this.toggleHelp());
   }
 
   /** Esconde o painel lateral (o minimapa fica). */
@@ -571,11 +555,14 @@ export class SurfaceMode {
   private openSettlement(id: number | null): void {
     if (id === null && this.sel.highlight && 'village' in this.sel.highlight) this.sel.setHighlight(null);
     this.vwin.show(this.eco, id);
+    this.overlays.set('vwin', id !== null, () => this.openSettlement(null));
     this.dirty = true;
   }
 
+  /** Abre a janela de leitura (ou fecha, se já é ela ou com null). */
   private openWindow(win: Win | null): void {
     this.windows.toggle(this.eco, win);
+    this.overlays.set('win', this.windows.win !== null, () => this.openWindow(null));
   }
 
   private setOption(opt: string): void {
@@ -636,9 +623,10 @@ export class SurfaceMode {
     this.sel.track(this.driver);
     view.updateHover();
     // Quem seria escolhido num clique ganha contorno (RF-VIDA-330).
-    this.sel.updatePick(!this.tool && !this.box);
-    this.useTool(dt);
-    this.fx.step(dt, this.painting);
+    this.sel.updatePick(!this.machine.tool && !this.machine.boxing);
+    // O estado da mão age no quadro: o pincel enfileira um comando, o clique faz a ação.
+    this.machine.frame(dt);
+    this.fx.step(dt, this.machine.painting);
 
     // Bichos longe do que está na tela decidem menos (mesma biologia, menos custo).
     const half = Math.max(view.width, view.height) / (2 * Math.max(0.5, view.zoom)) + 24;
@@ -648,7 +636,7 @@ export class SurfaceMode {
     this.raster.flush(view);
 
     // Parado e sem mudanças, não redesenha.
-    const sig = `${view.signature()},${this.tool?.id},${this.toolbar.brush}`;
+    const sig = `${view.signature()},${this.machine.tool?.id},${this.toolbar.brush}`;
     // Seleção, destaque e janela do assentamento pulsam: redesenha mesmo parado.
     const sel = this.sel;
     const marked = !!sel.pinned || !!sel.highlight || this.vwin.open !== null || sel.hoverPick >= 0;
@@ -672,21 +660,11 @@ export class SurfaceMode {
   private keys(dt: number): boolean {
     const input = this.input;
     const view = this.view;
-    if (input.hit('Escape')) {
-      const sel = this.sel;
-      // Fecha o que estiver por cima primeiro (RF-VIDA-349b).
-      if (sel.crowd) sel.showCrowd(null);
-      else if (this.vwin.open) this.openSettlement(null);
-      else if (this.windows.win) this.openWindow(null);
-      else if (!this.root.querySelector<HTMLElement>('[data-help]')!.hidden) this.toggleHelp();
-      else if (sel.highlight) sel.setHighlight(null);
-      else if (sel.pinned) sel.unpin();
-      else if (this.pending) this.pending = null;
-      else if (this.tool) this.setTool(null);
-      else {
-        this.onExit();
-        return false;
-      }
+    // Esc fecha o que estiver por cima primeiro (RF-VIDA-349b): a última janela ou seleção aberta;
+    // sem nenhuma, volta um passo da mão (segundo clique, ferramenta); de mão vazia, volta à órbita.
+    if (input.hit('Escape') && !this.overlays.escape() && !this.machine.escape()) {
+      this.onExit();
+      return false;
     }
     if (input.hit('Space')) this.driver.setSpeed(this.driver.speed ? 0 : 1);
     for (let k = 0; k < SPEEDS.length; k++) if (input.hit(`Digit${k + 1}`)) this.driver.setSpeed(k);
@@ -714,41 +692,15 @@ export class SurfaceMode {
     return true;
   }
 
-  /** Ferramenta na mão: um clique por vez, ou o pincel enquanto o botão está apertado. */
-  private useTool(dt: number): void {
-    const tool = this.tool;
+  /** Animação da ferramenta agindo: o Ajustar esquenta ou esfria conforme o alvo está acima ou abaixo da temperatura do ponto. */
+  private emitFx(tool: Tool, dt: number): void {
     const view = this.view;
-    const click = this.clicked;
-    this.clicked = false;
-    if (!tool || !view.hovering) return;
-    const x = view.hover.x;
-    const y = view.hover.y;
-    if (tool.mode === 'click') {
-      if (!click) return;
-      const pending = this.pending;
-      if (pending && pending.tool === tool && tool.second) {
-        this.pending = null;
-        tool.second(this.toolCtx, pending.first, x, y);
-      } else {
-        this.pending = null;
-        tool.act?.(this.toolCtx, x, y);
-      }
-      return;
+    let kind = tool.fx;
+    if (tool.id === 'adjust') {
+      const i = view.tileIndex(view.hover.x, view.hover.y);
+      kind = i >= 0 && this.toolbar.target < temperatureAt(this.map, i) ? 'cool' : 'heat';
     }
-    if (!this.painting) return;
-    if (tool.terraform) {
-      const t = this.toolbar;
-      this.driver.enqueue({ kind: 'terraform', tool: tool.terraform, x, y: view.toRow(y), r: t.brush, power: dt * 30, target: t.target, limit: t.limitOn });
-    } else tool.act?.(this.toolCtx, x, y);
-    const fx = this.fxOf(tool);
-    if (fx) this.fx.emit(fx, x, y, this.toolbar.brush, dt);
-  }
-
-  /** Animação a usar: o Ajustar esquenta ou esfria conforme o alvo está acima ou abaixo da temperatura do ponto. */
-  private fxOf(tool: Tool): FxKind | undefined {
-    if (tool.id !== 'adjust') return tool.fx;
-    const i = this.view.tileIndex(this.view.hover.x, this.view.hover.y);
-    return i >= 0 && this.toolbar.target < temperatureAt(this.map, i) ? 'cool' : 'heat';
+    if (kind) this.fx.emit(kind, view.hover.x, view.hover.y, this.toolbar.brush, dt);
   }
 
   // Desenho ------------------------------------------------------------------
@@ -769,7 +721,8 @@ export class SurfaceMode {
     if (!this.raster.draw(ctx, view, z)) this.dirty = true;
     this.collectSprites(z);
     this.sprites.drawSoft(ctx, view.height);
-    if (this.tool && !this.tool.id.startsWith('spawn:') && view.hovering) {
+    const tool = this.machine.tool;
+    if (tool && !tool.id.startsWith('spawn:') && view.hovering) {
       // Círculo do pincel (soltar uma criatura é num ponto só).
       ctx.strokeStyle = 'rgba(255,255,255,0.7)';
       ctx.lineWidth = Math.max(1, z * 0.15);
