@@ -4,6 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
+import * as B from '../../balance';
 import { happens } from '../../stochastic';
 import * as P from '../../progress';
 import { ERA_NEEDS } from '../../economy';
@@ -212,7 +213,6 @@ export const techPart = {
       const press = known.has('imprensa') || partners.some((o) => o.techs?.includes('imprensa')) ? 1.5 : 1;
       const wise = v.culture.value === 'conhecimento' ? 1.25 : 1;
       const dev = P.devSpeed(levels) * wise * (known.has('escrita') ? 1.15 : 1);
-      const fedEnough = (v.needs?.food ?? 1) >= 0.4;
       for (const t of learnable) {
         const taught = partners.some((o) => o.techs?.includes(t.id));
         if (taught && (t.use(use) || known.size >= t.needs.length) && happens(this.lore, P.TECH_NEIGHBOR_RATE * press * 0.45, since)) {
@@ -221,7 +221,9 @@ export const techPart = {
           continue;
         }
         // Experimentação individual: trabalhadores do ofício com recursos disponíveis descobrem e ensinam.
-        if (!v.pendingTech && fedEnough && t.use(use) && adults.length > 0) {
+        // A fome trava a experimentação, menos a da lavoura e do rebanho, que ela puxa (Boserup: `needPull`).
+        const pull = this.needPull(v, t);
+        if (!v.pendingTech && pull > 0 && t.use(use) && adults.length > 0) {
           const workers = adults.filter((i) => t.roles.includes(ROLES[this.role[i]]));
           const pool = workers.length > 0 ? workers : adults.length <= 6 ? adults : [];
           if (pool.length > 0) {
@@ -229,7 +231,7 @@ export const techPart = {
             for (const i of pool) curiosity += this.curiosity(i);
             const effCuriosity = Math.min(4.5, curiosity);
             const sample = (v.samples?.[t.id] ?? -Infinity) > this.year ? P.TECH_SAMPLE_BOOST : 1;
-            if (happens(this.lore, P.TECH_DISCOVER_RATE * effCuriosity * dev * sample, since)) {
+            if (happens(this.lore, P.TECH_DISCOVER_RATE * effCuriosity * dev * sample * pull, since)) {
               // Escolhe o descobridor ponderado pela curiosidade individual.
               let pick = pool[0];
               let r = this.lore() * curiosity;
@@ -259,6 +261,20 @@ export const techPart = {
         this.emit({ kind: 'tech', year: this.year, village: v.id, tech: t.id, first: false, lost: true });
       }
     }
+  },
+
+  /**
+   * Quanto a necessidade puxa a descoberta de uma técnica (Boserup): para as que intensificam a lavoura e o
+   * rebanho (`BOSERUP_TECHS`), a taxa multiplica por 1 + BOSERUP_K × (1 − parte dos moradores que comeu bem),
+   * e só a fome extrema (abaixo de BOSERUP_STARVING) trava; as outras param quando o atendimento de comida
+   * cai abaixo de DISCOVER_FED (quem passa fome não experimenta forno nem escrita). 0 é travada.
+   */
+  needPull(this: Ecosystem, v: Village, t: P.Tech): number {
+    const food = v.needs?.food ?? 1;
+    if (!B.BOSERUP_TECHS.includes(t.id)) return food >= B.DISCOVER_FED ? 1 : 0;
+    const fed = v.fedShare ?? food;
+    if (fed < B.BOSERUP_STARVING) return 0;
+    return 1 + B.BOSERUP_K * Math.max(0, 1 - fed);
   },
 
   /**

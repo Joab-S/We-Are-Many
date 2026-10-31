@@ -852,3 +852,12 @@ export const INTENSIVE_HANDS = 0.5;
 export const INTENSIVE_YIELD = 1.15;
 /** Coleta esgotada para o nômade: vegetação da área abaixo desta parte do que ela aguenta conta como falta (a família pensa em mudar o acampamento). */
 export const NOMAD_FORAGE = 0.45;
+/**
+ * Boserup (`needPull`): a fome puxa a descoberta das técnicas que intensificam a lavoura e o rebanho (BOSERUP_TECHS), que
+ * multiplica por 1 + BOSERUP_K × (1 − parte dos moradores que comeu bem); só a fome extrema (menos de BOSERUP_STARVING
+ * comendo bem) trava. As outras técnicas param com o atendimento de comida abaixo de DISCOVER_FED, como antes.
+ */
+export const BOSERUP_TECHS: readonly string[] = ['domesticacao', 'arado', 'irrigacao', 'moinho', 'moinhoagua'];
+export const BOSERUP_K = 2;
+export const BOSERUP_STARVING = 0.15;
+export const DISCOVER_FED = 0.4;

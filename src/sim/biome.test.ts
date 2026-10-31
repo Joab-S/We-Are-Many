@@ -4,6 +4,8 @@ import { generateSurface, type PlanetParams, type SurfaceMap } from '../procgen/
 import * as B from './balance';
 import { areaYield, BIOME_YIELD, latitudeAmp, lifewayFor, lifewayReach, seasonWeight } from './biomeYield';
 import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
+import { fullNeeds } from './needs';
+import { TECH_BY_ID } from './progress';
 import { nativeSpecies } from './species';
 
 /**
@@ -198,6 +200,26 @@ describe('modo de vida', () => {
     v.lifeway = 'intensivo';
     expect(eco.intensity(v)).toBeCloseTo(1 + B.INTENSIVE_HANDS, 5);
     expect(eco.farmYield(v)).toBeCloseTo(farm * B.INTENSIVE_YIELD, 5);
+  });
+});
+
+describe('Boserup: a necessidade puxa a intensificação', () => {
+  it('a fome acelera a descoberta da lavoura e do rebanho e trava as outras técnicas', () => {
+    const { eco } = world();
+    const v = eco.villages[0];
+    v.needs = fullNeeds();
+    v.fedShare = 1;
+    for (const id of B.BOSERUP_TECHS) expect(eco.needPull(v, TECH_BY_ID[id])).toBe(1);
+    expect(eco.needPull(v, TECH_BY_ID.escrita)).toBe(1);
+    // Metade comendo bem e o celeiro vazio: o arado e a irrigação vêm mais depressa; a escrita espera.
+    v.needs = { ...fullNeeds(), food: 0.3 };
+    v.fedShare = 0.5;
+    for (const id of ['arado', 'irrigacao', 'moinho', 'domesticacao']) expect(eco.needPull(v, TECH_BY_ID[id])).toBeCloseTo(1 + B.BOSERUP_K * 0.5, 5);
+    expect(eco.needPull(v, TECH_BY_ID.escrita)).toBe(0);
+    expect(eco.needPull(v, TECH_BY_ID.fundicao)).toBe(0);
+    // Fome extrema: ninguém experimenta nada.
+    v.fedShare = B.BOSERUP_STARVING / 2;
+    expect(eco.needPull(v, TECH_BY_ID.arado)).toBe(0);
   });
 });
 
