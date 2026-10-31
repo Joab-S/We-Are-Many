@@ -115,14 +115,23 @@ export class DirtyBlocks {
     if (urgent) this.urgent[b] = 1;
   }
 
+  /** Esquece tudo o que estava sujo (o mapa inteiro foi enviado). */
+  clear(): void {
+    for (let k = 0; k < this.n; k++) {
+      this.x0[this.list[k]] = -1;
+      this.urgent[this.list[k]] = 0;
+    }
+    this.n = 0;
+  }
+
   /** Marca tudo (troca de visão do mapa, por exemplo). */
-  markAll(): void {
+  markAll(urgent = false): void {
     for (let by = 0; by < this.rows; by++) {
       for (let bx = 0; bx < this.cols; bx++) {
         const x = bx * this.size;
         const y = by * this.size;
-        this.mark(x, y);
-        this.mark(Math.min(this.width, x + this.size) - 1, Math.min(this.height, y + this.size) - 1);
+        this.mark(x, y, urgent);
+        this.mark(Math.min(this.width, x + this.size) - 1, Math.min(this.height, y + this.size) - 1, urgent);
       }
     }
   }
