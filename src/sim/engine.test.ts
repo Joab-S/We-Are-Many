@@ -133,6 +133,16 @@ describe('relógios (Game Loop)', () => {
     expect(eco.actionPhase()).toBeGreaterThanOrEqual(0);
     expect(eco.actionPhase()).toBeLessThan(1);
   }, 60000);
+
+  it('a sobra do ano de ação passa para o ano seguinte', () => {
+    const { eco } = seedWorld(7);
+    eco.yearClock = 0;
+    // Com o passo de 0,1 s a volta dos assentamentos chega com 1,1 s: o ano fecha na sexta, e a sobra fica.
+    const closed: boolean[] = [];
+    for (let k = 0; k < 11; k++) closed.push(eco.tickActionYear(1.1));
+    expect(closed.map((c) => (c ? 1 : 0))).toEqual([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    expect(eco.yearClock).toBeCloseTo(12.1 - 12, 9);
+  });
 });
 
 describe('tipos de construção (Type Object)', () => {

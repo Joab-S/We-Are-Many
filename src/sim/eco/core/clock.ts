@@ -55,11 +55,16 @@ export const clockPart = {
     return this.yearSpan <= YEAR_SECONDS || Math.floor(this.year) > lastYear;
   },
 
-  /** Avança o relógio de ação `dt` segundos; devolve se um ano de ação fechou (hora do `yearly()`). */
+  /**
+   * Avança o relógio de ação `dt` segundos; devolve se um ano de ação fechou (hora do `yearly()`). A sobra
+   * passa para o ano seguinte (antes era descartada: com um passo que não fecha 1 s certo por volta, como
+   * 0,1 s, a volta dos assentamentos chega com 1,1 s, o ano de ação durava 6,6 s e as estações da colheita
+   * saíam do lugar; com o passo de 0,25 s do jogo e da calibração a volta fecha 1 s exato).
+   */
   tickActionYear(this: Ecosystem, dt: number): boolean {
     this.yearClock += dt;
     if (this.yearClock < YEAR_SECONDS) return false;
-    this.yearClock = 0;
+    this.yearClock -= YEAR_SECONDS;
     return true;
   },
 };
