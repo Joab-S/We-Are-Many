@@ -432,8 +432,18 @@ export class Ecosystem {
   /** Aviso curto para o jogador (ex.: lugar inválido), lido e limpo pela interface. */
   hint = '';
   free: number[] = [];
-  /** Sorteios da vida animal e da vegetação (cada subsistema tem o seu fluxo, RF-VIDA-306). */
+  /**
+   * Sorteios da vida (cada subsistema tem o seu fluxo, RF-VIDA-306): o andar das pessoas e dos bichos da
+   * água, nascimentos, o mundo inicial. Bichos de terra e vegetação têm fluxos próprios (abaixo).
+   */
   readonly rnd: () => number;
+  /**
+   * Sorteios das decisões dos bichos de terra (e do nascer, desviar e quicar deles). O detalhe deles muda
+   * com a câmera; num fluxo só deles, a câmera não mexe nos sorteios das pessoas nem da vegetação.
+   */
+  readonly faunaRnd: () => number;
+  /** Sorteios da vegetação e das florestas (`growVegetation` e `growForests`). */
+  readonly floraRnd: () => number;
   /** Sorteios dos povos: casas, colonos, barcos, produção. */
   readonly civRnd: () => number;
   /** Sorteios do saber: técnicas aprendidas e esquecidas. */
@@ -475,6 +485,9 @@ export class Ecosystem {
     this.worldRnd = rng.mundo;
     this.climateRnd = rng.clima;
     this.mindRnd = rng.mente;
+    // Saves de antes destes fluxos não têm o estado deles: começam aqui, da semente (determinístico).
+    this.faunaRnd = rng.fauna;
+    this.floraRnd = rng.flora;
     this.road = new Uint8Array(map.width * map.height);
     this.traffic = new Uint16Array(map.width * map.height);
     this.trafficEra = new Uint8Array(map.width * map.height);
@@ -595,8 +608,9 @@ export class Ecosystem {
         // Travado na beira da água com o destino do outro lado: conta o tempo (jangada, em `decide`).
         if (ny >= 0 && ny < map.height && isWater(map, tile) && this.species[this.kind[i]].kind === 'sapient') this.stuck[i] += dt;
         if (!this.steer(i, here, mdt)) {
-          this.vx[i] = -this.vx[i] + (this.rnd() - 0.5) * 0.5;
-          this.vy[i] = -this.vy[i] + (this.rnd() - 0.5) * 0.5;
+          const r = sk === 'herbivore' || sk === 'predator' ? this.faunaRnd : this.rnd;
+          this.vx[i] = -this.vx[i] + (r() - 0.5) * 0.5;
+          this.vy[i] = -this.vy[i] + (r() - 0.5) * 0.5;
         }
       }
       if (this.jobKind[i]) this.workJob(i, dt);

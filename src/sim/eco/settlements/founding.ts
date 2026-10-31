@@ -44,8 +44,10 @@ export const foundingPart = {
     let bestGap = Math.abs(temp - mid);
     let best: { x: number; y: number } | undefined;
     for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2 + this.rnd() * 0.6;
-      const r = 4 + this.rnd() * (this.wild(s) ? Math.max(6, ecologyOf(sp).roam / 8) : 6);
+      // Bicho de terra procura abrigo no fluxo da fauna; gente, no da vida.
+      const rnd = this.wild(s) ? this.faunaRnd : this.rnd;
+      const a = (k / 8) * Math.PI * 2 + rnd() * 0.6;
+      const r = 4 + rnd() * (this.wild(s) ? Math.max(6, ecologyOf(sp).roam / 8) : 6);
       const t = this.tileAt(this.x[i] + Math.cos(a) * r, Math.floor(this.y[i] + Math.sin(a) * r));
       if (t < 0 || !this.canStand(s, t)) continue;
       const gap = Math.abs(temperatureAt(this.map, t) - mid);

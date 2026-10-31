@@ -80,7 +80,7 @@ export const faunaFoodPart = {
       return;
     }
     // Um pouco de ruído na direção (o "wander" de Reynolds), sem virar passeio aleatório.
-    const a = Math.atan2(dy, dx) + (this.rnd() - 0.5) * 0.3;
+    const a = Math.atan2(dy, dx) + (this.faunaRnd() - 0.5) * 0.3;
     // Fora da tela a próxima decisão demora `stride` vezes mais: anda mais devagar para não passar do ponto.
     const go = Math.min(speed, d / ((this.yearSpan / DECISIONS_PER_YEAR) * this.stride));
     this.vx[i] = Math.cos(a) * go;
@@ -136,7 +136,7 @@ export const faunaFoodPart = {
     let tile = -1;
     let bestFood = FOOD_MIN;
     for (let k = 0; k < 10; k++) {
-      const t = this.tileAt(x0 + Math.floor(this.rnd() * ECO_CELL), Math.min(m.height - 1, y0 + Math.floor(this.rnd() * ECO_CELL)));
+      const t = this.tileAt(x0 + Math.floor(this.faunaRnd() * ECO_CELL), Math.min(m.height - 1, y0 + Math.floor(this.faunaRnd() * ECO_CELL)));
       if (t < 0 || !this.canStand(s, t)) continue;
       const temp = temperatureAt(m, t);
       if (temp < sp.tempMin || temp > sp.tempMax) continue;
@@ -157,7 +157,7 @@ export const faunaFoodPart = {
       let best = -1;
       let bestFood = min;
       const n = Math.max(8, Math.round(r * 5));
-      const a0 = this.rnd() * Math.PI * 2;
+      const a0 = this.faunaRnd() * Math.PI * 2;
       for (let k = 0; k < n; k++) {
         const a = a0 + (k / n) * Math.PI * 2;
         const t = this.tileAt(this.x[i] + Math.cos(a) * r, Math.floor(this.y[i] + Math.sin(a) * r));

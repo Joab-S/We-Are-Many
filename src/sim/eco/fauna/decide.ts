@@ -57,7 +57,7 @@ export const faunaDecidePart = {
 
     // Parasitas: pega mais onde a célula está lotada; cura comendo bem.
     const dens = this.crowding(c, cell, s, e.herd);
-    if (happens(this.rnd, PARASITE_RATE * Math.min(2, dens), yr)) this.parasite[i] = Math.min(1, p + 0.25);
+    if (happens(this.faunaRnd, PARASITE_RATE * Math.min(2, dens), yr)) this.parasite[i] = Math.min(1, p + 0.25);
     else if (p > 0) this.parasite[i] = Math.max(0, p - PARASITE_RECOVERY * yr * (en > 0.6 ? 1 : 0.3));
 
     // Morte: velhice, frio, calor, doença ou fome (cada uma com a sua causa).
@@ -102,7 +102,7 @@ export const faunaDecidePart = {
     let best: number = ACT.rest;
     let top = 0.2 + (this.act[i] === ACT.rest ? 0.1 : 0);
     const consider = (act: number, score: number) => {
-      const v = score + (this.act[i] === act ? 0.1 : 0) + this.rnd() * 0.03;
+      const v = score + (this.act[i] === act ? 0.1 : 0) + this.faunaRnd() * 0.03;
       if (v > top) {
         top = v;
         best = act;
@@ -138,7 +138,7 @@ export const faunaDecidePart = {
       const going = this.act[i] === ACT.disperse && this.goal[i] >= 0;
       const young = this.age[i] < sp.maturity * 1.4;
       const big = young && (c.herds.get(this.family[i])?.[3] ?? 0) > e.herd * 1.5;
-      if (adult && (going || this.rnd() < 0.15 * this.lodStride) && (dens > 1.2 || big || (young && dens > 0.8))) consider(ACT.disperse, 0.3 + 0.3 * Math.min(1, Math.max(0.3, dens - 0.8)));
+      if (adult && (going || this.faunaRnd() < 0.15 * this.lodStride) && (dens > 1.2 || big || (young && dens > 0.8))) consider(ACT.disperse, 0.3 + 0.3 * Math.min(1, Math.max(0.3, dens - 0.8)));
       // Bando: quem ficou longe do centro do seu bando volta para perto; sozinho e adulto, procura parceiro.
       const center = e.herd > 1 ? this.herdCenter(i, c) : null;
       const away = center ? Math.hypot(center.x, center.y) : 0;
@@ -272,7 +272,7 @@ export const faunaDecidePart = {
       const cost = GRAZE_COST * ration(e);
       got = (this.grazePatch(t, gain * cost) / cost) * e.forage;
       // Engenheiro (elefante): às vezes derruba uma árvore e abre clareira.
-      if (e.engineer && this.map.vegetation[t] > B.TREE_BAND && this.rnd() < 0.08 * this.lodStride) {
+      if (e.engineer && this.map.vegetation[t] > B.TREE_BAND && this.faunaRnd() < 0.08 * this.lodStride) {
         this.map.vegetation[t] = Math.max(B.TREE_BAND - 0.1, this.map.vegetation[t] - 0.15);
         this.map.biome[t] = classify(this.map, t);
         this.onTileChanged(t);
@@ -360,7 +360,7 @@ export const faunaDecidePart = {
       spare = Math.min(1, 0.4 + this.crowding(c, c.of(this.x[prey], this.y[prey], w), pk, ecologyOf(this.species[pk]).herd) / 0.8) * Math.max(0.05, scarce * scarce);
     }
     const chance = Math.min(0.9, HUNT_SUCCESS * this.vulnerable(prey) * (1 + 0.25 * helpers) * (0.4 + 0.6 * this.preyAbundance) * spare);
-    if (this.rnd() < chance) {
+    if (this.faunaRnd() < chance) {
       const young = this.age[prey] < this.species[this.kind[prey]].maturity;
       const kg = ecologyOf(this.species[this.kind[prey]]).mass * EDIBLE * (young ? 0.3 : 1);
       const at = c.of(this.x[prey], this.y[prey], w);
@@ -402,10 +402,10 @@ export const faunaDecidePart = {
   /** Sem destino: segue mais ou menos na mesma direção (explora em vez de rodar no lugar). */
   roam(this: Ecosystem, i: number, speed: number): void {
     const v = Math.hypot(this.vx[i], this.vy[i]);
-    let a = this.rnd() * Math.PI * 2;
-    if (v > 0.05) a = Math.atan2(this.vy[i], this.vx[i]) + (this.rnd() - 0.5) * 0.8;
+    let a = this.faunaRnd() * Math.PI * 2;
+    if (v > 0.05) a = Math.atan2(this.vy[i], this.vx[i]) + (this.faunaRnd() - 0.5) * 0.8;
     // Se o caminho em frente está fechado (penhasco, água), tenta outros rumos.
-    for (let k = 0; k < 8 && !this.reachable(i, Math.cos(a), Math.sin(a), 3); k++) a += Math.PI / 4 + (this.rnd() - 0.5) * 0.4;
+    for (let k = 0; k < 8 && !this.reachable(i, Math.cos(a), Math.sin(a), 3); k++) a += Math.PI / 4 + (this.faunaRnd() - 0.5) * 0.4;
     this.vx[i] = Math.cos(a) * speed * 0.8;
     this.vy[i] = Math.sin(a) * speed * 0.8;
   },
@@ -417,10 +417,10 @@ export const faunaDecidePart = {
    */
   loiter(this: Ecosystem, i: number, speed: number): void {
     // Caçadores descansam no território (de tocaia); pastadores vão pastando adiante.
-    if (this.rnd() < (hunts(ecologyOf(this.species[this.kind[i]])) ? 0.75 : 0.3)) return this.stop(i);
+    if (this.faunaRnd() < (hunts(ecologyOf(this.species[this.kind[i]])) ? 0.75 : 0.3)) return this.stop(i);
     // O bando inteiro vai para o mesmo lado, que muda a cada estação (sorteio pela família e pela estação).
     const h = Math.imul(this.family[i] ^ Math.floor(this.year * 4), 2654435761) >>> 0;
-    const a = (h / 4294967296) * Math.PI * 2 + (this.rnd() - 0.5) * 0.6;
+    const a = (h / 4294967296) * Math.PI * 2 + (this.faunaRnd() - 0.5) * 0.6;
     this.aimX[i] = Math.cos(a);
     this.aimY[i] = Math.sin(a);
     this.vx[i] = this.aimX[i] * speed * 0.5;

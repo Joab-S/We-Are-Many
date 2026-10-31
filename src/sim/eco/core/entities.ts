@@ -112,7 +112,7 @@ export const entitiesPart = {
     const speed = Math.hypot(this.vx[i], this.vy[i]);
     if (speed < 0.01) return false;
     const a0 = Math.atan2(this.vy[i], this.vx[i]);
-    const side = this.side[i] || (this.rnd() < 0.5 ? 1 : -1);
+    const side = this.side[i] || ((this.wild(s) ? this.faunaRnd : this.rnd)() < 0.5 ? 1 : -1);
     const look = Math.max(0.8, speed * dt * 2);
     const w = this.map.width;
     for (let k = 1; k <= 4; k++) {
@@ -302,8 +302,10 @@ export const entitiesPart = {
     this.vx[i] = 0;
     this.vy[i] = 0;
     this.age[i] = age;
-    this.energy[i] = 0.6 + this.rnd() * 0.3;
-    this.think[i] = this.rnd() * (this.wild(s) ? this.yearSpan / DECISIONS_PER_YEAR : THINK_INTERVAL);
+    // Bicho de terra nasce no fluxo da fauna (os filhotes vêm das decisões deles, que mudam com a câmera).
+    const r = this.wild(s) ? this.faunaRnd : this.rnd;
+    this.energy[i] = 0.6 + r() * 0.3;
+    this.think[i] = r() * (this.wild(s) ? this.yearSpan / DECISIONS_PER_YEAR : THINK_INTERVAL);
     this.kind[i] = s;
     this.alive[i] = 1;
     this.village[i] = village;
