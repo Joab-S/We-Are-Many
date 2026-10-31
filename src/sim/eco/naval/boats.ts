@@ -128,7 +128,7 @@ export const boatsPart = {
           this.forEachNear(b.x, b.y, 2, (j) => {
             if (this.species[this.kind[j]].kind === 'fish' && this.civRnd() < 0.5) {
               this.kill(j);
-              this.book(v, '_fish', this.gain(v, 'food', v.vocation === 'pesqueira' ? 1 + B.VOCATION_BONUS : 1), 0);
+              this.book(v, '_fish', this.gain(v, 'food', (v.vocation === 'pesqueira' ? 1 + B.VOCATION_BONUS : 1) * this.areaOf(v).fish), 0);
             }
           });
         }

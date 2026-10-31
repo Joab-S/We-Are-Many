@@ -306,7 +306,8 @@ export const lifecyclePart = {
       // apertado de verdade, organiza uma colônia (abaixo).
       // Lavouras trabalhadas por agricultores enchem o celeiro (cada porção mata a fome de um morador).
       // A colheita vem quase toda no outono (RF-VIDA-290); boi ou cavalo no arado dobram a área de cada agricultor;
-      // o moinho faz pão (RF-VIDA-211); o solo cansado rende menos (RF-VIDA-294).
+      // o moinho faz pão (RF-VIDA-211); o solo cansado rende menos (RF-VIDA-294); o bioma da área (`farmYield`) faz a planície
+      // render mais que a mata e o deserto quase nada sem irrigação.
       if (v.fields > 0 && workers[v.id]) {
         const w = workers[v.id];
         const plough = v.herd && v.herd.head >= 2 && v.herd.kind !== 'sheep' && v.herd.kind !== 'goat' && this.knew(v, 'arado') ? 1 : 0.5;
@@ -316,7 +317,7 @@ export const lifecyclePart = {
         const bonus = v.vocation === 'agricola' ? 1 + B.VOCATION_BONUS : 1;
         const fallow = (v.soil ?? 1) < B.SOIL_FALLOW ? 0.5 : 1;
         const season = B.SEASON_HARVEST[seasonOf(this.actionPhase())];
-        this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * B.ERA_YIELD[Math.min(B.ERA_YIELD.length - 1, Math.floor(v.tech))] * this.harvest(v) * (this.knew(v, 'irrigacao') ? 1.1 : 1) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
+        this.book(v, '_fields', this.gain(v, 'food', worked * B.FIELD_YIELD * B.ERA_YIELD[Math.min(B.ERA_YIELD.length - 1, Math.floor(v.tech))] * this.harvest(v) * this.farmYield(v) * (v.soil ?? 1) * fallow * mill * bonus * season * yr), 0);
       }
       if (workers[v.id]) this.consume(v, residents[v.id] ? fed[v.id] / residents[v.id] : 1, yr);
       // Roças desde a Idade da Pedra (uma para cada quatro casas; da Idade do Bronze em diante, uma para cada duas).

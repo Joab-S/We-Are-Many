@@ -35,6 +35,8 @@ export const economyYearPart = {
       const count = new Array<number>(ROLES.length).fill(0);
       for (const i of people[v.id] ?? []) if (this.role[i] < ROLES.length) count[this.role[i]]++;
       this.roleCount.set(v.id, count);
+      // O bioma da área primeiro: a mata cortada, a roça aberta e o território que cresceu mudam o que a terra dá.
+      this.updateArea(v);
       this.updateNeeds(v, people[v.id]?.length ?? 0);
       this.updateStability(v);
       this.socialize(v, residents[v.id]);
@@ -99,7 +101,10 @@ export const economyYearPart = {
     if (v.forest < 0.1) next -= 0.004;
     v.soil = Math.max(0.2, Math.min(1, next));
     if (!fallow && v.soil < B.SOIL_FALLOW) this.note(`A terra de ${v.name} cansou: parte das roças ficou em pousio`, 'economia', v, { key: `pousio-${v.id}` });
-    if (v.fields > 0 && this.harvest(v) < B.CROP_FAILURE) this.note(`Quebra de safra em ${v.name}`, 'natureza', v, { key: `safra-${v.id}` });
+    if (v.fields > 0 && this.harvest(v) < B.CROP_FAILURE) {
+      const crop = this.cropOf(v);
+      this.note(crop === 'nada' ? `Quebra de safra em ${v.name}` : `Quebra da safra de ${crop} em ${v.name}`, 'natureza', v, { key: `safra-${v.id}` });
+    }
   },
 
   /**

@@ -807,3 +807,25 @@ export const TERRITORY_GROWTH = 1.7;
 export const TERRITORY_MAX = 34;
 /** Quanto a relação entre reinos anda por ano rumo à média das afinidades (RF-AS-53). */
 export const AFFINITY_PULL = 0.1;
+
+// Bioma e modo de vida (agente 3C: src/sim/biomeYield.ts, REQUISITOS-VIDA.md "Bioma e sociedade") -----------------
+
+/**
+ * Estação de crescimento da roça pela temperatura média do tile (K): abaixo de GROW_COLD_K rende só GROW_MIN,
+ * acima de GROW_WARM_K o ano inteiro serve. É o que deixa a tundra e a taiga desmatada com a roça curta.
+ */
+export const GROW_COLD_K = 266;
+export const GROW_WARM_K = 282;
+export const GROW_MIN = 0.1;
+/**
+ * Amplitude das estações (colheita, coleta e lenha do inverno) pela latitude: SEASON_AMP_EQUATOR no equador e
+ * SEASON_AMP_POLE no polo, vezes o `seasonAmp` do bioma, até SEASON_AMP_MAX (acima disso a primavera ficaria
+ * negativa). Com 1, a estação é a dos vetores SEASON_* (antes, igual no planeta inteiro).
+ */
+export const SEASON_AMP_EQUATOR = 0.4;
+export const SEASON_AMP_POLE = 1.6;
+export const SEASON_AMP_MAX = 1.25;
+/** Relevo para a defesa: altura do centro acima de RELIEF_LOW (normalizada por RELIEF_HIGH_SPAN) e desvio da altura na área (RELIEF_RUGGED vale 1). */
+export const RELIEF_LOW = 0.15;
+export const RELIEF_HIGH_SPAN = 0.4;
+export const RELIEF_RUGGED = 0.12;

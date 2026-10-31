@@ -56,7 +56,7 @@ export const productionPart = {
     // quanto mais longe a mata, menos madeira chega por ano. A serraria aproveita mais de cada tronco.
     v.crew = w[ROLE.builder];
     const cutters = w[ROLE.woodcutter] + (this.scale(v) === 0 && v.population <= 4 && st.wood < 6 ? w[ROLE.leader] * 0.5 : 0);
-    if (cutters && !B.PRESENCE_WOOD) this.cutWood(v, cutters * B.CUT_RATE * yr * tools * bonus('madeireira'), this.has(v, 'sawmill') ? 1.3 : 1);
+    if (cutters && !B.PRESENCE_WOOD) this.cutWood(v, cutters * B.CUT_RATE * yr * tools * bonus('madeireira'), (this.has(v, 'sawmill') ? 1.3 : 1) * this.areaOf(v).wood);
     // Coletores trazem frutos, raízes e mel do mato, que se gasta e rebrota (seção 19.19). Numa aldeia pequenina, o líder também ajuda a colher.
     if (this.scale(v) === 0 && v.population <= 6 && w[ROLE.leader] && v.food < 6 && v.forest > 0.2) {
       this.book(v, '_gather', this.put(v, 'food', w[ROLE.leader] * B.GATHER_RATE * 0.6 * yr * this.harvest(v)), 0);
@@ -94,12 +94,13 @@ export const productionPart = {
       const fired = this.spend(v, 'clay', Math.min(st.clay, w[ROLE.potter] * 1.5 * yr));
       this.gain(v, 'brick', fired);
     }
-    // Rebanho (RF-VIDA-215): leite, carne, couro e lã; a tosquia é na primavera (RF-VIDA-290).
+    // Rebanho (RF-VIDA-215): leite, carne, couro e lã; a tosquia é na primavera (RF-VIDA-290). O pasto do bioma
+    // (`graze`) dá mais leite e carne por cabeça na pradaria do que na mata fechada.
     const herd = v.herd;
     if (herd && herd.head > 0) {
       const tend = Math.min(1, 0.4 + (w[ROLE.shepherd] * 6) / herd.head);
       const extra = herd.kind === 'sheep' ? bonus('ovelhas') : herd.kind === 'cattle' || herd.kind === 'goat' ? bonus('gado') : bonus('cavalos');
-      const k = herd.head * tend * extra * yr;
+      const k = herd.head * tend * extra * this.areaOf(v).graze * yr;
       let meat = 0;
       if (herd.kind === 'sheep') {
         this.gain(v, 'wool', k * 0.35 * B.SEASON_WOOL[season]);

@@ -120,9 +120,9 @@ export const jobsPart = {
     return this.jobKind[i] ? this.job[i] : -1;
   },
 
-  /** Madeira de uma árvore derrubada (a serraria aproveita mais de cada tronco). */
+  /** Madeira de uma árvore derrubada (a serraria aproveita mais de cada tronco; a mata temperada dá mais que a savana: `areaOf(v).wood`). */
   woodPerTree(this: Ecosystem, v: Village): number {
-    return B.WOOD_PER_TREE * (this.has(v, 'sawmill') ? 1.3 : 1);
+    return B.WOOD_PER_TREE * (this.has(v, 'sawmill') ? 1.3 : 1) * this.areaOf(v).wood;
   },
 
   /** Velocidade do gesto: ferramenta e vocação aceleram; mata longe do assentamento atrasa (carregar). */

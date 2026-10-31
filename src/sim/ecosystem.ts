@@ -20,6 +20,7 @@ import { societyPart, type SocietyPart } from './eco/people/society';
 import { vocationPart, type VocationPart } from './eco/people/vocation';
 import { herdsPart, type HerdsPart } from './eco/people/herds';
 import { economyYearPart, type EconomyYearPart } from './eco/economy/year';
+import { biomePart, type BiomePart } from './eco/economy/biome';
 import { growthPart, type GrowthPart } from './eco/flora/growth';
 import { peopleDecidePart, type PeopleDecidePart } from './eco/people/decide';
 import { faunaCellsPart, type FaunaCellsPart } from './eco/fauna/cells';
@@ -89,6 +90,7 @@ export interface Ecosystem
     VocationPart,
     HerdsPart,
     EconomyYearPart,
+    BiomePart,
     GrowthPart,
     PeopleDecidePart,
     FaunaCellsPart,
@@ -785,6 +787,7 @@ for (const part of [
   vocationPart,
   herdsPart,
   economyYearPart,
+  biomePart,
   growthPart,
   peopleDecidePart,
   faunaCellsPart,

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { generateSurface, type PlanetParams } from '../procgen/surface';
+import { Biome } from '../procgen/biomes';
+import { generateSurface, type PlanetParams, type SurfaceMap } from '../procgen/surface';
+import { areaYield, BIOME_YIELD } from './biomeYield';
 import { Ecosystem, isLand } from './ecosystem';
 import { nativeSpecies } from './species';
 
@@ -29,6 +31,80 @@ function freeTileNear(eco: Ecosystem, x: number, y: number): number {
   }
   return -1;
 }
+
+/**
+ * Mapa de mentira, todo de terra, com um bioma só: só o que `areaYield` lê (altura, umidade, calor,
+ * vegetação e bioma). O equador fica na linha do meio; `heat` desloca a temperatura.
+ */
+function flatMap(biome: Biome, opts: { size?: number; vegetation?: number; heat?: number; elevation?: number } = {}): SurfaceMap {
+  const size = opts.size ?? 64;
+  const n = size * size;
+  return {
+    params: { id: 'teste', name: 'Teste', radiusEarth: 0.1, temperatureK: 270, water: 0, life: 1 },
+    width: size,
+    height: size,
+    elevation: new Float32Array(n).fill(opts.elevation ?? 0.1),
+    moisture: new Float32Array(n).fill(0.5),
+    heat: new Float32Array(n).fill(opts.heat ?? 0),
+    vegetation: new Float32Array(n).fill(opts.vegetation ?? 0.4),
+    biome: new Uint8Array(n).fill(biome),
+  };
+}
+
+describe('bioma: rendimento por área (BIOME_YIELD)', () => {
+  it('a planície tem a melhor roça e o melhor pasto; a mata temperada, a lenha; o deserto só planta irrigado', () => {
+    const Y = BIOME_YIELD;
+    for (const b of [Biome.Forest, Biome.Jungle, Biome.Savanna, Biome.Taiga, Biome.Tundra, Biome.Desert, Biome.Mountain, Biome.Swamp]) {
+      expect(Y[Biome.Grass].farm).toBeGreaterThan(Y[b].farm);
+      expect(Y[Biome.Grass].graze).toBeGreaterThan(Y[b].graze);
+    }
+    expect(Y[Biome.Forest].wood).toBeGreaterThan(Y[Biome.Grass].wood);
+    expect(Y[Biome.Forest].wood).toBeGreaterThanOrEqual(Math.max(Y[Biome.Jungle].wood, Y[Biome.Taiga].wood, Y[Biome.Savanna].wood));
+    expect(Y[Biome.Desert].farm).toBeLessThan(0.3);
+    expect(Y[Biome.Desert].irrigated).toBeGreaterThan(Y[Biome.Desert].farm * 4);
+    expect(Y[Biome.Swamp].irrigated).toBeGreaterThan(Y[Biome.Swamp].farm);
+    // Costa e frio pescam mais que o interior seco; o frio e o seco conservam a comida.
+    expect(Y[Biome.Mangrove].fish).toBeGreaterThan(Y[Biome.Desert].fish);
+    expect(Y[Biome.Tundra].fish).toBeGreaterThan(Y[Biome.Grass].fish);
+    expect(Y[Biome.Tundra].spoil).toBeLessThan(Y[Biome.Grass].spoil);
+    expect(Y[Biome.Desert].spoil).toBeLessThan(Y[Biome.Jungle].spoil);
+    // Nenhum bioma estraga mais que o de base, e todo bioma tem um cultivo (ou 'nada').
+    for (const k of Object.values(Y)) {
+      expect(k.spoil).toBeLessThanOrEqual(1);
+      expect(k.crop.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('a média da área é a do bioma que a cobre, e o frio encurta a estação da roça', () => {
+    const grass = areaYield(flatMap(Biome.Grass), 32, 32, 10);
+    expect(grass.farm).toBeCloseTo(BIOME_YIELD[Biome.Grass].farm, 5);
+    expect(grass.graze).toBeCloseTo(BIOME_YIELD[Biome.Grass].graze, 5);
+    expect(grass.main).toBe(Biome.Grass);
+    const desert = areaYield(flatMap(Biome.Desert), 32, 32, 10);
+    expect(desert.farm).toBeLessThan(grass.farm / 4);
+    expect(desert.irrigated).toBeGreaterThan(desert.farm * 4);
+    // O mesmo campo 30 K mais frio: a roça quase não amadurece, o pasto continua.
+    const cold = areaYield(flatMap(Biome.Grass, { heat: -30 }), 32, 32, 10);
+    expect(cold.farm).toBeLessThan(grass.farm * 0.3);
+    expect(cold.graze).toBeCloseTo(grass.graze, 5);
+  });
+
+  it('a lenha só conta onde há mata, e a coleta esgotada aparece em `forage`', () => {
+    // Campo aberto quase sem árvore: a lenha vale a da mata de base (não há o que pesar).
+    expect(areaYield(flatMap(Biome.Grass, { vegetation: 0.2 }), 32, 32, 10).wood).toBe(1);
+    expect(areaYield(flatMap(Biome.Forest, { vegetation: 0.9 }), 32, 32, 10).wood).toBeCloseTo(BIOME_YIELD[Biome.Forest].wood, 5);
+    // Vegetação na metade do que o lugar aguenta (1 com umidade 0,5): coleta pela metade.
+    expect(areaYield(flatMap(Biome.Grass, { vegetation: 0.5 }), 32, 32, 10).forage).toBeCloseTo(0.5, 5);
+  });
+
+  it('o relevo junta a altura do centro e o chão acidentado', () => {
+    expect(areaYield(flatMap(Biome.Grass), 32, 32, 10).relief).toBe(0);
+    const hill = flatMap(Biome.Rock, { elevation: 0.5 });
+    for (let t = 0; t < hill.elevation.length; t++) hill.elevation[t] = (t * 7919) % 5 === 0 ? 0.25 : 0.5;
+    hill.elevation[32 * 64 + 32] = 0.55;
+    expect(areaYield(hill, 32, 32, 10).relief).toBeGreaterThan(0.5);
+  });
+});
 
 describe('vocação: amostra do lugar', () => {
   it('conta só as jazidas que o reino conhece', () => {

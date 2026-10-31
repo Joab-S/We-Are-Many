@@ -8,6 +8,7 @@ import type { Cargo, Luxury } from '../trade';
 import type { DeathCause, Sample, Vital } from '../people';
 import type { Needs, Vocation } from '../needs';
 import type { BUILDINGS, HERDS } from './constants';
+import type { AreaYield } from '../biomeYield';
 
 /** Tipo de acontecimento, para filtrar a crônica. */
 export type ChronicleKind = 'povo' | 'era' | 'guerra' | 'natureza' | 'mar' | 'economia' | 'jogador';
@@ -372,6 +373,10 @@ export interface Village {
   funeral?: { tile: number; until: number; family: number };
   alarmUntil?: number;
   curiousUntil?: number;
+
+  // ---- Bioma e modo de vida (agente 3C: src/sim/biomeYield.ts e eco/economy/biome.ts) ----
+  /** Média do bioma na área do lugar (roça, pasto, pesca, estação, perecimento, lenha, coleta e relevo), refeita uma vez por ano. */
+  area?: AreaYield;
 }
 
 /** Quem a pessoa é, guardado quando ela embarca e devolvido quando desembarca. */
