@@ -58,8 +58,8 @@ export const boatsPart = {
     b.sunk = 0;
     const v = this.villages[b.village];
     if (b.purpose === 'fish') {
-      for (let i = 0; i < this.count; i++) {
-        if (this.alive[i] && this.village[i] === v.id && this.role[i] === ROLE.fisher) {
+      for (const i of this.residents(v.id)) {
+        if (this.role[i] === ROLE.fisher) {
           this.kill(i, true, 'partiu');
           break;
         }

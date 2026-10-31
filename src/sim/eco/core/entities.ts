@@ -283,6 +283,7 @@ export const entitiesPart = {
     this.kind[i] = s;
     this.alive[i] = 1;
     this.village[i] = village;
+    if (village >= 0) this.residentIndex.dirty = true;
     this.uid[i] = ++this.nextUid;
     this.uidIndex.set(this.uid[i], i);
     this.parent[i] = 0;
@@ -343,6 +344,7 @@ export const entitiesPart = {
     if (!this.alive[i]) return;
     this.alive[i] = 0;
     this.uidIndex.delete(this.uid[i]);
+    if (this.village[i] >= 0) this.residentIndex.dirty = true;
     const s = this.kind[i];
     if (cause !== 'partiu') {
       this.diary.delete(this.uid[i]);

@@ -35,7 +35,9 @@ export const societyPart = {
       let toll = binomial(this.civRnd, v.population, B.EPIDEMIC_SHARE);
       if (toll <= 0) continue;
       const dead = toll;
-      for (let i = 0; i < this.count && toll > 0; i++) {
+      const here = this.residents(v.id);
+      for (let k = 0; k < here.length && toll > 0; k++) {
+        const i = here[k];
         if (!this.alive[i] || this.village[i] !== v.id || i === v.leader) continue;
         if (this.civRnd() < 0.5) continue;
         this.kill(i, true, 'doença');

@@ -360,7 +360,9 @@ export const warPart = {
     if (!best) return 0;
     const want = Math.round(v.population * share);
     let moved = 0;
-    for (let i = 0; i < this.count && moved < want; i++) {
+    const here = this.residents(v.id);
+    for (let k = 0; k < here.length && moved < want; k++) {
+      const i = here[k];
       if (!this.alive[i] || this.village[i] !== v.id || i === v.leader) continue;
       this.moveTo(i, v, best);
       moved++;
@@ -375,7 +377,7 @@ export const warPart = {
   /** Muda alguém de assentamento, com as contas de quem saiu e de quem chegou. */
   moveTo(this: Ecosystem, i: number, from: Village, to: Village): void {
     from.population--;
-    this.village[i] = -1;
+    this.setVillage(i, -1);
     (from.vitalNow ??= emptyVital()).left++;
     this.join(i, to);
   },
@@ -442,7 +444,7 @@ export const warPart = {
     const winner = this.villages[war.a];
     const name = target.name;
     this.flee(target, 0.5, war.a);
-    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] === target.id) this.kill(i, true, 'guerra');
+    for (const i of this.residents(target.id)) if (this.alive[i] && this.village[i] === target.id) this.kill(i, true, 'guerra');
     target.lastCause = 'na guerra';
     this.abandon(target, true);
     this.effect('flame', target.x, target.y, 40, 2);

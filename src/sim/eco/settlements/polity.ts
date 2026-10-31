@@ -40,9 +40,9 @@ export const polityPart = {
 
   /** Junta `o` em `v`: gente, casas, roças, cercados, minas, estoque e porto; `o` some como lugar à parte. */
   mergeInto(this: Ecosystem, o: Village, v: Village): void {
-    for (let i = 0; i < this.count; i++) {
+    for (const i of this.residents(o.id)) {
       if (!this.alive[i] || this.village[i] !== o.id) continue;
-      this.village[i] = v.id;
+      this.setVillage(i, v.id);
       v.population++;
     }
     o.population = 0;

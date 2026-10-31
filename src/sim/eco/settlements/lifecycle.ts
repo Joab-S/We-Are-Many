@@ -229,15 +229,15 @@ export const lifecyclePart = {
     // Moradores e os que estão bem alimentados (atendimento de comida, RF-VIDA-210).
     const residents = new Array<number>(this.villages.length).fill(0);
     const fed = new Array<number>(this.villages.length).fill(0);
-    for (let i = 0; i < this.count; i++) {
-      const v = this.village[i];
-      if (v < 0 || !this.alive[i]) continue;
-      residents[v]++;
-      if (this.energy[i] >= 0.3) fed[v]++;
-      if (this.role[i] === CHILD) continue;
-      adults[v].push(i);
+    for (let v = 0; v < this.villages.length; v++) {
       const village = this.villages[v];
-      if (this.age[i] < elderAge(this.species[this.kind[i]], Math.floor(village.tech))) workers[v][this.role[i]]++;
+      for (const i of this.residents(v)) {
+        residents[v]++;
+        if (this.energy[i] >= 0.3) fed[v]++;
+        if (this.role[i] === CHILD) continue;
+        adults[v].push(i);
+        if (this.age[i] < elderAge(this.species[this.kind[i]], Math.floor(village.tech))) workers[v][this.role[i]]++;
+      }
     }
     const fishers = workers.map((w) => w[ROLE.fisher]);
     fishers.length = this.villages.length;

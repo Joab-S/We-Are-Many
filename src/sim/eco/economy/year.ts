@@ -28,11 +28,11 @@ export const economyYearPart = {
     const people: number[][] = this.villages.map(() => []);
     // Todos os moradores (crianças também), para a vida social do ano.
     const residents: number[][] = this.villages.map(() => []);
-    for (let i = 0; i < this.count; i++) {
-      const v = this.village[i];
-      if (v < 0 || !this.alive[i]) continue;
-      residents[v].push(i);
-      if (this.role[i] !== CHILD) people[v].push(i);
+    for (let v = 0; v < this.villages.length; v++) {
+      for (const i of this.residents(v)) {
+        residents[v].push(i);
+        if (this.role[i] !== CHILD) people[v].push(i);
+      }
     }
     this.roleCount.clear();
     for (const v of this.villages) {

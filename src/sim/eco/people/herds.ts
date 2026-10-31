@@ -93,7 +93,7 @@ export const herdsPart = {
   /** Profissões dos moradores de um assentamento agora. */
   workersOf(this: Ecosystem, v: Village): number[] {
     const w = new Array<number>(ROLES.length).fill(0);
-    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] === v.id && this.role[i] !== CHILD) w[this.role[i]]++;
+    for (const i of this.residents(v.id)) if (this.role[i] !== CHILD) w[this.role[i]]++;
     return w;
   },
 

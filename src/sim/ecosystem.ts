@@ -53,6 +53,7 @@ import { caravansPart, type CaravansPart } from './eco/trade/caravans';
 import { disastersPart, type DisastersPart } from './eco/world/disasters';
 import { playerPart, type PlayerPart } from './eco/world/player';
 import { queriesPart, type QueriesPart } from './eco/core/queries';
+import { residentsPart, ResidentIndex, type ResidentsPart } from './eco/core/residents';
 
 export * from './eco/types';
 export * from './eco/constants';
@@ -118,7 +119,8 @@ export interface Ecosystem
     CaravansPart,
     DisastersPart,
     PlayerPart,
-    QueriesPart {}
+    QueriesPart,
+    ResidentsPart {}
 
 export class Ecosystem {
   readonly species: Species[] = [];
@@ -440,10 +442,18 @@ export class Ecosystem {
   /** Chamado quando uma criatura altera um tile (ex.: come a vegetação). */
   onTileChanged: (i: number) => void = () => {};
 
+  /**
+   * Índices derivados (caches): ficam fora do save e da impressão digital (propriedades não enumeráveis,
+   * criadas no construtor) e são refeitos sob demanda depois de carregar.
+   */
+  /** Moradores por assentamento (eco/core/residents.ts). */
+  declare residentIndex: ResidentIndex;
+
   constructor(
     readonly map: SurfaceMap,
     seed: number,
   ) {
+    Object.defineProperty(this, 'residentIndex', { value: new ResidentIndex(), writable: true, enumerable: false });
     const rng = streams(seed);
     this.rnd = rng.vida;
     this.civRnd = rng.povos;
@@ -738,6 +748,7 @@ for (const part of [
   disastersPart,
   playerPart,
   queriesPart,
+  residentsPart,
 ]) {
   for (const [k, f] of Object.entries(part)) Object.defineProperty(Ecosystem.prototype, k, { value: f, writable: true, configurable: true, enumerable: false });
 }

@@ -184,7 +184,7 @@ export const foundingPart = {
 
   /** Põe a criatura `i` (sem assentamento) no assentamento `v`, com uma profissão. */
   join(this: Ecosystem, i: number, v: Village): void {
-    this.village[i] = v.id;
+    this.setVillage(i, v.id);
     this.movedAt[i] = this.year;
     (v.vitalNow ??= emptyVital()).arrived++;
     v.lastCause = undefined;

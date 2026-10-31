@@ -169,7 +169,7 @@ export const migrationPart = {
     this.origin[i] = from.id;
     from.population--;
     (from.vitalNow ??= emptyVital()).left++;
-    this.village[i] = -1;
+    this.setVillage(i, -1);
     const w = this.map.width;
     for (let t = 0; t < 8; t++) {
       const a = this.civRnd() * Math.PI * 2;
@@ -183,7 +183,7 @@ export const migrationPart = {
       break;
     }
     if (this.role[i] === CHILD) {
-      this.village[i] = to.id;
+      this.setVillage(i, to.id);
       this.movedAt[i] = this.year;
       to.population++;
       (to.vitalNow ??= emptyVital()).arrived++;

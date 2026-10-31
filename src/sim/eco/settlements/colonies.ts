@@ -39,9 +39,11 @@ export const coloniesPart = {
       if (!this.landPath(v.x, v.y, tx + 0.5, ny + 0.5)) continue;
       const nv = this.foundVillage(v.species, tx, ny, 0, v, 'família');
       let moved = 0;
-      for (let i = 0; i < this.count && moved < 6; i++) {
+      const here = this.residents(v.id);
+      for (let k = 0; k < here.length && moved < 6; k++) {
+        const i = here[k];
         if (this.alive[i] && this.village[i] === v.id && i !== v.leader && this.role[i] !== CHILD) {
-          this.village[i] = nv.id;
+          this.setVillage(i, nv.id);
           this.movedAt[i] = this.year;
           v.population--;
           nv.population++;
@@ -61,18 +63,18 @@ export const coloniesPart = {
   /** Famílias de cada assentamento: cada adulto com os filhos crianças do mesmo lugar; o casal junto (chave: menor `uid`). */
   familyGroups(this: Ecosystem): Map<number, Map<number, number[]>> {
     const families = new Map<number, Map<number, number[]>>();
-    const here = new Map<number, number>();
-    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] >= 0) here.set(this.uid[i], i);
+    // Cônjuge e pai pelo índice uid -> índice exato (só contam se moram no mesmo lugar, conferido abaixo).
     const head = (k: number) => {
       const mate = partnerOf(this.bonds, this.uid[k]);
-      const m = mate ? here.get(mate) : undefined;
-      return m !== undefined && this.village[m] === this.village[k] ? Math.min(this.uid[k], mate) : this.uid[k];
+      const m = mate ? this.findUid(mate) : -1;
+      return m >= 0 && this.village[m] === this.village[k] ? Math.min(this.uid[k], mate) : this.uid[k];
     };
+    // Varredura em ordem de índice (não por assentamento): a ordem dos lugares no mapa devolvido conta para quem o percorre.
     for (let i = 0; i < this.count; i++) {
       const vid = this.village[i];
       if (vid < 0 || !this.alive[i] || this.species[this.kind[i]].kind !== 'sapient') continue;
-      const p = this.role[i] === CHILD ? here.get(this.parent[i]) : undefined;
-      const key = p !== undefined && this.village[p] === vid && this.role[p] !== CHILD ? head(p) : head(i);
+      const p = this.role[i] === CHILD && this.parent[i] ? this.findUid(this.parent[i]) : -1;
+      const key = p >= 0 && this.village[p] === vid && this.role[p] !== CHILD ? head(p) : head(i);
       let fams = families.get(vid);
       if (!fams) families.set(vid, (fams = new Map()));
       const list = fams.get(key);
@@ -166,7 +168,7 @@ export const coloniesPart = {
     // Batedores: os adultos mais curiosos e corajosos, nunca o líder.
     const elder = elderAge(this.species[v.species], Math.floor(v.tech));
     const pool: { i: number; w: number }[] = [];
-    for (let i = 0; i < this.count; i++) {
+    for (const i of this.residents(v.id)) {
       if (!this.alive[i] || this.village[i] !== v.id || i === v.leader || this.role[i] === CHILD || this.age[i] >= elder || this.role[i] >= ROLE.soldier) continue;
       pool.push({ i, w: this.traits[i * TRAIT_COUNT + TRAIT.curiosity] + this.traits[i * TRAIT_COUNT + TRAIT.courage] + this.civRnd() * 4 });
     }
@@ -234,7 +236,7 @@ export const coloniesPart = {
     if (nv.food >= 1) cargo.push({ good: 'food', amount: Math.floor(nv.food) });
     let leader = -1;
     for (const i of group) {
-      this.village[i] = nv.id;
+      this.setVillage(i, nv.id);
       this.movedAt[i] = this.year;
       this.home[i] = -1;
       v.population--;
@@ -275,7 +277,7 @@ export const coloniesPart = {
     const animal = packAnimal(v.material === 'adobe' || v.herd?.kind === 'camel', v.stock.horses);
     if (kind === 'settlers') {
       // Quem leva o enxoval já mora no lugar novo.
-      this.village[i] = o.id;
+      this.setVillage(i, o.id);
     }
     this.caravans.push({
       id: this.nextCaravan++,
@@ -402,7 +404,7 @@ export const coloniesPart = {
     const group = farms.filter((h) => Math.hypot(wrapDx(h.x - seed.x, w), h.y - seed.y) < 8);
     const keys = new Set(group.map((h) => h.y * w + h.x));
     const people: number[] = [];
-    for (let i = 0; i < this.count; i++) if (this.alive[i] && this.village[i] === v.id && keys.has(this.home[i])) people.push(i);
+    for (const i of this.residents(v.id)) if (keys.has(this.home[i])) people.push(i);
     if (people.length < B.FARMSTEAD_FREE_POP) return;
     const cx = Math.floor(group.reduce((n, h) => n + h.x + 1, 0) / group.length);
     const cy = Math.floor(group.reduce((n, h) => n + h.y + 1, 0) / group.length);
@@ -433,7 +435,7 @@ export const coloniesPart = {
     v.foot = undefined;
     nv.foot = undefined;
     for (const i of people) {
-      this.village[i] = nv.id;
+      this.setVillage(i, nv.id);
       v.population--;
       nv.population++;
     }

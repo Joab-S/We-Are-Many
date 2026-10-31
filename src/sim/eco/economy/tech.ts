@@ -265,8 +265,8 @@ export const techPart = {
     let heir = -1;
     if (p.progress >= P.TECH_RESCUE_MIN) {
       let best = -1;
-      for (let j = 0; j < this.count; j++) {
-        if (!this.alive[j] || this.village[j] !== v.id || this.uid[j] === p.uid || this.role[j] === CHILD) continue;
+      for (const j of this.residents(v.id)) {
+        if (this.uid[j] === p.uid || this.role[j] === CHILD) continue;
         // Quem trabalha no ofício aprendeu mais de perto; os outros só se não houver ninguém dele.
         const c = this.curiosity(j) + (t.roles.includes(ROLES[this.role[j]]) ? 10 : 0);
         if (c > best) {
