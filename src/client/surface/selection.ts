@@ -1,7 +1,6 @@
-import { elderAge, type Ecosystem, type Village } from '../../sim/ecosystem';
-import { CHILD } from '../../sim/roles';
-import { animalStage, personName } from '../../sim/people';
-import { ROLE_NAMES, ROLES } from './art';
+import type { Ecosystem, Village } from '../../sim/ecosystem';
+import { animalStage } from '../../sim/people';
+import { lifeOf, personFullName } from './creatureInfo';
 import { PICK_LIFT } from './tools';
 import type { Viewport } from './Viewport';
 
@@ -53,6 +52,19 @@ export class Selection {
   get creature(): number {
     const p = this.pinned;
     return p && 'creature' in p && this.eco.alive[p.creature] && this.eco.uid[p.creature] === p.uid ? p.creature : -1;
+  }
+
+  /**
+   * Índice atual da criatura fixada, pelo `uid`: quem desembarca volta com o mesmo `uid` noutro índice, e a
+   * ficha segue com ele. -1 quando morreu ou está fora do mundo (num barco).
+   */
+  resolve(): number {
+    const p = this.pinned;
+    if (!p || !('creature' in p)) return -1;
+    if (this.eco.alive[p.creature] && this.eco.uid[p.creature] === p.uid) return p.creature;
+    const i = this.eco.findUid(p.uid);
+    if (i >= 0) p.creature = i;
+    return i;
   }
 
   /**
@@ -156,20 +168,16 @@ export class Selection {
   shortName(i: number): string {
     const eco = this.eco;
     const sp = eco.species[eco.kind[i]];
-    if (sp.kind === 'sapient' && eco.village[i] >= 0) return `${personName(eco.uid[i], eco.villages[eco.village[i]].culture.id)}, ${this.lifeStage(i).toLowerCase()}`;
-    if (sp.kind === 'sapient') return `${sp.name}, sem assentamento`;
+    if (sp.kind === 'sapient') {
+      const life = lifeOf(eco, i);
+      return `${personFullName(eco, i).first}, ${life.role || life.stage === 'child' ? life.label.toLowerCase() : `${life.stageName.toLowerCase()} sem assentamento`}`;
+    }
     return `${sp.name}, ${animalStage(eco.age[i], sp.maturity, sp.maxAge)}`;
   }
 
-  /** Profissão, ou a fase da vida de quem não trabalha. */
+  /** Profissão, ou a fase da vida de quem não trabalha (criança, idoso; quem vive solto não tem profissão). */
   lifeStage(i: number): string {
-    const eco = this.eco;
-    const role = eco.role[i];
-    if (role === CHILD) return 'Criança';
-    const sp = eco.species[eco.kind[i]];
-    const v = eco.villages[eco.village[i]];
-    const name = ROLE_NAMES[ROLES[role]];
-    return eco.age[i] >= elderAge(sp, Math.floor(v.tech)) ? (role >= ROLES.indexOf('leader') ? `${name} idoso` : 'Idoso') : name;
+    return lifeOf(this.eco, i).label;
   }
 
   /** Shift + arrastar: seleciona as criaturas dentro do retângulo de tela (RF-VIDA-336). */

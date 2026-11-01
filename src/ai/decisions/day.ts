@@ -157,10 +157,13 @@ const NEEDS: Option<DayContext, DayAction>[] = [
   },
 ];
 
+/** Faixa do sorteio da jornada: entram as opções com nota de pelo menos 85% da melhor (ver `choose`). */
+export const DAY_BAND = 0.85;
+
 /** Escolhe a próxima jornada (RF-AS-22 e 25). Sem tarefa nem necessidade, devolve null (fica pela praça). */
 export function chooseDay(ctx: DayContext, rnd: () => number): Choice<DayAction> | null {
   const options = [...NEEDS, ...ctx.tasks.map((t) => taskOption(t.task, t.dist))];
-  const c = choose(options, ctx, rnd, 0.85);
+  const c = choose(options, ctx, rnd, DAY_BAND);
   if (!c || c.pick.score < DAY_W.floor) return null;
   return c;
 }

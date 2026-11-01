@@ -19,6 +19,7 @@ import { SurfaceMode } from './surface/SurfaceMode';
 import { mountIcons } from './ui/icons';
 import './style.css';
 import './hud.css';
+import './sheet.css';
 import './space.css';
 
 mountIcons();
