@@ -3,7 +3,8 @@ import { ROLE_NAMES, ROLES } from '../../../sim/roles';
 import { aptitudeOf, bestCraft, TECH_BY_ID } from '../../../sim/progress';
 import { notable, TRAIT_INFO, TRAITS, TRAIT_COUNT } from '../../../ai/traits';
 import { DEATH_TEXT } from '../../../sim/people';
-import { icon as svgIcon } from '../../ui/icons';
+import { installPixelArt } from '../../ui/pixelArt';
+import { pixelIcon, pixelize } from '../../ui/pixelIcons';
 import { ROLE_ICONS } from '../settlementWindow';
 import { bodyOf, spriteOf } from '../tools';
 import {
@@ -32,13 +33,13 @@ import { HtmlSlot, HudComponent } from './component';
 export type SheetTab = 'overview' | 'status' | 'family' | 'diary' | 'journey' | 'history' | 'gear' | 'nature';
 
 const TAB_INFO: Record<SheetTab, { label: string; icon: string }> = {
-  overview: { label: 'Visão geral', icon: 'eye' },
+  overview: { label: 'Visão geral', icon: 'magnifier' },
   status: { label: 'Status e personalidade', icon: 'heart' },
-  family: { label: 'Família e laços', icon: 'users' },
+  family: { label: 'Família e laços', icon: 'group' },
   diary: { label: 'Pensamentos e diário', icon: 'chat' },
-  journey: { label: 'Jornada e decisões', icon: 'route' },
-  history: { label: 'História', icon: 'chron' },
-  gear: { label: 'Equipamento', icon: 'swords' },
+  journey: { label: 'Jornada e decisões', icon: 'compass' },
+  history: { label: 'História', icon: 'scroll' },
+  gear: { label: 'Equipamento', icon: 'sword' },
   nature: { label: 'Vida selvagem', icon: 'leaf' },
 };
 
@@ -74,6 +75,18 @@ function meter(label: string, frac: number, text: string, t = tone(frac), ic = '
   return `<div class="cs-meter ${t}" title="${esc(label)}: ${esc(text)}">${ic ? `<span class="cs-mi">${ic}</span>` : ''}<span class="cs-ml">${label}</span><span class="cs-mb"><i style="width:${(f * 100).toFixed(0)}%"></i><em>${text}</em></span></div>`;
 }
 
+/** Barra de status do cabeçalho (ícone e barra com o valor dentro; o rótulo fica na dica). */
+function vital(label: string, frac: number, text: string, t = tone(frac), ic = ''): string {
+  const f = Math.max(0, Math.min(1, frac));
+  return `<div class="cs-vital ${t}" title="${esc(label)}: ${esc(text)}">${ic}<span class="cs-mb"><i style="width:${(f * 100).toFixed(0)}%"></i><em>${text}</em></span></div>`;
+}
+
+/** Cor do título: a do povo (ou da espécie), clareada para ler sobre a placa preta. */
+function titleColor(rgb: readonly number[]): string {
+  const [r, g, b] = rgb.map((c) => Math.round(c + (255 - c) * 0.4));
+  return `rgb(${r},${g},${b})`;
+}
+
 /** Necessidade do dia (0 a 1): quanto mais cheia, mais urgente. */
 const need = (label: string, f: number, ic: string) => meter(label, f, pct(f), f > 0.75 ? 'bad' : f > 0.5 ? 'warn' : 'good', ic);
 
@@ -91,12 +104,15 @@ const empty = (text: string) => `<div class="cs-empty">${text}</div>`;
  */
 export class CreatureSheet extends HudComponent {
   tab: SheetTab = 'overview';
+  private readonly title: HtmlSlot;
   private readonly head: HtmlSlot;
   private readonly tabs: HtmlSlot;
   private readonly body: HtmlSlot;
   private readonly foot: HtmlSlot;
   /** Quem estava aberto no último quadro, para voltar a rolagem ao topo quando troca. */
   private shown = '';
+  /** Última cor escrita na placa do título (só mexe no DOM quando muda). */
+  private titleTint = '';
 
   constructor(
     private readonly el: HTMLElement,
@@ -105,15 +121,19 @@ export class CreatureSheet extends HudComponent {
     private readonly host: { say(text: string): void },
   ) {
     super(250);
-    el.innerHTML = `
+    installPixelArt();
+    el.innerHTML = pixelize(`
       <div class="cs-frame">
         <div class="cs-head" data-cs-head></div>
-        <button class="wb-x cs-close" data-sheet-close title="Fechar (Esc)" aria-label="Fechar">✕</button>
+        <div class="cs-plaque" data-cs-title></div>
+        <button class="cs-close" data-sheet-close title="Fechar (Esc)" aria-label="Fechar">${pixelIcon('x')}</button>
         <nav class="cs-tabs" data-cs-tabs></nav>
+        <div class="cs-rtabs"><span class="cs-rtab" title="Ficha fixada: clique no vazio ou Esc solta">${pixelIcon('pin')}</span></div>
         <div class="cs-body" data-cs-body></div>
         <div class="cs-foot" data-cs-foot></div>
-      </div>`;
+      </div>`);
     const q = (s: string) => el.querySelector<HTMLElement>(s)!;
+    this.title = new HtmlSlot(q('[data-cs-title]'));
     this.head = new HtmlSlot(q('[data-cs-head]'));
     this.tabs = new HtmlSlot(q('[data-cs-tabs]'));
     this.body = new HtmlSlot(q('[data-cs-body]'));
@@ -162,12 +182,13 @@ export class CreatureSheet extends HudComponent {
     const tabs = this.tabsFor(eco, i);
     if (!tabs.includes(this.tab)) this.tab = tabs[0];
     el.classList.toggle('docked', this.sel.follow);
-    this.head.set(this.headHtml(eco, i));
+    this.setTitle(this.titleOf(eco, i), this.titleRgb(eco, i));
+    this.head.set(pixelize(this.headHtml(eco, i)));
     this.tabs.set(this.tabsHtml(tabs));
     this.setBody(person ? this.personTab(eco, i) : this.animalTab(eco, i));
     this.foot.set(
-      `<button class="cs-btn ${this.sel.follow ? 'on' : ''}" data-act="follow" title="A câmera acompanha a criatura (F)">${svgIcon(this.sel.follow ? 'stop' : 'target')}<span>${this.sel.follow ? 'Parar de seguir' : 'Seguir'}</span><kbd>F</kbd></button>
-       <span class="cs-hint">Clique no vazio ou Esc para soltar</span>`,
+      pixelize(`<button class="cs-btn ${this.sel.follow ? 'on' : ''}" data-act="follow" title="A câmera acompanha a criatura (F)">${pixelIcon(this.sel.follow ? 'x' : 'eye')}<span>${this.sel.follow ? 'Parar de seguir' : 'Seguir'}</span><kbd>F</kbd></button>
+       <span class="cs-hint">Clique no vazio ou Esc para soltar</span>`),
     );
   }
 
@@ -184,7 +205,7 @@ export class CreatureSheet extends HudComponent {
   /** Reescreve o corpo mantendo a rolagem (o corpo muda a cada atualização: energia, atividade). */
   private setBody(html: string): void {
     const top = this.body.el.scrollTop;
-    if (this.body.set(html)) this.body.el.scrollTop = top;
+    if (this.body.set(pixelize(html))) this.body.el.scrollTop = top;
   }
 
   /** Abas que fazem sentido para a criatura: as de pessoa só para pessoas, e nenhuma aba vazia. */
@@ -202,7 +223,7 @@ export class CreatureSheet extends HudComponent {
 
   private tabsHtml(tabs: SheetTab[]): string {
     return tabs
-      .map((t) => `<button class="cs-tab ${t === this.tab ? 'on' : ''}" data-ctab="${t}" aria-label="${TAB_INFO[t].label}" aria-pressed="${t === this.tab}">${svgIcon(TAB_INFO[t].icon)}<span class="cs-tip">${TAB_INFO[t].label}</span></button>`)
+      .map((t) => `<button class="cs-tab ${t === this.tab ? 'on' : ''}" data-ctab="${t}" aria-label="${TAB_INFO[t].label}" aria-pressed="${t === this.tab}">${pixelIcon(TAB_INFO[t].icon)}<span class="cs-tip">${TAB_INFO[t].label}</span></button>`)
       .join('');
   }
 
@@ -216,23 +237,42 @@ export class CreatureSheet extends HudComponent {
     return this.icons.icon(`${bodyOf(sp)}:${look}`, v ? v.color : sp.color, sp.color);
   }
 
+  /** Nome na placa do título. */
+  private titleOf(eco: Ecosystem, i: number): string {
+    if (!isPerson(eco, i)) return eco.species[eco.kind[i]].name;
+    const n = personFullName(eco, i);
+    return `${n.first} ${n.family}`;
+  }
+
+  /** Cor da placa: a do povo de quem mora num lugar, senão a da espécie. */
+  private titleRgb(eco: Ecosystem, i: number): readonly number[] {
+    return (isPerson(eco, i) ? homeOf(eco, i)?.color : null) ?? eco.species[eco.kind[i]].color;
+  }
+
+  private setTitle(text: string, rgb?: readonly number[]): void {
+    this.title.set(`<span>${esc(text)}</span>`);
+    const tint = rgb ? titleColor(rgb) : '';
+    if (tint !== this.titleTint) {
+      this.titleTint = tint;
+      if (tint) this.title.el.style.setProperty('--title', tint);
+      else this.title.el.style.removeProperty('--title');
+    }
+  }
+
+  /** Cabeçalho: retrato, o que é (espécie e ofício ou fase) e os estados em ícones (o texto fica na dica). */
   private headHtml(eco: Ecosystem, i: number): string {
     const sp = eco.species[eco.kind[i]];
-    let name: string;
     let sub: string;
-    if (isPerson(eco, i)) {
-      const n = personFullName(eco, i);
-      const life = lifeOf(eco, i);
-      name = `${n.first} ${n.family}`;
-      sub = `${sp.name} · ${jobLabel(life)}`;
-    } else {
+    if (isPerson(eco, i)) sub = `${sp.name} · ${jobLabel(lifeOf(eco, i))}`;
+    else {
       const a = animalOf(eco, i);
-      name = sp.name;
       sub = `${cap(a.stage)} · ${years(a.age)}`;
     }
+    const marks = statusMarks(eco, i);
+    const icons = marks.map((s) => `<span class="cs-hm ${s.tone}" title="${esc(s.label)}">${s.icon}</span>`).join('');
     return `<div class="cs-portrait">${this.portrait(eco, i)}</div>
-      <div class="cs-name"><b>${esc(name)}</b><span>${esc(sub)}</span></div>
-      <span class="cs-pin" title="Ficha fixada: clique no vazio ou Esc solta">📌</span>`;
+      <div class="cs-hslot"><span>${esc(sub)}</span></div>
+      <div class="cs-hslot ${marks.length ? '' : 'dim'}">${icons || '<span>Nenhum estado especial</span>'}</div>`;
   }
 
   // ---- Pessoas -----------------------------------------------------------------------------------
@@ -269,7 +309,7 @@ export class CreatureSheet extends HudComponent {
 
   private vitals(eco: Ecosystem, i: number): string {
     const v = vitalsOf(eco, i);
-    return `<div class="cs-bars">${meter('Energia', v.energy, pct(v.energy), tone(v.energy), '⚡')}${meter('Saúde', v.health, pct(v.health), tone(v.health), '❤')}</div>`;
+    return `<div class="cs-vitals">${vital('Saúde', v.health, pct(v.health), tone(v.health), '❤')}${vital('Energia', v.energy, pct(v.energy), tone(v.energy), '⚡')}</div>`;
   }
 
   /** Cartão do lugar onde mora (clicável, abre a janela do assentamento), ou "Sem assentamento". */
@@ -300,7 +340,6 @@ export class CreatureSheet extends HudComponent {
     return `
       ${this.vitals(eco, i)}
       <div class="cs-now"><i>▶</i><span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>
-      ${this.marks(eco, i)}
       <div class="cs-tiles">${tiles}</div>
       ${this.placeCard(eco, i)}
       <div class="cs-rows">
@@ -477,7 +516,6 @@ export class CreatureSheet extends HudComponent {
       ${this.vitals(eco, i)}
       ${meter('Idade', life, `${Math.floor(a.age)} de até ${Math.round(a.maxAge)} anos`, life > 0.75 ? 'warn' : 'good', '⏳')}
       <div class="cs-now"><i>▶</i><span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>
-      ${this.marks(eco, i)}
       <div class="cs-tiles">
         ${tile('🧬', esc(eco.species[eco.kind[i]].name), 'Espécie')}
         ${tile('🌱', cap(a.stage), 'Fase da vida')}
@@ -510,7 +548,12 @@ export class CreatureSheet extends HudComponent {
       }
     }
     this.el.classList.remove('docked');
-    this.head.set(`<div class="cs-portrait cs-group">👥</div><div class="cs-name"><b>Grupo de ${n}</b><span>Shift + arrastar no mapa escolhe outro</span></div><span class="cs-pin" title="Ficha fixada">📌</span>`);
+    this.setTitle(`Grupo de ${n}`);
+    this.head.set(
+      pixelize(`<div class="cs-portrait cs-group">👥</div>
+      <div class="cs-hslot"><span>Shift + arrastar no mapa escolhe outro</span></div>
+      <div class="cs-hslot"><span>${n} ${n === 1 ? 'criatura' : 'criaturas'}${people ? ` · ${people} ${people === 1 ? 'pessoa' : 'pessoas'}` : ''}</span></div>`),
+    );
     this.tabs.set('');
     this.foot.set('<span class="cs-hint">Clique no vazio ou Esc para soltar</span>');
     if (!n) {
@@ -543,7 +586,7 @@ export class CreatureSheet extends HudComponent {
 export function previewHtml(eco: Ecosystem, i: number, sheet: CreatureSheet): string {
   const sp = eco.species[eco.kind[i]];
   const v = vitalsOf(eco, i);
-  const bars = `${meter('Energia', v.energy, pct(v.energy), tone(v.energy), '⚡')}${meter('Saúde', v.health, pct(v.health), tone(v.health), '❤')}`;
+  const bars = `${vital('Saúde', v.health, pct(v.health), tone(v.health), '❤')}${vital('Energia', v.energy, pct(v.energy), tone(v.energy), '⚡')}`;
   const marks = statusMarks(eco, i)
     .map((s) => `<span class="cs-mark ${s.tone}" title="${esc(s.label)}">${s.icon}</span>`)
     .join('');
@@ -564,11 +607,11 @@ export function previewHtml(eco: Ecosystem, i: number, sheet: CreatureSheet): st
     place = a.group.size > 1 ? `🐾 ${cap(a.group.name)} de ${a.group.size}` : '🐾 Sozinho';
     if (a.threat) place += ` · <span class="bad">⚠ ${esc(a.threat.name)} perto</span>`;
   }
-  return `<div class="cs-prev">
-      <div class="cs-prev-head"><div class="cs-portrait">${sheet.portrait(eco, i)}</div><div class="cs-name"><b>${esc(name)}</b><span>${esc(sub)}</span></div></div>
-      <div class="cs-bars">${bars}</div>
+  return pixelize(`<div class="cs-prev">
+      <div class="cs-prev-head"><div class="cs-portrait">${sheet.portrait(eco, i)}</div><div class="cs-name" style="--title:${titleColor(isPerson(eco, i) ? (homeOf(eco, i)?.color ?? sp.color) : sp.color)}"><b>${esc(name)}</b><span>${esc(sub)}</span></div></div>
+      <div class="cs-vitals">${bars}</div>
       <div class="cs-now"><i>▶</i><span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>
       <div class="cs-prev-foot"><span>${place}</span>${marks ? `<span class="cs-marks inline">${marks}</span>` : ''}</div>
       <div class="cs-hint">Clique para abrir a ficha</div>
-    </div>`;
+    </div>`);
 }
