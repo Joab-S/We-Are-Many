@@ -38,7 +38,8 @@ import { Minimap } from './hud/Minimap';
 import { Toast } from './hud/Toast';
 import { bindNotices } from './hud/notices';
 import { Labels } from './hud/Labels';
-import { buildTools, plain, REAL_YEAR_SECONDS, SETTLEMENT_TAB_ICONS, TAB_ICONS, TABS, WINDOW_ICONS, WINDOWS, type FxKind, type Tab, type Tool, type ToolContext, type Win } from './tools';
+import { DebugPanel } from './hud/DebugPanel';
+import { buildTools, DEBUG, plain, REAL_YEAR_SECONDS, SETTLEMENT_TAB_ICONS, TAB_ICONS, TABS, WINDOW_ICONS, WINDOWS, type FxKind, type Tab, type Tool, type ToolContext, type Win } from './tools';
 
 /** Folga (tiles) do recorte das criaturas pela grade: o desenho interpolado fica a até 3 tiles da posição atual. */
 const GRID_SLACK = 4;
@@ -94,6 +95,8 @@ export class SurfaceMode {
   private minimap!: Minimap;
   private toast!: Toast;
   private labels!: Labels;
+  /** Painel de depuração (só com `?debug`). */
+  private debug: DebugPanel | null = null;
   private readonly settings: SurfaceSettings = { showMinor: false, showLabels: true, showTerritory: true, layer: 'kingdoms', geoView: 'none', showSites: false };
   private readonly input: Input;
   private readonly root: HTMLDivElement;
@@ -213,6 +216,7 @@ export class SurfaceMode {
     this.tools = buildTools(state.knownSpecies.values());
 
     this.buildUi();
+    if (DEBUG) this.debug = this.buildDebug(!saved);
     this.resize();
     this.ready = true;
     // `?debug` deixa a cena acessível no console (testes e calibragem).
@@ -363,6 +367,7 @@ export class SurfaceMode {
           <span><kbd>${key('brushDown')}</kbd><kbd>${key('brushUp')}</kbd> tamanho do pincel · <kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz o último traço de terreno ou clima · <kbd>Esc</kbd> fecha o que abriu por último, guarda a ferramenta ou volta à órbita</span>
           <span><kbd>${key('chronicle')}</kbd> crônica · <kbd>${key('kingdoms')}</kbd> reinos · <kbd>${key('species')}</kbd> espécies · <kbd>${key('items')}</kbd> itens · <kbd>${key('panel')}</kbd> painel · <kbd>${key('territory')}</kbd> territórios · <kbd>${key('help')}</kbd> esta ajuda</span>
           <span><kbd>${key('sites')}</kbd> notas dos sítios (depuração de onde assentar): a nota de cada célula e, na ficha, a nota do ponto fator por fator e por que ali não dá para fundar</span>
+          ${DEBUG ? `<span><kbd>${key('debug')}</kbd> painel de depuração: indicadores contra as metas, o lugar e a família selecionados, os eventos do motor, o desempenho e o tempo passo a passo</span>` : ''}
           <span>Cada reino tem uma cor: a área dos assentamentos e a faixa do nome mostram de quem é. Borda cheia é a capital; tracejada, os outros assentamentos do reino.</span>
           <span>No minimapa, clique ou arraste para levar a câmera.</span>
         </div>
@@ -597,6 +602,49 @@ export class SurfaceMode {
     this.dirty = true;
   }
 
+  /** Painel de depuração (`?debug`, F3): ele lê o motor só pela fachada; aqui fica só a ligação com a tela. */
+  private buildDebug(fresh: boolean): DebugPanel {
+    return new DebugPanel(
+      this.root,
+      {
+        engine: this.engine,
+        driver: this.driver,
+        fresh,
+        place: () => this.selectedPlace(),
+        creature: () => this.sel.creature,
+        // Selecionar um lugar é abrir a janela dele, como na tabela dos assentamentos.
+        selectPlace: (id) => {
+          const v = this.engine.view.villages[id];
+          if (!v) return;
+          this.goTo(v.x, v.y);
+          this.openSettlement(id);
+        },
+        goTo: (x, row) => this.goTo(x, row),
+        advance: (n) => {
+          const steps = this.driver.stepBy(n);
+          this.vwin.onSteps(steps);
+          this.dirty = true;
+          return steps;
+        },
+        stats: () => this.stats,
+        toggled: (open) => {
+          this.root.classList.toggle('dbg-open', open);
+          this.overlays.set('debug', open, () => this.debug?.toggle(false));
+        },
+      },
+      this.abort.signal,
+    );
+  }
+
+  /** O lugar selecionado: a janela do assentamento aberta, o lugar da pessoa fixada ou o lugar fixado na ficha (-1 nenhum). */
+  private selectedPlace(): number {
+    if (this.vwin.id !== null) return this.vwin.id;
+    const own = this.sel.pinnedVillage();
+    if (own >= 0) return own;
+    const p = this.sel.pinned;
+    return p && 'x' in p ? (this.engine.view.settlementAt(p.x, this.view.toRow(p.y))?.id ?? -1) : -1;
+  }
+
   /** Esconde o painel lateral (o minimapa fica). */
   private fold(): void {
     this.folded = !this.folded;
@@ -691,6 +739,7 @@ export class SurfaceMode {
       this.lastLook = look;
     }
     const steps = this.driver.update(dt);
+    this.debug?.frame(now);
     this.vwin.onSteps(steps);
     if (!this.driver.paused) {
       this.weather.step(dt, view);
@@ -715,6 +764,7 @@ export class SurfaceMode {
     this.windows.tick(eco, now);
     this.vwin.tick(eco, now);
     this.toast.tick(eco, now);
+    this.debug?.tick(eco, now);
     this.toolbar.updateCursor();
     this.input.endFrame();
   };
@@ -740,6 +790,7 @@ export class SurfaceMode {
     if (pressed(input, 'sites')) this.toggleSites();
     if (pressed(input, 'panel')) this.fold();
     if (pressed(input, 'follow')) this.sel.toggleFollow();
+    if (this.debug && pressed(input, 'debug')) this.debug.toggle();
     if (pressed(input, 'brushDown')) this.toolbar.stepBrush(-2);
     if (pressed(input, 'brushUp')) this.toolbar.stepBrush(2);
     for (const win of ['chronicle', 'kingdoms', 'species', 'items'] as const) if (pressed(input, win)) this.openWindow(win);

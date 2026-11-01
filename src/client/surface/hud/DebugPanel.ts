@@ -1,0 +1,275 @@
+import type { EngineCommand } from '../../../sim/api/commands';
+import type { Engine } from '../../../sim/api/engine';
+import type { EngineEvent, EngineEventKind } from '../../../sim/api/events';
+import {
+  caseJson,
+  debugCase,
+  debugShellHtml,
+  DEBUG_EVENT_LIMIT,
+  DEBUG_FRAME_LIMIT,
+  eventEntry,
+  eventsHtml,
+  familyTabHtml,
+  livePlaces,
+  perfHtml,
+  personInfo,
+  placeTabHtml,
+  Ring,
+  summaryText,
+  timeHtml,
+  worldHtml,
+  yearText,
+  type DebugTab,
+  type EventEntry,
+  type FrameSample,
+  type SurfaceStats,
+} from '../debugPanel';
+import { SURFACE_KEYS } from '../keys';
+import { LOG_LIMIT, type SimDriver } from '../SimDriver';
+import { HtmlSlot, HudComponent } from './component';
+
+/** Intervalo de atualização do painel aberto (ms). */
+const DEBUG_PANEL_MS = 500;
+/** Quadro mais longo que isso (aba no fundo, depurador parado) não entra na conta do FPS. */
+const FRAME_GAP_MS = 1000;
+
+/** O que o painel precisa da superfície: o motor pela fachada, o relógio e a seleção do mapa. */
+export interface DebugHost {
+  readonly engine: Engine;
+  readonly driver: SimDriver<EngineCommand, EngineEvent>;
+  /** Mundo novo nesta visita (a semente e o log o refazem) ou adotado (save, visita anterior). */
+  readonly fresh: boolean;
+  /** Lugar selecionado no mapa (janela do assentamento, pessoa ou lugar fixado na ficha), ou -1. */
+  place(): number;
+  /** Pessoa fixada na ficha (índice na vista), ou -1. */
+  creature(): number;
+  /** Seleciona o lugar (abre a janela dele) e leva a câmera até ele. */
+  selectPlace(id: number): void;
+  goTo(x: number, row: number): void;
+  /** Avança `n` passos (`SimDriver.stepBy`), avisa a tela e devolve quantos deu. */
+  advance(n: number): number;
+  /** As medidas de `surface.stats`. */
+  stats(): SurfaceStats;
+  /** O painel abriu ou fechou (pilha do Esc, lugar da ficha). */
+  toggled(open: boolean): void;
+}
+
+/**
+ * Painel de depuração da superfície (`?debug`, F3), o componente: guarda os últimos eventos do motor num anel
+ * (desde que a superfície abre, aberto ou não), as medidas de cada quadro, as escolhas do jogador no painel
+ * (aba, filtros, lista, família) e, aberto, refaz só a aba visível a cada DEBUG_PANEL_MS, escrevendo no DOM só
+ * quando o HTML mudou (HtmlSlot). O HTML vem das funções puras de `debugPanel.ts`; o motor, só pela fachada
+ * (`engine.view`, `engine.debug`) e pelos eventos do despachante.
+ */
+export class DebugPanel extends HudComponent {
+  open = false;
+  private tab: DebugTab = 'world';
+  private readonly el: HTMLElement;
+  private readonly body: HtmlSlot;
+  private readonly sum: HtmlSlot;
+  private readonly events = new Ring<EventEntry>(DEBUG_EVENT_LIMIT);
+  private readonly frames = new Ring<FrameSample>(DEBUG_FRAME_LIMIT);
+  private lastFrame = NaN;
+  // Escolhas do jogador no painel.
+  private readonly kinds = new Set<EngineEventKind>();
+  private onlyPlace = false;
+  /** Lugar selecionado quando o jogador pediu a lista dos lugares (a lista vale até a seleção mudar). */
+  private listFor: number | null = null;
+  /** Família escolhida pelo clique numa decisão, sem pessoa fixada. */
+  private focus: { family: number; village: number } | null = null;
+  /** O último Avançar e o último caso copiado. */
+  private lastAdvance: { steps: number; ms: number } | null = null;
+  private copied = '';
+
+  constructor(
+    root: HTMLElement,
+    private readonly host: DebugHost,
+    signal: AbortSignal,
+  ) {
+    super(DEBUG_PANEL_MS);
+    const el = (this.el = document.createElement('div'));
+    el.className = 'wb-debugp';
+    el.hidden = true;
+    el.innerHTML = debugShellHtml();
+    root.appendChild(el);
+    this.body = new HtmlSlot(el.querySelector<HTMLElement>('[data-dbody]')!);
+    this.sum = new HtmlSlot(el.querySelector<HTMLElement>('[data-dsum]')!);
+    // pointerdown, como no painel e nas janelas: o corpo é reescrito enquanto o tempo anda.
+    el.addEventListener('pointerdown', (e) => this.onClick(e.target as HTMLElement), { signal });
+    // O F3 do navegador procura na página: com o painel, a tecla é dele.
+    window.addEventListener('keydown', (e) => SURFACE_KEYS.debug.includes(e.code) && e.preventDefault(), { signal });
+    // Na caixa do caso, as teclas são do texto (Ctrl+C não abre a crônica); Esc e F3 seguem para o jogo.
+    el.querySelector('textarea')!.addEventListener('keydown', (e) => e.code !== 'Escape' && !SURFACE_KEYS.debug.includes(e.code) && e.stopPropagation(), { signal });
+    // O anel ouve todos os eventos desde já: o texto e os lugares saem na chegada.
+    host.driver.bus.onAny((e) => this.events.push(eventEntry(e, host.engine.view, this.events.total + 1)));
+    // Com `?debug`, a série dos indicadores e as decisões juntam dados desde que a superfície abre, antes do painel.
+    host.engine.debug.setRecording(true);
+  }
+
+  /** Abre ou fecha (F3, o botão, o Esc). */
+  toggle(open = !this.open): void {
+    if (open === this.open) return;
+    this.open = open;
+    this.el.hidden = !open;
+    if (!open) this.hideCase();
+    this.host.toggled(open);
+    if (open) this.refresh();
+  }
+
+  /** Um quadro (depois dos passos): guarda o tempo dele e as medidas do relógio para os gráficos. */
+  frame(now: number): void {
+    const s = this.host.driver.stats;
+    const gap = Number.isNaN(this.lastFrame) ? 0 : now - this.lastFrame;
+    this.lastFrame = now;
+    this.frames.push({ frameMs: gap > FRAME_GAP_MS ? 0 : gap, steps: s.steps, stepMs: s.stepMs, dropped: s.dropped, events: s.events });
+  }
+
+  /** Refaz no próximo quadro, mesmo que o HTML pareça igual (clique no painel). */
+  private refresh(): void {
+    this.body.reset();
+    this.invalidate();
+  }
+
+  protected update(): void {
+    if (!this.open) return;
+    const { engine, driver } = this.host;
+    this.sum.set(summaryText(engine.seed, engine.view.year, driver.tick));
+    this.el.querySelectorAll<HTMLElement>('[data-dtab]').forEach((b) => b.classList.toggle('on', b.dataset.dtab === this.tab));
+    const body = this.body.el;
+    const scroll = body.scrollTop;
+    if (this.body.set(this.html())) body.scrollTop = scroll;
+  }
+
+  /** A aba visível. */
+  private html(): string {
+    const { engine, driver } = this.host;
+    const view = engine.view;
+    const debug = engine.debug;
+    switch (this.tab) {
+      case 'world':
+        return worldHtml(debug.world(), { seed: engine.seed, year: view.year }, debug.recording);
+      case 'place': {
+        const sel = this.host.place();
+        if (this.listFor !== null && this.listFor !== sel) this.listFor = null;
+        const id = this.listFor === null ? sel : -1;
+        return placeTabHtml(id, id >= 0 ? debug.place(id) : null, id >= 0 ? debug.decisions({ village: id, limit: 15 }) : [], livePlaces(view), view, debug.recording);
+      }
+      case 'family': {
+        const person = personInfo(view, this.host.creature());
+        if (person) this.focus = null;
+        const family = person?.family ?? this.focus?.family;
+        const decisions = debug.decisions(family !== undefined ? { family, limit: 12 } : { limit: 25 });
+        return familyTabHtml({ person, focus: this.focus, decisions, view, recording: debug.recording });
+      }
+      case 'events':
+        return eventsHtml(this.events.newest(), { kinds: this.kinds, onlyPlace: this.onlyPlace }, this.host.place(), view, this.events.total);
+      case 'perf':
+        return perfHtml(this.frames.toArray(), this.host.stats(), debug.profile(), debug.recording);
+      case 'time':
+        return timeHtml({
+          speed: driver.speed,
+          seed: engine.seed,
+          year: view.year,
+          tick: driver.tick,
+          log: driver.log.length,
+          logLimit: driver.opts.logLimit ?? LOG_LIMIT,
+          pending: driver.pending,
+          stepsPerYear: this.stepsPerYear(),
+          fresh: this.host.fresh,
+          last: this.lastAdvance,
+          copied: this.copied,
+        });
+    }
+  }
+
+  private stepsPerYear(): number {
+    return Math.max(1, Math.round(this.host.engine.view.yearSpan / this.host.driver.h));
+  }
+
+  /** Cliques no painel, pelo `data-d*` do alvo. */
+  private onClick(t: HTMLElement): void {
+    if (t.closest<HTMLButtonElement>('button')?.disabled) return;
+    const host = this.host;
+    const at = (sel: string) => t.closest<HTMLElement>(sel);
+    if (at('[data-dclose]')) return this.toggle(false);
+    if (at('[data-dcase-close]')) return this.hideCase();
+    const tab = at('[data-dtab]');
+    if (tab) this.tab = tab.dataset.dtab as DebugTab;
+    // Lugar (da lista, de uma decisão ou de um evento): seleciona e leva a câmera; a decisão escolhe a família.
+    const place = at('[data-dplace]');
+    if (place) {
+      const id = Number(place.dataset.dplace);
+      if (place.dataset.dfam !== undefined && this.tab === 'family' && host.creature() < 0) this.focus = { family: Number(place.dataset.dfam), village: id };
+      this.listFor = null;
+      host.selectPlace(id);
+    }
+    const go = at('[data-dgo]');
+    if (go) {
+      const [x, y] = go.dataset.dgo!.split(',').map(Number);
+      host.goTo(x, y);
+    }
+    const kind = at('[data-dkind]');
+    if (kind) {
+      const k = kind.dataset.dkind as EngineEventKind | '';
+      if (!k) this.kinds.clear();
+      else if (!this.kinds.delete(k)) this.kinds.add(k);
+    }
+    if (at('[data-donly]')) this.onlyPlace = !this.onlyPlace;
+    if (at('[data-dlist]')) this.listFor = host.place();
+    if (at('[data-dall]')) this.focus = null;
+    const speed = at('[data-dspeed]');
+    if (speed) host.driver.setSpeed(Number(speed.dataset.dspeed));
+    const step = at('[data-dstep]');
+    if (step) {
+      const steps = host.advance(Number(step.dataset.dstep));
+      this.lastAdvance = { steps, ms: host.driver.stats.stepMs };
+    }
+    if (at('[data-drec]')) host.engine.debug.setRecording(!host.engine.debug.recording);
+    if (at('[data-dcopy]')) void this.copyCase();
+    this.refresh();
+  }
+
+  /** Copiar caso: o JSON vai para a área de transferência; se o navegador não deixar, fica selecionado na caixa. */
+  private async copyCase(): Promise<void> {
+    const { engine, driver } = this.host;
+    const view = engine.view;
+    const c = debugCase({
+      seed: engine.seed,
+      year: view.year,
+      tick: driver.tick,
+      step: driver.h,
+      yearSpan: view.yearSpan,
+      planet: view.map.params,
+      fresh: this.host.fresh,
+      log: driver.log,
+      logLimit: driver.opts.logLimit ?? LOG_LIMIT,
+    });
+    const json = caseJson(c);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('sem área de transferência');
+      await navigator.clipboard.writeText(json);
+      this.copied = `Caso copiado: semente ${c.seed}, ${yearText(c.year)}, passo ${c.tick}, ${c.log.length} comandos`;
+      this.hideCase();
+    } catch {
+      this.copied = '';
+      this.showCase(json);
+    }
+    this.refresh();
+  }
+
+  private showCase(json: string): void {
+    const box = this.el.querySelector<HTMLElement>('[data-dcase]')!;
+    const text = box.querySelector('textarea')!;
+    box.hidden = false;
+    text.value = json;
+    text.focus();
+    text.select();
+  }
+
+  private hideCase(): void {
+    const box = this.el.querySelector<HTMLElement>('[data-dcase]')!;
+    if (box.hidden) return;
+    box.hidden = true;
+    box.querySelector('textarea')!.blur();
+  }
+}

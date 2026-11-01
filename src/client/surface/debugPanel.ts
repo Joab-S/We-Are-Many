@@ -453,7 +453,7 @@ export function familyTabHtml(args: {
   if (person) {
     const where = person.places.map((id) => esc(placeName(view, id))).join(', ');
     return `
-      <div class="wb-dtitle"><b>${esc(person.name)} ${esc(person.familyName)}</b> <span class="wb-dim">${Math.floor(person.age)} anos</span></div>
+      <div class="wb-dtitle"><b>${esc(person.name)} ${esc(person.familyName)}</b> <span class="wb-dim">${person.age.toFixed(0)} anos</span></div>
       ${kv('Família', `${esc(person.familyName)} <span class="wb-dim">#${person.family}</span>`)}
       ${kv('Gente', `${person.members} ${person.members === 1 ? 'pessoa' : 'pessoas'}, ${person.adults} ${person.adults === 1 ? 'adulta' : 'adultas'}`)}
       ${kv('Mora em', where || '—')}

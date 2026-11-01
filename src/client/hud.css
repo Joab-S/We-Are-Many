@@ -112,7 +112,7 @@ svg.ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-wid
 .wb-brush b { font-family: var(--f-num); font-weight: 400; color: var(--gold); }
 
 /* ---------- Superfície: janelas (moldura de bronze, filete ciano, pergaminho) ---------- */
-.wb-window, .wb-vwin, .wb-side, .wb-help, .wb-info, .wb-crowd, .wb-legend {
+.wb-window, .wb-vwin, .wb-side, .wb-help, .wb-info, .wb-crowd, .wb-legend, .wb-debugp {
   color: var(--ink); font-size: 14px; border: 0; padding: 0;
   background: radial-gradient(ellipse at 30% 0%, #f3e8cb, transparent 70%), repeating-linear-gradient(0deg, rgba(120, 90, 40, 0.05) 0 1px, transparent 1px 4px), linear-gradient(var(--pa), #dccda3);
   box-shadow: 0 0 0 4px var(--br), 0 0 0 5px var(--cy), 0 8px 18px rgba(0, 0, 0, 0.55);
@@ -199,6 +199,95 @@ button.wb-mini { background: var(--g8); color: var(--ice); border: 0; padding: 3
 .wb-sitegrid { display: grid; grid-template-columns: auto auto auto; column-gap: 10px; font-size: 13px; }
 .wb-sitegrid span:nth-child(3n + 2), .wb-sitegrid span:nth-child(3n) { text-align: right; font-family: var(--f-num); }
 
+/* ---------- Superfície: painel de depuração (?debug, F3) ---------- */
+/* Painel lateral largo à esquerda, com rolagem própria: o mapa segue visível à direita, e a ficha e a legenda
+   dos sítios passam para o lado dele enquanto está aberto. */
+.surface-hud { --dbg-w: min(480px, calc(100vw - 280px)); }
+.wb-debugp {
+  position: absolute; left: 12px; top: 56px; bottom: 132px; width: var(--dbg-w); min-width: 320px; display: flex; flex-direction: column;
+  pointer-events: auto; z-index: 5;
+}
+.surface-hud.dbg-open .wb-info, .surface-hud.dbg-open .wb-legend { left: calc(var(--dbg-w) + 28px); }
+.wb-debugp .wb-win-head { gap: 8px; }
+.wb-dsum { font-family: var(--f-num); font-size: 12px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--ink2); }
+.wb-dtabs { flex: none; }
+.wb-dtabs button, .wb-vtabs.wb-dtabs button { width: auto; padding: 0 10px; font-family: var(--f-text); font-size: 13px; }
+.wb-debugp .wb-win-body { flex: 1; min-height: 0; overflow-y: auto; font-size: 13px; scrollbar-color: var(--br) transparent; }
+.wb-debugp .wb-kv > span:first-child { width: 132px; }
+.wb-debugp .wb-kv > .wb-dim { font-size: 12px; }
+.wb-debugp .wb-section { margin-top: 10px; }
+.wb-dtitle { display: flex; align-items: baseline; gap: 6px; font-size: 16px; margin: 2px 0 6px; }
+.wb-dtitle .wb-link { margin-left: auto; font-size: 12px; }
+.wb-dnote { font-size: 12px; margin: 2px 0 6px; }
+.wb-dempty { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; padding: 10px 12px; font-size: 13px; color: var(--ink2); background: rgba(43, 33, 24, 0.06); box-shadow: inset 0 0 0 1px var(--pa3), inset 3px 0 0 var(--amb); }
+.wb-dempty b { color: var(--ink); }
+.wb-dempty code { font-family: var(--f-num); font-size: 12px; }
+.wb-meter.wb-dmeter { width: 80px; }
+.wb-meter.info i { background: var(--cy-d); }
+.wb-debugp .wb-row[data-dplace], .wb-debugp .wb-row[data-dgo] { cursor: pointer; }
+.wb-debugp .wb-row[data-dplace]:hover, .wb-debugp .wb-row[data-dgo]:hover { background: rgba(122, 84, 24, 0.12); }
+.wb-debugp .wb-row i { width: auto; min-width: 26px; color: var(--ink2); font-family: var(--f-num); font-size: 12px; }
+.wb-debugp .wb-row em { font-family: var(--f-num); }
+.wb-debugp .wb-chip.on { background: #3b2f17; color: var(--gold); box-shadow: inset 0 0 0 2px var(--gold); }
+.wb-debugp .wb-chip[disabled] { opacity: 0.45; cursor: default; }
+/* Mundo: indicador, valor, meta e a série, com a faixa da meta ao fundo. */
+.wb-dind { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'label val' 'meta spark'; column-gap: 10px; row-gap: 2px; padding: 4px 0 5px 7px; border-bottom: 1px dotted var(--pa3); box-shadow: inset 3px 0 0 var(--pa3); }
+.wb-dind.good { box-shadow: inset 3px 0 0 var(--leaf); }
+.wb-dind.bad { box-shadow: inset 3px 0 0 var(--wax); background: rgba(184, 67, 58, 0.06); }
+.wb-dlabel { grid-area: label; }
+.wb-dind > b { grid-area: val; text-align: right; font-family: var(--f-num); font-weight: 400; }
+.wb-dind.good > b { color: #2f6b2f; }
+.wb-dind.bad > b { color: #8f2a22; }
+.wb-dind > .wb-dim { grid-area: meta; font-size: 12px; align-self: center; }
+.wb-dind > .wb-dspark { grid-area: spark; }
+svg.wb-dspark { display: block; width: 120px; height: 26px; background: rgba(43, 33, 24, 0.08); }
+.wb-dspark polyline { fill: none; stroke: var(--ink2); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+.wb-dspark.good polyline { stroke: #2f6b2f; }
+.wb-dspark.bad polyline { stroke: #8f2a22; }
+.wb-dspark .band { fill: rgba(79, 143, 79, 0.22); }
+span.wb-dspark { font-size: 12px; text-align: right; }
+/* Lugar: a barra da pressão (social e terra) com as marcas dos batedores e da fissão. */
+.wb-dpress { position: relative; height: 14px; margin: 8px 0 4px; background: rgba(43, 33, 24, 0.16); box-shadow: inset 0 0 0 1px var(--pa3); }
+.wb-dpress i { position: absolute; top: 0; bottom: 0; left: 0; }
+.wb-dpress u { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; }
+.wb-dpress .soc, .wb-dpress-legend .soc { background: var(--amb); }
+.wb-dpress .land, .wb-dpress-legend .land { background: #8a6a3e; }
+.wb-dpress .scout, .wb-dpress-legend .scout { background: var(--cy-d); }
+.wb-dpress .fission, .wb-dpress-legend .fission { background: var(--wax); }
+.wb-dpress-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; font-size: 12px; color: var(--ink2); margin-bottom: 2px; }
+.wb-dpress-legend i, .wb-dpress-legend u { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; }
+.wb-dpress-legend u { width: 3px; }
+/* Família: cada decisão, e a escolhida contra as outras fator por fator. */
+.wb-ddec { margin: 4px 0 8px; padding: 4px 6px 6px; background: rgba(43, 33, 24, 0.06); box-shadow: inset 0 0 0 1px var(--pa3); }
+.wb-ddec-head { width: 100%; flex-wrap: wrap; }
+.wb-ddec-head b { color: var(--bronze-ink); }
+.wb-ddec-why { font-size: 12px; color: var(--ink2); margin: 2px 0 4px; }
+.wb-dopt.on > span:first-child { color: var(--ink); font-weight: 700; }
+.wb-dopts { font-size: 12px; }
+.wb-dopts th, .wb-dopts td { white-space: normal; vertical-align: top; }
+.wb-dopts th.on { color: var(--ink); font-weight: 700; }
+.wb-dopts .wb-meter.wb-dmeter { width: 46px; }
+.wb-dopts .wb-meter-text { margin-left: 3px; }
+.wb-dfac { color: var(--ink2); }
+/* Eventos. */
+.wb-devent { width: 100%; }
+.wb-devent .wb-yr { flex: none; width: 40px; font-family: var(--f-num); font-size: 11px; }
+.wb-dkind { flex: none; padding: 0 4px; font-size: 11px; color: var(--ink2); background: rgba(43, 33, 24, 0.12); }
+/* Desempenho: barras por quadro. */
+.wb-dchart { margin: 6px 0 8px; font-size: 12px; color: var(--ink2); }
+svg.wb-dbars { display: block; width: 100%; height: 48px; margin-top: 2px; background: rgba(43, 33, 24, 0.08); box-shadow: inset 0 0 0 1px var(--pa3); }
+.wb-dbars rect { fill: var(--leaf); }
+.wb-dbars rect.info { fill: var(--cy-d); }
+.wb-dbars rect.bad { fill: var(--wax); }
+.wb-dbars line { stroke: var(--ink2); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.wb-dbars polyline.over { fill: none; stroke: var(--bronze-ink); stroke-width: 1.3; vector-effect: non-scaling-stroke; }
+/* Tempo: velocidades, avançar e o caso copiado. */
+.wb-dspeed { display: flex; gap: 4px; margin: 4px 0; }
+.wb-dspeed button, .wb-debugp .wb-speed button { flex: none; min-width: 52px; height: 26px; }
+.wb-dbtns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0; }
+.wb-dcase { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 10px; border-top: 1px solid var(--pa3); }
+.wb-dcase textarea { width: 100%; height: 140px; resize: vertical; font-family: var(--f-num); font-size: 11px; color: var(--ink); background: #fbf6e8; border: 1px solid var(--pa3); }
+.wb-dcase .wb-btn { align-self: flex-end; }
 
 /* ---------- telas pequenas ---------- */
 @media (max-width: 1100px) {
