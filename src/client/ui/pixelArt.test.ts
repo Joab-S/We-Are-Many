@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { TRAIT_INFO } from '../../ai/traits';
+import { ROLE_ICONS } from '../surface/settlementWindow';
+import { thoughtIcon } from '../surface/creatureInfo';
+import sheetSource from '../surface/hud/CreatureSheet.ts?raw';
+import infoSource from '../surface/creatureInfo.ts?raw';
 import { nineSlice } from './pixelArt';
 import { ICON_NAMES, ICON_SIZE, PALETTE, bitmapSvg, iconRows, pixelIcon, pixelize } from './pixelIcons';
 
@@ -19,6 +24,20 @@ describe('ícones de pixel art', () => {
     expect(pixelize('❤️')).toBe(pixelIcon('heart'));
     expect(pixelize('<span title="⚡ não troca">🏠 Casa</span>')).toBe(`<span title="⚡ não troca">${pixelIcon('house')} Casa</span>`);
     expect(pixelize('🐙 sem ícone')).toBe('🐙 sem ícone');
+  });
+
+  it('nenhum emoji sobra nas fontes da ficha: tudo vira ícone de pixel art', () => {
+    const left = (html: string) => [...pixelize(html).replace(/<[^>]*>/g, '')].filter((c) => /\p{Extended_Pictographic}|[▶✓✗›•]/u.test(c));
+    // Ofícios, traços de personalidade e pensamentos (as listas que a ficha lê).
+    expect(left(Object.values(ROLE_ICONS).join(' '))).toEqual([]);
+    expect(left(Object.values(TRAIT_INFO).map((t) => t.icon).join(' '))).toEqual([]);
+    const kinds = ['ofício', 'mudança', 'família', 'amizade', 'briga', 'poder', 'saber'] as const;
+    expect(left(kinds.map((kind) => thoughtIcon({ kind, year: 0, text: '' })).join(' '))).toEqual([]);
+    // Os textos escritos direto nos arquivos da ficha (estados, linha do tempo, rótulos).
+    for (const [file, text] of [['CreatureSheet.ts', sheetSource], ['creatureInfo.ts', infoSource]]) {
+      const src = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+      expect(left(src), file).toEqual([]);
+    }
   });
 
   it('o SVG junta as faixas da mesma cor e ignora o ponto', () => {

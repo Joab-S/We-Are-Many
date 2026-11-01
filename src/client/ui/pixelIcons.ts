@@ -73,6 +73,23 @@ const ART: Record<string, string[]> = {
   crown: ['', 'k....kk....k', 'kk..kyyk..kk', 'kyk.kyyk.kyk', 'kyykkyykkyyk', 'kyyyyyyyyyyk', 'kyyyyyyyyyyk', 'kYYYYYYYYYYk', 'kkkkkkkkkkkk'],
   x: ['rrr......rrr', 'rrrr....rrrr', '.rrrr..rrrr.', '..rrrrrrrr..', '...rrrrrr...', '....rrrr....', '....rrrr....', '...rrrrrr...', '..rrrrrrrr..', '.rrrr..rrrr.', 'rrrr....rrrr', 'rrr......rrr'],
   magnifier: ['...kkkk.....', '..kwwwwk....', '.kwccccwk...', '.kwccccwk...', '.kwccccwk...', '..kwwwwk....', '...kkkkkNk..', '........kNk.', '.........kNk', '..........kk'],
+  check: ['', '', '.........kk.', '........kllk', '.......kllk.', '.kk...kllk..', 'kllk.kllk...', '.kllkllk....', '..kllllk....', '...kllk.....', '....kk......'],
+  play: ['', '..kk........', '..kok.......', '..kook......', '..koook.....', '..kooook....', '..kooook....', '..koook.....', '..kook......', '..kok.......', '..kk........'],
+  chevron: ['', '', '...kk.......', '...kok......', '....kok.....', '.....kok....', '......kok...', '.....kok....', '....kok.....', '...kok......', '...kk.......'],
+  flag: ['.kk.........', '.knkkkkkk...', '.knrrrrrrk..', '.knrrwwrrrk.', '.knrrrrrrk..', '.knkkkkkk...', '.kn.........', '.kn.........', '.kn.........', '.kn.........', 'kkkk........'],
+  bow: ['....kkk.....', '..kkNNNk....', '.kNNnk.wk...', '.kNnk...wk..', 'kNnk.....wk.', 'kNkwwwwwwwwk', 'kNnk.....wk.', '.kNnk...wk..', '.kNNnk.wk...', '..kkNNNk....', '....kkk.....'],
+  axe: ['..kkkk......', '.kwwggk.....', '.kwggGGk....', '.kgggGGkNk..', '.kkggGkNnk..', '...kkkNnk...', '.....kNnk...', '.....kNnk...', '.....kNnk...', '.....kNk....', '.....kk.....'],
+  pickaxe: ['...kkkkkk...', '.kkggwwggkk.', 'kggGkkkkGggk', 'kGk..kNk..Gk', 'kk...kNnk.kk', '.....kNnk...', '.....kNnk...', '.....kNnk...', '.....kNnk...', '.....kNk....', '.....kk.....'],
+  fish: ['', '', '...kkkkk..k.', '.kkbbbbbkkkk', 'kbbkwbbbbbBk', 'kbbbbbbbbBBk', '.kkbbbbbkkkk', '...kkkkk..k.'],
+  wheat: ['.....kk.....', '....kyyk....', '..kk.kyk.kk.', '.kyykkYkkyyk', '..kyykYkyyk.', '.kyykkYkkyyk', '..kyykYkyyk.', '....kkYk....', '.....kYk....', '.....kYk....', '.....kk.....'],
+  anvil: ['', '', '.kkkkkkkkkk.', 'kggggggwwggk', 'kGGGGGGGGGGk', '.kkGGGGGGkk.', '...kGGGGk...', '...kGGGGk...', '..kGGGGGGk..', '.kddddddddk.', '.kkkkkkkkkk.'],
+  sheep: ['', '..kkkkkk....', '.kwwwwwwkkk.', 'kwwwwwwwwkgk', 'kwwwwwwwwkkk', '.kwwwwwwk...', '..kkkkkkk...', '..kk...kk...', '..kk...kk...'],
+  horse: ['..kk........', '.knNk.......', '.knnnk......', 'knnnnnkk....', 'knwknnnnkk..', 'knnnnnnnnnk.', '.kkkNNnnnnk.', '...kNNnnnk..', '...kNNnnk...', '....kkkk....'],
+  spool: ['', '..kkkkkkkk..', '.kwwwwwwwwk.', '..kkkkkkkk..', '..kbBbBbBk..', '..kBbBbBbk..', '..kbBbBbBk..', '..kBbBbBbk..', '..kkkkkkkk..', '.kwwwwwwwwk.', '..kkkkkkkk..'],
+  pot: ['', '...kkkkkk...', '...kOOOOk...', '..kkkkkkkk..', '.knnnnnnnnk.', 'knnnwnnnnNnk', 'knnnnnnnnNNk', 'knnnnnnnnNNk', '.knnnnnnNNk.', '..kknnNNkk..', '....kkkk....'],
+  mill: ['.....kk.....', '....kwwk....', '....kwwk....', '.kkkkwwkkkk.', 'kwwwwddwwwwk', 'kwwwwddwwwwk', '.kkkkwwkkkk.', '...knnnnk...', '..knnnnnnk..', '..knNNNNnk..', '..kkkkkkkk..'],
+  scales: ['.....kk.....', '.kkkkyykkkk.', '.ky..yy..yk.', '.ky..yy..yk.', 'kkkk.yy.kkkk', 'kyyykyykyyyk', '.kkk.yy.kkk.', '.....yy.....', '...kkyykk...', '..kyyyyyyk..', '..kkkkkkkk..'],
+  thought: ['', '..kkkkkkk...', '.kwwwwwwwk..', 'kwwwwwwwwwk.', 'kwwwwwwwwwk.', '.kwwwwwwwk..', '..kkkkkkk...', '..kwk.......', '..kk........'],
   eye: ['', '', '...kkkkkk...', '.kkwwwwwwkk.', 'kwwwbbbbwwwk', 'kwwbbkkbbwwk', 'kwwwbbbbwwwk', '.kkwwwwwwkk.', '...kkkkkk...'],
 };
 
@@ -93,15 +110,16 @@ ART.x = outlined(ART.x, 'r', 'R', 'm');
 
 /** Emoji → ícone. O que não está aqui continua como emoji. */
 const EMOJI: Record<string, string> = {
-  '🤝': 'smile', '😠': 'angry', '💞': 'heartPink', '🐾': 'paw', '🐎': 'paw', '🐑': 'paw', '🦁': 'paw', '⚠': 'warn',
+  '🤝': 'smile', '😠': 'angry', '💞': 'heartPink', '🐾': 'paw', '🦁': 'paw', '⚠': 'warn',
   '🍖': 'meat', '🍽': 'meat', '🍞': 'meat', '🦠': 'bug', '📜': 'scroll', '🕯': 'candle', '🙏': 'candle',
-  '🏠': 'house', '🏚': 'house', '🏛': 'house', '🏗': 'house', '⛏': 'hammer', '🛠': 'hammer', '🔨': 'hammer',
-  '⚒': 'hammer', '🪓': 'hammer', '🎣': 'hammer', '👴': 'elder', '🧒': 'child', '👶': 'child', '🍼': 'child',
+  '🏠': 'house', '🏚': 'house', '🏛': 'house', '🏗': 'house', '🛠': 'hammer', '🔨': 'hammer', '👴': 'elder', '🧒': 'child', '👶': 'child', '🍼': 'child',
   '🧑': 'person', '👤': 'person', '⚡': 'bolt', '❤': 'heart', '📍': 'pin', '📌': 'pin', '💤': 'rest',
-  '💬': 'chat', '🗣': 'chat', '👪': 'group', '👥': 'group', '🏷': 'group', '⛺': 'tent', '🧬': 'dna', '⭐': 'star',
+  '💬': 'chat', '🗣': 'chat', '👪': 'group', '👥': 'group', '⛺': 'tent', '🧬': 'dna', '⭐': 'star',
   '🧺': 'bag', '🎒': 'bag', '🧳': 'bag', '⏳': 'hourglass', '🛡': 'shield', '🧭': 'compass', '☠': 'skull',
-  '🎂': 'cake', '🎯': 'target', '🌱': 'leaf', '🌾': 'leaf', '💰': 'coin', '✨': 'sparkle', '💡': 'sparkle',
-  '🏹': 'sword', '⚔': 'sword', '💪': 'sword', '👑': 'crown', '♛': 'crown',
+  '🎂': 'cake', '🎯': 'target', '🌱': 'leaf', '💰': 'coin', '✨': 'sparkle', '💡': 'sparkle',
+  '🏹': 'bow', '⚔': 'sword', '💪': 'sword', '👑': 'crown', '♛': 'crown', '🪓': 'axe', '⛏': 'pickaxe', '🎣': 'fish', '🌾': 'wheat',
+  '⚒': 'anvil', '🐑': 'sheep', '🐎': 'horse', '🧵': 'spool', '🏺': 'pot', '🌀': 'mill', '⚖': 'scales', '🏷': 'flag',
+  '▶': 'play', '✓': 'check', '✗': 'x', '›': 'chevron',
 };
 const EMOJI_RE = new RegExp(`(<[^>]*>)|(${Object.keys(EMOJI).join('|')})\\uFE0F?`, 'gu');
 

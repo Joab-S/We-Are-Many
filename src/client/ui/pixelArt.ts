@@ -7,20 +7,25 @@ import { bitmapSvg, iconCss, svgUrl } from './pixelIcons';
  * as variáveis `--ns-*` e as classes dos ícones numa folha de estilo, uma única vez.
  */
 
-/** Pedra e metal das janelas (as cores das referências). */
-export const STONE = {
-  black: '#14150f',
-  face: '#484e44',
-  faceDark: '#3c4035',
-  well: '#2e3128',
-  trough: '#1a1b15',
-  light: '#7a8174',
-  light2: '#5d6457',
-  shade: '#2a2c24',
-  shade2: '#3a3e33',
-  red: '#e14e3a',
+/** Metal escuro, bronze e pergaminho: as mesmas cores do HUD geral (hud.css), em pixel art. */
+export const INLAY = {
+  ink: '#0d0f12',
+  metal: '#2a303a',
+  metalDark: '#1b2027',
+  bronzeLight: '#d3b06a',
+  bronze: '#b08a4a',
+  bronzeMid: '#8a6a3a',
+  bronzeDark: '#5a431f',
+  brown: '#3a2c14',
+  paper: '#e9dcbc',
+  paperLight: '#f6edd3',
+  paperMid: '#e3d3a9',
+  paperDark: '#d9c79c',
+  paperEdge: '#bfa971',
+  gold: '#e0c27a',
+  red: '#c8442f',
   redLight: '#ff9a78',
-  redDark: '#a8281a',
+  redDark: '#8e2418',
 } as const;
 
 interface Ring {
@@ -86,67 +91,104 @@ export function nineSlice(spec: SliceSpec): { rows: string[]; palette: Record<st
   return { rows, palette, size: n };
 }
 
-/** Molduras do conjunto, por nome (a variável CSS é `--ns-nome`). */
+/** Molduras do conjunto, por nome (a variável CSS é `--ns-nome`). Os cortes de canto (`notch`) variam de uma para outra: janela, caixa, medalha, pílula. */
 const SLICES: Record<string, SliceSpec> = {
-  // Janela: contorno, brilho de pedra, sombra e o filete fundo que separa o miolo.
+  // Janela: contorno, três anéis de bronze, o metal escuro com meandro e o filete fundo do miolo.
   frame: {
     k: 7,
-    notch: 3,
-    face: STONE.face,
-    rings: [{ all: STONE.black }, { tl: STONE.light, br: STONE.shade }, { tl: STONE.light2, br: STONE.shade2 }, { all: STONE.face }, { all: STONE.face }, { all: STONE.face }, { tl: '#2f3229', br: '#5b6155' }],
+    notch: 4,
+    face: INLAY.metal,
+    rings: [{ all: INLAY.ink }, { tl: INLAY.bronzeLight, br: INLAY.bronzeDark }, { tl: INLAY.bronze, br: INLAY.brown }, { all: INLAY.metal }, { all: INLAY.metal }, { all: INLAY.metal }, { tl: INLAY.metalDark, br: INLAY.bronzeMid }],
   },
-  // Moldura pequena (aba do fechar, balão de prévia).
+  // Moldura pequena (balão de prévia).
   frameS: {
     k: 5,
-    notch: 2,
-    face: STONE.face,
-    rings: [{ all: STONE.black }, { tl: STONE.light, br: STONE.shade }, { tl: STONE.light2, br: STONE.shade2 }, { all: STONE.face }, { tl: '#2f3229', br: '#5b6155' }],
+    notch: 3,
+    face: INLAY.metal,
+    rings: [{ all: INLAY.ink }, { tl: INLAY.bronzeLight, br: INLAY.bronzeDark }, { tl: INLAY.bronze, br: INLAY.brown }, { all: INLAY.metal }, { tl: INLAY.metalDark, br: INLAY.bronzeMid }],
   },
-  // Miolo da ficha: fundo cinza-esverdeado com a borda de cima e da esquerda escura.
+  // Miolo da ficha: pergaminho afundado na moldura (sombra em cima e à esquerda).
   body: {
-    k: 3,
-    notch: 1,
-    face: STONE.faceDark,
-    rings: [{ all: '#1b1c16' }, { tl: '#272a21', br: '#5f665a' }, { all: STONE.faceDark }],
-  },
-  // Caixa funda (retrato, espaços de ícones, barras).
-  well: {
-    k: 3,
-    notch: 1,
-    face: STONE.well,
-    rings: [{ all: '#17180f' }, { tl: '#23251d', br: '#51574b' }, { all: STONE.well }],
-  },
-  // Quadradinho de atributo.
-  tile: {
-    k: 3,
-    notch: 1,
-    face: '#363a2f',
-    rings: [{ all: '#1d1f18' }, { tl: '#4d5246', br: STONE.shade }, { all: '#363a2f' }],
-  },
-  // Placa do título: preto por dentro, filete cinza claro por fora.
-  plaque: {
     k: 4,
-    notch: 2,
-    face: '#0b0b08',
-    rings: [{ all: STONE.black }, { tl: '#a0a696', br: '#5b6155' }, { all: '#0b0b08' }, { all: '#0b0b08' }],
+    notch: 3,
+    face: INLAY.paper,
+    rings: [{ all: INLAY.brown }, { tl: INLAY.bronzeMid, br: INLAY.paperLight }, { all: INLAY.paperDark }, { all: INLAY.paper }],
   },
+  // Caixa funda escura (retrato, espaços de ícones).
+  well: {
+    k: 4,
+    notch: 3,
+    face: INLAY.metalDark,
+    rings: [{ all: INLAY.ink }, { tl: INLAY.metal, br: INLAY.bronzeMid }, { all: INLAY.metalDark }, { all: INLAY.metalDark }],
+  },
+  // Retrato: octógono de cantos bem cortados.
+  portrait: {
+    k: 5,
+    notch: 5,
+    face: INLAY.ink,
+    rings: [{ all: INLAY.ink }, { tl: INLAY.bronzeLight, br: INLAY.bronzeDark }, { tl: INLAY.bronze, br: INLAY.brown }, { all: INLAY.ink }, { all: INLAY.ink }],
+  },
+  // Medalha de atributo e cartão: papel claro de cantos em degrau.
+  tile: {
+    k: 4,
+    notch: 3,
+    face: INLAY.paperMid,
+    rings: [{ all: INLAY.bronzeDark }, { tl: INLAY.paperLight, br: INLAY.paperEdge }, { all: INLAY.paperMid }, { all: INLAY.paperMid }],
+  },
+  // Pílula: etiquetas e estados (cantos quase redondos).
+  pill: {
+    k: 4,
+    notch: 4,
+    face: INLAY.paperLight,
+    rings: [{ all: INLAY.bronzeMid }, { tl: '#ffffff', br: INLAY.paperEdge }, { all: INLAY.paperLight }, { all: INLAY.paperLight }],
+  },
+  // Cartão em destaque (a escolha tomada): ouro por fora.
+  gold: {
+    k: 4,
+    notch: 3,
+    face: '#f3e3ae',
+    rings: [{ all: INLAY.brown }, { tl: INLAY.gold, br: INLAY.bronze }, { all: '#f3e3ae' }, { all: '#f3e3ae' }],
+  },
+  // Placa do título: escura, com filete dourado, de cantos cortados fundo.
+  plaque: {
+    k: 5,
+    notch: 4,
+    face: INLAY.ink,
+    rings: [{ all: INLAY.ink }, { tl: INLAY.gold, br: INLAY.bronzeMid }, { all: INLAY.ink }, { all: INLAY.ink }, { all: INLAY.ink }],
+  },
+  // Abas: metal com filete de bronze; a escolhida é de ouro.
   tab: {
     k: 3,
-    notch: 1,
-    face: '#444a3f',
-    rings: [{ all: STONE.black }, { tl: '#6a7164', br: '#2f3229' }, { all: '#444a3f' }],
+    notch: 2,
+    face: INLAY.metal,
+    rings: [{ all: INLAY.ink }, { tl: INLAY.bronzeMid, br: INLAY.metalDark }, { all: INLAY.metal }],
   },
   tabOn: {
     k: 3,
-    notch: 1,
-    face: STONE.red,
-    rings: [{ all: STONE.black }, { tl: STONE.redLight, br: STONE.redDark }, { all: STONE.red }],
+    notch: 2,
+    face: INLAY.bronze,
+    rings: [{ all: INLAY.ink }, { tl: '#f6e3a8', br: INLAY.bronzeMid }, { all: INLAY.bronze }],
   },
+  // Aba de fechar: cera vermelha.
+  closeTab: {
+    k: 4,
+    notch: 4,
+    face: INLAY.red,
+    rings: [{ all: INLAY.ink }, { tl: INLAY.redLight, br: INLAY.redDark }, { all: INLAY.red }, { all: INLAY.red }],
+  },
+  // Botão de seguir: bronze de cantos cortados.
+  button: {
+    k: 3,
+    notch: 3,
+    face: INLAY.bronze,
+    rings: [{ all: INLAY.ink }, { tl: '#f6e3a8', br: INLAY.bronzeMid }, { all: INLAY.bronze }],
+  },
+  // Calha das barras: marrom escuro, cápsula.
   trough: {
-    k: 2,
-    notch: 1,
-    face: STONE.trough,
-    rings: [{ all: STONE.black }, { tl: '#0a0a08', br: '#4d5246' }],
+    k: 3,
+    notch: 3,
+    face: '#2a2218',
+    rings: [{ all: INLAY.ink }, { tl: '#120e08', br: INLAY.bronzeMid }, { all: '#2a2218' }],
   },
 };
 
@@ -155,6 +197,9 @@ export const SCALE = 2;
 
 /** Meandro grego bem fraco que corre pela moldura (azulejo de 8 x 6). */
 const FRET = ['DDDDDD..', 'D....D..', 'D.DD.DDD', 'D.D....D', 'D.DDDD.D', 'D.......'];
+
+/** Fibras do papel: pontos claros e escuros espalhados num azulejo de 16 x 12 (parece papiro, sem repetir de forma óbvia). */
+const FIBER = ['.......D........', '..L.........D...', '.....DD.....L...', '................', '......L...D.....', '..D.........L...', '.........DD.....', 'L...D...........', '.....L.....D....', '..D.......L.....', '.......D....L...', '.D..............'];
 
 let installed = false;
 
@@ -169,8 +214,9 @@ export function installPixelArt(doc: Document = document): void {
     })
     .join('');
   const fret = svgUrl(bitmapSvg(FRET, { D: '#40463b' }, 8, 6));
+  const fiber = svgUrl(bitmapSvg(FIBER, { D: '#dccda3', L: '#f1e6c8' }, 16, 12));
   const style = doc.createElement('style');
   style.id = 'px-art';
-  style.textContent = `:root{${vars}--ns-fret:${fret};}\n${iconCss()}`;
+  style.textContent = `:root{${vars}--ns-fret:${fret};--ns-fiber:${fiber};}\n${iconCss()}`;
   doc.head.appendChild(style);
 }

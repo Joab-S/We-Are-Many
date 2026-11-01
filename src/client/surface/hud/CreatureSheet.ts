@@ -1,7 +1,7 @@
 import type { Ecosystem } from '../../../sim/ecosystem';
 import { ROLE_NAMES, ROLES } from '../../../sim/roles';
 import { aptitudeOf, bestCraft, TECH_BY_ID } from '../../../sim/progress';
-import { notable, TRAIT_INFO, TRAITS, TRAIT_COUNT } from '../../../ai/traits';
+import { notable, TRAIT, TRAIT_INFO, TRAITS, TRAIT_COUNT, type Trait } from '../../../ai/traits';
 import { DEATH_TEXT } from '../../../sim/people';
 import { installPixelArt } from '../../ui/pixelArt';
 import { pixelIcon, pixelize } from '../../ui/pixelIcons';
@@ -29,18 +29,37 @@ import type { Selection } from '../selection';
 import type { IconCache } from './icons';
 import { HtmlSlot, HudComponent } from './component';
 
-/** Abas da ficha. Cada criatura mostra só as que têm conteúdo para ela. */
-export type SheetTab = 'overview' | 'status' | 'family' | 'diary' | 'journey' | 'history' | 'gear' | 'nature';
+/** Abas da ficha, cada uma com um tipo de informação. Cada criatura mostra só as que têm conteúdo para ela. */
+export type SheetTab = 'overview' | 'status' | 'personality' | 'family' | 'diary' | 'journey' | 'history' | 'gear' | 'nature';
 
 const TAB_INFO: Record<SheetTab, { label: string; icon: string }> = {
-  overview: { label: 'Visão geral', icon: 'magnifier' },
-  status: { label: 'Status e personalidade', icon: 'heart' },
+  overview: { label: 'Resumo', icon: 'person' },
+  status: { label: 'Condição e necessidades', icon: 'heart' },
+  personality: { label: 'Personalidade', icon: 'sparkle' },
   family: { label: 'Família e laços', icon: 'group' },
-  diary: { label: 'Pensamentos e diário', icon: 'chat' },
-  journey: { label: 'Jornada e decisões', icon: 'compass' },
-  history: { label: 'História', icon: 'scroll' },
+  diary: { label: 'Pensamentos recentes', icon: 'thought' },
+  journey: { label: 'Decisão do dia', icon: 'compass' },
+  history: { label: 'História de vida', icon: 'scroll' },
   gear: { label: 'Equipamento', icon: 'sword' },
   nature: { label: 'Vida selvagem', icon: 'leaf' },
+};
+
+/**
+ * Cada consideração da escolha do dia (src/ai/decisions/day.ts) em palavras de gente: o ícone, a frase de quando
+ * ela favoreceu a opção (`pro`), a de quando a derrubou (`con`) e o traço de personalidade de que depende, se houver.
+ */
+const FACTOR: Record<string, { icon: string; pro: string; con: string; trait?: Trait }> = {
+  prioridade: { icon: 'flag', pro: 'é importante para o lugar agora', con: 'não é urgente para o lugar', trait: 'diligence' },
+  ofício: { icon: 'hammer', pro: 'é do seu ofício', con: 'não é do seu ofício' },
+  perto: { icon: 'pin', pro: 'fica perto', con: 'fica longe', trait: 'diligence' },
+  amigos: { icon: 'smile', pro: 'amigos também vão', con: 'nenhum amigo vai junto', trait: 'sociability' },
+  fome: { icon: 'meat', pro: 'está com fome', con: 'não está com fome' },
+  cansaço: { icon: 'rest', pro: 'está cansado', con: 'não está cansado' },
+  disposição: { icon: 'bolt', pro: 'o jeito dele pede uma pausa', con: 'é trabalhador demais para parar', trait: 'diligence' },
+  solidão: { icon: 'chat', pro: 'sente falta de companhia', con: 'não sente falta de companhia' },
+  sociável: { icon: 'smile', pro: 'gosta de companhia', con: 'prefere ficar sozinho', trait: 'sociability' },
+  fé: { icon: 'candle', pro: 'sente vontade de rezar', con: 'não sente vontade de rezar' },
+  devoto: { icon: 'candle', pro: 'é devoto', con: 'não é muito devoto', trait: 'faith' },
 };
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -61,21 +80,13 @@ function jobLabel(life: ReturnType<typeof lifeOf>): string {
   return `${ROLE_ICONS[life.role]} ${life.label}`;
 }
 
-/** Linha "Ofício" da visão geral: o ofício, ou por que não tem (criança, aposentado, sem lugar). */
-function craftLabel(life: ReturnType<typeof lifeOf>): string {
-  if (life.stage === 'child') return 'Nenhum (criança)';
-  if (!life.role) return 'Nenhum';
-  if (life.stage === 'elder' && life.label === 'Idoso') return `Aposentado · era ${ROLE_NAMES[life.role].toLowerCase()}`;
-  return `${ROLE_ICONS[life.role]} ${life.label}`;
-}
-
-/** Barra com ícone, rótulo e valor (energia, saúde, progresso). */
-function meter(label: string, frac: number, text: string, t = tone(frac), ic = ''): string {
+/** Barra com ícone, rótulo e valor (necessidades, progresso). */
+function meter(label: string, frac: number, text: string, t = tone(frac), ic = '', hint = ''): string {
   const f = Math.max(0, Math.min(1, frac));
-  return `<div class="cs-meter ${t}" title="${esc(label)}: ${esc(text)}">${ic ? `<span class="cs-mi">${ic}</span>` : ''}<span class="cs-ml">${label}</span><span class="cs-mb"><i style="width:${(f * 100).toFixed(0)}%"></i><em>${text}</em></span></div>`;
+  return `<div class="cs-meter ${t}" title="${esc(hint || `${label}: ${text}`)}">${ic ? `<span class="cs-mi">${ic}</span>` : ''}<span class="cs-ml">${label}</span><span class="cs-mb"><i style="width:${(f * 100).toFixed(0)}%"></i><em>${text}</em></span></div>`;
 }
 
-/** Barra de status do cabeçalho (ícone e barra com o valor dentro; o rótulo fica na dica). */
+/** Barra de status do cabeçalho (ícone e cápsula com o valor dentro; o rótulo fica na dica). */
 function vital(label: string, frac: number, text: string, t = tone(frac), ic = ''): string {
   const f = Math.max(0, Math.min(1, frac));
   return `<div class="cs-vital ${t}" title="${esc(label)}: ${esc(text)}">${ic}<span class="cs-mb"><i style="width:${(f * 100).toFixed(0)}%"></i><em>${text}</em></span></div>`;
@@ -88,14 +99,17 @@ function titleColor(rgb: readonly number[]): string {
 }
 
 /** Necessidade do dia (0 a 1): quanto mais cheia, mais urgente. */
-const need = (label: string, f: number, ic: string) => meter(label, f, pct(f), f > 0.75 ? 'bad' : f > 0.5 ? 'warn' : 'good', ic);
+const need = (label: string, f: number, ic: string, hint: string) => meter(label, f, pct(f), f > 0.75 ? 'bad' : f > 0.5 ? 'warn' : 'good', ic, hint);
 
 /** Linha rótulo à esquerda, valor à direita. */
 const row = (label: string, value: string, ic = '') => `<div class="cs-row"><span>${ic ? `<i>${ic}</i>` : ''}${label}</span><b>${value}</b></div>`;
-/** Quadradinho de ícone e número (a grade de atributos das referências). */
-const tile = (ic: string, value: string, label: string, t = '') => `<span class="cs-tile ${t}" title="${esc(label)}"><i>${ic}</i><b>${value}</b></span>`;
-const section = (title: string) => `<div class="cs-sec">${title}</div>`;
+/** Medalha de ícone, valor e rótulo (a grade de atributos das referências). */
+const tile = (ic: string, value: string, label: string, t = '') => `<span class="cs-tile ${t}" title="${esc(label)}"><i>${ic}</i><span><b>${value}</b><em>${label}</em></span></span>`;
+const section = (title: string) => `<div class="cs-sec"><span>${title}</span></div>`;
 const empty = (text: string) => `<div class="cs-empty">${text}</div>`;
+const now = (eco: Ecosystem, i: number) => `<div class="cs-now">${pixelIcon('play')}<span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>`;
+/** "a, b e c". */
+const andList = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}` : (xs[0] ?? ''));
 
 /**
  * Ficha completa de uma criatura (RF-VIDA-335): janela no meio da tela, aberta com o clique e fixada, com
@@ -184,7 +198,7 @@ export class CreatureSheet extends HudComponent {
     el.classList.toggle('docked', this.sel.follow);
     this.setTitle(this.titleOf(eco, i), this.titleRgb(eco, i));
     this.head.set(pixelize(this.headHtml(eco, i)));
-    this.tabs.set(this.tabsHtml(tabs));
+    this.tabs.set(this.tabsHtml(tabs, person));
     this.setBody(person ? this.personTab(eco, i) : this.animalTab(eco, i));
     this.foot.set(
       pixelize(`<button class="cs-btn ${this.sel.follow ? 'on' : ''}" data-act="follow" title="A câmera acompanha a criatura (F)">${pixelIcon(this.sel.follow ? 'x' : 'eye')}<span>${this.sel.follow ? 'Parar de seguir' : 'Seguir'}</span><kbd>F</kbd></button>
@@ -211,7 +225,7 @@ export class CreatureSheet extends HudComponent {
   /** Abas que fazem sentido para a criatura: as de pessoa só para pessoas, e nenhuma aba vazia. */
   private tabsFor(eco: Ecosystem, i: number): SheetTab[] {
     if (!isPerson(eco, i)) return ['overview', 'nature'];
-    const out: SheetTab[] = ['overview', 'status'];
+    const out: SheetTab[] = ['overview', 'status', 'personality'];
     const fam = eco.familyOf(i);
     const t = eco.tiesOf(i);
     if (fam.parent >= 0 || fam.children.length || t.partner >= 0 || t.friends.length || t.rivals.length) out.push('family');
@@ -221,9 +235,13 @@ export class CreatureSheet extends HudComponent {
     return out;
   }
 
-  private tabsHtml(tabs: SheetTab[]): string {
+  private tabsHtml(tabs: SheetTab[], person: boolean): string {
     return tabs
-      .map((t) => `<button class="cs-tab ${t === this.tab ? 'on' : ''}" data-ctab="${t}" aria-label="${TAB_INFO[t].label}" aria-pressed="${t === this.tab}">${pixelIcon(TAB_INFO[t].icon)}<span class="cs-tip">${TAB_INFO[t].label}</span></button>`)
+      .map((t) => {
+        const label = t === 'overview' && !person ? 'Resumo do animal' : TAB_INFO[t].label;
+        const icon = t === 'overview' && !person ? 'paw' : TAB_INFO[t].icon;
+        return `<button class="cs-tab ${t === this.tab ? 'on' : ''}" data-ctab="${t}" aria-label="${label}" aria-pressed="${t === this.tab}">${pixelIcon(icon)}<span class="cs-tip">${label}</span></button>`;
+      })
       .join('');
   }
 
@@ -259,7 +277,7 @@ export class CreatureSheet extends HudComponent {
     }
   }
 
-  /** Cabeçalho: retrato, o que é (espécie e ofício ou fase) e os estados em ícones (o texto fica na dica). */
+  /** Cabeçalho: retrato, o que é (espécie e ofício ou fase), os estados em ícones e as barras de saúde e energia (sempre à vista). */
   private headHtml(eco: Ecosystem, i: number): string {
     const sp = eco.species[eco.kind[i]];
     let sub: string;
@@ -272,7 +290,8 @@ export class CreatureSheet extends HudComponent {
     const icons = marks.map((s) => `<span class="cs-hm ${s.tone}" title="${esc(s.label)}">${s.icon}</span>`).join('');
     return `<div class="cs-portrait">${this.portrait(eco, i)}</div>
       <div class="cs-hslot"><span>${esc(sub)}</span></div>
-      <div class="cs-hslot ${marks.length ? '' : 'dim'}">${icons || '<span>Nenhum estado especial</span>'}</div>`;
+      <div class="cs-hslot ${marks.length ? '' : 'dim'}">${icons || '<span>Nenhum estado especial</span>'}</div>
+      ${this.vitals(eco, i)}`;
   }
 
   // ---- Pessoas -----------------------------------------------------------------------------------
@@ -281,6 +300,8 @@ export class CreatureSheet extends HudComponent {
     switch (this.tab) {
       case 'status':
         return this.personStatus(eco, i);
+      case 'personality':
+        return this.personPersonality(eco, i);
       case 'family':
         return this.personFamily(eco, i);
       case 'diary':
@@ -315,10 +336,10 @@ export class CreatureSheet extends HudComponent {
   /** Cartão do lugar onde mora (clicável, abre a janela do assentamento), ou "Sem assentamento". */
   private placeCard(eco: Ecosystem, i: number): string {
     const v = homeOf(eco, i);
-    if (!v) return `<div class="cs-place none"><i>⛺</i><span><b>Sem assentamento</b><em>Vive solto, sem lugar nem profissão</em></span></div>`;
+    if (!v) return `<div class="cs-place none"><i>${pixelIcon('tent')}</i><span><b>Sem assentamento</b><em>Vive solto, sem lugar nem profissão</em></span></div>`;
     const king = eco.villages[v.kingdom];
     const polity = v.kingdom !== v.id ? eco.polityName(v) : null;
-    return `<button class="cs-place" data-village="${v.id}" title="Abrir a janela de ${esc(v.name)}">${this.icons.crest(king)}<span><b>${eco.tierName(v)} ${esc(v.name)}</b><em>${polity ? `Reino: ${esc(polity)}` : 'Independente'}</em></span><i class="cs-go">›</i></button>`;
+    return `<button class="cs-place" data-village="${v.id}" title="Abrir a janela de ${esc(v.name)}">${this.icons.crest(king)}<span><b>${eco.tierName(v)} ${esc(v.name)}</b><em>${polity ? `Reino: ${esc(polity)}` : 'Independente'}</em></span><i class="cs-go">${pixelIcon('chevron')}</i></button>`;
   }
 
   private personOverview(eco: Ecosystem, i: number): string {
@@ -329,24 +350,23 @@ export class CreatureSheet extends HudComponent {
     const craft = life.stage !== 'child' ? ROLE_NAMES[ROLES[bestCraft(eco.uid[i])]] : '';
     const stage = life.stage === 'child' ? 'Criança' : life.stage === 'elder' ? 'Idoso' : 'Adulto';
     const tiles = [
-      tile('🎂', `${Math.floor(eco.age[i])}`, 'Idade em anos'),
-      tile(life.stage === 'child' ? '🧒' : life.stage === 'elder' ? '👴' : '🧑', stage, 'Fase da vida'),
-      tile('👶', `${fam.children.length}`, 'Filhos vivos'),
-      tile('🤝', `${t.friends.length}`, 'Amigos'),
-      tile('😠', `${t.rivals.length}`, 'Rivais', t.rivals.length ? 'bad' : ''),
-      t.partner >= 0 ? tile('💞', 'Sim', 'Casado(a)') : tile('💞', 'Não', 'Casado(a)'),
+      tile(pixelIcon('cake'), `${Math.floor(eco.age[i])}`, 'Idade em anos'),
+      tile(pixelIcon(life.stage === 'child' ? 'child' : life.stage === 'elder' ? 'elder' : 'person'), stage, 'Fase da vida'),
+      tile(pixelIcon('child'), `${fam.children.length}`, 'Filhos vivos'),
+      tile(pixelIcon('smile'), `${t.friends.length}`, 'Amigos'),
+      tile(pixelIcon('angry'), `${t.rivals.length}`, 'Rivais', t.rivals.length ? 'bad' : ''),
+      tile(pixelIcon('heartPink'), t.partner >= 0 ? 'Sim' : 'Não', 'Casado(a)'),
+      life.role ? tile(ROLE_ICONS[life.role], esc(life.stage === 'elder' && life.label === 'Idoso' ? 'Aposentado' : life.label), 'Ofício') : tile(pixelIcon('tent'), 'Nenhum', life.stage === 'child' ? 'Ofício (criança)' : 'Ofício'),
+      craft ? tile(pixelIcon('star'), esc(craft), 'Jeito para') : '',
     ].join('');
     const teaching = v?.pendingTech?.uid === eco.uid[i] ? v.pendingTech : null;
     return `
-      ${this.vitals(eco, i)}
-      <div class="cs-now"><i>▶</i><span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>
+      ${now(eco, i)}
       <div class="cs-tiles">${tiles}</div>
       ${this.placeCard(eco, i)}
       <div class="cs-rows">
-        ${row('Família', esc(personFullName(eco, i).family), '🏷️')}
-        ${row('Espécie', esc(eco.species[eco.kind[i]].name), '🧬')}
-        ${row('Ofício', craftLabel(life), '🛠️')}
-        ${craft ? row('Jeito para', craft.toLowerCase(), '⭐') : ''}
+        ${row('Família', esc(personFullName(eco, i).family), pixelIcon('flag'))}
+        ${row('Espécie', esc(eco.species[eco.kind[i]].name), pixelIcon('dna'))}
       </div>
       ${teaching ? this.teaching(teaching) : ''}`;
   }
@@ -354,40 +374,46 @@ export class CreatureSheet extends HudComponent {
   /** Quem descobriu uma técnica e ainda a ensina ao lugar (RF-VIDA-419): nome, progresso e o aviso de que transmite. */
   private teaching(t: { id: string; progress: number }): string {
     const name = TECH_BY_ID[t.id]?.name ?? t.id;
-    return `<div class="cs-teach"><i class="cs-teach-ic">📜</i><span><b>Ensinando ${esc(name)}</b><em>Transmite o que descobriu ao lugar</em></span>${meter('Progresso', t.progress, pct(t.progress), 'good')}</div>`;
+    return `<div class="cs-teach"><i class="cs-teach-ic">${pixelIcon('scroll')}</i><span><b>Ensinando ${esc(name)}</b><em>Transmite o que descobriu ao lugar</em></span>${meter('Progresso', t.progress, pct(t.progress), 'good')}</div>`;
   }
 
+  /** Condição: o que o corpo e a rotina pedem agora (as necessidades do dia) e os estados com texto. */
   private personStatus(eco: Ecosystem, i: number): string {
     const life = lifeOf(eco, i);
     const needs = needsOf(eco, i);
     const v = homeOf(eco, i);
+    const craft = life.stage !== 'child' ? bestCraft(eco.uid[i]) : -1;
+    const apt = craft >= 0 ? aptitudeOf(eco.uid[i], craft) : 0;
+    const teaching = v?.pendingTech?.uid === eco.uid[i] ? v.pendingTech : null;
+    const temple = v ? eco.has(v, 'temple') : false;
+    const needsHtml = needs
+      ? `${section('Necessidades do dia')}<div class="cs-bars">${need('Fome', needs.hunger, pixelIcon('meat'), 'Fome: calculada da energia (mais fome abaixo de 75% de energia)')}${need('Cansaço', needs.rest, pixelIcon('rest'), 'Cansaço: sobe com o tempo (mais devagar sem trabalhar) e zera ao descansar em casa')}${need('Falta de companhia', needs.social, pixelIcon('chat'), 'Falta de companhia: sobe com o tempo e zera ao conversar na praça, na festa ou vendo a caravana')}${need('Vontade de rezar', needs.faith, pixelIcon('candle'), 'Vontade de rezar: sobe com o tempo e zera ao rezar no templo ou ir a um enterro')}</div>
+        <div class="cs-note">Cada necessidade sobe sozinha com o tempo e só zera quando a pessoa conclui o gesto (descansar em casa, conversar na praça, rezar no templo). Trabalho e eventos do lugar disputam a vez com elas, por isso gente do mesmo lugar costuma ter valores parecidos. Acima de 75% a ficha mostra o aviso no cabeçalho.${temple ? '' : ' Este lugar não tem templo: sem ele ninguém consegue rezar, e a vontade de rezar só sobe.'}</div>`
+      : `${section('Necessidades do dia')}${empty(life.stage === 'child' ? 'Criança ainda não tem as necessidades do dia dos adultos.' : !v ? 'Quem vive solto não segue a rotina de um assentamento.' : 'As necessidades só correm nos lugares perto da câmera ou de quem está aberto na ficha.')}`;
+    return `
+      ${needsHtml}
+      ${this.marks(eco, i) ? `${section('Estados')}${this.marks(eco, i)}` : ''}
+      ${teaching ? this.teaching(teaching) : ''}
+      ${craft >= 0 ? `${section('Capacidade')}<div class="cs-rows">${row('Jeito para', ROLE_NAMES[ROLES[craft]].toLowerCase(), pixelIcon('star'))}</div>${meter('Aptidão', apt, pct(apt), 'good', pixelIcon('target'), 'Aptidão para o ofício de que mais tem jeito')}` : ''}`;
+  }
+
+  /** Personalidade: os traços marcantes e os 16 traços (−10 a 10) como barra de dois lados. */
+  private personPersonality(eco: Ecosystem, i: number): string {
     const marks = notable(eco.traits, i);
-    const chips = marks.length ? `<div class="cs-chips">${marks.map((t) => `<span class="cs-chip" title="${TRAIT_INFO[t.trait].name}">${t.icon} ${t.label}</span>`).join('')}</div>` : empty('Nenhum traço marcante: um temperamento equilibrado');
-    // Os 16 traços (−10 a 10) como barra de dois lados: a ponta baixa à esquerda, a alta à direita.
+    const chips = marks.length ? `<div class="cs-chips">${marks.map((t) => `<span class="cs-chip" title="${TRAIT_INFO[t.trait].name}">${t.icon}<em>${t.label}</em></span>`).join('')}</div>` : empty('Nenhum traço marcante: um temperamento equilibrado');
     const grid = TRAITS.map((t, k) => {
       const value = eco.traits[i * TRAIT_COUNT + k];
       const info = TRAIT_INFO[t];
       const w = (Math.abs(value) / 10) * 50;
       const side = value >= 0 ? `left:50%;width:${w}%` : `left:${50 - w}%;width:${w}%`;
-      return `<div class="cs-trait" title="${info.name}: ${value > 0 ? '+' : ''}${value}"><span class="lo">${info.low}</span><span class="cs-tb"><i style="${side}" class="${value >= 0 ? 'hi' : 'lo'}"></i></span><span class="hi">${info.high}</span></div>`;
+      return `<div class="cs-trait" title="${info.name}: ${value > 0 ? '+' : ''}${value}"><span class="lo ${value < 0 ? 'on' : ''}">${info.low}</span><span class="cs-tb"><i style="${side}" class="${value >= 0 ? 'hi' : 'lo'}"></i></span><span class="hi ${value > 0 ? 'on' : ''}">${info.high}</span></div>`;
     }).join('');
-    const craft = life.stage !== 'child' ? bestCraft(eco.uid[i]) : -1;
-    const apt = craft >= 0 ? aptitudeOf(eco.uid[i], craft) : 0;
-    const teaching = v?.pendingTech?.uid === eco.uid[i] ? v.pendingTech : null;
     return `
-      ${section('Condição')}
-      ${this.vitals(eco, i)}
-      ${this.marks(eco, i)}
-      ${
-        needs
-          ? `${section('Necessidades do dia')}<div class="cs-bars">${need('Cansaço', needs.rest, '💤')}${need('Solidão', needs.social, '💬')}${need('Rezar', needs.faith, '🕯️')}</div>`
-          : ''
-      }
-      ${teaching ? this.teaching(teaching) : ''}
-      ${craft >= 0 ? `${section('Capacidade')}<div class="cs-rows">${row('Jeito para', ROLE_NAMES[ROLES[craft]].toLowerCase(), '⭐')}</div>${meter('Aptidão', apt, pct(apt), 'good', '🎯')}` : ''}
-      ${section('Personalidade')}
+      ${section('Traços marcantes')}
       ${chips}
-      <div class="cs-traits">${grid}</div>`;
+      ${section('Temperamento')}
+      <div class="cs-traits">${grid}</div>
+      <div class="cs-note">Cada barra vai de −10 (esquerda) a +10 (direita); o meio é o equilíbrio. Esses traços pesam nas escolhas do dia (aba Decisão).</div>`;
   }
 
   private tieRow(eco: Ecosystem, kind: 'partner' | 'friend' | 'rival', t: Tie): string {
@@ -426,57 +452,77 @@ export class CreatureSheet extends HudComponent {
       <div class="cs-note">O diário guarda as últimas ${all.length >= 10 ? 10 : all.length} decisões; brigas e amizades antigas saem primeiro.</div>`;
   }
 
-  /** Jornada (RF-AS-30): a tarefa que venceu na IAUS, o porquê e as alternativas que perderam. */
+  /** Uma consideração da escolha em palavras: ícone, frase (a favor ou contra) e a barra, com o jeito dele quando o traço pesa. */
+  private factorChip(eco: Ecosystem, i: number, name: string, value: number, against = false): string {
+    const f = FACTOR[name];
+    if (!f) return `<span class="cs-fchip"><em>${esc(name)}</em></span>`;
+    const tv = f.trait ? eco.traits[i * TRAIT_COUNT + TRAIT[f.trait]] : 0;
+    const info = f.trait ? TRAIT_INFO[f.trait] : null;
+    const trait = info && Math.abs(tv) >= 3 ? `<small>${tv > 0 ? info.high : info.low}</small>` : '';
+    return `<span class="cs-fchip ${against ? 'against' : ''}" title="${esc(name)}: ${num(value)} (de 0 a 1)${info ? ` · depende do traço ${esc(info.name.toLowerCase())}` : ''}">${pixelIcon(f.icon)}<em>${cap(against ? f.con : f.pro)}</em>${trait}<span class="cs-tb1"><i style="width:${pct(value)}"></i></span></span>`;
+  }
+
+  /** Decisão do dia (RF-AS-30): o que fez, por quê, em que estado estava e as outras ideias, em linguagem de personagem. */
   private personJourney(eco: Ecosystem, i: number): string {
     const v = homeOf(eco, i);
-    const now = `<div class="cs-now"><i>▶</i><span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>`;
+    const name = personFullName(eco, i).first;
     if (!v) {
       const g = eco.wanderGoal(i);
       const to = g.village >= 0 ? eco.villages[g.village] : null;
-      return `${now}
-        <div class="cs-choice win"><div class="cs-ch"><i>✓</i><b>${to ? 'Ir morar num lugar do seu povo' : 'Juntar-se a outros solitários'}</b></div>
-          <div class="cs-why">${
+      return `${now(eco, i)}
+        <div class="cs-pick"><div class="cs-pick-head">${pixelIcon('check')}<b>${to ? 'Ir morar num lugar do seu povo' : 'Juntar-se a outros solitários'}</b></div>
+          <p class="cs-say">${esc(name)} vive sem assentamento e ${
             to
-              ? `<span>Por quê:</span> vive sem assentamento e <button class="cs-link" data-village="${to.id}">${eco.tierName(to)} ${esc(to.name)}</button> fica a ${Math.round(g.distance)} tiles; ao chegar, entra e recebe uma profissão`
-              : '<span>Por quê:</span> nenhum lugar do seu povo a menos de 40 tiles; procura outros solitários e só funda um lugar em grupo'
-          }</div></div>`;
+              ? `<button class="cs-link" data-village="${to.id}">${eco.tierName(to)} ${esc(to.name)}</button> fica a ${Math.round(g.distance)} tiles; ao chegar, entra e recebe uma profissão.`
+              : 'não há lugar do seu povo a menos de 40 tiles: procura outros solitários e só funda um lugar em grupo.'
+          }</p></div>`;
     }
     const d = eco.dayOf(i);
-    const carry = `<div class="cs-row"><span><i>🎒</i>Carregando</span>${d.carry ? `<b>${esc(d.carry)}</b>` : '<b class="cs-dim">Nada</b>'}</div>`;
     const n = d.note;
-    // Barras das notas relativas à melhor nota da escolha (as notas passam de 1 com o peso da opção).
-    const best = Math.max(n?.score ?? 0, ...(n?.others.map((o) => o.score) ?? []), 1e-6);
-    const score = (x: number, label: string) => `<span class="cs-score" title="${label}: ${num(x)}"><span class="cs-tb1"><i style="width:${pct(x / best)}"></i></span>${num(x)}</span>`;
-    const cut = n?.cut;
-    const factors = n?.factors?.length
-      ? `<div class="cs-factors">${n.factors.map((f) => `<span class="cs-factor" title="Consideração: ${esc(f.name)} ${num(f.value)}"><em>${esc(f.name)}</em><span class="cs-tb1"><i style="width:${pct(f.value)}"></i></span><b>${num(f.value)}</b></span>`).join('')}</div>`
+    const needs = needsOf(eco, i);
+    const state = needs
+      ? `<div class="cs-needmini" title="O estado dele na hora de decidir">${[['meat', 'Fome', needs.hunger], ['rest', 'Cansaço', needs.rest], ['chat', 'Companhia', needs.social], ['candle', 'Fé', needs.faith]]
+          .map(([ic, l, f]) => `<span class="${(f as number) > 0.75 ? 'bad' : (f as number) > 0.5 ? 'warn' : 'good'}" title="${l}: ${pct(f as number)}">${pixelIcon(ic as string)}<span class="cs-tb1"><i style="width:${pct(f as number)}"></i></span></span>`)
+          .join('')}</div>`
       : '';
-    let why = esc(d.why);
-    if (n?.factors?.length && n.score !== undefined) {
+    const carry = d.carry ? `<div class="cs-carry">${pixelIcon('bag')}<span>Carregando <b>${esc(d.carry)}</b></span></div>` : '';
+    const full = eco.full(v);
+    const topFactors = n?.factors ?? [];
+    const best = Math.max(n?.score ?? 0, ...(n?.others.map((o) => o.score) ?? []), 1e-6);
+    const cut = n?.cut;
+    // O porquê: as considerações que mais pesaram a favor, ditas como motivos.
+    const reasons = topFactors.map((f) => (FACTOR[f.name]?.pro ?? f.name));
+    let because: string;
+    if (topFactors.length) because = `<p class="cs-say">${esc(name)} escolheu <b>${esc(d.task)}</b> porque ${andList(reasons)}.</p>`;
+    else because = `<p class="cs-say">${esc(cap(d.why))}.</p>`;
+    let luck = '';
+    if (topFactors.length && n?.score !== undefined) {
       const top = n.others.length && n.others[0].score > n.score;
-      why = top
-        ? `não era a nota mais alta, mas ficou acima do corte de ${num(cut ?? 0)} (85% da melhor) e saiu no sorteio ponderado, em que nota maior tem mais chance. Pesaram a favor:`
-        : `teve a melhor nota. A nota é o produto das considerações (cada uma de 0 a 1); pesaram a favor:`;
+      luck = `<p class="cs-fine" title="Corte do sorteio: ${num(cut ?? 0)} (85% da melhor nota)">${top ? 'Havia uma opção com nota um pouco maior, mas esta também estava entre as melhores e foi a sorteada.' : 'Era a opção com a melhor nota naquele momento.'}</p>`;
     }
+    const pick = `<div class="cs-pick"><div class="cs-pick-head">${pixelIcon('check')}<b>${esc(cap(d.task))}</b>${n?.score !== undefined ? `<span class="cs-tb1" title="Nota da escolha: ${num(n.score)}"><i style="width:${pct(n.score / best)}"></i></span>` : ''}</div>
+        ${because}
+        ${topFactors.length ? `<div class="cs-fchips">${topFactors.map((f) => this.factorChip(eco, i, f.name, f.value)).join('')}</div>` : ''}
+        ${luck}</div>`;
     const lost = (o: { label: string; score: number; low?: string }) => {
       const close = cut !== undefined && o.score >= cut;
-      const reason = close ? 'estava no páreo (acima do corte), mas o sorteio ponderado escolheu outra' : `ficou abaixo do corte${o.low ? `; o que mais puxou a nota para baixo foi ${esc(o.low)}` : ''}`;
-      return `<div class="cs-choice lost ${close ? 'close' : ''}"><div class="cs-ch"><i>✗</i><b>${esc(o.label)}</b>${score(o.score, 'Nota')}</div><div class="cs-why"><span>Perdeu:</span> ${reason}</div></div>`;
+      const con = o.low ? (FACTOR[o.low]?.con ?? o.low) : '';
+      const reason = close ? 'Também era uma boa opção, mas o sorteio escolheu outra.' : con ? `Ficou de fora: ${con}.` : 'Ficou de fora: a nota foi mais baixa.';
+      return `<div class="cs-alt ${close ? 'close' : ''}"><div class="cs-alt-head">${pixelIcon('thought')}<b>${esc(cap(o.label))}</b><span class="cs-tb1" title="Nota: ${num(o.score)}"><i style="width:${pct(o.score / best)}"></i></span></div><p>${reason}</p>${!close && o.low ? `<div class="cs-fchips">${this.factorChip(eco, i, o.low, 0, true)}</div>` : ''}</div>`;
     };
     const others = n?.others.length
       ? n.others.map(lost).join('')
       : d.others.length
-        ? d.others.map((o) => `<div class="cs-choice lost"><div class="cs-ch"><i>✗</i><b>${esc(o)}</b></div><div class="cs-why"><span>Perdeu:</span> a ordem do quadro do lugar passa na frente</div></div>`).join('')
-        : empty(n ? 'Nenhuma alternativa disputou: um evento do lugar passou na frente da escolha' : 'Nenhuma alternativa registrada');
-    const full = eco.full(v);
-    return `${full ? '' : now}
+        ? d.others.map((o) => `<div class="cs-alt"><div class="cs-alt-head">${pixelIcon('thought')}<b>${esc(cap(o))}</b></div><p>A ordem do quadro do lugar passou na frente.</p></div>`).join('')
+        : empty(n ? 'Nenhuma outra ideia disputou: um evento do lugar passou na frente da escolha.' : 'Nenhuma outra ideia registrada.');
+    return `${now(eco, i)}
       ${carry}
-      ${section('Decisão')}
-      <div class="cs-choice win"><div class="cs-ch"><i>✓</i><b>${esc(cap(d.task))}</b>${n?.score !== undefined ? score(n.score, 'Nota da escolha') : ''}</div>
-        <div class="cs-why"><span>Por quê:</span> ${why}</div>${factors}</div>
-      ${section('Alternativas que perderam')}
+      ${state ? `${section('Como está agora')}${state}` : ''}
+      ${section('O que decidiu')}
+      ${pick}
+      ${section('Também pensou em')}
       ${others}
-      ${full ? '' : '<div class="cs-note">O lugar está fora da tela: as jornadas só são escolhidas uma a uma nos lugares perto da câmera ou de quem está aberto na ficha.</div>'}`;
+      ${full ? '' : '<div class="cs-note">O lugar está fora da tela: as decisões só são tomadas uma a uma nos lugares perto da câmera ou de quem está aberto na ficha.</div>'}`;
   }
 
   private personHistory(eco: Ecosystem, i: number): string {
@@ -512,17 +558,19 @@ export class CreatureSheet extends HudComponent {
         ${row('Predador por perto', a.threat ? `<span class="bad">${esc(a.threat.name)} a ${Math.round(a.threat.distance)} tiles</span>` : '<span class="cs-dim">Nenhum à vista</span>', '⚠')}`;
     }
     const life = a.age / a.maxAge;
+    const sp = eco.species[eco.kind[i]];
     return `
-      ${this.vitals(eco, i)}
-      ${meter('Idade', life, `${Math.floor(a.age)} de até ${Math.round(a.maxAge)} anos`, life > 0.75 ? 'warn' : 'good', '⏳')}
-      <div class="cs-now"><i>▶</i><span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>
+      ${now(eco, i)}
       <div class="cs-tiles">
-        ${tile('🧬', esc(eco.species[eco.kind[i]].name), 'Espécie')}
-        ${tile('🌱', cap(a.stage), 'Fase da vida')}
-        ${tile('🐾', a.group.size > 1 ? `${a.group.size}` : '1', `Tamanho do ${a.group.name}`)}
-        ${a.threat ? tile('⚠', `${Math.round(a.threat.distance)}t`, `Predador por perto: ${a.threat.name}`, 'bad') : ''}
+        ${tile(pixelIcon('dna'), esc(sp.name), 'Espécie')}
+        ${tile(pixelIcon('leaf'), cap(a.stage), 'Fase da vida')}
+        ${tile(pixelIcon('paw'), a.group.size > 1 ? `${a.group.size}` : '1', `Tamanho do ${a.group.name}`)}
+        ${tile(pixelIcon('meat'), esc(cap(a.diet)), `Dieta: ${a.diet}`)}
+        ${a.threat ? tile(pixelIcon('warn'), `${Math.round(a.threat.distance)} tiles`, `Predador por perto: ${a.threat.name}`, 'bad') : ''}
+        ${a.parasites ? tile(pixelIcon('bug'), a.parasites.heavy ? 'Muitos' : 'Alguns', `Parasitas: ${a.parasites.name}`, a.parasites.heavy ? 'bad' : '') : ''}
       </div>
-      ${a.parasites?.heavy ? `<div class="cs-marks"><span class="cs-mark bad">🦠<em>Muitos ${esc(a.parasites.name)}</em></span></div>` : ''}`;
+      ${section('Tempo de vida')}
+      ${meter('Idade', life, `${Math.floor(a.age)} / ${Math.round(a.maxAge)} anos`, life > 0.75 ? 'warn' : 'good', pixelIcon('hourglass'))}`;
   }
 
   // ---- Grupo -------------------------------------------------------------------------------------
@@ -610,7 +658,7 @@ export function previewHtml(eco: Ecosystem, i: number, sheet: CreatureSheet): st
   return pixelize(`<div class="cs-prev">
       <div class="cs-prev-head"><div class="cs-portrait">${sheet.portrait(eco, i)}</div><div class="cs-name" style="--title:${titleColor(isPerson(eco, i) ? (homeOf(eco, i)?.color ?? sp.color) : sp.color)}"><b>${esc(name)}</b><span>${esc(sub)}</span></div></div>
       <div class="cs-vitals">${bars}</div>
-      <div class="cs-now"><i>▶</i><span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>
+      ${now(eco, i)}
       <div class="cs-prev-foot"><span>${place}</span>${marks ? `<span class="cs-marks inline">${marks}</span>` : ''}</div>
       <div class="cs-hint">Clique para abrir a ficha</div>
     </div>`);

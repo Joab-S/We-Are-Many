@@ -109,10 +109,12 @@ export function statusMarks(eco: Ecosystem, i: number): StatusMark[] {
 }
 
 /** Necessidades do dia (0 a 1, quanto mais alto mais urgente); null fora do modo completo, onde não correm. */
-export function needsOf(eco: Ecosystem, i: number): { rest: number; social: number; faith: number } | null {
+export function needsOf(eco: Ecosystem, i: number): { hunger: number; rest: number; social: number; faith: number } | null {
   const v = homeOf(eco, i);
   if (!v || !eco.full(v) || eco.role[i] === CHILD) return null;
-  return { rest: eco.needRest[i], social: eco.needSocial[i], faith: eco.needFaith[i] };
+  // A fome é a mesma conta que a escolha do dia usa (journeys.ts, pickDay): cheia com a energia em 25%, nula acima de 75%.
+  const hunger = Math.max(0, Math.min(1, (0.75 - eco.energy[i]) / 0.5));
+  return { hunger, rest: eco.needRest[i], social: eco.needSocial[i], faith: eco.needFaith[i] };
 }
 
 // ---- Equipamento ----------------------------------------------------------------------------------
@@ -238,7 +240,7 @@ const THOUGHT_ICONS: Record<Thought['kind'], string> = {
 };
 
 export function thoughtIcon(t: Thought): string {
-  return THOUGHT_ICONS[t.kind] ?? '•';
+  return THOUGHT_ICONS[t.kind] ?? '✨';
 }
 
 /** Diário da pessoa (src/ai/trace.ts), do mais novo para o mais antigo. */
