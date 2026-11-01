@@ -1,4 +1,5 @@
 import { Boundary, BOUNDARY_NAMES, temperatureAt, type SurfaceMap } from '../procgen/surface';
+import * as B from './balance';
 import { makeCulture, type Ore } from './economy';
 import { isLand, isWater, type Ecosystem, type Village } from './ecosystem';
 import { CHILD } from './roles';
@@ -202,6 +203,7 @@ function comet(eco: Ecosystem, px?: number, py?: number): boolean {
     { x, y },
     { major: true },
   );
+  eco.emit({ kind: 'disaster', year: eco.year, what: 'comet', x, y, village: nearest(eco, x, y)?.id ?? -1 });
   return true;
 }
 
@@ -325,6 +327,7 @@ function quake(eco: Ecosystem, px?: number, py?: number): boolean {
     { x, y },
     { major: mag >= 5.5 || fallen > 0 || dead > 0 },
   );
+  eco.emit({ kind: 'disaster', year: eco.year, what: 'quake', x, y, village: nearest(eco, x, y)?.id ?? -1 });
   return true;
 }
 
@@ -383,6 +386,7 @@ function volcano(eco: Ecosystem, px: number | undefined, py: number | undefined,
     { x, y },
     { major: true },
   );
+  eco.emit({ kind: 'disaster', year: eco.year, what: sea ? 'island' : 'volcano', x, y, village: nearest(eco, x, y)?.id ?? -1 });
   return true;
 }
 
@@ -408,6 +412,7 @@ function fire(eco: Ecosystem, px?: number, py?: number): boolean {
   eco.killAround(x, y, r * 0.8, 0.5);
   const fallen = eco.destroyAround(x, y, r * 0.7, 0.3);
   eco.note(`Um incêndio queimou a floresta${near(eco, x, y)}${fallen ? ` e ${fallen} construções` : ''}`, 'natureza', { x, y }, { major: burned > 40 });
+  eco.emit({ kind: 'disaster', year: eco.year, what: 'fire', x, y, village: nearest(eco, x, y)?.id ?? -1 });
   return true;
 }
 
@@ -428,6 +433,7 @@ function drought(eco: Ecosystem, px?: number, py?: number): boolean {
     if (!v.abandoned && Math.hypot(wrap(eco, v.x - x), v.y - y) < r) v.food = 0;
   }
   eco.note(`Uma seca castigou a região${near(eco, x, y)}`, 'natureza', { x, y }, { major: true });
+  eco.emit({ kind: 'disaster', year: eco.year, what: 'drought', x, y, village: nearest(eco, x, y)?.id ?? -1 });
   return true;
 }
 
@@ -455,6 +461,7 @@ function plague(eco: Ecosystem): boolean {
     eco.effect('skull', v.x, v.y - 2, 12, 1);
   }
   eco.note(`Uma peste atingiu ${start.name}${hit.size > 1 ? ` e mais ${hit.size - 1} assentamentos` : ''}: ${dead} mortos`, 'natureza', start, { major: true });
+  eco.emit({ kind: 'disaster', year: eco.year, what: 'plague', x: start.x, y: start.y, village: start.id });
   return dead > 0;
 }
 
@@ -470,15 +477,17 @@ function nomads(eco: Ecosystem): boolean {
   if (!kinds.length) return false;
   const { s } = kinds[Math.floor(eco.random() * kinds.length)];
   const map = eco.map;
-  const i = randomTile(
-    eco,
-    (t) => eco.habitable(s, t) && map.vegetation[t] > 0.3 && farFromVillages(eco, t, 25) && eco.canSettle(s, t % map.width, Math.floor(t / map.width), 1),
-    600,
-  );
-  if (i < 0) return false;
   const live = eco.villages.filter((v) => !v.abandoned);
   const tech = live.length ? Math.min(...live.map((v) => v.tech)) * 0.7 : 0;
-  const v = eco.foundVillage(s, i % map.width, Math.floor(i / map.width), 7 + Math.floor(eco.random() * 5));
+  // Longe dos outros povos, o melhor de N lugares sorteados, pela nota e pelo veto de toda fundação (com a técnica deles).
+  const cands: { x: number; y: number }[] = [];
+  for (let k = 0; k < 600 && cands.length < B.SITE_CANDIDATES; k++) {
+    const t = Math.floor(eco.random() * map.width * map.height);
+    if (farFromVillages(eco, t, 25) && !eco.siteQuick(s, t % map.width, Math.floor(t / map.width), tech)) cands.push({ x: t % map.width, y: Math.floor(t / map.width) });
+  }
+  const site = eco.chooseSite(cands, s, null, 'terra', tech, { veto: cands.length })[0];
+  if (!site) return false;
+  const v = eco.foundVillage(s, site.x, site.y, 7 + Math.floor(eco.random() * 5));
   v.tech = Math.min(tech, Math.floor(tech) + 0.5);
   v.culture = makeCulture(v.culture.id, v.name, () => eco.random());
   v.stock.wood += 20;

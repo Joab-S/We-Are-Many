@@ -1,6 +1,7 @@
 import * as B from './balance';
 import { GOOD_GROUP, type Good } from './economy';
 import type { Role } from './roles';
+import type { HerdKind } from './eco/types';
 
 /**
  * Economia local de cada assentamento (REQUISITOS-VIDA.md, seções 19.4 e
@@ -292,13 +293,21 @@ export const VOCATION_TAKE: Record<Vocation, string> = {
   madeireira: 'cortar madeira',
 };
 
-/** Animal que um assentamento domestica, pela vocação e pelo lugar (RF-VIDA-215). */
-export function herdFor(vocation: Vocation | undefined, s: Pick<SiteSample, 'cold' | 'dry' | 'hills' | 'open'>, desert: boolean): 'sheep' | 'cattle' | 'goat' | 'horse' | 'camel' {
-  if (vocation === 'ovelhas') return 'sheep';
-  if (vocation === 'gado') return 'cattle';
-  if (vocation === 'cavalos') return desert ? 'camel' : 'horse';
-  if (desert) return s.dry > 0.6 ? 'camel' : 'goat';
-  if (s.cold > 0.5 || s.hills > 0.5) return 'sheep';
-  if (s.dry > 0.5) return s.open > 0.5 ? 'horse' : 'goat';
-  return s.open > 0.4 ? 'cattle' : 'goat';
+/**
+ * Animal que um assentamento domestica (RF-VIDA-215), entre os que a fauna selvagem da região pode dar (`wild`,
+ * as formas de curral dos bichos domesticáveis por perto, Diamond): primeiro o da vocação, depois o que o lugar
+ * pede (camelo no deserto seco, carneiro no frio e no morro, cavalo no campo seco, gado no campo aberto, cabra no
+ * resto) e, faltando esse, o primeiro que houver. Sem nenhum domesticável na região, nada (null).
+ */
+export function herdFor(vocation: Vocation | undefined, s: Pick<SiteSample, 'cold' | 'dry' | 'hills' | 'open'>, desert: boolean, wild: readonly HerdKind[]): HerdKind | null {
+  if (!wild.length) return null;
+  const want: HerdKind[] = [];
+  if (vocation === 'ovelhas') want.push('sheep');
+  if (vocation === 'gado') want.push('cattle');
+  if (vocation === 'cavalos') want.push(desert ? 'camel' : 'horse', desert ? 'horse' : 'camel');
+  if (desert) want.push(s.dry > 0.6 ? 'camel' : 'goat');
+  else if (s.cold > 0.5 || s.hills > 0.5) want.push('sheep');
+  else if (s.dry > 0.5) want.push(s.open > 0.5 ? 'horse' : 'goat');
+  else want.push(s.open > 0.4 ? 'cattle' : 'goat');
+  return want.find((k) => wild.includes(k)) ?? wild[0];
 }

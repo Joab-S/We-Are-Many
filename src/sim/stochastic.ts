@@ -108,8 +108,13 @@ export function ouStep(rnd: Rng, value: number, dt: number, theta: number, sigma
   return value * decay + sigma * Math.sqrt(1 - decay * decay) * normal(rnd);
 }
 
-/** Subsistemas com fluxo de sorteio próprio (RF-VIDA-306). */
-export const STREAMS = ['vida', 'povos', 'politica', 'mundo', 'terreno', 'clima', 'saber', 'mente'] as const;
+/**
+ * Subsistemas com fluxo de sorteio próprio (RF-VIDA-306). `fauna` (as decisões dos bichos de terra) e
+ * `flora` (a vegetação e as florestas) saíram de `vida`: o detalhe dos bichos muda com a câmera (longe da
+ * tela eles decidem menos vezes), e no fluxo comum isso mexia nos sorteios das pessoas e da vegetação.
+ * Cada fluxo sai da semente e do nome, então um fluxo novo não muda a sequência dos outros.
+ */
+export const STREAMS = ['vida', 'povos', 'politica', 'mundo', 'terreno', 'clima', 'saber', 'mente', 'fauna', 'flora'] as const;
 export type Stream = (typeof STREAMS)[number];
 
 /**

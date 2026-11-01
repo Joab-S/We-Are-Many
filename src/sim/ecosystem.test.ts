@@ -24,7 +24,7 @@ describe('espécies', () => {
   it('a Terra tem a sua fauna nativa; Marte não tem vida', () => {
     expect(nativeSpecies(earth).map((s) => s.name)).toEqual([
       'Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão', 'Coelho', 'Bisão', 'Javali', 'Camelo', 'Elefante', 'Macaco', 'Urso', 'Raposa', 'Onça', 'Hiena',
-      'Crocodilo', 'Tartaruga', 'Sapo', 'Caranguejo', 'Pinguim', 'Baleia', 'Rena', 'Cabra-montesa', 'Leão', 'Urubu', 'Zebra',
+      'Crocodilo', 'Tartaruga', 'Sapo', 'Caranguejo', 'Pinguim', 'Baleia', 'Rena', 'Cabra-montesa', 'Leão', 'Urubu', 'Zebra', 'Cavalo-selvagem',
     ]);
     expect(nativeSpecies(mars)).toEqual([]);
   });

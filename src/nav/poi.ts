@@ -1,3 +1,4 @@
+import { LruCache } from '../core/lru';
 import { mulberry32, seedFor } from '../core/rng';
 import { AU_PER_PC, KM_PER_AU } from '../core/units';
 import { alienName } from '../sim/species';
@@ -92,7 +93,9 @@ function make(id: string, kind: PoiKind, pos: [number, number, number], rnd: () 
   }
 }
 
-const cellCache = new Map<string, Poi[]>();
+/** Células já geradas; a lista do GUIA (6 pc) consulta 343 por vez. Antes, o cache era esvaziado inteiro ao passar de 4000. */
+const CELL_CACHE_LIMIT = 4096;
+const cellCache = new LruCache<string, Poi[]>(CELL_CACHE_LIMIT);
 
 /** Pontos de interesse da célula (ix, iy, iz). */
 export function poisInCell(ix: number, iy: number, iz: number): Poi[] {
@@ -109,9 +112,16 @@ export function poisInCell(ix: number, iy: number, iz: number): Poi[] {
     if (Math.hypot(...pos) < SOL_CLEAR_AU) continue;
     list.push(make(`poi:${key}:${k}`, kind, pos, rnd));
   }
-  if (cellCache.size > 4000) cellCache.clear();
   cellCache.set(key, list);
   return list;
+}
+
+/** Distância (UA) em que a nave para ao chegar ao ponto de interesse. */
+export function poiArrive(p: Pick<Poi, 'kind' | 'radius'>): number {
+  if (p.kind === 'nebula') return p.radius * 1.3;
+  if (p.kind === 'brown-dwarf') return p.radius * 6;
+  if (p.kind === 'rogue') return p.radius * 4;
+  return Math.max(p.radius * 12, 1e-4);
 }
 
 /** Ponto fixo perto do Sol, para o GUIA ensinar a varredura e o piloto automático. */
@@ -137,9 +147,18 @@ export function poisNear(p: { x: number; y: number; z: number }, radiusAu: numbe
     if (d < radiusAu) out.push({ ...poi, dist: d });
   };
   test(TUTORIAL_POI);
+  // Os pontos ficam dentro da própria célula: células inteiras além do raio nem são geradas
+  // (nos cantos do cubo de células são quase metade). A folga cobre o arredondamento.
+  const limit = (radiusAu * (1 + 1e-9)) ** 2;
+  const gap = (i: number, v: number) => Math.max(0, i * CELL_AU - v, v - (i + 1) * CELL_AU);
   for (let x = cx - r; x <= cx + r; x++) {
+    const gx = gap(x, p.x) ** 2;
     for (let y = cy - r; y <= cy + r; y++) {
-      for (let z = cz - r; z <= cz + r; z++) for (const poi of poisInCell(x, y, z)) test(poi);
+      const gxy = gx + gap(y, p.y) ** 2;
+      for (let z = cz - r; z <= cz + r; z++) {
+        if (gxy + gap(z, p.z) ** 2 >= limit) continue;
+        for (const poi of poisInCell(x, y, z)) test(poi);
+      }
     }
   }
   return out.sort((a, b) => a.dist - b.dist);

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { generateSurface, type PlanetParams } from '../procgen/surface';
 import { emptyStock, forge } from './economy';
 import { Ecosystem, isLand } from './ecosystem';
-import { ROLE } from './roles';
+import * as B from './balance';
+import { CHILD, ROLE } from './roles';
 import { nativeSpecies } from './species';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
@@ -77,5 +78,31 @@ describe('economia', () => {
     for (let t = 0; t < 300; t++) eco.step(0.1);
     expect(d.amount).toBeLessThan(before);
     expect(v.stock.copper).toBeGreaterThan(0);
+  });
+});
+
+describe('trabalho na falta', () => {
+  it('comida antes da lenha: na falta de lenha, o agricultor só vai para a mata com a comida garantida', () => {
+    const small: PlanetParams = { ...earth, radiusEarth: 0.15 };
+    const woodcutters = (food: number) => {
+      const map = generateSurface(small);
+      const eco = new Ecosystem(map, 3);
+      for (const sp of nativeSpecies(small)) eco.addSpecies(sp);
+      const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
+      let at = Math.floor(map.width * map.height * 0.4);
+      while (!isLand(map, at) || !eco.canFound(at % map.width, Math.floor(at / map.width))) at++;
+      const v = eco.foundVillage(s, at % map.width, Math.floor(at / map.width), 24);
+      const adults = Array.from(eco.residents(v.id)).filter((i) => eco.role[i] !== CHILD);
+      for (const i of adults) {
+        eco.role[i] = ROLE.farmer;
+        eco.age[i] = 20;
+      }
+      // Crise de lenha: o que mais falta é a lenha, e a comida está acima dela.
+      v.needs = { food, water: 1, fuel: 0.2, material: 1, cloth: 1, tools: 1 };
+      for (let k = 0; k < 5; k++) eco.shiftLabor(v, adults);
+      return adults.filter((i) => eco.role[i] === ROLE.woodcutter).length;
+    };
+    expect(woodcutters(B.FUEL_SPARES_FOOD - 0.2)).toBe(0);
+    expect(woodcutters(1)).toBeGreaterThan(0);
   });
 });

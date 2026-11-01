@@ -1,51 +1,24 @@
 import * as THREE from 'three';
 import { bvToTemperature, stellarRadius, temperatureToRgb } from '../../core/astro';
+import { LruCache } from '../../core/lru';
 import { mulberry32, seedFor } from '../../core/rng';
 import { EARTH_RADIUS_KM, KM_PER_AU } from '../../core/units';
+import { compressOrbit, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
 import { nativeLifeLevel } from '../../sim/species';
 import { generateSurface, mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '../../procgen/surface';
+import { markShared } from './dispose';
 
 /**
  * Corpos desenhados em 3D perto da nave: a estrela local e, no Sistema Solar,
  * os planetas. As distâncias e os tamanhos dentro do sistema são comprimidos
  * (REQUISITOS.md, seção 3.5); os dados reais ficam no painel de informações.
+ * Os dados e a escala ficam em nav/planets.ts, sem three.js; daqui são
+ * reexportados para quem já importava deste módulo.
  */
+export { compressOrbit, planetOffset, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
 
-/** Raio visual do Sol em UA (10x o real, para ficar legível). */
-export const SUN_VISUAL_RADIUS = (696000 / KM_PER_AU) * 10;
 /** Fator de exagero do raio dos planetas. */
 const PLANET_SCALE = 100;
-
-/** Distância orbital comprimida: a 1 UA reais corresponde 0,3 UA na cena. */
-export const compressOrbit = (aAu: number): number => 0.3 * Math.pow(aAu, 0.6);
-
-export type PlanetKind = 'rocky' | 'gas' | 'ice';
-
-export interface PlanetData {
-  id: string;
-  name: string;
-  kind: PlanetKind;
-  aAu: number;
-  periodYears: number;
-  radiusKm: number;
-  temperatureK: number;
-  water: number;
-  life: number;
-  color: number;
-  rings?: boolean;
-  atmosphere?: number;
-}
-
-export const SOL_PLANETS: PlanetData[] = [
-  { id: 'sol-1', name: 'Mercúrio', kind: 'rocky', aAu: 0.387, periodYears: 0.241, radiusKm: 2440, temperatureK: 440, water: 0, life: 0, color: 0x9a8f86 },
-  { id: 'sol-2', name: 'Vênus', kind: 'rocky', aAu: 0.723, periodYears: 0.615, radiusKm: 6052, temperatureK: 737, water: 0, life: 0, color: 0xe0c58a, atmosphere: 0xf3d9a0 },
-  { id: 'sol-3', name: 'Terra', kind: 'rocky', aAu: 1, periodYears: 1, radiusKm: 6371, temperatureK: 288, water: 0.71, life: 0.85, color: 0x4f7fc9, atmosphere: 0x7fb0ff },
-  { id: 'sol-4', name: 'Marte', kind: 'rocky', aAu: 1.524, periodYears: 1.881, radiusKm: 3390, temperatureK: 210, water: 0.04, life: 0, color: 0xc1663b, atmosphere: 0xe0a080 },
-  { id: 'sol-5', name: 'Júpiter', kind: 'gas', aAu: 5.203, periodYears: 11.86, radiusKm: 69911, temperatureK: 165, water: 0, life: 0, color: 0xd2b48c },
-  { id: 'sol-6', name: 'Saturno', kind: 'gas', aAu: 9.537, periodYears: 29.46, radiusKm: 58232, temperatureK: 134, water: 0, life: 0, color: 0xe3cf98, rings: true },
-  { id: 'sol-7', name: 'Urano', kind: 'ice', aAu: 19.19, periodYears: 84.0, radiusKm: 25362, temperatureK: 76, water: 0, life: 0, color: 0x9fd8e0 },
-  { id: 'sol-8', name: 'Netuno', kind: 'ice', aAu: 30.07, periodYears: 164.8, radiusKm: 24622, temperatureK: 72, water: 0, life: 0, color: 0x4a6fd6 },
-];
 
 export function planetParams(p: PlanetData): PlanetParams {
   return {
@@ -70,6 +43,11 @@ export interface Body {
   radius: number;
   object: THREE.Object3D;
   planet?: PlanetData;
+  /** Partes animadas, guardadas na criação para não procurar por nome a cada quadro. */
+  glow?: THREE.Sprite;
+  tail?: THREE.Line;
+  surface?: THREE.Object3D;
+  rocks?: THREE.Object3D;
 }
 
 let glowTexture: THREE.Texture | null = null;
@@ -87,7 +65,8 @@ export function getGlowTexture(): THREE.Texture {
     grad.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = grad;
     g.fillRect(0, 0, 128, 128);
-    glowTexture = new THREE.CanvasTexture(c);
+    // Compartilhada por todos os brilhos (Flyweight): disposeObject não a libera junto com um corpo.
+    glowTexture = markShared(new THREE.CanvasTexture(c));
     glowTexture.colorSpace = THREE.SRGBColorSpace;
   }
   return glowTexture;
@@ -118,7 +97,7 @@ export function createStarBody(name: string, pos: THREE.Vector3, absmag: number,
   );
   glow.name = 'glow';
   group.add(sphere, glow);
-  return { name, kind: 'star', pos: pos.clone(), radius, object: group };
+  return { name, kind: 'star', pos: pos.clone(), radius, object: group, glow };
 }
 
 function bandTexture(p: PlanetData): THREE.Texture {
@@ -153,8 +132,14 @@ function surfaceTexture(map: SurfaceMap): THREE.Texture {
   return tex;
 }
 
-/** Mapas de 256 pixels dos planetas ainda não visitados: a geração é determinística, então guarda-se para as próximas voltas ao espaço. */
-const previews = new Map<string, SurfaceMap>();
+/**
+ * Mapas de 256 pixels dos planetas ainda não visitados: a geração é
+ * determinística, então guarda-se para as próximas voltas ao espaço. Cada
+ * um tem ~0,8 MB; o cache guarda os 16 usados mais recentemente (o bastante
+ * para alguns sistemas) e não segura memória da GPU (a textura é do corpo).
+ */
+const PREVIEW_LIMIT = 16;
+const previews = new LruCache<string, SurfaceMap>(PREVIEW_LIMIT);
 
 function previewSurface(id: string, params: PlanetParams): SurfaceMap {
   let map = previews.get(id);
@@ -182,6 +167,7 @@ export function createPlanetBody(p: PlanetData, surfaces: Map<string, SurfaceMap
   sphere.rotation.z = 0.2;
   sphere.name = 'surface';
   group.add(sphere);
+  let rocks: THREE.Object3D | undefined;
   if (p.atmosphere) {
     const atmo = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 1.04, 48, 24),
@@ -221,18 +207,10 @@ export function createPlanetBody(p: PlanetData, surfaces: Map<string, SurfaceMap
     );
     ring.rotation.x = Math.PI / 2 - 0.45;
     group.add(ring);
-    group.add(createRingRocks(p, radius * 1.3, radius * 2.3, ring.rotation.x));
+    rocks = createRingRocks(p, radius * 1.3, radius * 2.3, ring.rotation.x);
+    group.add(rocks);
   }
-  return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p };
-}
-
-/** Posição do planeta no instante `t` (s de jogo), relativa à estrela. */
-export function planetOffset(p: PlanetData, t: number, out: THREE.Vector3): THREE.Vector3 {
-  const r = compressOrbit(p.aAu);
-  const phase = (seedFor(p.id) % 1000) / 1000 * Math.PI * 2;
-  // Uma volta da Terra leva 20 minutos de jogo.
-  const angle = phase + (t / (p.periodYears * 1200)) * Math.PI * 2;
-  return out.set(Math.cos(angle) * r, Math.sin(angle) * r, 0);
+  return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p, surface: sphere, rocks };
 }
 
 /** Linha da órbita comprimida. */
@@ -264,7 +242,7 @@ export function createCometBody(id: string, name: string, radius: number): Body 
   tail.name = 'tail';
   tail.frustumCulled = false;
   group.add(nucleus, coma, tail);
-  return { name, kind: 'comet', id, pos: new THREE.Vector3(), radius, object: group };
+  return { name, kind: 'comet', id, pos: new THREE.Vector3(), radius, object: group, glow: coma, tail };
 }
 
 /** Linha fechada a partir de pontos (órbitas de cometas, zona habitável). */
@@ -310,7 +288,7 @@ export function createPoiBody(id: string, name: string, kind: PoiVisual, pos: TH
     b.rotation.z = 1.1;
     group.add(a, b);
   }
-  return { name, kind: 'poi', id, pos: pos.clone(), radius, object: group };
+  return { name, kind: 'poi', id, pos: pos.clone(), radius, object: group, glow };
 }
 
 /**

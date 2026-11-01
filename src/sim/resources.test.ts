@@ -234,17 +234,23 @@ describe('terreiro em volta das casas (mapa organizado)', () => {
     const { eco } = runWorld(43, 3);
     const map = eco.map;
     const v = eco.villages.find((o) => !o.abandoned && o.houses.length)!;
-    const h = v.houses[0];
     let t = -1;
-    for (const [dx, dy] of [[-1, 0], [2, 0], [0, -1], [0, 2], [-1, -1], [2, 2], [-1, 2], [2, -1]]) {
-      const c = (h.y + dy) * map.width + h.x + dx;
-      if (eco.road[c] || eco.built[c]) continue;
-      map.biome[c] = Biome.Forest;
-      map.vegetation[c] = 0.8;
-      if (map.bare) map.bare[c] = 0;
-      if (eco.standingTree(c)) {
-        t = c;
-        break;
+    // A primeira casa com um vizinho livre (no miolo de um lugar grande a casa pode estar cercada de rua e casa).
+    for (const h of v.houses) {
+      if (t >= 0) break;
+      for (const [dx, dy] of [[-1, 0], [2, 0], [0, -1], [0, 2], [-1, -1], [2, 2], [-1, 2], [2, -1]]) {
+        const c = (h.y + dy) * map.width + h.x + dx;
+        if (eco.road[c] || eco.built[c]) continue;
+        map.biome[c] = Biome.Forest;
+        map.vegetation[c] = 0.8;
+        if (map.bare) map.bare[c] = 0;
+        // Árvore inteira, sem toco nem muda de um corte antigo (senão dependia de onde o lenhador da semente cortou).
+        if (map.felled) map.felled[c] = 0;
+        eco.stumps.delete(c);
+        if (eco.standingTree(c)) {
+          t = c;
+          break;
+        }
       }
     }
     expect(t).toBeGreaterThanOrEqual(0);

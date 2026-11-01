@@ -61,6 +61,8 @@ export interface Ecology {
   engineer: boolean;
   /** Dorme no inverno: gasta pouco e não procura comida. */
   hibernate: boolean;
+  /** Bravo demais para o curral, mesmo comendo capim e vivendo em manada (a zebra morde, escoiceia e não se deixa laçar). */
+  untamed: boolean;
   /** Parasita típico, mostrado na ficha. */
   parasite: string;
 }
@@ -85,7 +87,9 @@ const EARTH: Record<string, Row> = {
   deer: { guild: 'ramoneador', mass: 80, forage: 0.6, fruit: 1, herd: 8, range: 10, roam: 55, litter: 0.9, fear: 0.8, biomes: FOREST, parasite: 'carrapatos' },
   bison: { guild: 'pastador', mass: 700, herd: 12, range: 18, roam: 70, litter: 0.45, fear: 0.3, biomes: OPEN, moist: [0.2, 0.8], parasite: 'vermes' },
   camel: { guild: 'pastador', mass: 500, herd: 6, range: 18, roam: 60, litter: 0.35, fear: 0.4, biomes: DRY, moist: [0, 0.5], parasite: 'carrapatos' },
-  zebra: { guild: 'pastador', mass: 250, herd: 10, range: 20, roam: 80, litter: 0.5, fear: 0.7, biomes: SAVANNA, parasite: 'carrapatos' },
+  zebra: { guild: 'pastador', mass: 250, herd: 10, range: 20, roam: 80, litter: 0.5, fear: 0.7, untamed: true, biomes: SAVANNA, parasite: 'carrapatos' },
+  // Cavalo selvagem das estepes (tarpã, cavalo-de-przewalski): o antepassado do cavalo de montaria e de tração.
+  horse: { guild: 'pastador', mass: 350, herd: 10, range: 22, roam: 90, litter: 0.5, fear: 0.6, biomes: { [B.Grass]: 1, [B.Savanna]: 0.8, [B.Tundra]: 0.6, [B.Desert]: 0.4, [B.Forest]: 0.3, [B.Barren]: 0.3 }, moist: [0.1, 0.7], parasite: 'carrapatos' },
   elephant: { guild: 'pastador', mass: 4000, fruit: 0.4, herd: 6, range: 22, roam: 70, litter: 0.2, fear: 0.1, biomes: SAVANNA, engineer: true, parasite: 'vermes' },
   mammoth: { guild: 'pastador', mass: 5000, herd: 6, range: 22, roam: 60, litter: 0.2, fear: 0.1, biomes: COLD, engineer: true, parasite: 'vermes' },
   reindeer: { guild: 'pastador', mass: 100, herd: 10, range: 22, roam: 90, litter: 0.8, fear: 0.7, biomes: COLD, parasite: 'moscas-do-berne' },
@@ -152,6 +156,7 @@ const DEFAULTS: Ecology = {
   fear: 0.6,
   engineer: false,
   hibernate: false,
+  untamed: false,
   parasite: 'carrapatos',
 };
 

@@ -120,3 +120,41 @@ export const DAY_W = {
   /** Abaixo disso não vale sair: a pessoa fica pela praça (conta como parada). */
   floor: 0.03,
 };
+
+/**
+ * Quando sair (src/ai/decisions/move.ts, proposta de assentamentos 3.2 e 3.3): ficar, migrar ou fundar,
+ * por família. A nota do lugar (`placeScore`, de uns −1 a 4) passa por uma exponencial: cada `temper`
+ * pontos a menos dividem a nota por e, então meio ponto de vantagem já decide a maioria das famílias.
+ */
+export const MOVE_W = {
+  /** Nota de lugar a partir da qual tudo é ótimo, e quantos pontos dividem a nota por e. */
+  top: 4,
+  temper: 0.35,
+  /** Pressão social em que o lugar parece cheio pela metade (a nota de ficar ou de chegar cai acima disso). */
+  crowd: 1.3,
+  /** Laços para a nota cheia, a nota de quem não tem nenhum e quantos laços vale a afinidade 100 entre os lugares. */
+  friendsFull: 4,
+  lonely: 0.4,
+  kin: 2,
+  /** Força do apego (traço `attachment`): a favor de ficar, contra sair. */
+  attachment: 0.5,
+  /** Pontos a mais de ficar (o custo de mudar) e a histerese: quem chegou há pouco ganha até `settle` pontos, que somem em `settleYears` anos. */
+  stay: 0.35,
+  settle: 1,
+  settleYears: 15,
+  /**
+   * Fundar: um sítio vazio vale `foundBase` mais até `foundSite` pela nota dele (cheia em `siteFull`, a escala de
+   * `siteValue`), mas no máximo `foundGain` acima da nota de casa (lugar com fome não tem enxoval para dar).
+   */
+  foundBase: 1.4,
+  foundSite: 1.6,
+  siteFull: 6,
+  foundGain: 0.5,
+  /** Pressão de casa no meio da vontade de fundar, e a inclinação da curva (fissão por pressão, não por fome). */
+  fission: 1,
+  fissionK: 6,
+  /** Peso da ousadia (curiosidade e ambição contra o apego) na vontade de fundar. */
+  bold: 0.6,
+  /** Faixa da escolha (mais a paciência média × 0,1): opções com pelo menos isso da melhor nota entram no sorteio. */
+  band: 0.8,
+};

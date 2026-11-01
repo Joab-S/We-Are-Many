@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { seedFor } from '../core/rng';
+import { seedFor, type StatefulRng } from '../core/rng';
 import { createNavState } from '../nav/guide';
 import { createProbeState } from '../explore/probes';
 import { generateSurface, type PlanetParams } from '../procgen/surface';
 import { Ecosystem } from '../sim/ecosystem';
 import { nativeSpecies } from '../sim/species';
+import { streams } from '../sim/stochastic';
 import type { GameState } from '../client/state';
 import { REJECTED_KEY, SAVE_KEY, SaveManager } from './manager';
-import { restoreGame, SAVE_VERSION, snapshotGame, type ViewSnapshot } from './snapshot';
+import { restoreGame, snapshotGame } from './game';
+import { SAVE_VERSION, type ViewSnapshot } from './snapshot';
 import { memoryStore } from './store';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
@@ -112,6 +114,79 @@ describe('save: ida e volta', () => {
     expect(loaded.villages).toEqual(original.villages);
     expect(loaded.chronicle).toEqual(original.chronicle);
     expect(loaded.map.vegetation).toEqual(original.map.vegetation);
+  }, 60000);
+
+  it('save antigo, sem os fluxos da fauna e da flora nem os vetores novos, carrega e segue determinístico', () => {
+    const s = game();
+    const data = structuredClone(snapshotGame(s, space, seeds));
+    const snap = data.ecosystems.get('sol-3')!;
+    // Como um save de antes: sem os fluxos novos, sem os handles da presa e com o cache anual de uid.
+    delete snap.rng.faunaRnd;
+    delete snap.rng.floraRnd;
+    delete snap.fields.chaseUid;
+    delete snap.fields.escaped;
+    snap.fields.uidYear = 3;
+    const load = () => restoreGame(structuredClone(data), base).state.ecosystems.get('sol-3')!;
+    const a = load();
+    const b = load();
+    // Os fluxos novos começam da semente do planeta.
+    const fresh = streams(snap.seed);
+    expect((a.faunaRnd as StatefulRng).state).toBe((fresh.fauna as StatefulRng).state);
+    expect((a.floraRnd as StatefulRng).state).toBe((fresh.flora as StatefulRng).state);
+    // Os vetores que faltavam são refeitos do tamanho dos outros, e o cache anual sai.
+    expect(a.chaseUid.length).toBe(a.x.length);
+    expect(a.escaped.length).toBe(a.x.length);
+    expect('uidYear' in a).toBe(false);
+    for (let k = 0; k < a.count; k++) {
+      const j = a.chase[k];
+      if (a.alive[k] && j >= 0 && a.alive[j]) expect(a.chaseUid[k]).toBe(a.uid[j]);
+    }
+    run(a, 20);
+    run(b, 20);
+    expect(a.x).toEqual(b.x);
+    expect(a.population).toEqual(b.population);
+    expect(a.map.vegetation).toEqual(b.map.vegetation);
+  }, 60000);
+
+  it('save antigo, sem a pressão social nem a circunscrição dos lugares, carrega com zero', () => {
+    const s = game();
+    const data = structuredClone(snapshotGame(s, space, seeds));
+    const villages = data.ecosystems.get('sol-3')!.fields.villages as { pressure?: number; circumscribed?: number }[];
+    expect(villages.length).toBeGreaterThan(0);
+    for (const v of villages) {
+      delete v.pressure;
+      delete v.circumscribed;
+    }
+    const eco = restoreGame(data, base).state.ecosystems.get('sol-3')!;
+    for (const v of eco.villages) {
+      expect(v.pressure).toBe(0);
+      expect(v.circumscribed).toBe(0);
+    }
+    // E o mundo segue: o ano seguinte recalcula a pressão.
+    run(eco, 12);
+    expect(eco.villages.some((v) => !v.abandoned && v.population > 0 && (v.pressure ?? 0) > 0)).toBe(true);
+  }, 60000);
+
+  it('save antigo, sem o modo de vida nem a área dos lugares, carrega sedentário e segue determinístico', () => {
+    const s = game();
+    const data = structuredClone(snapshotGame(s, space, seeds));
+    const snap = data.ecosystems.get('sol-3')!;
+    // Como um save de antes do bioma e sociedade: os lugares não têm `lifeway` nem `area`.
+    const old = snap.fields.villages as { lifeway?: string; area?: unknown }[];
+    expect(old.length).toBeGreaterThan(0);
+    for (const v of old) {
+      delete v.lifeway;
+      delete v.area;
+    }
+    const load = () => restoreGame(structuredClone(data), base).state.ecosystems.get('sol-3')!;
+    const a = load();
+    const b = load();
+    for (const v of a.villages) expect(v.lifeway).toBe('sedentario');
+    run(a, 20);
+    run(b, 20);
+    expect(a.villages).toEqual(b.villages);
+    expect(a.x).toEqual(b.x);
+    expect(a.population).toEqual(b.population);
   }, 60000);
 
   it('salvar não altera o jogo em andamento', () => {

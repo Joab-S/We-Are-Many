@@ -112,6 +112,30 @@ export function price(good: Good | 'food', have: number, cap: number, needs?: Ne
   return BASE_VALUE[good] * (0.4 + 1.6 * (1 - fill) ** 1.5) * (1 + want);
 }
 
+/**
+ * Utilidade de um bem para quem compra, pelas técnicas que domina (preço por utilidade na era, RF-VIDA-272):
+ * minério que ninguém ali sabe fundir, carvão sem siderurgia, barro sem forno e lã sem tear valem
+ * USELESS_GOOD do preço; o cobre e o estanho perdem para o ferro depois da siderurgia (BRONZE_AFTER_IRON), e o
+ * carvão vale mais com o vapor (STEAM_COAL). O resto vale o mesmo em qualquer era.
+ */
+export function usefulness(good: Good | 'food', techs: ReadonlySet<string>): number {
+  switch (good) {
+    case 'copper':
+    case 'tin':
+      return !techs.has('fundicao') ? B.USELESS_GOOD : techs.has('siderurgia') ? B.BRONZE_AFTER_IRON : 1;
+    case 'iron':
+      return techs.has('siderurgia') ? 1 : B.USELESS_GOOD;
+    case 'coal':
+      return !techs.has('siderurgia') ? B.USELESS_GOOD : techs.has('vapor') ? B.STEAM_COAL : 1;
+    case 'clay':
+      return techs.has('ceramica') ? 1 : B.USELESS_GOOD;
+    case 'wool':
+      return techs.has('tecelagem') ? 1 : B.USELESS_GOOD;
+    default:
+      return 1;
+  }
+}
+
 /** Bens que andam nas caravanas: tudo menos o ouro (que é o pagamento) e os cavalos (que puxam). */
 export function tradable(g: Good | 'food'): boolean {
   return g !== 'gold';
