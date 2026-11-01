@@ -178,6 +178,84 @@ describe('SimDriver: passo fixo, teto e interpolação', () => {
   });
 });
 
+describe('SimDriver.stepBy: avançar à mão (painel de depuração)', () => {
+  it('dá n passos do mesmo tamanho até na pausa, sem mexer na fração do próximo passo', () => {
+    const w = world();
+    const d = new SimDriver(w, () => {});
+    d.setSpeed(1);
+    d.update(SIM_STEP / 2);
+    expect(d.alpha).toBeCloseTo(0.5);
+    d.setSpeed(0);
+    expect(d.stepBy(4)).toBe(4);
+    expect(w.steps).toEqual(Array(4).fill(SIM_STEP));
+    expect(d.tick).toBe(4);
+    expect(d.alpha).toBeCloseTo(0.5);
+    // Na pausa, o relógio não dá mais nenhum.
+    d.update(1);
+    expect(w.steps.length).toBe(4);
+    // De volta a 1x, o meio passo que já estava acumulado completa o próximo.
+    d.setSpeed(1);
+    d.update(SIM_STEP / 2);
+    expect(w.steps.length).toBe(5);
+    // Número inválido não anda.
+    expect(d.stepBy(-3)).toBe(0);
+    expect(d.stepBy(0.7)).toBe(0);
+    expect(w.steps.length).toBe(5);
+  });
+
+  it('o desenho anda exatamente n passos: interpola entre os dois últimos com a mesma fração', () => {
+    const w = world();
+    const d = new SimDriver(w, () => {});
+    d.setSpeed(1);
+    d.update(SIM_STEP); // x = 0,25
+    d.update(SIM_STEP / 2); // alpha 0,5: desenhado em 0,125
+    expect(d.x(0)).toBeCloseTo(0.125);
+    d.setSpeed(0);
+    d.stepBy(3); // x = 1, e o passo anterior em 0,75
+    expect(w.x[0]).toBeCloseTo(1);
+    expect(d.x(0)).toBeCloseTo(0.875);
+    expect(d.x(0) - 0.125).toBeCloseTo(3 * SIM_STEP);
+    expect(d.y(0)).toBeCloseTo(0);
+  });
+
+  it('aplica a fila na fronteira, guarda no log com o passo e entrega os eventos no fim', () => {
+    const w = world();
+    const applied: { cmd: string; stepsBefore: number }[] = [];
+    const d = new SimDriver<string, Ev>(w, (cmd) => applied.push({ cmd, stepsBefore: w.steps.length }));
+    const got: { kind: string; atSteps: number }[] = [];
+    d.bus.onAny((e) => got.push({ kind: e.kind, atSteps: w.steps.length }));
+    d.setSpeed(0);
+    d.enqueue('a');
+    d.stepBy(8);
+    // O comando entrou antes do primeiro passo, com o passo 0 no log.
+    expect(applied).toEqual([{ cmd: 'a', stepsBefore: 0 }]);
+    expect(d.log).toEqual([{ tick: 0, cmd: 'a' }]);
+    // Os eventos dos passos 4 e 8 saem juntos, depois do último passo.
+    expect(got).toEqual([
+      { kind: 'found', atSteps: 8 },
+      { kind: 'found', atSteps: 8 },
+    ]);
+    expect(w.queue).toEqual([]);
+    // Sem passo (n = 0), a fila entra assim mesmo, como num quadro sem passo.
+    d.enqueue('b');
+    expect(d.stepBy(0)).toBe(0);
+    expect(applied.at(-1)).toEqual({ cmd: 'b', stepsBefore: 8 });
+    expect(d.log.at(-1)).toEqual({ tick: 8, cmd: 'b' });
+  });
+
+  it('as medidas do quadro passam a ser as destes passos, e os totais os contam', () => {
+    let t = 0;
+    const w = world();
+    // Relógio de mentira: cada leitura anda 1 ms, então cada passo mede 1 ms.
+    const d = new SimDriver<string, Ev>(w, () => {}, { now: () => (t += 1) });
+    d.setSpeed(3);
+    d.update(1); // teto: 3 passos e o resto descartado
+    expect(d.stats.dropped).toBeGreaterThan(0);
+    d.stepBy(5);
+    expect(d.stats).toMatchObject({ steps: 5, stepMs: 5, dropped: 0, totalSteps: 8, totalMs: 8, events: 2, totalEvents: 2 });
+  });
+});
+
 describe('SimDriver sobre a fachada do motor', () => {
   it('dá os passos, aplica comandos e vistas na fronteira, guarda no log e entrega os eventos do motor', () => {
     const params = earthParams(0.2);
