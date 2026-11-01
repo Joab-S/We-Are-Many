@@ -7,7 +7,7 @@ Jogo de navegador de exploração espacial, replicação de sondas e terraforma�
 - Regra do projeto: nada que já foi implementado é removido sem necessidade ou pedido, e toda remoção é registrada com o motivo ([seção 0](docs/REQUISITOS.md#0-como-manter-este-documento)).
 - Arquitetura: camadas (motor, plataforma e cliente), protocolo de comandos e eventos, regras de determinismo e os padrões do *Game Programming Patterns* no código em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 - Ajuste automático das constantes de equilíbrio por CMA-ES (`npm run calibrar:ajustar -- <plano.json>`) em [docs/AJUSTE-AUTOMATICO.md](docs/AJUSTE-AUTOMATICO.md).
-- Estudos: separar o motor da tela em [docs/SEPARACAO-MOTOR.md](docs/SEPARACAO-MOTOR.md); como os jogos de referência tratam cada problema, a exploração de outros planetas e a visão 3D ao chegar perto do planeta em [docs/REFERENCIAS-E-PLANETAS.md](docs/REFERENCIAS-E-PLANETAS.md).
+- Estudos: separar o motor da tela em [docs/SEPARACAO-MOTOR.md](docs/SEPARACAO-MOTOR.md); como os jogos de referência tratam cada problema, a exploração de outros planetas e a visão 3D ao chegar perto do planeta em [docs/REFERENCIAS-E-PLANETAS.md](docs/REFERENCIAS-E-PLANETAS.md), com a lista de tarefas e as estratégias em [docs/TODO-PLANETAS-E-3D.md](docs/TODO-PLANETAS-E-3D.md).
 
 ## Rodando
 

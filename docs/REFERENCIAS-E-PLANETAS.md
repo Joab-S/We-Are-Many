@@ -1,6 +1,6 @@
 # Jogos de referência, outros planetas e a visão 3D do planeta
 
-Estudo de design e arquitetura · 01/11/2026
+Estudo de design e arquitetura · 01/11/2026 · A lista de tarefas com as estratégias de cada etapa está em [`TODO-PLANETAS-E-3D.md`](TODO-PLANETAS-E-3D.md).
 
 Três perguntas: como os jogos de referência tratam cada problema que enfrentamos aqui; como começar a exploração de outros planetas; e como chegar a uma visão 3D contínua ao se aproximar do planeta, como em Spore e No Man's Sky. As referências ao código são da branch `claude/painel-depuracao` (commit `3577d28`) e envelhecem. **[conferido]** foi lido no código ou na fonte citada; **[estimativa]** é conta ou dedução.
 
