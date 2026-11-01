@@ -213,7 +213,7 @@ button.wb-mini { background: var(--g8); color: var(--ice); border: 0; padding: 3
 .wb-dtabs { flex: none; }
 .wb-dtabs button, .wb-vtabs.wb-dtabs button { width: auto; padding: 0 10px; font-family: var(--f-text); font-size: 13px; }
 .wb-debugp .wb-win-body { flex: 1; min-height: 0; overflow-y: auto; font-size: 13px; scrollbar-color: var(--br) transparent; }
-.wb-debugp .wb-kv > span:first-child { width: 132px; }
+.wb-debugp .wb-kv > span:first-child { width: 150px; }
 .wb-debugp .wb-kv > .wb-dim { font-size: 12px; }
 .wb-debugp .wb-section { margin-top: 10px; }
 .wb-dtitle { display: flex; align-items: baseline; gap: 6px; font-size: 16px; margin: 2px 0 6px; }
@@ -240,6 +240,9 @@ button.wb-mini { background: var(--g8); color: var(--ice); border: 0; padding: 3
 .wb-dind.bad > b { color: #8f2a22; }
 .wb-dind > .wb-dim { grid-area: meta; font-size: 12px; align-self: center; }
 .wb-dind > .wb-dspark { grid-area: spark; }
+.wb-dind.mini { grid-template-columns: 1fr auto 64px; grid-template-areas: 'label val spark'; align-items: center; padding: 1px 0 1px 7px; }
+.wb-dind.mini > .wb-dlabel { font-size: 12px; }
+.wb-dind.mini > svg.wb-dspark { width: 64px; height: 16px; }
 svg.wb-dspark { display: block; width: 120px; height: 26px; background: rgba(43, 33, 24, 0.08); }
 .wb-dspark polyline { fill: none; stroke: var(--ink2); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
 .wb-dspark.good polyline { stroke: #2f6b2f; }

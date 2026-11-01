@@ -147,6 +147,7 @@ export class DebugPanel extends HudComponent {
     const debug = engine.debug;
     switch (this.tab) {
       case 'world':
+        // world() varre o mapa (alguns ms na Terra): só com esta aba aberta, no máximo a cada DEBUG_PANEL_MS.
         return worldHtml(debug.world(), { seed: engine.seed, year: view.year }, debug.recording);
       case 'place': {
         const sel = this.host.place();
@@ -199,7 +200,8 @@ export class DebugPanel extends HudComponent {
     const place = at('[data-dplace]');
     if (place) {
       const id = Number(place.dataset.dplace);
-      if (place.dataset.dfam !== undefined && this.tab === 'family' && host.creature() < 0) this.focus = { family: Number(place.dataset.dfam), village: id };
+      const family = Number(place.dataset.dfam ?? -1);
+      if (family >= 0 && this.tab === 'family' && host.creature() < 0) this.focus = { family, village: id };
       this.listFor = null;
       host.selectPlace(id);
     }

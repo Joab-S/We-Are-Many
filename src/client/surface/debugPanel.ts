@@ -1,5 +1,6 @@
 import type { PlanetParams } from '../../procgen/surface';
 import { LIFEWAY_NAMES } from '../../sim/biomeYield';
+import { LABELS } from '../../sim/calibrate';
 import { POLITY_NAMES, TIER_NAMES_NEW } from '../../sim/community';
 import { ERAS, WAR_MOTIVES } from '../../sim/ecosystem';
 import { familyName, personName } from '../../sim/people';
@@ -176,8 +177,9 @@ export type PeopleView = NamesView & Pick<EngineView, 'count' | 'alive' | 'uid' 
 /** Nome do lugar pelo id (abandonado também tem nome; o que não existe vira "#id"). */
 export const placeName = (view: NamesView, id: number): string => (id >= 0 && view.villages[id] ? view.villages[id].name : `#${id}`);
 
-/** Sobrenome da família, pela cultura do lugar onde ela mora. */
+/** Sobrenome da família, pela cultura do lugar onde ela mora (-1 é a família sem ninguém identificado). */
 export function familyLabel(view: NamesView, family: number, village: number): string {
+  if (family < 0) return 'família sem nome';
   const v = village >= 0 ? view.villages[village] : undefined;
   return v ? familyName(family, v.culture.id) : `família ${family}`;
 }
@@ -253,6 +255,9 @@ export function rangeText(t: Pick<DebugTarget, 'min' | 'max'>): string {
 
 const seriesOf = (series: IndicatorSample[], key: string) => series.map((s) => s.values[key] ?? NaN);
 
+/** Nome legível de um indicador sem meta: o do relatório da calibração, ou a própria chave. */
+export const indicatorLabel = (key: string): string => (LABELS as Record<string, string | undefined>)[key] ?? key;
+
 /** Aba Mundo: semente, ano, desde quando as taxas contam, a gravação e os indicadores de agora contra as metas. */
 export function worldHtml(w: WorldDebug, live: { seed: number; year: number }, recording: boolean): string {
   const keys = Object.keys(w.now.values);
@@ -279,14 +284,19 @@ export function worldHtml(w: WorldDebug, live: { seed: number; year: number }, r
       ${sparkSvg(seriesOf(w.series, key), t ? [t.min, t.max] : undefined, tone)}
     </div>`;
   };
+  // Os sem meta numa linha só: nome, valor e a série, sem a faixa.
+  const mini = (key: string) => {
+    const v = w.now.values[key];
+    return `<div class="wb-dind mini" title="${esc(key)}"><span class="wb-dlabel">${esc(indicatorLabel(key))}</span><b>${v === undefined ? '—' : num(v)}</b>${sparkSvg(seriesOf(w.series, key))}</div>`;
+  };
   const inside = w.targets.filter((t) => targetTone(w.now.values[t.key], t) === 'good').length;
-  const others = keys.filter((k) => !w.targets.some((t) => t.key === k)).sort();
+  const others = keys.filter((k) => !w.targets.some((t) => t.key === k)).sort((a, b) => indicatorLabel(a).localeCompare(indicatorLabel(b), 'pt'));
   const span = w.series.length ? `${w.series.length} amostras, do ${yearText(w.series[0].year)} ao ${yearText(w.series[w.series.length - 1].year).slice(4)}` : 'sem série ainda';
   return `${head}
     <div class="wb-section">Indicadores contra as metas · ${inside} de ${w.targets.length} dentro</div>
     <div class="wb-dim wb-dnote">Medidos no ${yearText(w.now.year)}; a série tem ${span}. A faixa ao fundo do gráfico é a meta.</div>
     ${w.targets.map((t) => row(t.key, t.label, t)).join('') || '<div class="wb-empty">Nenhuma meta com indicador no mundo vivo.</div>'}
-    ${others.length ? `<div class="wb-section">Outros indicadores</div>${others.map((k) => row(k, k)).join('')}` : ''}`;
+    ${others.length ? `<div class="wb-section">Outros indicadores · ${others.length}, sem meta</div>${others.map(mini).join('')}` : ''}`;
 }
 
 // Lugar -------------------------------------------------------------------

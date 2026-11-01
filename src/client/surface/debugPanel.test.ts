@@ -256,7 +256,9 @@ describe('aba Mundo', () => {
     // Um gráfico por indicador, com a meta ao fundo nos que têm meta; o que não tem meta vai em Outros.
     expect(count(html, '<polyline')).toBe(5);
     expect(count(html, 'class="band"')).toBe(4);
-    expect(html).toContain('Outros indicadores');
+    expect(html).toContain('Outros indicadores · 1, sem meta');
+    // O sem meta vai numa linha só, com o nome do relatório da calibração.
+    expect(html).toContain('<div class="wb-dind mini" title="people"><span class="wb-dlabel">Moradores no fim</span><b>1335</b>');
     expect(html).toContain('30 amostras');
     expect(html).toContain('ligada');
   });
@@ -393,6 +395,9 @@ describe('aba Família', () => {
     clean(empty);
     expect(empty).toContain('Nenhuma decisão gravada');
     expect(empty).toContain('gravação da vista de depuração está desligada');
+    // Decisão sem ninguém identificado (family -1): sem sobrenome inventado.
+    const orphan = familyTabHtml({ person: null, focus: null, decisions: [{ ...DECISIONS[1], family: -1 }], view, recording: true });
+    expect(orphan).toContain('família sem nome');
   });
 });
 
