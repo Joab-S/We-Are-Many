@@ -58,6 +58,7 @@ import { EVENT_QUEUE_LIMIT, type EngineEvent } from './api/events';
 import { residentsPart, ResidentIndex, type ResidentsPart } from './eco/core/residents';
 import { clockPart, type ClockPart } from './eco/core/clock';
 import { siteFieldPart, type SiteField, type SiteFieldPart } from './eco/settlements/siteField';
+import { STEP, type EcoProbe } from './eco/core/probe';
 
 export * from './eco/types';
 export * from './eco/constants';
@@ -497,12 +498,18 @@ export class Ecosystem {
    */
   /** Moradores por assentamento (eco/core/residents.ts). */
   declare residentIndex: ResidentIndex;
+  /**
+   * Gancho da vista de depuração (eco/core/probe.ts, src/sim/api/debugView.ts): null com a gravação desligada, e
+   * então cada ponto do passo custa um teste. Não enumerável, como os caches: fica fora do save e da impressão digital.
+   */
+  declare probe: EcoProbe | null;
 
   constructor(
     readonly map: SurfaceMap,
     seed: number,
   ) {
     Object.defineProperty(this, 'residentIndex', { value: new ResidentIndex(), writable: true, enumerable: false });
+    Object.defineProperty(this, 'probe', { value: null, writable: true, enumerable: false });
     const rng = streams(seed);
     this.rnd = rng.vida;
     this.civRnd = rng.povos;
@@ -618,6 +625,9 @@ export class Ecosystem {
   /** Avança a simulação `dt` segundos de jogo (já multiplicados pela velocidade escolhida). */
   step(dt: number): void {
     if (dt <= 0) return;
+    // Medição do passo por parte (vista de depuração): só com a gravação ligada, e o tempo não volta para a simulação.
+    const probe = this.probe;
+    if (probe) probe.begin();
     const yr = dt / this.yearSpan;
     this.year += yr;
     // Nível de detalhe (RF-AS-31): com a tela aberta, os lugares a até JOURNEY_MARGIN tiles da vista (e o da pessoa
@@ -629,15 +639,19 @@ export class Ecosystem {
       for (const v of this.villages) if (!v.abandoned && (this.distance(v, f.x, f.y) <= f.r + B.JOURNEY_MARGIN + this.footprint(v) || v.id === this.pinned)) ids.push(v.id);
       this.watch(ids);
     }
+    if (probe) probe.lap(STEP.view);
     // Clima vivo: uma fatia das células por passo, o mundo inteiro duas vezes por mês de jogo.
     this.weather ??= new Weather(this.map.width, this.map.height);
     this.weather.step(this.map, this.year, this.yearPhase(), yr, (x, y) => -this.climateAt(x, y));
+    if (probe) probe.lap(STEP.weather);
     // Fogo natural: uma vez por ano, no auge do verão.
     if (this.yearPhase() >= 0.45 && Math.floor(this.year) !== this.fireYear) {
       this.fireYear = Math.floor(this.year);
       this.wildfires();
     }
+    if (probe) probe.lap(STEP.fire);
     this.buildGrid();
+    if (probe) probe.lap(STEP.grid);
     const map = this.map;
     const w = map.width;
     // Dois relógios (eco/core/clock.ts): bichos de terra decidem DECISIONS_PER_YEAR vezes por ano de calendário;
@@ -686,12 +700,18 @@ export class Ecosystem {
         }
       }
     }
+    if (probe) probe.lap(STEP.creatures);
     this.updateWildlife(yr);
+    if (probe) probe.lap(STEP.wildlife);
     this.updateSites(yr);
+    if (probe) probe.lap(STEP.sites);
     this.updateBoats(dt);
     this.updateRafts(dt);
+    if (probe) probe.lap(STEP.boats);
     this.updateCaravans(dt);
+    if (probe) probe.lap(STEP.caravans);
     this.growVegetation(dt * legacy);
+    if (probe) probe.lap(STEP.vegetation);
     // Efeitos só se desenham (a simulação conta só quantos há): o que acabou sai trocando de lugar com o último
     // (swap-remove, sem deslocar o resto). O laço vai de trás para frente, então o que vem para `k` já foi visto.
     const effects = this.effects;
@@ -703,11 +723,13 @@ export class Ecosystem {
       if (k < effects.length) effects[k] = last;
     }
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt);
+    if (probe) probe.lap(STEP.effects);
     this.villageClock += dt;
     if (this.villageClock >= 1) {
       this.updateVillages(this.villageClock);
       this.villageClock = 0;
     }
+    if (probe) probe.lap(STEP.villages);
   }
 
   readonly contours = new WeakMap<Village, { key: number; radii: Float32Array }>();
@@ -759,8 +781,11 @@ export class Ecosystem {
 
   /** Uma vez por ano: diplomacia, lava esfriando, ruínas sumindo e eventos do mundo. */
   yearly(): void {
+    // Medição do passo (vista de depuração): o que `updateVillages` fez antes de o ano fechar fica com os assentamentos.
+    const probe = this.probe;
+    if (probe) probe.lap(STEP.villages);
     this.updateClimate();
-        this.communityYear();
+    this.communityYear();
     this.relationsYear();
     this.updateWear();
     // Rede de ruas: o que escapou da limpeza na hora (ruas de dois assentamentos que se encostam) sai uma vez por ano.
@@ -771,10 +796,13 @@ export class Ecosystem {
     this.linkRoads();
     // Estradas novas mudam por onde passa mais gente: vilas e cidades revêem ruas principais e avenida a cada 10 anos.
     for (const v of this.villages) if (!v.abandoned && v.tier >= 1 && (Math.floor(this.year) + v.id) % 10 === 0) this.rankStreets(v);
+    if (probe) probe.lap(STEP.yearWorld);
     this.economyYear();
+    if (probe) probe.lap(STEP.yearEconomy);
     // Quem sai decide com as necessidades, a estabilidade e a pressão deste ano (antes, a migração vinha antes da
     // economia e decidia com as do ano anterior).
     this.migrate();
+    if (probe) probe.lap(STEP.yearMigration);
     this.epidemics();
     for (const k of this.crises) this.succession(this.villages[k]);
     this.crises.clear();
@@ -784,6 +812,7 @@ export class Ecosystem {
     this.growForests();
     for (let k = this.ruins.length - 1; k >= 0; k--) if (++this.ruins[k].age > 40) this.ruins.splice(k, 1);
     yearlyEvents(this);
+    if (probe) probe.lap(STEP.yearRest);
   }
 
   /** Lugares no modo completo (jornadas, RF-AS-31): os que estão na tela, ou os escolhidos pela calibração. */
