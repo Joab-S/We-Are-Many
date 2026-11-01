@@ -93,11 +93,12 @@ No `Ecosystem`, `events` é a fila (FIFO, vai no save), `emit(e)` empurra e `dra
 
 A crônica continua com o texto longo, e cada linha ganhou `villages`: os ids do lugar onde aconteceu (quando `at` é um assentamento) e dos citados pelo nome no texto, preenchidos em `note()`. A janela do assentamento (`src/client/surface/settlementWindow.ts`) acha a história pelo id; só as linhas de saves antigos, sem `villages`, ainda são procuradas pelo nome.
 
-No cliente, o `SimDriver` drena a fila depois dos passos de cada quadro (e dos comandos do quadro sem passo) e entrega pelo seu `bus`, um `EventBus` (`src/client/surface/EventBus.ts`) com `on(kind, fn)` e `onAny(fn)`. Hoje há três consumidores:
+No cliente, o `SimDriver` drena a fila depois dos passos de cada quadro (e dos comandos do quadro sem passo) e entrega pelo seu `bus`, um `EventBus` (`src/client/surface/EventBus.ts`) com `on(kind, fn)` e `onAny(fn)`. Hoje há quatro consumidores:
 
 - **Avisos** (`src/client/surface/hud/notices.ts` e `hud/Toast.ts`): fundação, colônia, fissão, cerco (`circumscribed`), guerra e a primeira era do mundo viram uma linha no balão. A guerra por terra de um reino com lugar cercado ganha um texto que liga uma coisa à outra. Os avisos de uma entrega saem juntos no fim dela (numa microtarefa), para a fissão tomar o lugar do aviso da colônia que vem logo antes dela no mesmo instante. Os avisos do jogador passam na frente, e o aviso do motor sobre um comando inválido agora volta no resultado do comando (`CommandResult.hint`) em vez de ficar em `eco.hint` para o cliente ler e limpar.
 - **Setas das mudanças de lugar** (`src/client/surface/trails.ts`): `colony` (por terra na partida, pelo mar na chegada) e `migrate` viram um traço curto, na cor da origem, que anda até o destino e some em alguns segundos. Os traços ficam numa piscina de tamanho fixo (`pool.ts`).
 - **Janela do assentamento** (`hud/SettlementView.ts`): Dirty Flag em vez de consulta por tempo. Fica suja por um evento que envolve o lugar (`eventVillages`), por linha nova na crônica (aba História) ou pelos passos da simulação (abas de números). Na pausa, não é refeita.
+- **Painel de depuração** (`hud/DebugPanel.ts`, só com `?debug`): um `onAny` guarda os últimos 500 eventos num anel, com o texto do aviso (`noticeText`) ou um resumo, para a aba Eventos (ver o painel, adiante).
 
 ### Vista de leitura
 
@@ -130,6 +131,25 @@ Já passam pela fachada: o `SimDriver` (passos, vista para interpolar, eventos),
 | `src/client/surface/tools.ts` | `ToolContext.eco`: as ferramentas leem o mundo para montar o comando |
 
 Nenhum desses arquivos escreve mais no `Ecosystem`. As últimas escritas, `eco.focus` e `eco.pinned` (agora comando `view`), `eco.onTileChanged` e `eco.onSpecies` (agora `setHooks`) e `eco.hint = ''` (agora `CommandResult.hint`), saíram nesta etapa. Sobra um efeito colateral: `pick`, `pickAll` e `pickRect` refazem a grade espacial do motor (ver as regras de determinismo).
+
+### Painel de depuração do cliente (`?debug`, F3)
+
+Com `?debug` no endereço, a superfície ganha um painel lateral que abre e fecha com F3 (a ação `debug` da tabela de teclas) e entra na pilha do Esc. Ele serve para entender o que a simulação está fazendo e lê o motor só pela fachada: `engine.view`, a vista de depuração `engine.debug` (contrato em `src/sim/api/debug.ts`) e os eventos do `bus`. Não usa `ecosystemOf`; o `HudComponent.tick` ainda lhe passa o `Ecosystem`, e ele o ignora. Quando a superfície começa, o painel liga `engine.debug.setRecording(true)`, para a série dos indicadores e as decisões juntarem dados antes de ele abrir.
+
+O HTML sai de funções puras (`src/client/surface/debugPanel.ts`, testadas com uma `DebugView` falsa). O componente (`hud/DebugPanel.ts`) refaz só a aba visível, a cada 500 ms, e escreve no DOM só quando o texto muda (`HtmlSlot`). As abas:
+
+| Aba | O que mostra | De onde vem |
+| --- | --- | --- |
+| Mundo | Semente, ano, desde quando as taxas contam, a gravação e os indicadores de agora contra as metas (verde dentro, vermelho fora), cada um com a série num gráfico pequeno e a faixa da meta ao fundo | `debug.world()` |
+| Lugar | O lugar selecionado (janela do assentamento, pessoa ou lugar fixado na ficha) com tudo do `PlaceDebug`: a pressão numa barra com as marcas dos batedores e da fissão, cerco, era e o que trava, captação, necessidades, falta, taxas e a nota do sítio; e as últimas decisões das famílias dali. Sem seleção, a lista dos lugares vivos por população | `debug.place(id)`, `debug.decisions({ village })`, `view.villages` |
+| Família | A pessoa fixada leva à família dela (`view.family[i]`) e às decisões dela: a escolhida contra as outras, fator por fator, em barras. Sem pessoa, as últimas decisões do mundo; clicar numa decisão seleciona o lugar, leva a câmera e mostra a família | `debug.decisions({ family })` |
+| Eventos | Os últimos 500 eventos, com chips por tipo e o filtro do lugar selecionado; clicar leva ao lugar | o anel do `onAny` |
+| Desempenho | As medidas do relógio nos últimos 120 quadros em gráfico, FPS, `surface.stats` e as partes do passo em barras | `driver.stats`, `surface.stats`, `debug.profile()` |
+| Tempo | Pausa e velocidades, Avançar 1 passo e Avançar 1 ano, semente, ano, passo e o log; Copiar caso | `SimDriver` |
+
+Os botões de avançar usam `SimDriver.stepBy(n)`, que dá os passos pelo mesmo caminho do relógio: cada um começa na fronteira (aplica a fila e guarda no log), os eventos saem pelo `bus` no fim, as medidas contam os passos e o acumulador não muda, então o desenho interpolado anda exatamente `n` passos. Copiar caso leva um JSON com a semente, o ano, o passo, o passo fixo, os segundos por ano, o planeta (`view.map.params`), se o mundo nasceu nesta visita e o log de comandos. O teste refaz um mundo a partir desse JSON e chega ao mesmo estado no mesmo passo. Se o navegador não deixa copiar, o JSON fica selecionado numa caixa de texto.
+
+Enquanto o motor devolve a vista vazia (`EMPTY_DEBUG`), Mundo, Lugar e Família mostram estados vazios que dizem o porquê. Eventos, Desempenho e Tempo não dependem dela.
 
 ## Regras de determinismo
 

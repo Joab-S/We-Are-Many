@@ -58,7 +58,8 @@ npm run data
 | Abas Terreno / Vida / Civilização | Ferramentas de terraformação, espécies e aldeias |
 | Espaço | Pausa ou retoma o tempo (painel da direita: pausa, 1x, 2x, 5x) |
 | Nome de uma aldeia no painel | Leva a câmera até ela |
-| Esc | Volta à órbita |
+| F3 (só com `?debug` no endereço) | Painel de depuração: indicadores contra as metas, o lugar e a família selecionados, os eventos do motor, o desempenho e o tempo passo a passo, com o caso copiável para reproduzir |
+| Esc | Fecha o que abriu por último; sem nada aberto, volta à órbita |
 
 ## O que a Fase 0 prova
 
