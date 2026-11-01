@@ -7,7 +7,7 @@ import type { Lifeway } from '../biomeYield';
  * `setRecording`, que liga a gravação das decisões e a medição do passo: desligada, custa zero e a simulação
  * é exatamente a mesma (a impressão digital do mundo não muda com ela ligada ou desligada).
  *
- * Este módulo só tem tipos e constantes; a implementação mora em engine.ts.
+ * Este módulo só tem tipos e constantes; a implementação mora em debugView.ts (a fachada, engine.ts, só a liga).
  */
 
 /** Uma meta da calibração longa (`LONG_TARGETS`), como o painel a mostra. */

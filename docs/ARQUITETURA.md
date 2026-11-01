@@ -41,6 +41,7 @@ interface Engine {
   snapshot(): EngineSnapshot;         // cópia funda (terreno + ecossistema)
   restore(snap: EngineSnapshot): void;
   setHooks(h: EngineHooks): void;     // tileChanged, species
+  readonly debug: DebugView;          // painel de depuração (ver "Vista de depuração")
 }
 createEngine(map, { seed, eco?, species?, populate?, yearSpan? })
 ```
@@ -113,6 +114,25 @@ No cliente, a camada (`src/client/surface/siteView.ts`) liga e desliga pela tecl
 
 Hoje a vista é um objeto próprio (`LiveView`, em `engine.ts`) que lê o `Ecosystem` vivo campo a campo, sem cópia, e troca de mundo no `restore`. Antes ela era o próprio `Ecosystem`; ficou separada para a fachada ter consultas suas sem mexer no motor. Dois avisos ficam fora da fila por serem síncronos e quentes (`EngineHooks`): `tileChanged`, o tile que mudou (dezenas de milhares por passo quando a mata cresce; a tela só marca o que repintar), e `species`, a variante nova que entra no catálogo.
 
+### Vista de depuração
+
+`engine.debug` é o que o painel de depuração do cliente (`?debug`, F3) lê. O contrato (`DebugView`) está em `src/sim/api/debug.ts`, a implementação (`EngineDebug`) em `src/sim/api/debugView.ts`, e a fachada só a liga: o passo passa por `debug.step` quando a gravação está ligada, e o `restore` chama `debug.adopt`. Tudo sai como dado puro, como o resto da fachada.
+
+A chave é `setRecording`, e o motor começa com ela desligada. Desligada, a fachada chama `eco.step` direto, o gancho do mundo (`eco.probe`, em `eco/core/probe.ts`) é null e cada ponto dele custa um teste. Ligada, `step` e `yearly` marcam o fim de cada parte do passo (`STEP_PARTS`), `thinkMove` entrega cada decisão das famílias, inclusive as de ficar, e a vista amostra os indicadores quando o ano inteiro muda. O gancho é um campo não enumerável, como `residentIndex`, e por isso fica fora do save e da impressão digital. O resto do estado (série, anel de decisões, medição) fica no `EngineDebug`, fora do `Ecosystem`.
+
+| Método | O que devolve | De onde vem |
+| --- | --- | --- |
+| `world()` | Semente, ano, `since`, os indicadores de agora, as metas e a série (uma amostra por ano com a gravação ligada, até `DEBUG_SERIES_LIMIT` = 300) | `indicatorsOf` (`src/sim/calibrate.ts`), a mesma conta que `runWorld` usa. As contas do mundo (`tally`, árvores, amostras do modo completo) e os fundados contam a partir da base `since`: o começo do mundo, ou o ano em que o motor adotou o save (volta a contar no `restore`). As taxas por ano dividem pelos anos desde `since` |
+| `place(id)` | Pressão social (`v.pressure`) e da terra (`landPressure`) com os limiares `PRESSURE_SCOUT` e `PRESSURE_FISSION`, cerco, modo de vida, era e a trava local (`eraLock`), raio da captação (`catchRadius`), área do bioma, necessidades, estabilidade, falta (`lackName`, ou `coleta` para o nômade) e há quantos anos (`v.want`), taxas (`rates`) e a nota do sítio no centro | As partes do `Ecosystem`; a nota pela `siteAt` da `LiveView`, com o próprio lugar como origem |
+| `decisions(filtro)` | As últimas decisões de ficar, migrar ou fundar, das mais novas para as mais velhas, num anel de `DEBUG_DECISION_LIMIT` = 1000: as opções com nota e fatores (`Choice` de `src/ai/utility.ts`), rótulos com o nome do lugar ou o rumo do sítio e o porquê do diário (`moveWhy`) | O gancho em `thinkMove` (`eco/people/migration.ts`) |
+| `profile()` | Passos medidos, ms por passo e ms por parte, da mais cara para a mais barata; null com a gravação desligada | As marcas do gancho em `step` e `yearly` (`performance.now()`) e o tempo da própria amostra (`depuração`). O tempo medido nunca entra numa conta |
+
+Os indicadores que só a rodada da calibração amostra ano a ano (`wars`, `cavalry`, `caravans`, `caravansMax`, `worldTrees`) ficam de fora. `peopleTrend` divide os moradores de agora pelos da amostra anual mais perto de 60% da janela desde `since`, se houver uma a até um ano desse ponto (só com a gravação ligada; senão fica de fora). `taskShare`, `idleShare` e `onStreet` só aparecem quando algum lugar rodou no modo completo dentro da janela. As metas são as de `LONG_TARGETS` com indicador no mundo vivo; o teto de 9999 ou mais vira `Infinity`.
+
+Nenhuma leitura muda o mundo. Algumas consultas do motor preenchem caches preguiçosos que vão no save: a pegada (`v.foot`), a área do bioma (`v.area`) e os lotes livres (`lotCache`). `untouched` guarda os três antes da leitura e os devolve depois. Sem isso o mundo diverge, porque a área ou os lotes preenchidos fora de hora adiantam o que o passo faria. `debug.test.ts` roda o mesmo mundo duas vezes, uma com a gravação ligada e todas as leituras a cada ano e outra sem nada, e compara a impressão digital e o retrato do save inteiro. O mesmo arquivo confere que `runWorld` dá os números gravados antes da extração das contas (`calibrate.baseline.json`).
+
+Custo da gravação ligada: menor que o ruído da medida, tanto na Terra dos testes (raio 0,4: 5,2 a 5,4 ms por passo) quanto na Terra do jogo (raio 1: 13,7 a 14,3 ms). O que dá para isolar é a amostra anual dos indicadores: cerca de 4 ms por amostra na Terra do jogo, ou 0,17 ms por passo no ano de 6 s. `world()` custa de 4 a 6 ms ali, e `place()` cerca de 0,1 ms.
+
 ### O que o cliente ainda acessa direto do Ecosystem
 
 Já passam pela fachada: o `SimDriver` (passos, vista para interpolar, eventos), todos os comandos, inclusive a vista, os ganchos de tile e de espécie, e os avisos do motor. Ainda leem o `Ecosystem` direto (pela ponte `ecosystemOf(engine)`, que é dívida a pagar antes do Worker):
@@ -157,7 +177,7 @@ Enquanto o motor devolve a vista vazia (`EMPTY_DEBUG`), Mundo, Lugar e Família 
 2. **Passo fixo.** O jogo sempre chama `step(SIM_STEP)` com `SIM_STEP` = 0,25 s, o mesmo `dt` da calibração e dos testes longos, em qualquer velocidade. A velocidade muda quantos passos cabem no quadro (com teto de `MAX_STEPS_PER_FRAME` = 3 passos; o que passa disso é descartado e o jogo desacelera) e não o tamanho do passo. O desenho interpola entre o passo anterior e o atual (`alpha`).
 3. **Comandos só na fronteira.** O `SimDriver` aplica a fila antes do próximo passo, ou no fim do quadro quando nenhum passo roda. Nada do cliente muda o mundo no meio de um passo.
 4. **Fluxos de sorteio.** Cada subsistema tem o seu gerador, todos derivados da semente (`streams` em `src/sim/stochastic.ts`): `vida` (aquáticos e o resto da vida), `fauna` (decisões dos bichos de terra), `flora` (vegetação e florestas), `povos`, `politica`, `mundo` (eventos), `terreno` (jazidas), `clima`, `saber` (técnicas) e `mente` (IA das pessoas). Um sistema novo não muda a sequência dos outros. O estado de cada gerador vai no save; um save antigo, sem `fauna` e `flora`, semeia os dois a partir da semente. `Math.random` só aparece no cliente (o tremor da câmera).
-5. **Emitir não é agir.** `emit`, `note` e as consultas da vista não sorteiam nada.
+5. **Emitir não é agir.** `emit`, `note`, as consultas da vista e a vista de depuração não sorteiam nada.
 6. **Dois relógios, de propósito.** O ano de ação (`YEAR_SECONDS` = 6 s, `yearClock`) move a economia, as obras, os barcos, as caravanas, a guerra e o `yearly()`. O ano de calendário (`yearSpan`, `year`) move a idade, os nascimentos, a fase do ano e o que a tela mostra. Na calibração e nos testes eles coincidem; no jogo, `yearSpan` = 12 s. Os dois e as compensações (`eraPace`, `closesCalendarYear`, `actionScale`) ficam em `src/sim/eco/core/clock.ts`. Para medir no ritmo do jogo: `YEAR_SPAN=12 npm run calibrar`. Unificar os dois é uma decisão de design em aberto: deixa a calibração igual ao jogo, mas deixa a economia duas vezes mais lenta por minuto e pede recalibrar `balance.ts`.
 7. **Handles por `uid`.** Slot de criatura é reaproveitado (lista livre, LIFO). Quem guarda outra criatura guarda o `uid` e resolve com `indexOfUid`/`findUid`; o líder se lê com `leaderOf(v)` (valida `leaderUid`) e a presa com `prey(i)` (valida `chaseUid`). Nunca se guarda índice cru de outra criatura entre passos.
 8. **Rede de segurança.** `src/sim/fingerprint.calib.ts` roda três mundos fixos por 200 anos (com povos, só fauna, e com vista) e compara a impressão digital com `fingerprint.baseline.json`. Uma refatoração sem mudança de comportamento mantém a impressão idêntica.
@@ -202,6 +222,7 @@ Partes que valem conhecer além dos domínios:
 | --- | --- |
 | `eco/core/clock.ts` | Os dois relógios e as compensações entre eles |
 | `eco/core/residents.ts` | Índice uid → slot e índice vila → moradores |
+| `eco/core/probe.ts` | Gancho da vista de depuração: as partes do passo (`STEP_PARTS`) e o que o motor entrega com a gravação ligada |
 | `eco/settlements/siteField.ts` | Campo de notas dos sítios (mapa de influência): uma célula de 16×16 tiles, com Double Buffer (`raw`/`rawNext`) e Dirty Flag por fundação, abandono e terreno mudado; `siteRing`, `chooseSite` (melhor de N), `siteFilter` (veto único) e `catchRadius` |
 | `src/ai/decisions/move.ts` | Utility AI de ficar, migrar ou fundar, por família, com histerese por `movedAt`, laços, apego e pressão social |
 

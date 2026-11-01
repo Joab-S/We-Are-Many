@@ -17,6 +17,9 @@ import * as constantsModule from '../constants';
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
 const { YEAR_SECONDS, ERAS } = constantsModule;
 
+/** Técnica da porta de cada era (a que abre a seguinte sem as peças nem os pontos, em `eraLock`). */
+const ERA_DOORS = ['fundicao', 'siderurgia', 'aco', 'vapor'];
+
 export const techPart = {
   /**
    * Avança o conhecimento (usado em difusão comercial e testes). Mudar de etapa
@@ -25,21 +28,22 @@ export const techPart = {
   advance(this: Ecosystem, v: Village, amount: number): void {
     const era = Math.floor(v.tech);
     let next = Math.min(ERAS.length - 1, v.tech + amount);
-    // As peças contam as do próprio lugar (as forjadas ali e as que o comércio trouxe), não as do reino.
-    const m = v.made;
-    const techGate =
-      (era === 0 && this.knew(v, 'fundicao')) ||
-      (era === 1 && this.knew(v, 'siderurgia')) ||
-      (era === 2 && this.knew(v, 'aco')) ||
-      (era === 3 && this.knew(v, 'vapor'));
-    if (
-      Math.floor(next) > era &&
-      era < ERA_NEEDS.length &&
-      (!techGate && (!ERA_NEEDS[era].met(m) || !P.pointsMet(v.pts ?? P.emptyPoints(), era)))
-    ) {
-      next = Math.min(next, era + 0.999);
-    }
+    if (Math.floor(next) > era && this.eraLock(v) !== null) next = Math.min(next, era + 0.999);
     v.tech = next;
+  },
+
+  /**
+   * Trava local da era (o que segura o avanço emprestado de `advance`): sem a técnica da porta (fundição,
+   * siderurgia, aço ou vapor), passar de era pede as peças de `ERA_NEEDS` e os pontos da era (`ERA_POINTS`). As
+   * peças contam as do próprio lugar (as forjadas ali e as que o comércio trouxe), não as do reino. Devolve o que
+   * falta, ou null quando nada trava (e na última era).
+   */
+  eraLock(this: Ecosystem, v: Village): string | null {
+    const era = Math.floor(v.tech);
+    if (era >= ERA_NEEDS.length || this.knew(v, ERA_DOORS[era])) return null;
+    const metal = ERA_NEEDS[era].met(v.made) ? null : ERA_NEEDS[era].text;
+    const points = P.pointsText(v.pts ?? P.emptyPoints(), era);
+    return metal && points ? `${metal}; ${points}` : (metal ?? points);
   },
 
   /** Técnicas conhecidas (seção 19.10). */

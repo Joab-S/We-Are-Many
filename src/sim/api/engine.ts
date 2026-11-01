@@ -7,7 +7,8 @@ import type { Caravan } from '../trade';
 import { Ecosystem, type Boat, type ChronicleEntry, type Effect, type Village, type War } from '../ecosystem';
 import type { Species } from '../species';
 import { applyCommand, type ApplyContext, type CommandResult, type EngineCommand } from './commands';
-import { EMPTY_DEBUG, type DebugView } from './debug';
+import type { DebugView } from './debug';
+import { EngineDebug } from './debugView';
 import type { EngineEvent } from './events';
 
 /**
@@ -439,12 +440,14 @@ export function createEngine(map: SurfaceMap, opts: EngineOptions): Engine {
     eco.onTileChanged = hooks.tileChanged ?? (() => {});
     eco.onSpecies = hooks.species ?? (() => {});
   };
-  // A vista lê o mundo vivo; no `restore` ela passa a ler o mundo novo.
+  // A vista lê o mundo vivo; no `restore` ela passa a ler o mundo novo (a de depuração também).
   const view = new LiveView(eco);
+  const debug = new EngineDebug(eco, view, opts.seed);
   const engine: Engine = {
     view,
     seed: opts.seed,
-    step: (dt) => eco.step(dt),
+    // Com a gravação da depuração desligada, o passo é o do mundo, sem nada no meio.
+    step: (dt) => (debug.recording ? debug.step(dt) : eco.step(dt)),
     apply(cmd, ctx) {
       // O aviso curto do motor sai com o resultado do comando que o gerou (e não fica no mundo para o cliente ler e limpar).
       eco.hint = '';
@@ -461,13 +464,14 @@ export function createEngine(map: SurfaceMap, opts: EngineOptions): Engine {
       const copy = structuredClone(snap);
       eco = restoreEcosystem(copy.eco, copy.map);
       view.eco = eco;
+      debug.adopt(eco);
       attach();
     },
     setHooks(h) {
       hooks = h;
       attach();
     },
-    debug: EMPTY_DEBUG,
+    debug,
   };
   ECOSYSTEMS.set(engine, () => eco);
   return engine;
