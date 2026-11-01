@@ -150,7 +150,7 @@ Já passam pela fachada: o `SimDriver` (passos, vista para interpolar, eventos),
 | `src/client/surface/weatherView.ts` | `eco.weather` (clima vivo) |
 | `src/client/surface/tools.ts` | `ToolContext.eco`: as ferramentas leem o mundo para montar o comando |
 
-Nenhum desses arquivos escreve mais no `Ecosystem`. As últimas escritas, `eco.focus` e `eco.pinned` (agora comando `view`), `eco.onTileChanged` e `eco.onSpecies` (agora `setHooks`) e `eco.hint = ''` (agora `CommandResult.hint`), saíram nesta etapa. Sobra um efeito colateral: `pick`, `pickAll` e `pickRect` refazem a grade espacial do motor (ver as regras de determinismo).
+Nenhum desses arquivos escreve mais no `Ecosystem`. As últimas escritas, `eco.focus` e `eco.pinned` (agora comando `view`), `eco.onTileChanged` e `eco.onSpecies` (agora `setHooks`) e `eco.hint = ''` (agora `CommandResult.hint`), saíram nesta etapa. O efeito colateral que sobrava, `pick` e `pickAll` refazendo a grade espacial do motor, foi corrigido (ver as regras de determinismo).
 
 ### Painel de depuração do cliente (`?debug`, F3)
 
@@ -182,7 +182,7 @@ Enquanto o motor devolve a vista vazia (`EMPTY_DEBUG`), Mundo, Lugar e Família 
 7. **Handles por `uid`.** Slot de criatura é reaproveitado (lista livre, LIFO). Quem guarda outra criatura guarda o `uid` e resolve com `indexOfUid`/`findUid`; o líder se lê com `leaderOf(v)` (valida `leaderUid`) e a presa com `prey(i)` (valida `chaseUid`). Nunca se guarda índice cru de outra criatura entre passos.
 8. **Rede de segurança.** `src/sim/fingerprint.calib.ts` roda três mundos fixos por 200 anos (com povos, só fauna, e com vista) e compara a impressão digital com `fingerprint.baseline.json`. Uma refatoração sem mudança de comportamento mantém a impressão idêntica.
 
-O que ainda vaza: as consultas `pick`, `pickAll` e `pickRect` (seleção e ficha, a cada quadro com o mouse no mapa) refazem a grade espacial do motor (`buildGrid`). O passo refaz a grade logo no começo, mas o fogo natural do verão (`wildfires`, `burn`) roda antes disso e usa a grade como estiver. Com o mouse no mapa, a grade é a das posições de agora; sem ele, é a do começo do passo anterior. O replay só é exato sem consultas entre passos. Há duas correções possíveis: dar às consultas uma grade própria, ou refazer a grade antes do fogo. A segunda muda a impressão digital e pede regravar o baseline.
+Consultas da tela não mexem na grade da simulação. `pick` e `pickAll` (seleção e ficha, a cada quadro com o mouse no mapa) refazem a grade com as posições de agora, consultam e devolvem a grade como estava (`withFreshGrid` em `eco/core/queries.ts`). Antes elas deixavam a grade refeita, e o fogo natural do verão (`wildfires`, `burn`), que roda antes de o passo refazer a grade, pegava outras criaturas: o mouse mudava o mundo. `src/sim/api/pick.test.ts` roda dois mundos, um com consultas entre todos os passos, e exige o mesmo retrato. `pickRect` varre as criaturas sem a grade.
 
 ## A classe parcial do Ecosystem
 
@@ -248,9 +248,11 @@ Partes que valem conhecer além dos domínios:
 | **Data Locality** | Criaturas em cerca de 40 arrays tipados SoA no `Ecosystem`; terreno e ruas por tile em arrays | Carcaças, barcos e caravanas ainda são objetos com `splice` |
 | **Dirty Flag** | Tiles sujos do mapa (`src/client/surface/dirty.ts`, `MapRaster`); `HtmlSlot` no HUD; janela do assentamento suja por evento (`SettlementView`); camada dos sítios repintada só quando a versão do campo muda (`siteView.ts`, `EngineView.siteField`); caches do motor (`footprint` em `v.foot`, `lotCache`, `fieldCache`); moradores por vila (`residents`); células do campo de sítios | Painel e janelas ainda são refeitos por tempo; `plan(v)` (mede 0,4% do passo e dependeria de umas 15 entradas) |
 | **Object Pool** | Lista livre dos slots de criatura (`eco.free`), com o `uid` como handle (líder e caçada validados por ele); partículas e setas das mudanças em `src/client/surface/pool.ts` (`fx.ts`, `trails.ts`); vetores reaproveitados no espaço | Nada |
-| **Spatial Partition** | Grade de células com lista ligada no motor (`gridHead`, `gridNext`, `forEachNear` em `eco/core/entities.ts`); células ecológicas (`src/sim/eco/cells.ts`) e o campo de sítios na mesma grade; `CreatureGrid` do desenho (`src/client/surface/spatial.ts`); octree das estrelas (`src/universe/manifest.ts`, `starIndex.ts`) | Grade própria para as consultas do cliente (ver determinismo); índice para carcaças (`carcassNear` ainda varre a lista) |
+| **Spatial Partition** | Grade de células com lista ligada no motor (`gridHead`, `gridNext`, `forEachNear` em `eco/core/entities.ts`); células ecológicas (`src/sim/eco/cells.ts`) e o campo de sítios na mesma grade; `CreatureGrid` do desenho (`src/client/surface/spatial.ts`); octree das estrelas (`src/universe/manifest.ts`, `starIndex.ts`) | Índice para carcaças (`carcassNear` ainda varre a lista) |
 
 ## Caminho para a separação
+
+O estudo de custo, com o inventário do acoplamento, o volume de dados por passo e as opções (Worker, servidor, tela trocável, motor sem tela), está em [`SEPARACAO-MOTOR.md`](SEPARACAO-MOTOR.md).
 
 **Etapa 1: motor num Web Worker.** O `SimDriver` e o motor vão para o Worker. O cliente manda comandos por `postMessage` e recebe, a cada passo ou quadro, os eventos drenados e o que mudou.
 
@@ -268,7 +270,7 @@ Falta:
 
 - **A vista de leitura.** Hoje ela lê o `Ecosystem` vivo campo a campo (`LiveView`). No Worker, os arrays das criaturas podem ir num `SharedArrayBuffer` (o que pede *cross-origin isolation* no servidor: cabeçalhos COOP e COEP), ou numa cópia por passo transferida com `postMessage(…, [buffers])`. O resto (assentamentos, guerras, crônica) iria em diffs, ou num retrato completo a cada N passos.
 - **Os ganchos síncronos.** `tileChanged` vira uma lista de tiles sujos por passo, mandada junto com os eventos, e `species` vira um evento.
-- **As consultas.** `pick`, `pickAll`, `activityOf`, a ficha e a janela do assentamento passam a ser pedidas ao Worker, de forma assíncrona, ou calculadas no cliente sobre a cópia da vista. As que mudam a grade (`pick`) deixam de mexer no motor.
+- **As consultas.** `pick`, `pickAll`, `activityOf`, a ficha e a janela do assentamento passam a ser pedidas ao Worker, de forma assíncrona, ou calculadas no cliente sobre a cópia da vista. Elas já não mexem no estado do motor.
 - **O HUD.** A tabela "o que o cliente ainda acessa direto" é a lista de trabalho: cada arquivo passa a ler `EngineView`, e a ponte `ecosystemOf` sai.
 - **O desfazer dos pincéis.** O `TileJournal` vai para o motor, e o cliente pede o `restoreTiles`.
 - **O save.** O `GameState` guarda o retrato (`EngineSnapshot`) em vez do `Ecosystem`.
@@ -279,4 +281,4 @@ Falta:
 - coop: vários clientes mandam comandos para o mesmo log;
 - cliente leve: o cliente só interpola e desenha.
 
-Antes disso é preciso fechar o vazamento das consultas na grade espacial e pôr o `yearSpan` no cabeçalho do log.
+Antes disso é preciso pôr o `yearSpan` no cabeçalho do log (o vazamento das consultas na grade espacial já foi fechado).
