@@ -7,6 +7,7 @@ import type { Caravan } from '../trade';
 import { Ecosystem, type Boat, type ChronicleEntry, type Effect, type Village, type War } from '../ecosystem';
 import type { Species } from '../species';
 import { applyCommand, type ApplyContext, type CommandResult, type EngineCommand } from './commands';
+import { EMPTY_DEBUG, type DebugView } from './debug';
 import type { EngineEvent } from './events';
 
 /**
@@ -182,6 +183,8 @@ export interface Engine {
   restore(snap: EngineSnapshot): void;
   /** Liga os avisos síncronos (substitui os anteriores). */
   setHooks(hooks: EngineHooks): void;
+  /** Vista de depuração (painel do `?debug`): indicadores vivos, estado dos lugares, decisões e medição do passo. */
+  readonly debug: DebugView;
 }
 
 export interface EngineOptions {
@@ -464,6 +467,7 @@ export function createEngine(map: SurfaceMap, opts: EngineOptions): Engine {
       hooks = h;
       attach();
     },
+    debug: EMPTY_DEBUG,
   };
   ECOSYSTEMS.set(engine, () => eco);
   return engine;
