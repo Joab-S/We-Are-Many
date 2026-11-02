@@ -8,7 +8,7 @@
  */
 import { it } from 'vitest';
 import * as B from './balance';
-import * as T from '../ai/tuning';
+import * as T from '../IAUS/npc/tuning';
 import { LONG_TARGETS, runWorld } from './calibrate';
 import { YEAR_SECONDS } from './ecosystem';
 import { goalLoss, goalsFrom, type Goal } from './tuneGoals';

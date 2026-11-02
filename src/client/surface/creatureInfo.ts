@@ -3,7 +3,7 @@ import { CHILD, ROLE, ROLE_NAMES, ROLES, type Role } from '../../sim/roles';
 import { animalStage, familyName, personName } from '../../sim/people';
 import { dietText, ecologyOf, HUNGRY, STARVING } from '../../sim/fauna';
 import { ITEMS, MATERIALS, type Category, type ItemDef, type Material } from '../../sim/items';
-import type { Thought } from '../../ai/trace';
+import type { Thought } from '../../IAUS/npc/trace';
 
 /**
  * Dados da ficha de uma criatura (RF-VIDA-335), lidos do ecossistema sob demanda: só a criatura aberta
@@ -243,7 +243,7 @@ export function thoughtIcon(t: Thought): string {
   return THOUGHT_ICONS[t.kind] ?? '✨';
 }
 
-/** Diário da pessoa (src/ai/trace.ts), do mais novo para o mais antigo. */
+/** Diário da pessoa (src/IAUS/npc/trace.ts), do mais novo para o mais antigo. */
 export function diaryOf(eco: Ecosystem, i: number): Thought[] {
   return (eco.diary.get(eco.uid[i]) ?? []).slice().reverse();
 }

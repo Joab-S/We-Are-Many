@@ -77,7 +77,7 @@ const outside = (u) => u.reduce((s, x) => s + (x < 0 ? x * x : x > 1 ? (x - 1) *
 /** Impressão do código da simulação: um cache feito com outro código não vale. */
 function codeHash() {
   const h = createHash('sha1');
-  for (const dir of ['src/sim', 'src/ai', 'src/procgen', 'src/core']) {
+  for (const dir of ['src/sim', 'src/IAUS', 'src/procgen', 'src/core']) {
     for (const f of readdirSync(join(ROOT, dir), { recursive: true }).map(String).sort()) {
       if (!f.endsWith('.ts') || f.endsWith('.test.ts')) continue;
       h.update(f).update(readFileSync(join(ROOT, dir, f)));

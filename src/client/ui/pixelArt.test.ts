@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TRAIT_INFO } from '../../ai/traits';
+import { TRAIT_INFO } from '../../IAUS/npc/traits';
 import { ROLE_ICONS } from '../surface/settlementWindow';
 import { thoughtIcon } from '../surface/creatureInfo';
 import sheetSource from '../surface/hud/CreatureSheet.ts?raw';

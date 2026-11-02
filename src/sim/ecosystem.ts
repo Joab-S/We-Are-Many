@@ -4,9 +4,9 @@ import { streams } from './stochastic';
 import type { SurfaceMap } from '../procgen/surface';
 import { generateDeposits, type Deposit } from './economy';
 import { yearlyEvents } from './events';
-import type { Thought } from '../ai/trace';
-import type { Bond } from '../ai/relations';
-import type { BoardTask } from '../ai/decisions/day';
+import type { Thought } from '../IAUS/npc/trace';
+import type { Bond } from '../IAUS/npc/relations';
+import type { BoardTask } from '../IAUS/npc/decisions/day';
 import type { Agreement, Caravan } from './trade';
 import type { Species } from './species';
 import { DECISIONS_PER_YEAR, ECO_CELL } from './fauna';
@@ -205,7 +205,7 @@ export class Ecosystem {
   needFaith = new Float32Array(0);
   gesture = new Uint8Array(0);
   /**
-   * IA local das pessoas (src/ai): TRAIT_COUNT traços de −10 a 10 por indivíduo (inteligentes; bichos ficam em 0)
+   * IA local das pessoas (src/IAUS/npc): TRAIT_COUNT traços de −10 a 10 por indivíduo (inteligentes; bichos ficam em 0)
    * e o diário curto das decisões de cada um, pelo `uid`.
    */
   traits = new Int8Array(0);
@@ -263,7 +263,7 @@ export class Ecosystem {
   /** Tempo (anos) desde a última recontagem das células ecológicas. */
   wildClock = 0;
   readonly diary = new Map<number, Thought[]>();
-  /** Laços de cada pessoa com outras (amizade, casamento, rivalidade), pelo `uid` (src/ai/relations.ts). */
+  /** Laços de cada pessoa com outras (amizade, casamento, rivalidade), pelo `uid` (src/IAUS/npc/relations.ts). */
   readonly bonds = new Map<number, Bond[]>();
   /** Ofícios de cada assentamento no último ano (índice em ROLES), para a IA saber o que já está cheio. */
   roleCount = new Map<number, number[]>();

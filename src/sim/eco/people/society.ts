@@ -8,12 +8,12 @@ import * as B from '../../balance';
 import { binomial, happens } from '../../stochastic';
 import * as P from '../../progress';
 import { CHILD, pickRole, ROLE, ROLE_NAMES, ROLES, roleWeights, type Role } from '../../roles';
-import { TRAIT, TRAIT_COUNT } from '../../../ai/traits';
-import { chooseProfession, needDemand, professionReason, switchWill, type ProfessionContext } from '../../../ai/decisions/work';
-import { remember, type ThoughtKind } from '../../../ai/trace';
-import { BOND, forget } from '../../../ai/relations';
-import { socialYear, type Resident } from '../../../ai/decisions/social';
-import { SOCIAL } from '../../../ai/tuning';
+import { TRAIT, TRAIT_COUNT } from '../../../IAUS/npc/traits';
+import { chooseProfession, needDemand, professionReason, switchWill, type ProfessionContext } from '../../../IAUS/npc/decisions/work';
+import { remember, type ThoughtKind } from '../../../IAUS/npc/trace';
+import { BOND, forget } from '../../../IAUS/npc/relations';
+import { socialYear, type Resident } from '../../../IAUS/npc/decisions/social';
+import { SOCIAL } from '../../../IAUS/npc/tuning';
 import { personName } from '../../people';
 import { fullNeeds, NEED_NAMES, ROLE_NEED, roleFor, VOCATION_NEED, VOCATION_ROLE, welfare, worstNeed } from '../../needs';
 import type { Village } from '../types';
@@ -232,7 +232,7 @@ export const societyPart = {
   },
 
   /**
-   * Profissão de quem vira adulto, escolhida pela IA da pessoa (src/ai/decisions/work.ts): a falta no lugar,
+   * Profissão de quem vira adulto, escolhida pela IA da pessoa (src/IAUS/npc/decisions/work.ts): a falta no lugar,
    * o que já está cheio, os traços, o jeito, o ofício dos pais e a vocação do lugar. Soldados e guardas
    * continuam sendo chamados pelo líder, na mesma proporção do sorteio antigo.
    */
@@ -308,7 +308,7 @@ export const societyPart = {
   },
 
   /**
-   * Um ano de vida social no lugar (IA local, src/ai/decisions/social.ts): encontros, amizades, rivalidades,
+   * Um ano de vida social no lugar (IA local, src/IAUS/npc/decisions/social.ts): encontros, amizades, rivalidades,
    * casamentos e brigas, anotados no diário de cada um. Crianças fazem amigos mas não casam.
    */
   socialize(this: Ecosystem, v: Village, here: number[]): void {
@@ -365,7 +365,7 @@ export const societyPart = {
     return Math.max(0.3, 0.87 + 0.09 * this.traits[i * TRAIT_COUNT + TRAIT.curiosity]);
   },
 
-  /** Anota uma decisão no diário da pessoa (IA local, src/ai/trace.ts). */
+  /** Anota uma decisão no diário da pessoa (IA local, src/IAUS/npc/trace.ts). */
   logThought(this: Ecosystem, i: number, kind: ThoughtKind, text: string): void {
     remember(this.diary, this.uid[i], { year: Math.floor(this.year), kind, text });
   },

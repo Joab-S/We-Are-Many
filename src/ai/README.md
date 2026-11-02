@@ -1,5 +1,8 @@
 # IA local das pessoas
 
+> **Fora de uso.** A simulação agora decide com o IAUS, em `src/IAUS` (ver `src/IAUS/README.md`). Esta pasta ficou
+> ao lado só para comparação e pode ser apagada.
+
 Cada pessoa inteligente do mundo decide por conta própria, com uma IA leve que roda no navegador, sem
 chave de API e sem internet. A proposta completa está no documento "IA local das pessoas: proposta".
 Esta pasta é o lugar para escrever, testar e ajustar essa IA sem mexer no resto da simulação.

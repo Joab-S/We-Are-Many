@@ -2,13 +2,13 @@
 // trocar por outro, sem tocar no motor. Serve ao otimizador (tools/tune.mjs, para saber de onde partir e para
 // aplicar o resultado) e ao vitest.tune.config.ts (que troca os valores na hora de carregar o módulo).
 //
-// Nomes aceitos, em src/sim/balance.ts e src/ai/tuning.ts:
+// Nomes aceitos, em src/sim/balance.ts e src/IAUS/npc/tuning.ts:
 //   NOME          número solto:           export const SITE_MIN_VALUE = 4.2;
 //   NOME.campo    campo de um objeto:     export const MOVE_W = { ..., stay: 0.35, ... };
 //   NOME[i]       item de um vetor:       export const SEASON_HARVEST = [0.2, 0.8, 2.6, 0.4];
 import { readFileSync } from 'node:fs';
 
-export const TUNE_FILES = ['src/sim/balance.ts', 'src/ai/tuning.ts'];
+export const TUNE_FILES = ['src/sim/balance.ts', 'src/IAUS/npc/tuning.ts'];
 
 const NUMBER = /^-?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?/i;
 /** O que pode vir logo depois de um item de objeto ou vetor que é só um número (e não uma conta). */
