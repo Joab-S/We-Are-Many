@@ -92,6 +92,25 @@ export const queriesPart = {
     return { parent, children };
   },
 
+  /**
+   * Para onde vai quem vive sem assentamento (ficha, só leitura): o lugar do seu povo mais perto, a até 40
+   * tiles, que é o que `loner` segue; -1 quando não há nenhum e ele procura outros solitários.
+   */
+  wanderGoal(this: Ecosystem, i: number): { village: number; distance: number } {
+    const s = this.kind[i];
+    let best = -1;
+    let bd = 40;
+    for (const v of this.villages) {
+      if (v.abandoned || v.species !== s) continue;
+      const d = this.distance(v, this.x[i], this.y[i]);
+      if (d < bd) {
+        bd = d;
+        best = v.id;
+      }
+    }
+    return { village: best, distance: best >= 0 ? bd : 0 };
+  },
+
   /** O que um bicho de terra está fazendo e por quê (a ação que venceu na IAUS). */
   wildActivity(this: Ecosystem, i: number): string {
     const sp = this.species[this.kind[i]];
@@ -157,6 +176,9 @@ export const queriesPart = {
     if (vi < 0) return moving ? 'andando sem rumo' : 'descansando no mato';
     const v = this.villages[vi];
     if (this.expedition.has(i)) return 'em campanha de guerra';
+    // No modo completo (lugar perto da tela ou aberto na ficha), o que a pessoa faz é a jornada que venceu na
+    // IAUS (RF-AS-30); o texto pelo ofício abaixo vale para o modo agregado, onde não há jornada.
+    if (this.full(v) && (this.day[i] || this.jobKind[i])) return this.dayOf(i).task;
     const role = ROLES[this.role[i]];
     const d = this.distance(v, this.x[i], this.y[i]);
     const inside = d <= this.footprint(v) + 1;

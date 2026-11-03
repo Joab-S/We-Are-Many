@@ -130,6 +130,19 @@ export interface Ecosystem
     ClockPart,
     SiteFieldPart {}
 
+/** Nota da IAUS guardada para a ficha (ver `dayNotes`). */
+export interface DayNote {
+  label: string;
+  why: string;
+  /** Nota da opção escolhida (0 a 1); ausente nos eventos do lugar, que passam na frente da escolha. */
+  score?: number;
+  /** Corte do sorteio ponderado (85% da melhor nota): as opções acima dele concorreram no sorteio. */
+  cut?: number;
+  /** As considerações que mais pesaram a favor, da maior para a menor. */
+  factors?: { name: string; value: number }[];
+  others: { label: string; score: number; low?: string }[];
+}
+
 export class Ecosystem {
   readonly species: Species[] = [];
   capacity = 0;
@@ -751,8 +764,12 @@ export class Ecosystem {
   /** O que entrou no pátio no modo completo e o que foi entregue no celeiro, por bem (o teste compara os dois). */
   yardIn: Record<string, number> = {};
   delivered: Record<string, number> = {};
-  /** Porquê da última jornada de cada pessoa, pelo uid (RF-AS-30). */
-  dayNotes = new Map<number, { label: string; why: string; others: { label: string; score: number }[] }>();
+  /**
+   * Porquê da última jornada de cada pessoa, pelo uid (RF-AS-30): a opção que venceu, com a nota e as
+   * considerações que mais pesaram, e as que perderam, com a consideração que mais as puxou para baixo.
+   * Só leitura para a ficha; não vai no save.
+   */
+  dayNotes = new Map<number, DayNote>();
   /** Quadro de tarefas de cada assentamento no modo completo, refeito a cada TASK_SECONDS (RF-AS-21). */
   boards = new Map<number, { at: number; tasks: BoardTask[] }>();
   /** Roças de cada assentamento (tiles), refeitas no máximo uma vez por ano. */

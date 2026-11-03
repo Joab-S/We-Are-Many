@@ -146,7 +146,7 @@ Já passam pela fachada: o `SimDriver` (passos, vista para interpolar, eventos),
 | `src/client/surface/overlay.ts` | Contornos (`villageContour`), territórios, guerras |
 | `src/client/surface/selection.ts` | `pick`, `pickAll`, `pickRect`, `villageAt` e os arrays da criatura fixada |
 | `src/client/surface/settlementWindow.ts` | Quase tudo de um assentamento (economia, moradores, prédios, relações, crônica) |
-| `src/client/surface/hud/*.ts` | `InfoCard` (a ficha), `Windows` (crônica, reinos, espécies, itens, mundo), `SidePanel`, `Toolbar`, `Minimap`, `Labels`, `SettlementView`; `HudComponent.tick` recebe o `Ecosystem` |
+| `src/client/surface/hud/*.ts` | `InfoCard` (balão do lugar e prévia da criatura), `CreatureSheet` (ficha completa da criatura e do grupo, com os dados de `creatureInfo.ts`: `diary`, `bonds`, `dayNotes`, `familyOf`, `tiesOf`, `dayOf`, `wanderGoal`, `store`), `Windows` (crônica, reinos, espécies, itens, mundo), `SidePanel`, `Toolbar`, `Minimap`, `Labels`, `SettlementView`; `HudComponent.tick` recebe o `Ecosystem` |
 | `src/client/surface/weatherView.ts` | `eco.weather` (clima vivo) |
 | `src/client/surface/tools.ts` | `ToolContext.eco`: as ferramentas leem o mundo para montar o comando |
 
