@@ -206,19 +206,67 @@ export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = Y
     const top = eco.villages.filter((v) => !v.abandoned).sort((p, q) => q.population - p.population).slice(0, 3);
     eco.watch(top.map((v) => v.id));
   };
-  const sapient = () => eco.villages.reduce((n, v) => n + (v.abandoned ? 0 : v.population), 0);
   for (let y = 0; y < years; y++) {
     watch();
     for (let t = 0; t < yearSpan; t += 0.25) eco.step(0.25);
-    if (y === Math.floor(years * 0.6)) mid = sapient();
+    if (y === Math.floor(years * 0.6)) mid = sapientPeople(eco);
     wars += eco.wars.length;
     for (let i = 0; i < eco.count; i++) if (eco.alive[i] && eco.mounted(i)) cavalry++;
     const moving = eco.caravans.filter((c) => c.kind === 'trade' || c.kind === 'tribute').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
     caravans += moving;
     caravansMax = Math.max(caravansMax, moving);
   }
-  const live = eco.villages.filter((v) => !v.abandoned);
-  const e = eco as unknown as { road: Uint8Array };
+  return { eco, indicators: indicatorsOf(eco, seed, { years, villages: placed }, { wars, cavalry, caravans, caravansMax, mid, trees0, trees: countTrees() }) };
+}
+
+/**
+ * De onde contam os indicadores: o começo da rodada da calibração, ou o ano em que o motor adotou o mundo (a vista
+ * de depuração, src/sim/api/debugView.ts). As contas do mundo (`tally`, as árvores cortadas e plantadas e as amostras
+ * do comportamento) contam a partir das que havia ali; sem elas, do zero (a rodada da calibração nasce com o mundo).
+ */
+export interface IndicatorBase {
+  /** Anos desde o começo: o divisor das taxas por ano (no mínimo 1). */
+  years: number;
+  /** Assentamentos que já existiam no começo (as aldeias semeadas): não contam como fundados. */
+  villages: number;
+  tally?: Readonly<Ecosystem['tally']>;
+  treesCut?: number;
+  treesPlanted?: number;
+  dayStats?: Readonly<Ecosystem['dayStats']>;
+}
+
+/** O que só quem roda o mundo ano a ano sabe. A vista de depuração não tem: passa NaN e tira esses indicadores. */
+export interface RunSamples {
+  /** Somas de uma amostra por ano (guerras ao mesmo tempo, soldados montados, caravanas e barcos mercantes) e o máximo das caravanas. */
+  wars: number;
+  cavalry: number;
+  caravans: number;
+  caravansMax: number;
+  /** Moradores aos 60% da rodada (0: sem a amostra). */
+  mid: number;
+  /** Árvores de pé no começo e agora. */
+  trees0: number;
+  trees: number;
+}
+
+/** Assentamentos vivos (não abandonados). */
+export function liveVillages(eco: Ecosystem): Village[] {
+  return eco.villages.filter((v) => !v.abandoned);
+}
+
+/** Moradores de todos os assentamentos vivos. */
+export function sapientPeople(eco: Ecosystem): number {
+  return eco.villages.reduce((n, v) => n + (v.abandoned ? 0 : v.population), 0);
+}
+
+/** Mediana de moradores dos lugares vivos (a do meio, arredondando para cima numa lista par). */
+export function medianPop(live: Village[]): number {
+  return live.length ? [...live].sort((p, q) => p.population - q.population)[live.length >> 1].population : 0;
+}
+
+/** Casas sem nenhuma rua ou trilha a até 2 tiles. */
+export function housesOffStreet(eco: Ecosystem, live: Village[]): number {
+  const map = eco.map;
   let off = 0;
   for (const v of live) {
     for (const h of v.houses) {
@@ -228,14 +276,18 @@ export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = Y
         for (let dx = -2; dx <= 3 && !near; dx++) {
           const ty = h.y + dy;
           if (ty < 0 || ty >= map.height) continue;
-          const r = e.road[ty * map.width + (((h.x + dx) % map.width) + map.width) % map.width];
+          const r = eco.road[ty * map.width + (((h.x + dx) % map.width) + map.width) % map.width];
           if (isStreet(r)) near = true;
         }
       }
       if (!near) off++;
     }
   }
-  const ring = settlementForm(eco, live);
+  return off;
+}
+
+/** Preenchimento médio dos estoques do que sobra no ano (feito > gasto) e quantos recursos estão acima do teto. */
+export function stockFill(eco: Ecosystem, live: Village[]): { fill: number; overCap: number } {
   let fill = 0;
   let fills = 0;
   let over = 0;
@@ -252,107 +304,132 @@ export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = Y
       }
     }
   }
+  return { fill: fills ? fill / fills : 0, overCap: over };
+}
+
+/** Contas que somam desde o começo, menos as que havia na base (sem base, as próprias). */
+function since<T extends object>(now: T, base: Readonly<T> | undefined): T {
+  if (!base) return now;
+  const out = { ...now } as Record<string, number>;
+  for (const k of Object.keys(out)) out[k] -= (base as Record<string, number>)[k] ?? 0;
+  return out as T;
+}
+
+/**
+ * Os indicadores do mundo agora (as definições da calibração, num lugar só): o que depende só do estado e da base
+ * sai daqui, e o que só a rodada amostra vem em `run`. Só lê: não sorteia nem muda o mundo (os caches que as
+ * consultas preenchem, como a pegada, são de quem chama guardar, como faz a vista de depuração).
+ */
+export function indicatorsOf(eco: Ecosystem, seed: number, base: IndicatorBase, run: RunSamples): Indicators {
+  const years = base.years;
+  const map = eco.map;
+  const live = liveVillages(eco);
+  const people = sapientPeople(eco);
+  const t = since(eco.tally, base.tally);
+  const day = since(eco.dayStats, base.dayStats);
+  const cut = eco.treesCut - (base.treesCut ?? 0);
+  const planted = eco.treesPlanted - (base.treesPlanted ?? 0);
+  const founded = eco.villages.length - base.villages;
+  const ring = settlementForm(eco, live);
+  const stock = stockFill(eco, live);
   return {
-    eco,
-    indicators: {
-      seed,
-      years,
-      extinct: eco.species.filter((_, k) => eco.population[k] === 0).length,
-      settlements: live.length,
-      cities: live.filter((v) => v.tier >= 2).length,
-      biggest: Math.max(0, ...live.map((v) => v.population)),
-      kingdoms: live.filter((v) => v.kingdom === v.id).length,
-      medianPop: live.length ? [...live].sort((p, q) => p.population - q.population)[live.length >> 1].population : 0,
-      cityShare: live.reduce((n, v) => n + (v.tier >= 2 ? v.population : 0), 0) / Math.max(1, sapient()),
-      metropoles: live.filter((v) => v.tier >= 3).length,
-      bigKingdoms: live.filter((v) => v.kingdom === v.id && eco.kingdomSize(v) >= 3).length,
-      founded: eco.villages.length - placed,
-      wars: wars / Math.max(1, years),
-      era: Math.max(0, ...live.map((v) => v.tech)),
-      techs: live.length ? live.reduce((n, v) => n + (v.techs?.length ?? 0), 0) / live.length : 0,
-      eraSpread: live.length ? Math.max(...live.map((v) => v.tech)) - Math.min(...live.map((v) => v.tech)) : 0,
-      roadBlocks: roadBlocks(e.road, map.width, map.height),
-      droughts: eco.chronicle.filter((c) => c.text.startsWith('Uma seca')).reduce((n, c) => n + (c.count ?? 1), 0),
-      housesOffStreet: off,
-      completeness: live.reduce((n, v) => n + (v.completeness ?? 1), 0) / Math.max(1, live.length),
-      reformed: live.reduce((n, v) => n + v.houses.filter((h) => (h.level ?? 0) > 0).length, 0),
-      vocations: new Set(live.map((v) => v.vocation)).size,
-      herds: live.filter((v) => v.herd && v.herd.head > 0).length,
-      welfare: live.reduce((n, v) => n + (v.needs ? welfare(v.needs) : 1), 0) / Math.max(1, live.length),
-      stockFill: fills ? fill / fills : 0,
-      overCap: over,
-      stability: live.reduce((n, v) => n + (v.stability ?? 1), 0) / Math.max(1, live.length),
-      caravans: caravans / Math.max(1, years),
-      caravansMax,
-      agreements: eco.agreements.length,
-      routeTiles: eco.routeTiles,
-      luxuries: live.filter((v) => v.luxury && Math.floor(v.tech) >= 0).filter((v) => (v.ledger?.[v.luxury!]?.[0] ?? 0) > 0).length,
-      tolls: eco.tolls.size,
-      people: sapient(),
-      peopleTrend: mid ? sapient() / mid : 0,
-      foodNeed: live.reduce((n, v) => n + (v.needs?.food ?? 1), 0) / Math.max(1, live.length),
-      fuelNeed: live.reduce((n, v) => n + (v.needs?.fuel ?? 1), 0) / Math.max(1, live.length),
-      hunger: (eco.tally.hunger / Math.max(1, years)) * (100 / Math.max(1, sapient())),
-      cold: (eco.tally.cold / Math.max(1, years)) * (100 / Math.max(1, sapient())),
-      collapsed: eco.tally.collapsed / Math.max(1, years),
-      greedWars: eco.tally.greedWars,
-      exodus: eco.tally.exodus,
-      migrants: eco.tally.migrants / Math.max(1, years),
-      familyMoves: eco.tally.familyMoves / Math.max(1, years),
-      supplied: eco.tally.supplied / Math.max(1, years),
-      treesCut: eco.treesCut / Math.max(1, years),
-      replanted: eco.treesCut ? eco.treesPlanted / eco.treesCut : 0,
-      forestry: live.filter((v) => v.forestry).length,
-      worldTrees: countTrees() / Math.max(1, trees0),
-      lootWars: eco.tally.lootWars,
-      landWars: eco.tally.landWars,
-      exterminations: eco.tally.exterminations,
-      civilWars: eco.tally.civilWars,
-      warsPeak: eco.tally.warsPeak,
-      plans: eco.tally.plans,
-      plansDropped: eco.tally.plansDropped,
-      prepYears: eco.tally.wars ? eco.tally.prepYears / eco.tally.wars : 0,
-      warsDeclared: eco.tally.wars,
-      // Toda declaração de guerra na crônica diz o motivo (RF-VIDA-244): "para tomar", "para arrasar" ou guerra civil.
-      warsNoMotive: eco.chronicle.filter((c) => c.kind === 'guerra' && /^Guerra!|atacou/.test(c.text) && !/para tomar|para arrasar|para dominar|por vingança|em nome da fé/.test(c.text)).length,
-      looted: eco.tally.looted,
-      burned: eco.tally.burned,
-      refugees: eco.tally.refugees,
-      mercenaries: eco.tally.mercenaries,
-      retreats: eco.tally.retreats,
-      cavalry: cavalry / Math.max(1, years),
-      forestLeft: live.reduce((n, v) => n + (v.treesStart ? (v.trees ?? 0) / v.treesStart : 1), 0) / Math.max(1, live.length),
-      realms: live.filter((v) => eco.isRealm(v)).length,
-      smallShare: live.filter((v) => v.population < 15).length / Math.max(1, live.length),
-      soloShare: eco.tally.soloFounds / Math.max(1, eco.villages.length - placed),
-      shortLived: eco.tally.shortLived / Math.max(1, eco.villages.length),
-      colonies: eco.tally.colonies,
-      farmsteads: eco.tally.farmsteads,
-      merged: eco.tally.merged,
-      tierDowns: eco.tally.tierDowns,
-      coreDensity: ring.density,
-      coreTrees: ring.trees,
-      fieldsNear: ring.fieldsNear,
-      taskShare: eco.dayStats.samples ? eco.dayStats.tasked / eco.dayStats.samples : 0,
-      idleShare: eco.dayStats.samples ? eco.dayStats.idle / eco.dayStats.samples : 0,
-      onStreet: eco.dayStats.steps ? eco.dayStats.streetSteps / eco.dayStats.steps : 0,
-      interMarriage: eco.tally.interMarriages / Math.max(1, eco.tally.marriages),
-      refCoverage: (() => {
-        const small = live.filter((v) => v.tier <= 1 && !eco.isMarket(v));
-        return small.filter((v) => v.ref !== undefined && !eco.villages[v.ref]?.abandoned).length / Math.max(1, small.length);
-      })(),
-      annexations: eco.tally.annexations,
-      newPeoples: eco.tally.newPeoples,
-      aid: eco.tally.aid,
-      rivalries: eco.tally.rivalries,
-      pressureShare: (eco.tally.foundPressure + eco.tally.foundLand) / Math.max(1, eco.tally.foundPressure + eco.tally.foundLand + eco.tally.foundFamine),
-      landFounds: eco.tally.foundLand,
-      famineFounds: eco.tally.foundFamine,
-      fissions: eco.tally.fissions,
-      fissionPop: eco.tally.fissions ? eco.tally.fissionPop / eco.tally.fissions : 0,
-      circumscribed: eco.tally.circumscribed,
-      landHungerWars: eco.tally.landHunger,
-    },
+    seed,
+    years,
+    extinct: eco.species.filter((_, k) => eco.population[k] === 0).length,
+    settlements: live.length,
+    cities: live.filter((v) => v.tier >= 2).length,
+    biggest: Math.max(0, ...live.map((v) => v.population)),
+    kingdoms: live.filter((v) => v.kingdom === v.id).length,
+    medianPop: medianPop(live),
+    cityShare: live.reduce((n, v) => n + (v.tier >= 2 ? v.population : 0), 0) / Math.max(1, people),
+    metropoles: live.filter((v) => v.tier >= 3).length,
+    bigKingdoms: live.filter((v) => v.kingdom === v.id && eco.kingdomSize(v) >= 3).length,
+    founded,
+    wars: run.wars / Math.max(1, years),
+    era: Math.max(0, ...live.map((v) => v.tech)),
+    techs: live.length ? live.reduce((n, v) => n + (v.techs?.length ?? 0), 0) / live.length : 0,
+    eraSpread: live.length ? Math.max(...live.map((v) => v.tech)) - Math.min(...live.map((v) => v.tech)) : 0,
+    roadBlocks: roadBlocks(eco.road, map.width, map.height),
+    droughts: eco.chronicle.filter((c) => c.text.startsWith('Uma seca')).reduce((n, c) => n + (c.count ?? 1), 0),
+    housesOffStreet: housesOffStreet(eco, live),
+    completeness: live.reduce((n, v) => n + (v.completeness ?? 1), 0) / Math.max(1, live.length),
+    reformed: live.reduce((n, v) => n + v.houses.filter((h) => (h.level ?? 0) > 0).length, 0),
+    vocations: new Set(live.map((v) => v.vocation)).size,
+    herds: live.filter((v) => v.herd && v.herd.head > 0).length,
+    welfare: live.reduce((n, v) => n + (v.needs ? welfare(v.needs) : 1), 0) / Math.max(1, live.length),
+    stockFill: stock.fill,
+    overCap: stock.overCap,
+    stability: live.reduce((n, v) => n + (v.stability ?? 1), 0) / Math.max(1, live.length),
+    caravans: run.caravans / Math.max(1, years),
+    caravansMax: run.caravansMax,
+    agreements: eco.agreements.length,
+    routeTiles: eco.routeTiles,
+    luxuries: live.filter((v) => v.luxury && Math.floor(v.tech) >= 0).filter((v) => (v.ledger?.[v.luxury!]?.[0] ?? 0) > 0).length,
+    tolls: eco.tolls.size,
+    people,
+    peopleTrend: run.mid ? people / run.mid : 0,
+    foodNeed: live.reduce((n, v) => n + (v.needs?.food ?? 1), 0) / Math.max(1, live.length),
+    fuelNeed: live.reduce((n, v) => n + (v.needs?.fuel ?? 1), 0) / Math.max(1, live.length),
+    hunger: (t.hunger / Math.max(1, years)) * (100 / Math.max(1, people)),
+    cold: (t.cold / Math.max(1, years)) * (100 / Math.max(1, people)),
+    collapsed: t.collapsed / Math.max(1, years),
+    greedWars: t.greedWars,
+    exodus: t.exodus,
+    migrants: t.migrants / Math.max(1, years),
+    familyMoves: t.familyMoves / Math.max(1, years),
+    supplied: t.supplied / Math.max(1, years),
+    treesCut: cut / Math.max(1, years),
+    replanted: cut ? planted / cut : 0,
+    forestry: live.filter((v) => v.forestry).length,
+    worldTrees: run.trees / Math.max(1, run.trees0),
+    lootWars: t.lootWars,
+    landWars: t.landWars,
+    exterminations: t.exterminations,
+    civilWars: t.civilWars,
+    warsPeak: t.warsPeak,
+    plans: t.plans,
+    plansDropped: t.plansDropped,
+    prepYears: t.wars ? t.prepYears / t.wars : 0,
+    warsDeclared: t.wars,
+    // Toda declaração de guerra na crônica diz o motivo (RF-VIDA-244): "para tomar", "para arrasar" ou guerra civil.
+    warsNoMotive: eco.chronicle.filter((c) => c.kind === 'guerra' && /^Guerra!|atacou/.test(c.text) && !/para tomar|para arrasar|para dominar|por vingança|em nome da fé/.test(c.text)).length,
+    looted: t.looted,
+    burned: t.burned,
+    refugees: t.refugees,
+    mercenaries: t.mercenaries,
+    retreats: t.retreats,
+    cavalry: run.cavalry / Math.max(1, years),
+    forestLeft: live.reduce((n, v) => n + (v.treesStart ? (v.trees ?? 0) / v.treesStart : 1), 0) / Math.max(1, live.length),
+    realms: live.filter((v) => eco.isRealm(v)).length,
+    smallShare: live.filter((v) => v.population < 15).length / Math.max(1, live.length),
+    soloShare: t.soloFounds / Math.max(1, founded),
+    shortLived: t.shortLived / Math.max(1, eco.villages.length),
+    colonies: t.colonies,
+    farmsteads: t.farmsteads,
+    merged: t.merged,
+    tierDowns: t.tierDowns,
+    coreDensity: ring.density,
+    coreTrees: ring.trees,
+    fieldsNear: ring.fieldsNear,
+    taskShare: day.samples ? day.tasked / day.samples : 0,
+    idleShare: day.samples ? day.idle / day.samples : 0,
+    onStreet: day.steps ? day.streetSteps / day.steps : 0,
+    interMarriage: t.interMarriages / Math.max(1, t.marriages),
+    refCoverage: (() => {
+      const small = live.filter((v) => v.tier <= 1 && !eco.isMarket(v));
+      return small.filter((v) => v.ref !== undefined && !eco.villages[v.ref]?.abandoned).length / Math.max(1, small.length);
+    })(),
+    annexations: t.annexations,
+    newPeoples: t.newPeoples,
+    aid: t.aid,
+    rivalries: t.rivalries,
+    pressureShare: (t.foundPressure + t.foundLand) / Math.max(1, t.foundPressure + t.foundLand + t.foundFamine),
+    landFounds: t.foundLand,
+    famineFounds: t.foundFamine,
+    fissions: t.fissions,
+    fissionPop: t.fissions ? t.fissionPop / t.fissions : 0,
+    circumscribed: t.circumscribed,
+    landHungerWars: t.landHunger,
   };
 }
 

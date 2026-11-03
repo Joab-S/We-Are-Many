@@ -16,6 +16,9 @@ import { EventBus } from './EventBus';
  * Depois dos passos de cada quadro, os eventos do motor são drenados e
  * entregues pelo despachante `bus` (Observer do lado do cliente) a quem
  * assinou: avisos, janelas.
+ *
+ * O painel de depuração também avança à mão (`stepBy`), pelo mesmo caminho:
+ * fronteira, log, eventos e medidas.
  */
 
 /** As posições das criaturas que o relógio lê do mundo para interpolar. */
@@ -125,21 +128,12 @@ export class SimDriver<C, E extends { kind: string } = never> {
   update(dt: number): number {
     const h = this.h;
     const max = this.opts.maxSteps ?? MAX_STEPS_PER_FRAME;
-    const now = this.opts.now ?? (() => performance.now());
-    this.stats.steps = 0;
-    this.stats.stepMs = 0;
-    this.stats.dropped = 0;
+    this.begin();
     this.acc += Math.max(0, dt) * SPEEDS[this.speed];
     let n = 0;
     while (this.acc >= h && n < max) {
-      this.flush();
-      this.snapshot();
-      const t0 = now();
-      this.target.step(h);
-      this.stats.stepMs += now() - t0;
-      this.stamp = this.target.view.year;
+      this.advance();
       this.acc -= h;
-      this.tick++;
       n++;
     }
     if (this.acc >= h) {
@@ -148,13 +142,53 @@ export class SimDriver<C, E extends { kind: string } = never> {
       this.stats.dropped = this.acc - keep;
       this.acc = keep;
     }
+    this.end(n);
+    return n;
+  }
+
+  /**
+   * Avança `n` passos agora, fora do relógio, em qualquer velocidade (inclusive na pausa): os botões Avançar 1
+   * passo e Avançar 1 ano do painel de depuração. É o mesmo caminho do `update`: cada passo começa na fronteira
+   * (aplica a fila e guarda no log com o número do passo), os eventos saem pelo `bus` no fim, e as medidas do
+   * quadro passam a ser as destes passos (sem descarte), com os totais contando-os. O acumulador não muda: a
+   * fração do próximo passo (`alpha`) continua a mesma, então o desenho, interpolado entre os dois últimos
+   * passos, anda exatamente `n` passos. Devolve quantos passos deu.
+   */
+  stepBy(n: number): number {
+    const count = Math.max(0, Math.floor(n));
+    this.begin();
+    for (let k = 0; k < count; k++) this.advance();
+    this.end(count);
+    return count;
+  }
+
+  /** Zera as medidas do quadro (do `update` ou do `stepBy`). */
+  private begin(): void {
+    this.stats.steps = 0;
+    this.stats.stepMs = 0;
+    this.stats.dropped = 0;
+  }
+
+  /** Um passo na fronteira: aplica a fila, guarda as posições para interpolar, dá o passo e o mede. */
+  private advance(): void {
+    const now = this.opts.now ?? (() => performance.now());
+    this.flush();
+    this.snapshot();
+    const t0 = now();
+    this.target.step(this.h);
+    this.stats.stepMs += now() - t0;
+    this.stamp = this.target.view.year;
+    this.tick++;
+  }
+
+  /** Fim do quadro com `n` passos: os comandos de um quadro sem passo, as medidas e a entrega dos eventos. */
+  private end(n: number): void {
     // Sem passo neste quadro, os comandos entram no fim dele (ainda entre dois passos).
     if (!n) this.flush();
     this.stats.steps = n;
     this.stats.totalSteps += n;
     this.stats.totalMs += this.stats.stepMs;
     this.dispatch();
-    return n;
   }
 
   /** Drena os eventos do motor (dos passos e dos comandos deste quadro) e os entrega pelo `bus`. */
