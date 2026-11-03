@@ -12,6 +12,7 @@ import { emptyVital } from '../../people';
 import { BOND } from '../../../IAUS/npc/relations';
 import { chooseMove, moveWhy, type MoveAction, type MoveContext, type PlaceView } from '../../../IAUS/npc/decisions/move';
 import type { Village } from '../types';
+import type { ProbeSite } from '../core/probe';
 
 /** Um lugar conhecido ao alcance e o custo de ir até lá (viagem e diferença de povo e de reino), em pontos da nota. */
 interface Known {
@@ -178,7 +179,7 @@ export const migrationPart = {
    * em cada um, há quanto tempo chegou e os sítios que os batedores viram) e escolhe. Quem decide sair anota o
    * porquê no diário. Devolve a escolha (null: nenhuma opção).
    */
-  thinkMove(this: Ecosystem, v: Village, members: number[], known: Known[], score: Map<Village, number>, crowd: Map<Village, number>, lack: number, exodus: boolean, sites: { value: number }[] = [], pressure?: number): MoveAction | null {
+  thinkMove(this: Ecosystem, v: Village, members: number[], known: Known[], score: Map<Village, number>, crowd: Map<Village, number>, lack: number, exodus: boolean, sites: ProbeSite[] = [], pressure?: number): MoveAction | null {
     const adults = members.filter((i) => this.role[i] !== CHILD);
     if (!adults.length) return null;
     const ties = this.tiesByPlace(members);
@@ -200,10 +201,13 @@ export const migrationPart = {
     const choice = chooseMove(ctx, this.mindRnd);
     if (!choice) return null;
     const pick = choice.pick.action;
-    if (pick.kind !== 'stay') {
+    // A vista de depuração (gravação ligada) grava todas as decisões, inclusive as de ficar; o diário, só as de sair.
+    const probe = this.probe;
+    if (pick.kind !== 'stay' || probe) {
       const name = (a: MoveAction) => (a.kind === 'stay' ? 'ficar' : a.kind === 'migrate' ? `ir para ${this.villages[a.to].name}` : 'fundar um lugar novo');
       const why = moveWhy(choice, name);
-      for (const i of adults) this.logThought(i, 'mudança', why.charAt(0).toUpperCase() + why.slice(1));
+      if (pick.kind !== 'stay') for (const i of adults) this.logThought(i, 'mudança', why.charAt(0).toUpperCase() + why.slice(1));
+      if (probe) probe.decision(v, members, adults, exodus, choice, sites, why);
     }
     return pick;
   },

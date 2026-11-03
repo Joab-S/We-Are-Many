@@ -7,7 +7,7 @@ import { keyName } from '../space/commands';
  * trocar a tabela, sem procurar `input.hit('KeyX')` pelo código. Ficam de fora o Esc (fecha o que abriu por
  * último), os dígitos das velocidades, o WASD da câmera e o Ctrl+Z.
  */
-export type SurfaceAction = 'pause' | 'help' | 'territory' | 'sites' | 'panel' | 'follow' | 'brushDown' | 'brushUp' | 'chronicle' | 'kingdoms' | 'species' | 'items';
+export type SurfaceAction = 'pause' | 'help' | 'territory' | 'sites' | 'panel' | 'follow' | 'brushDown' | 'brushUp' | 'chronicle' | 'kingdoms' | 'species' | 'items' | 'debug';
 
 export const SURFACE_KEYS: Readonly<Record<SurfaceAction, readonly string[]>> = {
   pause: ['Space'],
@@ -23,6 +23,9 @@ export const SURFACE_KEYS: Readonly<Record<SurfaceAction, readonly string[]>> = 
   kingdoms: ['KeyR'],
   species: ['KeyE'],
   items: ['KeyI'],
+  // Painel de depuração (só existe com `?debug` no endereço): F3, como nos jogos. O navegador usaria o F3 para
+  // procurar na página; o painel segura a tecla.
+  debug: ['F3'],
 };
 
 /** Teclas que a superfície lê fora da tabela (câmera, velocidades e Esc): a tabela não pode repeti-las. */

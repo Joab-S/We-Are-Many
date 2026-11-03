@@ -16,6 +16,32 @@ import * as helpersModule from '../helpers';
 const { ACT } = constantsModule;
 const { elderAge } = helpersModule;
 
+// Cópia da grade da simulação durante uma consulta da tela (reaproveitada entre as consultas).
+let keptHead = new Int32Array(0);
+let keptNext = new Int32Array(0);
+
+/**
+ * Roda uma consulta da tela sobre a grade refeita com as posições de agora e devolve a grade da simulação como
+ * estava. A grade é estado da simulação: o passo a refaz no começo, mas o fogo do ano a lê antes disso, então uma
+ * consulta entre dois passos (o mouse sobre o mapa, a cada quadro) mudava quem o fogo pega, e o mundo deixava de
+ * ser o da semente mais o log de comandos.
+ */
+function withFreshGrid<T>(eco: Ecosystem, query: () => T): T {
+  const head = eco.gridHead;
+  const next = eco.gridNext;
+  if (keptHead.length < head.length) keptHead = new Int32Array(head.length);
+  if (keptNext.length < next.length) keptNext = new Int32Array(next.length);
+  keptHead.set(head);
+  keptNext.set(next);
+  eco.buildGrid();
+  try {
+    return query();
+  } finally {
+    head.set(keptHead.subarray(0, head.length));
+    next.set(keptNext.subarray(0, next.length));
+  }
+}
+
 export const queriesPart = {
   /** Índice da criatura viva com esse `uid`, ou -1 (pelo índice uid -> índice, sem varrer a população). */
   findUid(this: Ecosystem, uid: number): number {
@@ -25,9 +51,8 @@ export const queriesPart = {
 
   /** Todas as criaturas a até `radius` de um ponto, da mais perto para a mais longe (RF-VIDA-331). */
   pickAll(this: Ecosystem, x: number, y: number, radius: number): number[] {
-    this.buildGrid();
     const found: [number, number][] = [];
-    this.forEachNear(x, y, radius, (i, dx, dy) => found.push([dx * dx + dy * dy, i]));
+    withFreshGrid(this, () => this.forEachNear(x, y, radius, (i, dx, dy) => found.push([dx * dx + dy * dy, i])));
     return found.sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, i]) => i);
   },
 
@@ -206,16 +231,17 @@ export const queriesPart = {
 
   /** Índice da criatura mais próxima de um ponto, ou -1. */
   pick(this: Ecosystem, x: number, y: number, radius: number): number {
-    this.buildGrid();
     let best = -1;
     let bd = Infinity;
-    this.forEachNear(x, y, radius, (i, dx, dy) => {
-      const d = dx * dx + dy * dy;
-      if (d < bd) {
-        bd = d;
-        best = i;
-      }
-    });
+    withFreshGrid(this, () =>
+      this.forEachNear(x, y, radius, (i, dx, dy) => {
+        const d = dx * dx + dy * dy;
+        if (d < bd) {
+          bd = d;
+          best = i;
+        }
+      }),
+    );
     return best;
   },
 };

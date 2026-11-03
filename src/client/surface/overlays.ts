@@ -1,5 +1,5 @@
-/** Camadas que o Esc fecha: lista "N aqui", janelas, ajuda, destaque e ficha fixada. */
-export type OverlayId = 'crowd' | 'vwin' | 'win' | 'help' | 'highlight' | 'pinned';
+/** Camadas que o Esc fecha: lista "N aqui", janelas, ajuda, destaque, ficha fixada e o painel de depuração (`?debug`). */
+export type OverlayId = 'crowd' | 'vwin' | 'win' | 'help' | 'highlight' | 'pinned' | 'debug';
 
 /**
  * Pilha de sobreposições da superfície (RF-VIDA-349b, "fecha o que estiver
