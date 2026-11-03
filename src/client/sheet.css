@@ -1,0 +1,341 @@
+/*
+ * Ficha da criatura (janela do meio, RF-VIDA-335) e a prévia ao passar o mouse. Metal escuro e bronze por fora, com meandro,
+ * e pergaminho por dentro: as mesmas cores do HUD geral (hud.css), mas em pixel art, com cantos cortados em degraus,
+ * medalhas, pílulas e uma placa de título dourada em vez de caixas retas.
+ *
+ * As molduras (`--ns-*`), as fibras do papel e os ícones (`.pxi-*`) vêm de `ui/pixelArt.ts`; aqui só se escolhe onde
+ * cada uma vai. Só aparência: a estrutura e o comportamento estão em `surface/hud/CreatureSheet.ts`.
+ */
+.wb-sheet, .wb-info:has(.cs-prev) {
+  --cs-ink: #2b2118; --cs-ink2: #5d4a33; --cs-dim: #6f5c3d; --cs-bronze: #7a5418; --cs-hi: #f6edd3;
+  --cs-red: #a8332b; --cs-green: #35722f; --cs-amb: #9a5e12; --cs-blue: #1f5a9a;
+  --cs-pa: #e9dcbc; --cs-pa2: #d9c79c; --cs-pa3: #bfa971; --cs-metal: #2a303a; --cs-gold: #e0c27a;
+  --cs-ui: var(--f-text, 'Alegreya Sans', 'Segoe UI', system-ui, sans-serif);
+  --cs-title: var(--f-title, 'Cinzel', Georgia, serif);
+  --cs-num: var(--f-num, 'Share Tech Mono', ui-monospace, monospace);
+  color: var(--cs-ink); font-family: var(--cs-ui); font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Ícones de pixel art ---------- */
+.pxi {
+  display: inline-block; flex: none; width: 24px; height: 24px; vertical-align: middle; background: no-repeat center / 100% 100%;
+  image-rendering: pixelated; font-style: normal;
+}
+.cs-close .pxi, .cs-tab .pxi { width: 32px; height: 32px; }
+.cs-close .pxi { width: 28px; height: 28px; }
+
+/* ---------- Janela ---------- */
+.wb-sheet {
+  /* Presa pelo alto (não pelo meio): a janela cresce para baixo e o título não pula ao trocar de aba. */
+  position: absolute; left: 50%; top: max(76px, calc(50% - 300px)); transform: translateX(-50%); z-index: 6; pointer-events: auto;
+  width: min(580px, calc(100vw - 150px)); min-height: min(440px, calc(100vh - 210px));
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35)) drop-shadow(0 12px 14px rgba(0, 0, 0, 0.45));
+}
+.wb-sheet.docked { left: 78px; top: 76px; transform: none; width: min(440px, calc(100vw - 160px)); min-height: 0; }
+.wb-sheet.docked .cs-frame { max-height: min(580px, calc(100vh - 210px)); }
+.cs-frame {
+  position: relative; box-sizing: border-box; min-height: inherit; max-height: min(620px, calc(100vh - 200px)); display: grid; grid-template-rows: auto 1fr auto; gap: 8px;
+  padding: 24px 8px 8px; border: 14px solid transparent; border-image: var(--ns-frame) 7 / 14px stretch;
+  background: var(--ns-fret) 0 0 / 16px 12px, var(--cs-metal); background-clip: padding-box; image-rendering: pixelated;
+}
+
+/* Placa do título, por cima da borda de cima; a cor vem do povo (--title). */
+.cs-plaque {
+  position: absolute; left: 50%; top: -36px; transform: translateX(-50%); z-index: 2; box-sizing: border-box; height: 48px; min-width: 52%; max-width: calc(100% - 150px);
+  padding: 0 18px; border: 10px solid transparent; border-image: var(--ns-plaque) 5 / 10px stretch; background: #0d0f12; background-clip: padding-box;
+  display: grid; place-items: center; color: var(--title, var(--cs-gold)); font-family: var(--cs-title); font-size: 19px; font-weight: 700; letter-spacing: 0.04em; line-height: 1; white-space: nowrap; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
+}
+.cs-plaque span { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+/* Aba de cera do canto: fechar. */
+.cs-close {
+  position: absolute; top: -44px; right: -40px; z-index: 3; box-sizing: border-box; width: 58px; height: 58px; padding: 0; cursor: pointer;
+  border: 12px solid transparent; border-image: var(--ns-closeTab) 4 / 12px stretch; background: #c8442f; background-clip: padding-box; display: grid; place-items: center;
+}
+.cs-close:hover { filter: brightness(1.2); }
+.cs-close:active .pxi { transform: translateY(2px); }
+.cs-close:focus-visible, .cs-tab:focus-visible, .cs-btn:focus-visible, .cs-link:focus-visible, .cs-place:focus-visible { outline: 3px solid var(--cs-gold); outline-offset: 1px; }
+
+/* Abas: à esquerda por fora, encostadas na moldura; a escolhida é de bronze claro e avança um pouco. */
+.cs-tabs { position: absolute; right: calc(100% + 6px); top: 56px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.cs-tab {
+  position: relative; box-sizing: border-box; width: 52px; height: 48px; padding: 0; color: inherit; cursor: pointer; display: grid; place-items: center;
+  border: 6px solid transparent; border-image: var(--ns-tab) 3 / 6px stretch; background: #2a303a; background-clip: padding-box; opacity: 0.9;
+}
+.cs-tab:hover { filter: brightness(1.25); opacity: 1; }
+.cs-tab.on { width: 60px; opacity: 1; border-image-source: var(--ns-tabOn); background: #b08a4a; background-clip: padding-box; }
+.cs-tip {
+  position: absolute; right: calc(100% + 10px); top: 50%; transform: translateY(-50%); white-space: nowrap; pointer-events: none; z-index: 4;
+  padding: 4px 12px; background: #14171c; color: var(--cs-gold); font-family: var(--cs-title); font-size: 13px; font-weight: 600; letter-spacing: 0.05em; box-shadow: 0 0 0 2px #0d0f12, 0 0 0 4px #8a6a3a; opacity: 0; transition: opacity 0.1s;
+}
+.cs-tab:hover .cs-tip, .cs-tab:focus-visible .cs-tip { opacity: 1; }
+/* Aba de informação, à direita (a ficha fixada). */
+.cs-rtabs { position: absolute; left: calc(100% + 6px); top: 56px; display: flex; flex-direction: column; gap: 4px; }
+.cs-rtab {
+  box-sizing: border-box; width: 46px; height: 44px; display: grid; place-items: center; cursor: help;
+  border: 6px solid transparent; border-image: var(--ns-tab) 3 / 6px stretch; background: #2a303a; background-clip: padding-box;
+}
+
+/* Cabeçalho: retrato à esquerda; à direita o que é, os estados e as barras de saúde e energia. */
+.cs-head { display: grid; grid-template-columns: 104px 1fr; grid-template-rows: 36px 36px 30px; gap: 6px 10px; min-width: 0; padding: 0 2px; }
+.cs-portrait {
+  grid-row: 1 / span 3; box-sizing: border-box; width: 104px; height: 108px; display: grid; place-items: center;
+  border: 10px solid transparent; border-image: var(--ns-portrait) 5 / 10px stretch; background: #0d0f12; background-clip: padding-box;
+}
+.cs-portrait .wb-px { height: 56px; max-width: 64px; object-fit: contain; margin: 0; }
+.cs-portrait.cs-group .pxi { width: 48px; height: 48px; }
+.cs-hslot {
+  box-sizing: border-box; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; padding: 0 14px;
+  border: 8px solid transparent; border-image: var(--ns-well) 4 / 8px stretch; background: #1b2027; background-clip: padding-box;
+}
+.cs-hslot > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e9dcbc; font-size: 15px; }
+.cs-hslot.dim > span { color: #8a8372; font-style: italic; }
+.cs-hm { cursor: help; display: inline-flex; filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.5)); }
+.cs-hm.bad { filter: drop-shadow(0 0 3px #ff6a4a); }
+.cs-hm.warn { filter: drop-shadow(0 0 3px #f2b33d); }
+.cs-hm.good { filter: drop-shadow(0 0 3px #7fe05a); }
+
+/* Miolo de pergaminho com rolagem. */
+.cs-body {
+  box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px;
+  border: 8px solid transparent; border-image: var(--ns-body) 4 / 8px stretch; background: var(--ns-fiber) 0 0 / 32px 24px, var(--cs-pa); background-clip: padding-box;
+  scrollbar-width: thin; scrollbar-color: #8a6a3a var(--cs-pa2);
+}
+.cs-body::-webkit-scrollbar { width: 12px; }
+.cs-body::-webkit-scrollbar-track { background: var(--cs-pa2); box-shadow: inset 2px 0 0 #bfa971; }
+.cs-body::-webkit-scrollbar-thumb { background: #8a6a3a; border: 2px solid #3a2c14; box-shadow: inset 2px 2px 0 #d3b06a, inset -2px -2px 0 #5a431f; }
+.cs-body > * { flex: none; }
+
+/* Rodapé: botão de seguir (bronze) e a dica. */
+.cs-foot { display: flex; align-items: center; gap: 12px; padding: 0 4px; min-height: 44px; }
+.cs-hint { color: #bfa971; font-size: 13px; font-weight: 500; margin-left: auto; }
+.wb-info .cs-hint { margin: 0; color: var(--cs-dim); }
+.cs-btn {
+  box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; color: #1d150a; font: inherit; font-family: var(--cs-title); font-size: 14px; font-weight: 700; letter-spacing: 0.04em; cursor: pointer; white-space: nowrap;
+  border: 8px solid transparent; border-image: var(--ns-button) 3 / 8px stretch; background: #b08a4a; background-clip: padding-box; text-shadow: 0 1px 0 rgba(255, 240, 200, 0.5);
+}
+.cs-btn:hover { filter: brightness(1.12); }
+.wb-sheet.docked .cs-hint { display: none; }
+.cs-btn:active { transform: translateY(2px); }
+.cs-btn.on { border-image-source: var(--ns-tab); background: #2a303a; background-clip: padding-box; color: var(--cs-gold); text-shadow: none; }
+.cs-btn kbd { font-family: var(--cs-num); font-size: 12px; font-weight: 700; padding: 1px 6px; background: rgba(0, 0, 0, 0.18); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.3); }
+
+/* ---------- Conteúdo ---------- */
+.wb-sheet .bad, .wb-info .cs-prev .bad { color: var(--cs-red); }
+.wb-sheet .warn { color: var(--cs-amb); }
+.wb-sheet .good { color: var(--cs-green); }
+/* Título de seção: texto de bronze com filete e losango de cada lado. */
+.cs-sec { display: flex; align-items: center; gap: 8px; color: var(--cs-bronze); font-family: var(--cs-title); font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding-top: 2px; }
+.cs-sec::before, .cs-sec::after { content: ''; flex: 1; height: 6px; background: linear-gradient(#8a6a3a, #8a6a3a) center / 100% 2px no-repeat; }
+.cs-sec::before { clip-path: polygon(0 50%, 6px 0, 6px 100%); background: linear-gradient(#8a6a3a, #8a6a3a) center / 100% 2px no-repeat; clip-path: none; }
+.cs-sec > span { flex: none; max-width: 80%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-bars { display: flex; flex-direction: column; gap: 6px; }
+
+/* Barras de saúde e energia (cápsulas, lado a lado). */
+.cs-vitals { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center; }
+.cs-head .cs-vitals { grid-column: 2; }
+.cs-vital { display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: 4px; min-width: 0; }
+.cs-vital .pxi { justify-self: center; }
+.cs-meter { display: grid; grid-template-columns: auto minmax(128px, 38%) 1fr; align-items: center; gap: 8px; font-size: 15px; }
+.cs-meter:not(:has(.cs-mi)) { grid-template-columns: minmax(96px, 38%) 1fr; }
+.cs-ml { color: var(--cs-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-mb {
+  position: relative; box-sizing: border-box; height: 26px; min-width: 0; border: 6px solid transparent; border-image: var(--ns-trough) 3 / 6px stretch; background: #2a2218; background-clip: padding-box;
+}
+.cs-mb i {
+  position: absolute; left: 0; top: 0; bottom: 0; max-width: 100%; background: #3f9a2a;
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+}
+.cs-meter.warn .cs-mb i, .cs-vital.warn .cs-mb i { background: #d9a41e; }
+.cs-meter.bad .cs-mb i, .cs-vital.bad .cs-mb i { background: #c8442f; }
+.cs-mb em { position: relative; display: block; text-align: center; font-style: normal; font-family: var(--cs-num); font-size: 13px; font-weight: 700; line-height: 14px; color: #fff; text-shadow: 1px 1px 0 #000; white-space: nowrap; }
+
+/* "Agora": faixa de papel mais claro com a atividade em bronze. */
+.cs-now {
+  display: flex; align-items: center; gap: 8px; box-sizing: border-box; min-height: 38px; padding: 0 14px; color: var(--cs-ink2);
+  border: 8px solid transparent; border-image: var(--ns-pill) 4 / 8px stretch; background: var(--cs-hi); background-clip: padding-box;
+}
+.cs-now b { color: var(--cs-bronze); font-weight: 700; }
+
+/* Estados com texto e traços marcantes (pílulas). */
+.cs-marks { display: flex; flex-wrap: wrap; gap: 6px; }
+.cs-marks.inline { display: inline-flex; gap: 2px; }
+.cs-mark, .cs-chip {
+  display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; min-height: 34px; padding: 0 12px 0 8px; font-size: 15px; color: var(--cs-ink); cursor: help;
+  border: 8px solid transparent; border-image: var(--ns-pill) 4 / 8px stretch; background: var(--cs-hi); background-clip: padding-box;
+}
+.cs-mark, .cs-chip { margin: -8px 0; }
+.cs-marks, .cs-chips { padding: 8px 0; }
+.cs-chip em, .cs-mark em { font-style: normal; font-weight: 600; }
+.cs-marks.inline { padding: 0; }
+.cs-marks.inline .cs-mark { margin: 0; min-height: 0; padding: 0 2px; border: 0; background: none; }
+.cs-mark.bad { color: var(--cs-red); }
+.cs-mark.warn { color: var(--cs-amb); }
+.cs-mark.good { color: var(--cs-green); }
+.cs-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Medalhas de atributo: ícone, valor e rótulo, de cantos cortados. */
+.cs-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 6px; }
+.cs-tile {
+  box-sizing: border-box; display: flex; align-items: center; gap: 8px; min-height: 52px; min-width: 0; padding: 0 4px; cursor: help; color: var(--cs-ink);
+  border: 8px solid transparent; border-image: var(--ns-tile) 4 / 8px stretch; background: #e3d3a9; background-clip: padding-box;
+}
+.cs-tile > span { display: flex; flex-direction: column; min-width: 0; line-height: 1.1; }
+.cs-tile b { font-weight: 700; font-size: 16px; color: var(--cs-bronze); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-tile em { font-style: normal; font-size: 12px; font-weight: 500; color: var(--cs-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cs-tile.bad b { color: var(--cs-red); }
+.cs-tile > i { display: inline-flex; }
+
+/* Linhas rótulo e valor, em duas colunas, com listras de papel. */
+.cs-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.wb-sheet.docked .cs-rows { grid-template-columns: 1fr; }
+.cs-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 34px; padding: 2px 10px; border-bottom: 2px dotted var(--cs-pa3); }
+.cs-row > span { color: var(--cs-ink2); white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; }
+.cs-row > span > i { font-style: normal; display: inline-flex; }
+.cs-row > b { text-align: right; font-weight: 700; color: var(--cs-bronze); }
+.cs-dim { color: var(--cs-dim); font-weight: 500; font-style: italic; }
+.cs-empty { color: var(--cs-dim); font-weight: 500; font-style: italic; padding: 4px 6px; }
+.cs-note { color: var(--cs-dim); font-size: 13px; font-weight: 500; line-height: 1.35; }
+.cs-more { font-size: 13px; padding-left: 34px; }
+
+/* Clicáveis: azul; informativos não mudam. */
+.cs-link { border: 0; background: none; padding: 0 2px; font: inherit; font-weight: 700; color: var(--cs-blue); cursor: pointer; border-bottom: 2px solid transparent; }
+.cs-link:hover { color: #0e3f78; border-bottom-color: currentColor; }
+.cs-place {
+  box-sizing: border-box; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; width: 100%; min-height: 54px; padding: 0 6px; text-align: left; font: inherit; color: var(--cs-ink);
+  cursor: pointer; border: 8px solid transparent; border-image: var(--ns-tile) 4 / 8px stretch; background: #e3d3a9; background-clip: padding-box;
+}
+.cs-place:hover { filter: brightness(1.07); }
+.cs-place.none { cursor: default; }
+.cs-place.none:hover { filter: none; }
+.cs-place > i { font-style: normal; display: inline-flex; }
+.cs-place .wb-crest { height: 30px; width: auto; image-rendering: pixelated; }
+.cs-place span { display: flex; flex-direction: column; }
+.cs-place b { font-weight: 700; color: var(--cs-blue); }
+.cs-place.none b { color: var(--cs-ink2); }
+.cs-place em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--cs-dim); }
+.cs-place .cs-go { display: inline-flex; }
+.cs-teach { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; padding: 8px 12px; background: #dfe3b8; border: 2px solid #5f7a3a; border-radius: 0; clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px); }
+.cs-teach span { display: flex; flex-direction: column; }
+.cs-teach b { color: var(--cs-ink); }
+.cs-teach em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--cs-dim); }
+.cs-teach .cs-meter { grid-column: 1 / -1; }
+.cs-teach-ic { display: inline-flex; animation: cs-teach 1.6s ease-in-out infinite; }
+@keyframes cs-teach { 50% { transform: translateY(-3px) rotate(-6deg); } }
+
+/* Personalidade: barras de dois lados, em duas colunas. */
+.cs-traits { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.wb-sheet.docked .cs-traits { grid-template-columns: 1fr; }
+.cs-trait { display: grid; grid-template-columns: 1fr 64px 1fr; align-items: center; gap: 6px; font-size: 14px; color: var(--cs-dim); cursor: help; }
+.cs-trait .lo { text-align: right; }
+.cs-trait .on { color: var(--cs-ink); font-weight: 700; }
+.cs-tb { position: relative; height: 12px; background: #2a2218; box-shadow: inset 0 0 0 2px #0d0f12, 0 0 0 1px #8a6a3a; }
+.cs-tb::after { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: #b08a4a; }
+.cs-tb i { position: absolute; top: 2px; bottom: 2px; }
+.cs-tb i.hi { background: #f0a53a; }
+.cs-tb i.lo { background: #8e86d6; }
+.cs-tb1 { display: inline-block; position: relative; width: 56px; height: 12px; flex: none; background: #2a2218; vertical-align: middle; box-shadow: inset 0 0 0 2px #0d0f12, 0 0 0 1px #8a6a3a; }
+.cs-tb1 i { position: absolute; left: 2px; top: 2px; bottom: 2px; background: #f0a53a; max-width: calc(100% - 4px); }
+
+/* Laços, diário, linha do tempo e equipamento. */
+.cs-tie { display: grid; grid-template-columns: 28px auto 1fr auto; align-items: center; gap: 8px; min-height: 38px; padding: 2px 10px; background: rgba(255, 255, 255, 0.35); box-shadow: inset 5px 0 0 #8a6a3a; clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px)); margin-bottom: 4px; }
+.cs-tie > i { font-style: normal; display: inline-flex; }
+.cs-tie em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--cs-dim); }
+.cs-tie.partner { box-shadow: inset 5px 0 0 #d86a9a; }
+.cs-tie.friend { box-shadow: inset 5px 0 0 #4fa84a; }
+.cs-tie.rival { box-shadow: inset 5px 0 0 #c8442f; }
+.cs-tie.partner .cs-tb1 i { background: #ff92ac; }
+.cs-tie.friend .cs-tb1 i { background: #62c24c; }
+.cs-tie.rival .cs-tb1 i { background: #e8503c; }
+.cs-tie.none { grid-template-columns: 28px 1fr; }
+.cs-diary, .cs-time { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+.cs-diary li { display: grid; grid-template-columns: 28px 1fr; gap: 8px; align-items: center; min-height: 38px; padding: 4px 10px; border-bottom: 2px dotted var(--cs-pa3); font-size: 15px; line-height: 1.3; }
+.cs-diary li > i { display: inline-flex; }
+.cs-diary li b { color: var(--cs-bronze); font-weight: 700; }
+.cs-diary li.old { opacity: 0.75; }
+.cs-time li { display: grid; grid-template-columns: 70px 28px 1fr; gap: 8px; align-items: center; min-height: 36px; padding: 2px 10px; border-bottom: 2px dotted var(--cs-pa3); font-size: 15px; }
+.cs-time li b { color: var(--cs-bronze); font-weight: 700; text-align: right; font-family: var(--cs-num); font-size: 14px; }
+.cs-time li > i { display: inline-flex; justify-content: center; }
+.cs-item { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; padding: 6px 10px; border-bottom: 2px dotted var(--cs-pa3); }
+.cs-item span { display: flex; flex-direction: column; }
+.cs-item b { color: var(--cs-ink); }
+.cs-item em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--cs-dim); }
+.cs-slot {
+  box-sizing: border-box; width: 48px; height: 48px; display: grid !important; place-items: center; border: 10px solid transparent; border-image: var(--ns-portrait) 5 / 10px stretch; background: #0d0f12; background-clip: padding-box;
+}
+.cs-slot .wb-px { height: 26px; max-width: 100%; object-fit: contain; margin: 0; }
+.cs-slot > i { display: inline-flex; }
+.cs-ggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 6px; }
+.cs-gcard { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; padding: 4px; background: rgba(255, 255, 255, 0.35); clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px)); }
+.cs-gcard .cs-slot { grid-row: span 2; width: 44px; height: 44px; }
+.cs-gcard b { font-size: 18px; color: var(--cs-bronze); }
+.cs-gcard em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--cs-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Decisão do dia ---------- */
+.cs-carry { display: flex; align-items: center; gap: 8px; color: var(--cs-ink2); padding: 0 6px; }
+.cs-carry b { color: var(--cs-bronze); }
+.cs-needmini { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.cs-needmini > span { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: rgba(255, 255, 255, 0.35); cursor: help; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px)); }
+.cs-needmini .cs-tb1 { width: auto; flex: 1; min-width: 20px; }
+.cs-needmini .warn .cs-tb1 i { background: #d9a41e; }
+.cs-needmini .bad .cs-tb1 i { background: #c8442f; }
+.cs-needmini .good .cs-tb1 i { background: #3f9a2a; }
+/* A escolha tomada: cartão de ouro. */
+.cs-pick {
+  display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 4px 6px;
+  border: 8px solid transparent; border-image: var(--ns-gold) 4 / 8px stretch; background: #f3e3ae; background-clip: padding-box;
+}
+.cs-pick-head { display: flex; align-items: center; gap: 8px; }
+.cs-pick-head b { flex: 1; font-family: var(--cs-title); font-size: 16px; font-weight: 700; color: var(--cs-ink); }
+.cs-say { margin: 0; font-size: 16px; line-height: 1.4; color: var(--cs-ink); }
+.cs-say b { color: var(--cs-bronze); }
+.cs-fine { margin: 0; font-size: 13px; line-height: 1.35; color: var(--cs-dim); }
+.cs-fchips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cs-fchip {
+  display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; min-height: 30px; padding: 2px 10px 2px 6px; font-size: 14px; color: var(--cs-ink); cursor: help;
+  background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 2px #bfa971; clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+}
+.cs-fchip em { font-style: normal; font-weight: 600; }
+.cs-fchip small { font-size: 12px; font-weight: 700; color: var(--cs-bronze); padding: 0 6px; background: rgba(176, 138, 74, 0.25); }
+.cs-fchip .cs-tb1 { width: 36px; }
+.cs-fchip.against .cs-tb1 i { background: #c8442f; }
+/* As outras ideias: papel mais apagado. */
+.cs-alt { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; background: rgba(255, 255, 255, 0.3); box-shadow: inset 5px 0 0 #bfa971; clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px)); }
+.cs-alt.close { box-shadow: inset 5px 0 0 #d9a41e; }
+.cs-alt-head { display: flex; align-items: center; gap: 8px; }
+.cs-alt-head b { flex: 1; font-weight: 700; color: var(--cs-ink2); }
+.cs-alt p { margin: 0; font-size: 14px; line-height: 1.35; color: var(--cs-ink2); }
+
+/* ---------- Prévia ao passar o mouse (balão do canto) ---------- */
+.wb-info:has(.cs-prev) {
+  padding: 4px 6px; border: 10px solid transparent; border-image: var(--ns-frameS) 5 / 10px stretch; border-radius: 0; box-shadow: none; clip-path: none;
+  background: var(--ns-fiber) 0 0 / 32px 24px, var(--cs-pa); background-clip: padding-box; image-rendering: pixelated;
+  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35)) drop-shadow(0 8px 10px rgba(0, 0, 0, 0.45));
+}
+.wb-info:has(.cs-prev) b { color: inherit; }
+.cs-prev { display: flex; flex-direction: column; gap: 8px; min-width: 280px; max-width: 330px; }
+.cs-prev-head { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
+.cs-prev .cs-portrait { grid-row: auto; width: 68px; height: 68px; border-width: 8px; }
+.cs-prev .cs-portrait .wb-px { height: 34px; max-width: 42px; }
+.cs-name { display: flex; flex-direction: column; min-width: 0; }
+.cs-name b { font-family: var(--cs-title); font-size: 17px; font-weight: 700; color: #2b2118; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 0 rgba(255, 248, 224, 0.8); }
+.cs-name span { color: var(--cs-ink2); font-size: 14px; font-weight: 500; white-space: normal; }
+.cs-prev .cs-vitals { gap: 6px; }
+.cs-prev .cs-vital { grid-template-columns: 24px 1fr; }
+.cs-prev-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 14px; color: var(--cs-ink2); }
+.cs-prev-foot > span { display: inline-flex; align-items: center; gap: 4px; }
+/* Com a ficha encostada à esquerda (seguindo), o balão da prévia vai para o outro lado. */
+.surface-hud:has(.wb-sheet.docked:not([hidden])) .wb-info { left: auto; right: 232px; }
+
+/* Telas estreitas: as abas passam para cima, dentro da moldura, e a janela ocupa a largura. */
+@media (max-width: 760px), (max-height: 560px) {
+  .wb-sheet, .wb-sheet.docked { left: 14px; right: 14px; top: 64px; transform: none; width: auto; min-height: 0; }
+  .cs-frame, .wb-sheet.docked .cs-frame { max-height: calc(100vh - 150px); grid-template-rows: auto auto 1fr auto; }
+  .cs-tabs { position: static; flex-direction: row; flex-wrap: wrap; align-items: stretch; margin-bottom: 0; }
+  .cs-tab, .cs-tab.on { width: 46px; height: 44px; }
+  .cs-tip, .cs-rtabs { display: none; }
+  .cs-plaque { max-width: calc(100% - 110px); }
+  .cs-close { top: -38px; right: -8px; }
+  .cs-traits, .cs-rows { grid-template-columns: 1fr; }
+  .cs-needmini { grid-template-columns: 1fr 1fr; }
+}

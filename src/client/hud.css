@@ -198,6 +198,7 @@ button.wb-mini { background: var(--g8); color: var(--ice); border: 0; padding: 3
 .wb-ticks { display: flex; justify-content: space-between; font-family: var(--f-num); font-size: 12px; color: var(--ink2); }
 .wb-sitegrid { display: grid; grid-template-columns: auto auto auto; column-gap: 10px; font-size: 13px; }
 .wb-sitegrid span:nth-child(3n + 2), .wb-sitegrid span:nth-child(3n) { text-align: right; font-family: var(--f-num); }
+/* A ficha da criatura e a prévia (.wb-sheet, .cs-*) estão em sheet.css. */
 
 /* ---------- Superfície: painel de depuração (?debug, F3) ---------- */
 /* Painel lateral largo à esquerda, com rolagem própria: o mapa segue visível à direita, e a ficha e a legenda

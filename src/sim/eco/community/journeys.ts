@@ -3,12 +3,12 @@
  * Os métodos vão para o protótipo da classe; `this` é o ecossistema inteiro.
  */
 
-import type { Ecosystem } from '../../ecosystem';
+import type { DayNote, Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
 import type { Good } from '../../economy';
 import { ROLE, ROLE_NAMES, ROLES } from '../../roles';
 import { TRAIT, TRAIT_COUNT } from '../../../ai/traits';
-import { chooseDay, DAY, DAY_NAMES, dayWhy, type BoardTask, type DayKind } from '../../../ai/decisions/day';
+import { chooseDay, DAY, DAY_BAND, DAY_NAMES, dayWhy, type BoardTask, type DayKind } from '../../../ai/decisions/day';
 import { isStreet, TRAIL, WALL } from '../../architecture';
 import { wrapDx } from '../../settlement';
 import type { BuildingKind, Village } from '../types';
@@ -275,7 +275,16 @@ export const journeysPart = {
     this.dayAt[i] = tile;
     this.dayLeg[i] = 0;
     this.dayTime[i] = 0;
-    this.dayNotes.set(this.uid[i], { label: c.pick.label, why: dayWhy(c), others: c.others.slice(0, 2).map((o) => ({ label: o.label, score: o.score })) });
+    this.dayNotes.set(this.uid[i], {
+      label: c.pick.label,
+      why: dayWhy(c),
+      score: c.pick.score,
+      // Corte do sorteio: quem ficou acima dele estava no páreo; abaixo, perdeu na nota.
+      cut: Math.max(c.pick.score, c.others[0]?.score ?? 0) * DAY_BAND,
+      factors: c.pick.factors.slice().sort((p, q) => q.value - p.value).slice(0, 3),
+      // Considerações em ordem crescente: a primeira é a que mais derrubou a nota da alternativa.
+      others: c.others.slice(0, 3).map((o) => ({ label: o.label, score: o.score, low: o.factors[0]?.name })),
+    });
   },
 
   /** Para onde andar agora rumo ao tile `t`: o vizinho que encurta o caminho, preferindo rua e trilha (RF-AS-26). */
@@ -533,22 +542,26 @@ export const journeysPart = {
     }
   },
 
-  /** Ficha com o porquê (RF-AS-30): tarefa, as duas alternativas que perderam e o motivo. */
-  dayOf(this: Ecosystem, i: number): { task: string; why: string; others: string[]; carry: string } {
+  /**
+   * Ficha com o porquê (RF-AS-30): tarefa, as duas alternativas que perderam e o motivo. `note` é a nota
+   * completa da IAUS quando a tarefa saiu da escolha (a nota e as considerações), para a ficha detalhada.
+   */
+  dayOf(this: Ecosystem, i: number): { task: string; why: string; others: string[]; carry: string; note: DayNote | null } {
     const f = (n: number) => n.toFixed(2).replace('.', ',');
     const n = this.dayNotes.get(this.uid[i]);
+    const others = (k: DayNote | undefined) => k?.others.slice(0, 2).map((o) => `${o.label} (${f(o.score)})`) ?? [];
     const carry = this.carry[i] ? `${CARGO_NAMES[CARGO_GOOD(this.carry[i]) ?? ''] ?? 'carga'} (${f(this.carryAmt[i])})` : '';
     if (this.jobKind[i] && !this.carry[i]) {
       const kind = this.jobKind[i] === JOB.build ? 'bater na obra' : this.jobKind[i] === JOB.plant ? 'plantar uma muda' : 'derrubar uma árvore';
-      return { task: kind, why: 'ordem do quadro do lugar para o seu ofício', others: n?.others.map((o) => `${o.label} (${f(o.score)})`) ?? [], carry };
+      return { task: kind, why: 'ordem do quadro do lugar para o seu ofício', others: others(n), carry, note: null };
     }
     const vi = this.village[i];
     const v = vi >= 0 ? this.villages[vi] : null;
-    if (!v) return { task: 'sem lugar', why: 'vive solto, sem assentamento', others: [], carry };
-    if (!this.full(v)) return { task: 'rotina do lugar', why: 'o lugar está fora da tela: a produção corre no modo agregado', others: [], carry };
-    if (!this.day[i] || !n) return { task: DAY_NAMES[DAY.none], why: 'nada urgente no quadro e nenhuma necessidade: fica pela praça', others: [], carry };
+    if (!v) return { task: 'sem lugar', why: 'vive solto, sem assentamento', others: [], carry, note: null };
+    if (!this.full(v)) return { task: 'rotina do lugar', why: 'o lugar está fora da tela: a produção corre no modo agregado', others: [], carry, note: null };
+    if (!this.day[i] || !n) return { task: DAY_NAMES[DAY.none], why: 'nada urgente no quadro e nenhuma necessidade: fica pela praça', others: [], carry, note: null };
     const task = this.dayLeg[i] === 2 ? `${n.label}, levando a carga ao celeiro` : n.label;
-    return { task, why: n.why, others: n.others.map((o) => `${o.label} (${f(o.score)})`), carry };
+    return { task, why: n.why, others: others(n), carry, note: n };
   },
 };
 export type JourneysPart = typeof journeysPart;

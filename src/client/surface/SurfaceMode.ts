@@ -31,6 +31,7 @@ import { PickSecond, ToolMachine } from './toolStates';
 import { IconCache } from './hud/icons';
 import { Toolbar } from './hud/Toolbar';
 import { InfoCard } from './hud/InfoCard';
+import { CreatureSheet, type SheetTab } from './hud/CreatureSheet';
 import { SidePanel } from './hud/SidePanel';
 import { Windows, type SurfaceSettings } from './hud/Windows';
 import { SettlementView } from './hud/SettlementView';
@@ -89,6 +90,7 @@ export class SurfaceMode {
   private icons!: IconCache;
   private toolbar!: Toolbar;
   private info!: InfoCard;
+  private sheet!: CreatureSheet;
   private panel!: SidePanel;
   private windows!: Windows;
   private vwin!: SettlementView;
@@ -331,6 +333,7 @@ export class SurfaceMode {
         </div>
       </div>
       <div class="wb-info" data-i hidden></div>
+      <div class="wb-sheet" data-sheet hidden role="dialog" aria-label="Ficha da criatura"></div>
       <div class="wb-side" data-side>
         <div class="wb-side-head">
           <canvas class="wb-mini" data-mini width="200" height="100" title="Clique ou arraste para levar a câmera"></canvas>
@@ -389,7 +392,10 @@ export class SurfaceMode {
     this.driver.bus.on('migrate', (e) => this.trails.migrate(e, this.engine.view));
     this.sel = new Selection(eco, view, q('[data-crowd]'), {
       openSettlement: (id) => this.openSettlement(id),
-      refreshInfo: () => this.info.refresh(this.eco),
+      refreshInfo: () => {
+        this.sheet.refresh(this.eco);
+        this.info.refresh(this.eco);
+      },
       redraw,
       say: (t) => this.toast.say(t),
       goTo: (x, row) => this.goTo(x, row),
@@ -400,7 +406,8 @@ export class SurfaceMode {
           else this.sel.setHighlight(null);
         }),
     });
-    this.info = new InfoCard(q('[data-i]'), view, this.sel, this.weather, this.sites, { say: (t) => this.toast.say(t), redraw });
+    this.sheet = new CreatureSheet(q('[data-sheet]'), this.sel, this.icons, { say: (t) => this.toast.say(t) });
+    this.info = new InfoCard(q('[data-i]'), view, this.sel, this.weather, this.sites, this.sheet);
     this.panel = new SidePanel(root, this.settings, () => this.driver.speed, () => this.raster.version);
     this.minimap = new Minimap(q<HTMLCanvasElement>('[data-mini]'), view, () => this.raster.canvas());
     this.labels = new Labels(q('[data-l]'));
@@ -456,7 +463,7 @@ export class SurfaceMode {
     // pointerdown porque o painel e as janelas são redesenhados enquanto a
     // simulação roda e um clique (descer e subir) poderia cair em botões já substituídos.
     const onPanel = (e: Event) => this.onPanel(e.target as HTMLElement);
-    for (const sel of ['[data-p]', '[data-win-body]', '[data-clock]', '[data-i]', '[data-vwin]']) q(sel).addEventListener('pointerdown', onPanel, { signal });
+    for (const sel of ['[data-p]', '[data-win-body]', '[data-clock]', '[data-i]', '[data-vwin]', '[data-sheet]']) q(sel).addEventListener('pointerdown', onPanel, { signal });
     q('[data-vclose]').addEventListener('click', () => this.openSettlement(null), { signal });
     // Rótulo do assentamento: clicar abre a janela dele (RF-VIDA-340).
     q('[data-l]').addEventListener(
@@ -496,7 +503,7 @@ export class SurfaceMode {
       this.goTo(v.x, v.y);
       // Da tabela de assentamentos ou das relações, abre também a janela dele.
       if (village.closest('[data-win-body]') && this.windows.win === 'settlements') this.openSettlement(v.id);
-      else if (village.closest('[data-vwin-body]')) this.openSettlement(v.id);
+      else if (village.closest('[data-vwin-body]') || village.closest('[data-sheet]')) this.openSettlement(v.id);
     }
     const sort = el.closest<HTMLElement>('[data-sort]');
     if (sort) this.windows.sortBy(eco, sort.dataset.sort as CompareKey);
@@ -517,6 +524,10 @@ export class SurfaceMode {
     }
     const act = el.closest<HTMLElement>('[data-act]');
     if (act?.dataset.act === 'follow') this.sel.toggleFollow();
+    // Ficha da criatura: abas e fechar (a seleção continua a mesma).
+    const ctab = el.closest<HTMLElement>('[data-ctab]');
+    if (ctab) this.sheet.setTab(eco, ctab.dataset.ctab as SheetTab);
+    if (el.closest('[data-sheet-close]')) this.sel.unpin();
     const tab = el.closest<HTMLElement>('[data-vtab]');
     if (tab) this.vwin.setTab(eco, tab.dataset.vtab as SettlementTab);
     const span = el.closest<HTMLElement>('[data-span]');
@@ -757,6 +768,7 @@ export class SurfaceMode {
       this.dirty = false;
       this.render();
     }
+    this.sheet.tick(eco, now);
     this.info.tick(eco, now);
     this.toolbar.tick(eco, now);
     this.panel.tick(eco, now);
