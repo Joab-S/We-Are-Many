@@ -1,0 +1,163 @@
+# Lista de tarefas: outros planetas, visão 3D e o que copiar das referências
+
+Plano de execução de `REFERENCIAS-E-PLANETAS.md` · 01/11/2026
+
+Cada tarefa diz **a estratégia** (como fazer), **onde** (arquivos de hoje), **pronto quando** (o critério de aceite, de preferência um teste) e **esforço** (P até 1 dia, M até 1 semana, G mais que isso). As referências ao código são da branch `claude/estudo-planetas` e envelhecem. A ordem sugerida está no fim.
+
+Convenções do projeto que valem para tudo aqui:
+- Mudança de comportamento da simulação vai num commit próprio, marcado "muda o comportamento; baseline regravado", com a impressão digital regravada (`UPDATE=1`). Refatoração passa pela impressão digital sem regravar.
+- A simulação (`src/sim`, `src/ai`, `src/procgen`) não importa three nem DOM (`src/core/purity.test.ts`).
+- Código do cliente novo lê o motor pela fachada (`engine.view`, `engine.debug`, eventos), nunca por `ecosystemOf`.
+
+## 0. Decisões antes de começar
+
+- [ ] **Rever os três requisitos que proíbem o pouso 3D.** `docs/REQUISITOS.md:79` (pilar "a única troca de modo é a entrada na superfície 2D"), `:532` (pouso 3D na lista *Won't*) e RF-SUP-02 (`:287`, descartar o 3D inteiro ao entrar no 2D). Estratégia: trocar o pilar por "o 3D e o 2D mostram o mesmo mapa; a troca é por altitude, com fusão", mover o pouso 3D de *Won't* para *Could* com as etapas 2 e 3 abaixo, e reescrever o RF-SUP-02 como "o 3D é descartado depois da fusão". Registrar a mudança na seção 0 do documento, como manda a regra do projeto.
+- [ ] **O tempo passa nos planetas que não estão sendo olhados?** Opções: congelar (hoje) ou pôr em dia ao voltar. A escolha define a tarefa C2. Recomendação: pôr em dia, com teto de anos e de tempo de máquina.
+- [ ] **Raio dos planetas: 100× o real (`PLANET_SCALE`) ou real?** Na descida, o exagero fica visível (um tile da Terra parece ter 3.900 km). Trocar muda a escala do voo, das órbitas comprimidas e da colisão, tudo calibrado. Recomendação: manter 100× e esconder com o exagero vertical do relevo e com a velocidade pela altitude; rever só se a Etapa 2 mostrar que incomoda.
+- [ ] **Espécies viajam entre planetas de graça ou com custo?** Hoje é de graça e sem limite (até alienígenas na Terra). Define C1.
+
+## 1. Correções baratas (Etapa 0 do 3D e os bugs achados)
+
+- [ ] **Polos perpendiculares ao plano da órbita.** (P)
+  - Estratégia: as órbitas ficam no plano XY (`nav/planets.ts:57-59`) e a `SphereGeometry` tem polos em ±Y, inclinada 0,2 rad em Z (`bodies.ts:167`). Girar a esfera para os polos ficarem em ±Z e aplicar a inclinação do eixo em torno de um eixo no plano da órbita; a rotação diária (`SystemManager.ts:179`, `rotation.y`) passa a ser em torno do eixo inclinado. Quando o `PlanetParams` ganhar inclinação (tarefa A1), ler de lá; até lá, 0,41 rad para a Terra e 0 para os outros.
+  - Onde: `src/client/space/bodies.ts` (`createPlanetBody`), `SystemManager.ts` (`updateBodies`).
+  - Pronto quando: um teste em `bodies.test.ts` (novo) confere que o vetor do polo norte da esfera é perpendicular ao plano da órbita; captura no navegador mostra a Terra com os polos em cima e embaixo.
+- [ ] **Voltar da superfície sem perder a órbita.** (P)
+  - Estratégia: `orbitPlanetId` é gravado (`SpaceMode.ts:257`) mas nunca lido, e `updateOrbit` (`SystemManager.ts:330-340`) só reconhece a órbita pela distância; como `state.time` continua andando na superfície, o planeta já está em outro ponto quando o espaço volta. Guardar no `GameState` o deslocamento nave−planeta no momento do `observe` e, no construtor do `SpaceMode`, se `orbitPlanetId` existe, reposicionar a nave no planeta mais esse deslocamento, apontando para ele, e já marcar `orbitBody`.
+  - Onde: `src/client/space/SpaceMode.ts` (`observe`, construtor), `SystemManager.ts` (`updateOrbit`), `src/client/state.ts` e `save/game.ts` (o deslocamento vai no save; ver `SAVE_VERSION`).
+  - Pronto quando: teste do `SystemManager` com o tempo avançado 1.000 s entre sair e voltar, e a nave a menos de 4 raios; teste no navegador com Playwright (descer, esperar, subir) sem a nave sumir.
+- [ ] **Mipmaps na textura do planeta e prévia no Worker.** (P)
+  - Estratégia: `DataTexture` nasce com `generateMipmaps = false`; ligar e usar `LinearMipmapLinearFilter`, com anisotropia do renderizador. A prévia de 256 px (`previewSurface`, `bodies.ts:144-151`) é gerada na thread principal ao entrar no sistema; passar para `generateSurfaceAsync` (já existe em `src/client/surface/generateAsync.ts`) com a esfera nascendo com a textura de faixas até a prévia chegar.
+  - Onde: `bodies.ts` (`surfaceTexture`, `previewSurface`), `SystemManager.ts:131`.
+  - Pronto quando: sem cintilação ao afastar (captura); o `SystemManager` não bloqueia mais de 16 ms ao entrar num sistema com 7 rochosos (medir com `performance.now` num teste de integração do cliente).
+- [ ] **Liberar texturas dentro de `uniforms`.** (P)
+  - Estratégia: `disposeObject` (`dispose.ts:27`) só olha propriedades de primeiro nível do material; percorrer `material.uniforms` e liberar o que for `Texture` e não estiver em `markShared`.
+  - Onde: `src/client/space/dispose.ts`, `dispose.test.ts`.
+  - Pronto quando: o teste cria um `ShaderMaterial` com textura num uniform e confere que `dispose` foi chamado.
+- [ ] **Textura do planeta visitado com ruas e casas, refeita ao voltar.** (P a M)
+  - Estratégia: o `MapRaster` já produz um RGBA de um pixel por tile com ruas e casas, mas exige um `Ecosystem`. Caminho sem `ecosystemOf`: o `SurfaceMode`, ao sair, guarda o `canvas()` do `MapRaster` (uma cópia opaca) em `state.surfaceArt.set(id, ImageData)`; o `createPlanetBody` prefere isso ao `paintSurface`. Uma função só de "cor do tile" para os dois caminhos (ver 3.1), para o 3D e o 2D não divergirem.
+  - Onde: `src/client/surface/MapRaster.ts` (`canvas`), `SurfaceMode.ts` (`dispose`), `bodies.ts`, `state.ts`.
+  - Pronto quando: ao voltar de um planeta com cidades, a esfera mostra as ruas (captura); nenhum uso novo de `ecosystemOf` (ver a catraca em 5.1).
+
+## 2. Outros planetas
+
+### A. O planeta deixa de ser a Terra disfarçada
+
+- [ ] **A1. `PlanetParams` ganha estrela, eixo, dia, período e atmosfera.** (M)
+  - Estratégia: campos novos, todos opcionais com os valores da Terra como padrão, para o save antigo carregar: `star: { luminosity, kelvin }`, `axialTilt` (rad), `dayHours`, `periodYears`, `atmosphere: { pressure, greenhouse }`. `planetParams` (`bodies.ts:23-32`) e `build` (`systemGen.ts:162-237`) os preenchem: o Sistema Solar com valores reais, os procedurais por sorteio com a semente do sistema. Mover `planetParams` do cliente para `src/nav/planets.ts`, onde deveria estar. Subir `SAVE_VERSION` e escrever a migração em `validateSave`: campos ausentes recebem o padrão.
+  - Onde: `src/procgen/surface.ts:19-30`, `src/nav/planets.ts`, `src/nav/systemGen.ts`, `src/client/space/bodies.ts`, `src/save/snapshot.ts`.
+  - Pronto quando: `save.test.ts` carrega um save antigo e os planetas têm os padrões; `systemGen` gera os mesmos planetas de antes para os mesmos ids (teste de regressão com os ids dos exoplanetas conhecidos). Não muda o mapa gerado: a impressão digital passa sem regravar.
+- [ ] **A2. Temperatura, estações e vento por planeta.** (M; muda o comportamento)
+  - Estratégia:
+    - `temperatureAt` (`surface.ts:151-157`): `T + 22 − 55·lat² − 30·alt` vira `T + a − b·lat² − c·alt`, com `b` proporcional à luminosidade recebida e menor com atmosfera densa (Vênus é uniforme), e `c` pela gravidade; os valores da Terra reproduzem os de hoje.
+    - Estações (`weather.ts:112-116`): a latitude passa a ter sinal; a amplitude `(2 + 12·lat)` é multiplicada por `axialTilt / 0,41`, e o hemisfério sul recebe fase `+ 0,5`. Planeta com eixo 0 não tem estação.
+    - Vento (`climate.ts:86-90`): as faixas de latitude dependem do dia (rotação lenta → uma célula de Hadley só, como Vênus); manter as três faixas da Terra para dias de 10 a 40 h.
+    - Ano: `yearSpan` e `YEAR_SECONDS` continuam fixos (os dois relógios são decisão em aberto), mas o calendário mostrado usa `periodYears` para o nome das estações e do ano.
+  - Onde: `src/procgen/surface.ts`, `src/procgen/climate.ts`, `src/sim/weather.ts`, `src/sim/climate.ts`.
+  - Pronto quando: testes por planeta tipo: Terra (igual a hoje, por valor), Marte (frio e sem estação forte), um mundo travado por maré (sem dia: um lado quente), um oceano quente. Calibração curta na Terra (`npm run calibrar`) dentro das metas de antes. Baseline regravado só pelo que muda fora da Terra.
+- [ ] **A3. Umidade e nível do mar honestos num planeta seco.** (P a M; muda o comportamento)
+  - Estratégia: `climate.ts:202-220` equaliza a umidade da terra para 0,04 a 0,96 em todo planeta. Equalizar só até o teto `water × 1,2` (um planeta com 5% de água não passa de 0,06 de umidade), mantendo a Terra como hoje. O nível do mar por quantil (`surface.ts:107-109`) vira "o quantil `water` do volume abaixo do nível", para `water` < 0,2 não criar lagos espalhados.
+  - Onde: `src/procgen/climate.ts`, `src/procgen/surface.ts`, `surface.test.ts`.
+  - Pronto quando: teste com `water = 0` sem bioma de mata; Terra inalterada por valor.
+- [ ] **A4. Ruído amostrado na esfera, polos sem pinçamento.** (M; muda todo planeta gerado)
+  - Estratégia: `surface.ts:90-100` amostra o ruído num cilindro (`cosA`, `sinA`, y). Amostrar em `(cos lat · cos lon, cos lat · sin lon, sin lat)`: a linha polar converge num ponto de verdade, o que é o certo para o 3D. Como isso muda todo planeta, fazer junto com A1 e usar `seedFor(id, generatorVersion = 2)` (`src/core/rng.ts:46`) para os planetas novos; os já salvos mantêm o mapa, que carrega os próprios parâmetros.
+  - Onde: `src/procgen/surface.ts`, `src/procgen/noise.ts`, `src/core/rng.ts`.
+  - Pronto quando: teste de que a linha polar tem a mesma altitude em todas as colunas (variância abaixo de um limiar); baseline regravado.
+- [ ] **A5. Faixas de temperatura dos modelos centradas no planeta.** (P; muda o comportamento)
+  - Estratégia: `make` (`species.ts:359-365`) usa `TEMPLATES` da Terra (`:67-73`) para peixe, tubarão e inteligente; passar `params.temperatureK` e deslocar a faixa como `alienFauna` já faz para os herbívoros.
+  - Onde: `src/sim/species.ts`.
+  - Pronto quando: teste em `ecosystem.test.ts` de um planeta a 260 K em que o povo inteligente nasce com a faixa centrada em 260 K.
+
+### B. Vida e metas por planeta
+
+- [ ] **B1. Metas relativas à área habitável.** (M)
+  - Estratégia: `LONG_TARGETS` (`calibrate.ts`) são contagens absolutas da Terra (40 a 90 assentamentos, 5 a 25 reinos). Definir `habitableTiles(map, params)` (terra com temperatura na faixa e umidade mínima) e escalar as metas de contagem por `habitable / habitableEarth`; as de proporção (fome, parte em cidades) ficam. O painel F3 (`debugView.ts`, `liveTargets`) passa a mostrar as metas escaladas.
+  - Onde: `src/sim/calibrate.ts`, `src/sim/api/debugView.ts`, `src/sim/tuneGoals.ts`.
+  - Pronto quando: `tuneGoals.test.ts` confere que na Terra as metas são as de hoje; o painel num planeta pequeno mostra metas menores.
+- [ ] **B2. Calibração curta em planetas tipo.** (M)
+  - Estratégia: `src/sim/planetas.calib.ts` (novo) roda 200 anos em três planetas (frio, seco, oceano quente) com um povo alienígena semeado, e imprime a tabela contra as metas de B1. Não é meta a bater; é para achar o que quebra (lenha sem mata, roça sem estação, pesca sem costa).
+  - Onde: `src/sim/*.calib.ts`, `vitest.calib.config.ts`, `package.json` (`calibrar:planetas`).
+  - Pronto quando: a tabela existe e `docs/CALIBRACAO-LONGA.md` ganha uma seção "Outros planetas" com os primeiros números e a lista do que quebra.
+- [ ] **B3. Rejeição de semente com log (Dwarf Fortress).** (P a M)
+  - Estratégia: um planeta sorteado "com inteligentes" (`nativeLifeTier`) roda, no Worker da geração, 50 anos sem tela; se a população cair abaixo da inicial, o sorteio da vida anda um passo (`seedFor(id:native-life, tentativa)`) e tenta de novo, até 3 vezes, registrando o motivo (`console.info` com `?debug` e uma linha na crônica). Só para planetas novos.
+  - Onde: `src/sim/species.ts` (`nativeLifeTier`), `src/client/surface/generateAsync.ts`, `src/procgen/surface.worker.ts` (o Worker passa a poder rodar a simulação: conferir a pureza).
+  - Pronto quando: teste com um planeta forçado a inviável que troca o sorteio e registra o motivo; a Terra nunca é rejeitada.
+- [ ] **B4. Tabela de relações por espécie (Rain World) e faixas como dados (Eco).** (M; muda o comportamento)
+  - Estratégia: hoje presa, predador e domesticável estão em regras no código (`ecologyOf`, `safeWeb`, a domesticação à Diamond). Uma tabela `RELATIONS[species][other]: 'presa' | 'predador' | 'domestica' | 'evita'` por guilda, com as faixas ideal e extrema de temperatura e umidade na própria `Species`; a IA da fauna lê a tabela. Começar pela Terra reproduzindo o comportamento de hoje (impressão digital igual), depois os alienígenas.
+  - Onde: `src/sim/species.ts`, `src/sim/fauna.ts`, `src/sim/eco/fauna/*`.
+  - Pronto quando: a Terra passa pela impressão digital sem regravar na primeira metade; os alienígenas ganham relações sorteadas por guilda na segunda.
+
+### C. O que fazer lá
+
+- [ ] **C1. Levar e trazer custa.** (M; depende da decisão 0.4)
+  - Estratégia: o comando `introduce` (`tools.ts:288`) passa a pedir carga: `state.cargo[speciesId]` (sementes ou casais), que vem de capturar na superfície de origem (ferramenta "coletar", custa tempo e população local) e de levar na nave (ocupa o porão das sondas, `probes.cargo`, que hoje não tem consumidor). Soltar fora da faixa de temperatura mata a espécie e a ficha diz por quê. A Terra inicial continua de graça para não quebrar o começo do jogo.
+  - Onde: `src/client/surface/tools.ts`, `src/sim/api/commands.ts` (`introduce` com `cargo`), `src/explore/probes.ts`, `src/client/state.ts`, `save/game.ts`.
+  - Pronto quando: `commands.test.ts` recusa `introduce` sem carga; teste de que a espécie fora da faixa morre em 5 anos com a causa na crônica.
+- [ ] **C2. Pôr em dia os planetas não observados.** (M a G; depende da decisão 0.2 e de 5.3)
+  - Estratégia: ao voltar a um planeta, `anosPerdidos = (state.time − saídaDoPlaneta) / REAL_YEAR_SECONDS`. O motor roda esses anos num Worker com a simulação sem tela (a `runWorld` já faz isso), com teto de 200 anos e de 5 s de máquina; acima do teto, pula para o resumo (os anos não rodados viram uma nota na crônica). A tela mostra "pondo em dia: ano X" e o painel F3 marca os anos pulados. Precisa do motor rodando num Worker a partir de um retrato, que é o item 5.3.
+  - Onde: `src/sim/api/engine.ts` (`catchUp(years, budgetMs)`), um Worker novo em `src/client/surface/`, `SurfaceMode.ts` (`init`), `state.ts` (`leftAt` por planeta).
+  - Pronto quando: teste de que 10 anos postos em dia dão o mesmo mundo que 10 anos rodados ao vivo (determinismo); teste de que o teto corta e registra.
+- [ ] **C3. Um motivo para voltar.** (M)
+  - Estratégia: o povo alienígena que chega a uma era manda um evento ao espaço (um sinal no GUIA, `src/nav/guide.ts`, como as sugestões de hoje); um planeta cujos indicadores passam de um limiar (fome, calor) "pede" terraformação pelo mesmo canal. Usa os eventos do motor (`era`, e um `indicator` novo emitido uma vez por ano pela vista de depuração).
+  - Onde: `src/sim/api/events.ts`, `src/nav/guide.ts`, `src/client/space/GuideHud.ts`.
+  - Pronto quando: teste do GUIA com um evento `era` de outro planeta virando sugestão.
+- [ ] **C4. Gasosos: luas, não superfície.** (G; fica para depois do resto)
+
+## 3. Visão 3D ao chegar perto
+
+- [ ] **3.1 Uma função só de "cor do tile".** (P; pré-requisito das etapas 1 a 3)
+  - Estratégia: `paintSurface` (procgen) e `MapRaster` (cliente) pintam o mesmo tile por caminhos diferentes. Extrair `tileColor(map, i, options)` para `src/procgen/paint.ts` e usar nos dois; o 3D e o 2D passam a ser iguais por construção.
+  - Onde: `src/procgen/surface.ts` (`paintSurface`), `src/client/surface/MapRaster.ts`.
+  - Pronto quando: teste que pinta um mapa pelos dois caminhos e compara pixel a pixel (fora as ruas).
+
+- [ ] **Etapa 1. A esfera boa.** (M, 1 semana)
+  - [ ] **Shader do rochoso por longitude e latitude.** Estratégia: `ShaderMaterial` que, no fragmento, calcula `lon = atan2(z, x)` e `lat = asin(y)` da normal e amostra o mapa equirretangular com `u = lon/2π`, `v = 0,5 − lat/π` e `RepeatWrapping` na horizontal; some o aperto nos polos do UV da `SphereGeometry`. Uniforms: a textura de cor (3.1), a de elevação (um canal, para as normais) e a direção da estrela. Onde: `bodies.ts`. Pronto quando: captura sem a costura nos polos; `dispose.test.ts` libera as duas texturas (tarefa 1.4).
+  - [ ] **Relevo, oceano e terminador.** Estratégia: normais por diferença finita da elevação no fragmento (exagero vertical como uniform); reflexo especular só onde `isLand` é falso (um canal de máscara na textura); o terminador pela direção da estrela com uma faixa de crepúsculo; o lado noturno escuro, e, nos planetas visitados com cidades, pontos de luz nas casas (o alfa do `MapRaster` guarda o código da construção). Pronto quando: captura da Terra ao anoitecer com cidades acesas.
+  - [ ] **Atmosfera de Bruneton.** Estratégia: portar a demo WebGL de *Precomputed Atmospheric Scattering* (BSD) para um `ShaderMaterial` numa casca a 1,02 raio, com as tabelas pré-computadas uma vez por tipo de atmosfera (Terra, fina, densa) em texturas 2D e 3D. Se o custo pesar em máquina modesta (medir com o painel DEV), ficar com o shader de borda de hoje melhorado com densidade e cor do `PlanetParams.atmosphere`. Onde: `bodies.ts:171-202`. Pronto quando: a borda azul da Terra e o alaranjado de Marte batem com fotos de referência a olho; 60 quadros numa GPU integrada.
+  - [ ] **Pré-gerar o mapa completo do planeta mais próximo.** Estratégia: ao entrar em órbita (`updateOrbit` muda), pedir `generateSurfaceAsync(params)` no Worker e guardar em `state.surfaces` quando chegar; a Etapa 3 não espera. Onde: `SystemManager.ts`, `generateAsync.ts`. Pronto quando: o tempo entre apertar F e ver o mapa cai para menos de 100 ms num planeta já orbitado (medir).
+
+- [ ] **Etapa 2. Quadtree e descida livre.** (G, 2 a 3 semanas; depende da Etapa 1)
+  - [ ] **Cube-sphere com quadtree por face.** Estratégia (Ulrich, Cesium, Kerbal): seis faces, cada vértice `p` do cubo vira `normalize(p) · R`; cada face é um quadtree de patches de 32×32 vértices, com a altura amostrada da elevação do mapa por lon e lat e a cor pela textura de 3.1. Subdivide quando o erro geométrico projetado passa de 2 px: `erro(nível) / distância × altura_tela / (2·tan(fov/2)) > 2`. Até 7 níveis (o patch mais fino fica perto da célula do mapa); abaixo disso, ruído de detalhe no fragmento, sem geometria. Saias nas bordas dos patches contra rachaduras; geomorph só se o pop incomodar. Geometria dos patches num pool reaproveitado (Object Pool), índices compartilhados, posições em float32 relativas ao centro do patch (as posições do mundo ficam em double na CPU, como a `FloatingOrigin` já faz). Onde: `src/client/space/planet/` (novo: `QuadSphere.ts`, `Patch.ts`, `lod.ts`), ligado em `bodies.ts`; o quadtree substitui a esfera da Etapa 1 abaixo de 2 raios de altitude e a esfera continua acima. Pronto quando: teste de `lod.ts` com a câmera a várias altitudes dando o número de patches esperado; menos de 300 draw calls a 1,6 raio (painel DEV); sem rachaduras em captura a prumo.
+  - [ ] **Voo na descida.** Estratégia: liberar a colisão de 1,6 raio (`ShipController.ts:167-181`) até 0,02 raio (uns 1,2 tiles da Terra); o teto de velocidade continua `0,4 × distância até a superfície` (`core/flight.ts`); abaixo de 0,5 raio, nivelar a nave com o horizonte aos poucos (interpolar o quaternion para o "cima" radial) e a nave passa a acompanhar a rotação do planeta (`updateBodies`), não só a translação. O piloto automático (RF-NAV-05) passa a mirar uma altitude, e o `observe` deixa de ser só a tecla F (ver Etapa 3). Onde: `ShipController.ts`, `core/flight.ts`, `SystemManager.ts`, `NavDirector.ts:223-241`. Pronto quando: testes de `flight.ts` para o teto por altitude; teste do nivelamento; no navegador, descer até 0,05 raio sem atravessar o chão.
+  - [ ] **Sem WebGL, fica a esfera.** Estratégia: o `SoftRenderer` ignora malhas com mais de 5.000 vértices (`renderer.ts:685`); o quadtree não aparece nele por desenho, e a descida é cortada em 1,6 raio como hoje. Dizer no README. Pronto quando: `?soft` continua funcionando como hoje (teste no navegador).
+  - [ ] **Medir.** Estratégia: o painel DEV do espaço passa a mostrar bytes de GPU (geometrias × atributos, texturas × tamanho) e draw calls (`renderer.info.render.calls`); um orçamento no teste de integração: menos de 64 MB de GPU na descida da Terra. Onde: `SpaceHud.ts`, `renderer.ts`.
+
+- [ ] **Etapa 3. Transição contínua até o mapa 2D.** (M, 1 a 2 semanas; depende da Etapa 2 e da decisão 0.1)
+  - [ ] **Fusão em vez de tela preta.** Estratégia (Kerbal): `switchTo` (`main.ts:77-87`) ganha um modo "fusão": o `SurfaceMode` é criado enquanto o `SpaceMode` ainda desenha, com `center` = (lon, lat) sob a câmera convertidos em (coluna, linha) e `zoom` = px por tile equivalentes à altitude; o canvas do 2D nasce com opacidade 0 e sobe para 1 em 0,6 s enquanto o 3D some; só então o `SpaceMode.dispose`. O gatilho é a altitude abaixo de 0,05 raio com a câmera a menos de 20° do prumo, ou a tecla F como hoje. Onde: `main.ts`, `mode.ts` (o contrato muda: dois modos vivos por um instante), `SurfaceMode.ts` (construtor com `center` e `zoom`), `Viewport.ts`. Pronto quando: captura de três quadros da fusão sem salto de posição (a mesma célula no centro antes e depois); pico de memória medido na descida da Terra abaixo de 40 MB a mais que hoje.
+  - [ ] **A volta pela mesma porta.** Estratégia: afastar além do zoom mínimo (`Viewport.ts:6-7`) dispara a fusão inversa: o `SpaceMode` nasce com a nave a 0,05 raio sobre a (lon, lat) do centro da vista, apontando para baixo, e o 3D aparece enquanto o 2D some. O Esc continua subindo direto, como hoje. Onde: `SurfaceMode.ts` (`onExit`), `main.ts`. Pronto quando: descer e subir dez vezes com o Playwright sem vazar memória da GPU (contagens do painel DEV iguais no fim) e sem a nave perder a órbita.
+  - [ ] **Requisitos e documentação.** `docs/REQUISITOS.md` (seção 0, pilar, RF-SUP-02, lista *Won't*), `docs/ARQUITETURA.md` (a troca de modo), README (controles).
+
+- [ ] **Etapa 4, opcional. Vista 2,5D no chão.** (G; projeto à parte, depois de `SEPARACAO-MOTOR.md` A1)
+  - Estratégia: câmera inclinada sobre o quadtree da Etapa 2, com as criaturas e as casas como cartazes (billboards) num `InstancedMesh` com a arte do atlas de hoje, e o `SpriteLayer` (que trabalha em pixels de tela) trocado por um que trabalha no mundo. Exige o `SurfaceBackend` (os pintores `overlay`, `fx`, `trails`, `weatherView` e `softArt` desenham direto no Canvas 2D) e o cliente lendo só dados da vista. Não planejar antes de medir a Etapa 3.
+
+## 4. O que copiar das referências (tarefas pequenas, independentes)
+
+- [ ] **4.1 Teto de população ligado ao número de sítios (Dwarf Fortress).** (P; muda o comportamento) Estratégia: a capacidade de um reino sobe com o número de lugares vivos dele (`+ CAP_PER_SITE` por lugar), o que dá um incentivo claro para fundar além da fome. Onde: `src/sim/eco/people/migration.ts` (pressão social), `balance.ts`. Pronto quando: calibração longa com mais fundações por pressão (hoje 9% delas) e menos por fome.
+- [ ] **4.2 Teste de que salvar e carregar não muda o mundo (Factorio FFF-270).** (P) Estratégia: rodar 20 anos, tirar o retrato, restaurar num motor novo, rodar mais 20 nos dois e comparar a impressão digital. Onde: `src/save/save.test.ts`. Pronto quando: o teste passa, ou revela o cache que não vai no save (e aí vira correção).
+- [ ] **4.3 Hash por tick exposto (Factorio, Age of Empires).** (P) Estratégia: `engine.debug` ganha `fingerprint()` (a `worldFingerprint` já existe) e o painel F3, na aba Tempo, mostra o hash a cada N passos; o "Copiar caso" inclui o hash final, para comparar reproduções. Onde: `src/sim/api/debugView.ts`, `src/client/surface/debugPanel.ts`. Pronto quando: dois mundos da mesma semente e log dão o mesmo hash no painel.
+- [ ] **4.4 Constantes ao vivo e botões de evento no painel F3 (RimWorld).** (M) Estratégia: uma aba "Ajustes" lista as constantes de `balance.ts` e `tuning.ts` que `tools/tune/constants.mjs` já sabe localizar; mudar uma manda o comando `tune { name, value }` pela fila (fica no log, então o replay continua valendo); o motor aplica em cópias locais pelo mesmo mecanismo do ajuste automático. Botões "provocar evento" chamam os comandos de evento que já existem. Onde: `src/sim/api/commands.ts`, `src/client/surface/debugPanel.ts`. Pronto quando: mudar `SITE_MIN_VALUE` no painel muda a camada de notas na hora; o caso copiado reproduz com o ajuste.
+- [ ] **4.5 Replay gravado com o save (Factorio).** (M; depende de 5.3) Estratégia: o log de comandos do `SimDriver` (hoje limitado a 4.096 e perdido no save) vai para o save com a semente, o `yearSpan` e a versão do gerador; um comando `npm run replay -- <save> --ate <ano>` roda sem tela e imprime a impressão digital. Onde: `src/client/surface/SimDriver.ts`, `save/game.ts`, `tools/replay.mjs`. Pronto quando: o replay de um save de 100 anos dá o mesmo hash do jogo.
+- [ ] **4.6 Modo lendas (Dwarf Fortress).** (M) Estratégia: um visualizador do log de eventos do motor (fundação, fissão, cerco, guerra, era, extinção) por lugar e por reino, com linha do tempo e exportação JSON; a aba Eventos do F3 já tem o anel de 500, e isto é a versão para o jogador, com o log completo guardado no save. Onde: `src/client/surface/hud/Windows.ts` (janela nova), `save/game.ts`. Pronto quando: a janela mostra a história de um reino do ano 0 ao atual.
+
+## 5. Proteções da separação do motor (de `SEPARACAO-MOTOR.md`, as que este plano usa)
+
+- [ ] **5.1 Teste-catraca das leituras diretas do mundo.** (P) Estratégia: um teste conta no `src/client` de produção `ecosystemOf(` (hoje 1), arquivos que importam `Ecosystem` (18) e linhas com `eco.` (cerca de 300), e falha se algum subir; quem baixa atualiza o número. Onde: `src/core/boundary.test.ts` (novo). Pronto quando: o teste passa com os números de hoje.
+- [ ] **5.2 Pureza ampliada.** (P) Estratégia: `purity.test.ts` proíbe `Math.random`, `Date.now`, `new Date` e `performance.now` nas contas do motor, com a medição do painel na lista de exceções. Pronto quando: passa com zero usos.
+- [ ] **5.3 Motor rodando num Worker a partir de um retrato.** (M; pré-requisito de C2, 4.5 e B3) Estratégia: um Worker em `src/sim/api/worker.ts` que recebe `{ snapshot, years, budgetMs }`, restaura com `restoreEcosystem`, roda e devolve o retrato novo com os buffers transferidos; é a entrada "sem vitest" do item D do estudo. Pronto quando: teste de fumaça de 30 anos no Worker com a impressão digital igual à de um mundo rodado direto.
+- [ ] **5.4 Ganchos viram dados.** (P) Estratégia: `drainTiles(): Int32Array` na fachada no lugar de `onTileChanged`, e a espécie nova vira `EngineEvent`. Onde: `src/sim/api/engine.ts`, `MapRaster.ts`, `SurfaceMode.ts`. Pronto quando: a impressão digital passa e o `MapRaster` repinta o mesmo conjunto de tiles (teste).
+- [ ] **5.5 Medir os bytes por passo.** (P) Estratégia: `frame.calib.ts` roda a Terra com raio 1 por 100 anos e imprime `count`, tiles sujos por passo e o tamanho dos lugares, barcos e caravanas; vira um teste de orçamento. Pronto quando: a tabela de `SEPARACAO-MOTOR.md` é trocada por números medidos.
+
+## Ordem sugerida
+
+Três trilhas que podem andar em paralelo, cada uma com um agente ou uma pessoa, e os pontos em que se cruzam:
+
+| Semana | Trilha "planetas" (simulação) | Trilha "3D" (cliente do espaço) | Trilha "proteções e ferramentas" |
+|---|---|---|---|
+| 1 | Decisões 0.2 e 0.4; A1 (parâmetros e save) | 1.1 a 1.5 (correções baratas); decisões 0.1 e 0.3; 3.1 (cor do tile) | 5.1, 5.2, 4.2, 4.3 |
+| 2 | A2, A3, A5 (clima e vida por planeta) | Etapa 1 (esfera boa) | 5.3 (motor no Worker), 5.4 |
+| 3 | A4 (ruído na esfera, junto com A1), B1 (metas por área) | Etapa 2, primeira metade (quadtree) | 4.4 (constantes ao vivo), 5.5 |
+| 4 | B2 (calibração em planetas tipo), B3 (rejeição) | Etapa 2, segunda metade (voo e medidas) | 4.5 (replay com o save) |
+| 5 | C1 (levar e trazer custa), C3 (motivo para voltar) | Etapa 3 (fusão) | 4.1, 4.6 |
+| 6 | C2 (pôr em dia; precisa de 5.3) | Etapa 3 (volta e documentação) | B4 (tabela de relações) |
+
+O que não entra até decidir: C4 (gasosos) e a Etapa 4 (2,5D no chão).
