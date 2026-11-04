@@ -413,7 +413,7 @@ export class SpriteCollector {
       name = frames.work[k];
     } else if (moving) name = frames.walk[Math.floor(now / 150 + phase) % 4];
     else name = frames.idle[Math.floor(now / 700 + phase) % 2];
-    // Sem o ícone da carga ao lado: quem leva algo já aparece andando com o objeto da profissão (a ficha diz o que leva).
+    // Sem o ícone de 4x4 da carga ao lado: pequeno demais para ler no sprite novo e um sprite a menos por pessoa.
     layer.push(name, sx, foot, hgt, tint, person.skin, person.hair);
   }
 
