@@ -1,7 +1,4 @@
-import { capturar, espaco, esperarOrbita, esperarSemCortina, expect, MAPA_MS, orbita, parteDesenhada, superficie, test, usaWebGL } from './apoio';
-
-/** O meio da tela, longe do HUD: em órbita, a Terra; na superfície, o mapa. */
-const MEIO = { x: 540, y: 280, width: 200, height: 120 };
+import { capturar, espaco, esperarImagem, esperarOrbita, esperarSemCortina, expect, MAPA_MS, orbita, superficie, test, usaWebGL } from './apoio';
 
 const MODOS = [
   { nome: 'WebGL', endereco: '/', webgl: true },
@@ -13,14 +10,17 @@ for (const { nome, endereco, webgl } of MODOS) {
     test('da órbita da Terra à superfície e de volta', async ({ page }, info) => {
       await page.goto(endereco);
       await expect(espaco(page)).toBeVisible();
+      await esperarSemCortina(page);
       expect(await usaWebGL(page), 'o renderizador esperado').toBe(webgl);
+      // A nave começa olhando para o Sol: no meio da tela, o brilho dele. Só as estrelas não chegariam a isso.
+      await esperarImagem(page, 'o espaço na tela', 0.1);
       await capturar(page, info, '1-inicio');
 
       // Atalho 1: a nave salta para perto da Terra, já em órbita. Sem isso o F não faz nada.
       await page.keyboard.press('Digit1');
       await esperarOrbita(page, 'Terra');
+      await esperarImagem(page, 'a Terra na tela');
       await capturar(page, info, '2-orbita');
-      expect(await parteDesenhada(page, MEIO), 'a Terra na tela').toBeGreaterThan(0.5);
 
       // F: observar a superfície. Espera ela abrir de verdade: sem isso, um F perdido passaria no teste,
       // porque o Esc também não faria nada e o menu de órbita continuaria lá.
@@ -29,16 +29,16 @@ for (const { nome, endereco, webgl } of MODOS) {
       await expect(orbita(page)).toHaveCount(0);
       await esperarSemCortina(page);
       await page.waitForTimeout(3000);
+      await esperarImagem(page, 'o mapa na tela');
       await capturar(page, info, '3-superficie');
-      expect(await parteDesenhada(page, MEIO), 'o mapa na tela').toBeGreaterThan(0.5);
 
       // Esc de mão vazia: de volta à órbita, na mesma Terra.
       await page.keyboard.press('Escape');
       await expect(superficie(page)).toHaveCount(0);
       await esperarOrbita(page, 'Terra');
       await esperarSemCortina(page);
+      await esperarImagem(page, 'a Terra de novo na tela');
       await capturar(page, info, '4-volta');
-      expect(await parteDesenhada(page, MEIO), 'a Terra de novo na tela').toBeGreaterThan(0.5);
     });
 
     test('clicar captura o mouse, e descer à superfície o solta', async ({ page }) => {

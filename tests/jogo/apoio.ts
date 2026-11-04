@@ -43,9 +43,10 @@ export async function esperarOrbita(page: Page, planeta: string): Promise<void> 
   await expect(orbita(page)).toContainText(planeta.toUpperCase(), { useInnerText: true });
 }
 
-/** A cortina da troca de modo já abriu. */
+/** A cortina da troca de modo já abriu, até o fim da transição: antes disso ela ainda escurece as fotos. */
 export async function esperarSemCortina(page: Page): Promise<void> {
   await expect(page.locator('#fade')).not.toHaveClass(/\bon\b/);
+  await expect(page.locator('#fade')).toHaveCSS('opacity', '0');
 }
 
 /** O canvas do jogo está no WebGL (e não caiu sozinho no renderizador por software). */
@@ -56,19 +57,31 @@ export async function capturar(page: Page, info: TestInfo, nome: string): Promis
   await page.screenshot({ path: info.outputPath(`${nome}.png`) });
 }
 
+/** O meio da tela, longe do HUD: em órbita, o planeta; na superfície, o mapa. */
+const MEIO = { x: 540, y: 280, width: 200, height: 120 };
+
 /**
- * Parte da tela com algo além do fundo do espaço, de 0 a 1, medida na própria foto (o que o jogador vê) e num recorte
- * sem o HUD. Pega a tela preta com o console limpo: o WebGL que desenha nada não registra erro.
+ * Parte do meio da tela com imagem de verdade, de 0 a 1, medida na própria foto (o que o jogador vê). Pega a tela preta
+ * com o console limpo: o WebGL que desenha nada não registra erro. O branco também não conta: no primeiro segundo de um
+ * navegador recém-aberto, sem GPU, o contexto WebGL às vezes cai e volta sozinho, e nesse meio tempo a foto sai branca.
  */
-export async function parteDesenhada(page: Page, clip: { x: number; y: number; width: number; height: number }): Promise<number> {
-  const png = await page.screenshot({ clip });
+export async function parteDesenhada(page: Page): Promise<number> {
+  const png = await page.screenshot({ clip: MEIO });
   return page.evaluate(async (base64) => {
     const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
     const ctx = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d')!;
     ctx.drawImage(bitmap, 0, 0);
     const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
     let lit = 0;
-    for (let i = 0; i < data.length; i += 4) if (data[i] + data[i + 1] + data[i + 2] > 30) lit++;
+    for (let i = 0; i < data.length; i += 4) {
+      const sum = data[i] + data[i + 1] + data[i + 2];
+      if (sum > 30 && sum < 735) lit++;
+    }
     return lit / (data.length / 4);
   }, png.toString('base64'));
+}
+
+/** Espera a imagem aparecer no meio da tela. Vem antes da foto, para ela não sair branca nem preta. */
+export async function esperarImagem(page: Page, oQue: string, minimo = 0.5): Promise<void> {
+  await expect.poll(() => parteDesenhada(page), { message: oQue }).toBeGreaterThan(minimo);
 }

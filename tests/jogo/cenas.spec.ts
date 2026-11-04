@@ -1,4 +1,4 @@
-import { capturar, espaco, esperarOrbita, esperarSemCortina, expect, superficie, test, usaWebGL } from './apoio';
+import { capturar, espaco, esperarImagem, esperarOrbita, esperarSemCortina, expect, superficie, test, usaWebGL } from './apoio';
 
 /** Simular até surgir a cidade leva cerca de 1 min numa máquina boa e bem mais num Chromium sem GPU de CI. */
 const CIDADE_MS = 600_000;
@@ -16,7 +16,7 @@ const lerSave = (page: import('@playwright/test').Page) =>
           get.onerror = () => reject(get.error);
           get.onsuccess = () => {
             req.result.close();
-            resolve(get.result);
+            resolve(get.result && { orbitPlanetId: get.result.orbitPlanetId });
           };
         };
       }),
@@ -38,7 +38,7 @@ test.describe('?cena', () => {
         return state.shipPos.distanceTo(corpo.pos) / corpo.radius;
       });
       expect(raios).toBeCloseTo(3, 1);
-      await page.waitForTimeout(1000);
+      await esperarImagem(page, 'Saturno na tela');
       await capturar(page, info, 'saturno');
     });
   }
@@ -67,6 +67,7 @@ test.describe('?cena', () => {
     expect(cidade.tier).toBeGreaterThanOrEqual(2);
     expect(cidade.gente).toBeGreaterThanOrEqual(200);
     await page.waitForTimeout(1000);
+    await esperarImagem(page, 'a cidade na tela');
     await capturar(page, info, 'cidade');
 
     // Esc: a esfera recebe o mapa pintado pela superfície, com as ruas, e a nave volta à órbita combinada.
@@ -79,6 +80,7 @@ test.describe('?cena', () => {
     // A cidade de frente, o mais perto que a colisão deixa.
     await page.evaluate(({ x, y }) => void window.space!.goToPlanet('Terra', 1.7, { x, y }), cidade);
     await page.waitForTimeout(1000);
+    await esperarImagem(page, 'a cidade na esfera');
     await capturar(page, info, 'cidade-na-esfera');
   });
 
