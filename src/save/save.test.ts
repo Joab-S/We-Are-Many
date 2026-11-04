@@ -37,7 +37,9 @@ function game(): GameState {
     shipQuat: new THREE.Quaternion(0.1, 0.2, 0.3, 0.9).normalize(),
     time: 123.5,
     surfaces: new Map([[earth.id, map]]),
+    surfaceArt: new Map(),
     orbitPlanetId: earth.id,
+    orbitOffset: new THREE.Vector3(1e-3, -2e-3, 3e-3),
     ecosystems: new Map([[earth.id, eco]]),
     knownSpecies: known,
     nav,
@@ -60,6 +62,7 @@ describe('save: ida e volta', () => {
     expect(state.shipQuat.equals(s.shipQuat)).toBe(true);
     expect(state.time).toBe(123.5);
     expect(state.orbitPlanetId).toBe('sol-3');
+    expect(state.orbitOffset?.toArray()).toEqual(s.orbitOffset?.toArray());
     expect(state.nav.visitedBodies.has('sol-3')).toBe(true);
     expect(state.nav.log).toEqual(s.nav.log);
     expect(state.nav.bookmarks).toEqual(s.nav.bookmarks);

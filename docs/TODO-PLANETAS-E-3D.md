@@ -18,26 +18,31 @@ Convenções do projeto que valem para tudo aqui:
 
 ## 1. Correções baratas (Etapa 0 do 3D e os bugs achados)
 
-- [ ] **Polos perpendiculares ao plano da órbita.** (P)
+- [x] **Polos perpendiculares ao plano da órbita.** (P)
   - Estratégia: as órbitas ficam no plano XY (`nav/planets.ts:57-59`) e a `SphereGeometry` tem polos em ±Y, inclinada 0,2 rad em Z (`bodies.ts:167`). Girar a esfera para os polos ficarem em ±Z e aplicar a inclinação do eixo em torno de um eixo no plano da órbita; a rotação diária (`SystemManager.ts:179`, `rotation.y`) passa a ser em torno do eixo inclinado. Quando o `PlanetParams` ganhar inclinação (tarefa A1), ler de lá; até lá, 0,41 rad para a Terra e 0 para os outros.
   - Onde: `src/client/space/bodies.ts` (`createPlanetBody`), `SystemManager.ts` (`updateBodies`).
   - Pronto quando: um teste em `bodies.test.ts` (novo) confere que o vetor do polo norte da esfera é perpendicular ao plano da órbita; captura no navegador mostra a Terra com os polos em cima e embaixo.
-- [ ] **Voltar da superfície sem perder a órbita.** (P)
+  - Feito: Terra com 0,41 rad e os demais com 0. Exceção ao plano: planetas com anéis ficam com 0,45 rad, porque com 0 os anéis ficariam de perfil para quem voa no plano das órbitas. A ordem de Euler `XZY` mantém `rotation.y` como giro puro, que é o que o `SoftRenderer` lê. Sem placa de vídeo nada muda: o `SoftRenderer` já desenhava a esfera como textura recortada em círculo, com os polos sempre na vertical da tela e sem inclinação; só os anéis seguem a inclinação.
+- [x] **Voltar da superfície sem perder a órbita.** (P)
   - Estratégia: `orbitPlanetId` é gravado (`SpaceMode.ts:257`) mas nunca lido, e `updateOrbit` (`SystemManager.ts:330-340`) só reconhece a órbita pela distância; como `state.time` continua andando na superfície, o planeta já está em outro ponto quando o espaço volta. Guardar no `GameState` o deslocamento nave−planeta no momento do `observe` e, no construtor do `SpaceMode`, se `orbitPlanetId` existe, reposicionar a nave no planeta mais esse deslocamento, apontando para ele, e já marcar `orbitBody`.
   - Onde: `src/client/space/SpaceMode.ts` (`observe`, construtor), `SystemManager.ts` (`updateOrbit`), `src/client/state.ts` e `save/game.ts` (o deslocamento vai no save; ver `SAVE_VERSION`).
   - Pronto quando: teste do `SystemManager` com o tempo avançado 1.000 s entre sair e voltar, e a nave a menos de 4 raios; teste no navegador com Playwright (descer, esperar, subir) sem a nave sumir.
-- [ ] **Mipmaps na textura do planeta e prévia no Worker.** (P)
+  - Feito: a nave é reposta no primeiro quadro (`SystemManager.restoreOrbit`), não no construtor, porque o sistema só existe depois do primeiro `update`. `orbitBody` não é marcado à mão: `updateOrbit` o detecta no mesmo quadro, e assim o menu e o aviso de órbita disparam. `orbitOffset` entrou como campo opcional do save, sem subir `SAVE_VERSION`, porque `validateSave` recusa outras versões e não há migração. O projeto não tem Playwright: a ida e volta foi conferida à mão no navegador.
+- [x] **Mipmaps na textura do planeta e prévia no Worker.** (P)
   - Estratégia: `DataTexture` nasce com `generateMipmaps = false`; ligar e usar `LinearMipmapLinearFilter`, com anisotropia do renderizador. A prévia de 256 px (`previewSurface`, `bodies.ts:144-151`) é gerada na thread principal ao entrar no sistema; passar para `generateSurfaceAsync` (já existe em `src/client/surface/generateAsync.ts`) com a esfera nascendo com a textura de faixas até a prévia chegar.
   - Onde: `bodies.ts` (`surfaceTexture`, `previewSurface`), `SystemManager.ts:131`.
   - Pronto quando: sem cintilação ao afastar (captura); o `SystemManager` não bloqueia mais de 16 ms ao entrar num sistema com 7 rochosos (medir com `performance.now` num teste de integração do cliente).
-- [ ] **Liberar texturas dentro de `uniforms`.** (P)
+  - Feito: a prévia sai do Worker, uma por vez, e fica no cache já pintada. Medido com `performance.now` no navegador (servidor de desenvolvimento), e não num teste, porque o tempo só vale com canvas e geometria reais: criar 7 rochosos leva ~8 ms sem prévia e ~3 ms com prévia em cache; o `update` que entra em Sol (8 planetas) leva de 10 a 15 ms. Limite conhecido: logo depois de carregar um save, a primeira entrada pinta o mapa inteiro de cada planeta visitado, cerca de 30 ms por planeta; as seguintes reaproveitam. Falta olhar a cintilação em movimento: mipmaps e anisotropia foram confirmados na textura viva e em capturas paradas.
+- [x] **Liberar texturas dentro de `uniforms`.** (P)
   - Estratégia: `disposeObject` (`dispose.ts:27`) só olha propriedades de primeiro nível do material; percorrer `material.uniforms` e liberar o que for `Texture` e não estiver em `markShared`.
   - Onde: `src/client/space/dispose.ts`, `dispose.test.ts`.
   - Pronto quando: o teste cria um `ShaderMaterial` com textura num uniform e confere que `dispose` foi chamado.
-- [ ] **Textura do planeta visitado com ruas e casas, refeita ao voltar.** (P a M)
+  - Feito: `disposeObject` percorre `uniforms`, com valores únicos e listas, e respeita `markShared`.
+- [x] **Textura do planeta visitado com ruas e casas, refeita ao voltar.** (P a M)
   - Estratégia: o `MapRaster` já produz um RGBA de um pixel por tile com ruas e casas, mas exige um `Ecosystem`. Caminho sem `ecosystemOf`: o `SurfaceMode`, ao sair, guarda o `canvas()` do `MapRaster` (uma cópia opaca) em `state.surfaceArt.set(id, ImageData)`; o `createPlanetBody` prefere isso ao `paintSurface`. Uma função só de "cor do tile" para os dois caminhos (ver 3.1), para o 3D e o 2D não divergirem.
   - Onde: `src/client/surface/MapRaster.ts` (`canvas`), `SurfaceMode.ts` (`dispose`), `bodies.ts`, `state.ts`.
   - Pronto quando: ao voltar de um planeta com cidades, a esfera mostra as ruas (captura); nenhum uso novo de `ecosystemOf` (ver a catraca em 5.1).
+  - Feito: `SurfaceMode.dispose` guarda `raster.pixels` (os próprios bytes, sem passar por canvas e `ImageData`) em `state.surfaceArt`; com a vista geológica ligada o retrato é apagado e a esfera volta ao terreno. Custa ~2 MB por planeta visitado. Não vai no save: depois de carregar, a esfera mostra só o terreno até a próxima visita. Comparada no navegador com e sem o retrato, num save com dois assentamentos da Idade da Pedra: o assentamento aparece, mas é pequeno na distância normal de órbita; ainda não foi vista uma cidade grande. Sem uso novo de `ecosystemOf`. A função única de "cor do tile" fica para a tarefa 3.1.
 
 ## 2. Outros planetas
 

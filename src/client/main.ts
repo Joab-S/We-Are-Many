@@ -126,7 +126,9 @@ function newState(manifest: GameState['manifest'], names: GameState['names']): G
     shipQuat: new THREE.Quaternion(),
     time: 0,
     surfaces: new Map(),
+    surfaceArt: new Map(),
     orbitPlanetId: null,
+    orbitOffset: null,
     ecosystems: new Map(),
     // A nave saiu da Terra: as espécies terrestres já estão a bordo para levar a outros planetas.
     knownSpecies: new Map(nativeSpecies(planetParams(SOL_PLANETS[2])).map((sp) => [sp.id, sp])),
