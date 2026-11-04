@@ -1,5 +1,6 @@
 import { CREST_EMBLEMS } from '../../sim/architecture';
 import { ROLES, type Role } from '../../sim/roles';
+import { HUMAN_ICON_PALETTES, HUMAN_ICONS, HUMAN_PALETTES, HUMAN_SPRITES } from './humanArt';
 import { CREATURE_ART, EFFECT_ART, EXTRA_COLORS, ITEM_ICONS, SAPIENT_BODIES, SAPIENT_CHILDREN } from './art-extra';
 
 /**
@@ -1152,6 +1153,17 @@ for (const body of BODY_NAMES) {
   for (const role of ROLES) SPRITES[`${body}:${role}`] = composeRole(body, role);
   SPRITES[`${body}:elder`] = composeRole(body, 'elder');
   SPRITES[`${body}:child`] = CHILDREN[body];
+}
+/**
+ * Paleta própria de alguns sprites (os humanos de `humanArt.ts`); os demais
+ * usam `COLORS`.
+ */
+export const SPRITE_PALETTES: Record<string, Record<string, string>> = { ...HUMAN_PALETTES };
+Object.assign(SPRITES, HUMAN_SPRITES);
+// Ícones dos humanos (`human:profissão`): o sprite novo parado, com pele e cabelo fixos.
+for (const [role, rows] of Object.entries(HUMAN_ICONS)) {
+  SPRITES[`human:${role}`] = rows;
+  SPRITE_PALETTES[`human:${role}`] = HUMAN_ICON_PALETTES[role];
 }
 /** Barcos e o tubarão também viram para a esquerda (`nome:l`). */
 for (const name of ['canoe', 'rowboat', 'sailboat', 'caravel', 'steamship', 'shark', 'packs', 'cart', 'wagon'] as const) SPRITES[`${name}:l`] = flip(ART[name]);
