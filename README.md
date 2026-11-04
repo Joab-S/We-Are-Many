@@ -58,12 +58,14 @@ Ele joga como o jogador, pelas teclas: abre, aperta `1` (salta para a Terra, já
 
 | Cena | Como abre |
 |---|---|
-| `?cena=terra-cidade` | Superfície da Terra, parada, com a câmera numa Cidade (o mundo é simulado antes de abrir, cerca de 30 s). O `Esc` volta à órbita da Terra, com as ruas na esfera |
+| `?cena=terra-cidade` | Superfície da Terra, parada, com a câmera numa Cidade (o mundo é simulado antes de abrir, cerca de 40 s). O `Esc` volta à órbita da Terra, com as ruas na esfera |
 | `?cena=saturno` | Em órbita de Saturno, a 3 raios, com os anéis à vista |
 
 Para uma cena nova, acrescente uma função em `src/client/cenas.ts`.
 
 **CI.** Cada PR para a `development` roda, em `.github/workflows/ci.yml`, os tipos, o build, a suíte inteira e o `test:jogo`. As capturas ficam como artefato (`capturas`) na página da rodada.
+
+**Antes de um PR.** A skill [`testar-pr`](.claude/skills/testar-pr/SKILL.md) reúne o que rodar para cada tipo de mudança, o que olhar nas capturas e o que fazer quando algo falha. O Claude Code a usa sozinho, e ela também serve de roteiro para ler.
 
 ## Controles
 
