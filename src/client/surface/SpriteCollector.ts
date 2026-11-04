@@ -36,10 +36,8 @@ const LEADER = ROLES.indexOf('leader');
 const HUMAN_H = 1.5;
 /** Gestos de trabalho que tocam a animação da ferramenta. */
 const WORKING = new Set<number>([GESTURE.dig, GESTURE.reap, GESTURE.chop, GESTURE.hammer, GESTURE.pick, GESTURE.row]);
-/** Mortes com golpe (piscam em vermelho antes de cair). */
-const VIOLENT = new Set<string>(['guerra', 'predador', 'desastre', 'jogador', 'outra']);
 /** Tempos da morte na tela (ms): normal, vermelho, preto em pé e deitado até sumir. */
-const DEATH_MS = { hit: 220, red: 440, dark: 800, end: 4000 };
+const DEATH_MS = { hit: 150, red: 450, dark: 800, end: 1800 };
 
 /** Profissão (ou idade) que define a aparência de um humano. */
 export function humanKey(eco: Ecosystem, kind: number, village: number, role: number, age: number): string {
@@ -64,7 +62,6 @@ interface Dying {
   frames: HumanFrames;
   person: Person;
   tint: readonly number[];
-  violent: boolean;
   t0: number;
 }
 
@@ -416,10 +413,8 @@ export class SpriteCollector {
       name = frames.work[k];
     } else if (moving) name = frames.walk[Math.floor(now / 150 + phase) % 4];
     else name = frames.idle[Math.floor(now / 700 + phase) % 2];
+    // Sem o ícone da carga ao lado: quem leva algo já aparece andando com o objeto da profissão (a ficha diz o que leva).
     layer.push(name, sx, foot, hgt, tint, person.skin, person.hair);
-    // Carga na mão (RF-AS-24): o cesto, o feixe, a pedra, o minério ou o balde acima do ombro.
-    const load = eco.carry[i] ? CARRIED[eco.carry[i] - 1] : null;
-    if (load) layer.push(LOAD_ART[load] ?? 'load:ore', sx + z * 0.3, foot + hgt * 0.5, z * 0.5, tint);
   }
 
   /** Humano andando numa caravana ou comitiva (sem índice de criatura: a semente dá gênero, pele e cabelo). */
@@ -436,7 +431,7 @@ export class SpriteCollector {
   }
 
   /**
-   * Mortes de humanos na tela: quem cai pisca em vermelho (se foi golpe),
+   * Mortes de humanos na tela: quem cai pisca em vermelho,
    * fica preto em pé, cai deitado e some. As mortes novas entram no começo
    * de `eco.deaths`; o corpo ainda está no índice (só `alive` foi zerado).
    */
@@ -462,7 +457,6 @@ export class SpriteCollector {
           frames: HUMAN_FRAMES[key][person.female ? 1 : 0],
           person,
           tint: vi >= 0 ? eco.villages[vi].color : sp.color,
-          violent: VIOLENT.has(d.cause),
           t0: now,
         });
         if (this.dying.length > 64) this.dying.shift();
@@ -480,7 +474,7 @@ export class SpriteCollector {
       const sy = view.glY(d.y, z);
       if (sx < -MARGIN || sx > view.width + MARGIN || sy < -MARGIN || sy > view.height + MARGIN) continue;
       const f = d.frames;
-      const name = t < DEATH_MS.hit ? f.idle[0] : t < DEATH_MS.red ? (d.violent ? f.hit : f.idle[0]) : t < DEATH_MS.dark ? f.dead : f.fallen;
+      const name = t < DEATH_MS.hit ? f.idle[0] : t < DEATH_MS.red ? f.hit : t < DEATH_MS.dark ? f.dead : f.fallen;
       // O quadro deitado é mais largo (20x18): a mesma altura mantém a escala.
       layer.push(name, sx, sy - z * 0.5 - hgt / 18, hgt, d.tint, d.person.skin, d.person.hair);
     }
