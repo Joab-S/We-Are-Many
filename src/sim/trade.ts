@@ -174,6 +174,8 @@ export interface Cargo {
 export interface Crew {
   age: number;
   role: number;
+  /** Quem viaja continua no mapa (caravana, rebanho, comitiva): a caravana anda com ele, pelo `who.uid`. */
+  live?: boolean;
   who?: { uid: number; parent: number; family: number; bornAt: number; bornYear: number; movedAt: number };
 }
 

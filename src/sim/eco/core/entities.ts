@@ -239,6 +239,7 @@ export const entitiesPart = {
     this.dayLeg = copy(this.dayLeg, (n) => new Uint8Array(n));
     this.dayTime = copy(this.dayTime, (n) => new Float32Array(n));
     this.carry = copy(this.carry, (n) => new Uint8Array(n));
+    this.trip = copy(this.trip, (n) => new Uint8Array(n));
     this.carryAmt = copy(this.carryAmt, (n) => new Float32Array(n));
     this.needRest = copy(this.needRest, (n) => new Float32Array(n));
     this.needSocial = copy(this.needSocial, (n) => new Float32Array(n));
@@ -331,6 +332,7 @@ export const entitiesPart = {
     this.dayLeg[i] = 0;
     this.dayTime[i] = 0;
     this.carry[i] = 0;
+    this.trip[i] = 0;
     this.carryAmt[i] = 0;
     this.needRest[i] = 0;
     this.needSocial[i] = 0;

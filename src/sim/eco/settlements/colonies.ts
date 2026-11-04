@@ -372,7 +372,7 @@ export const coloniesPart = {
       cart: walker ? 0 : cartOf(era),
       cargo,
       purse: 0,
-      crew: this.embark(i),
+      crew: this.escort(i),
       speed: B.CARAVAN_SPEED * (walker ? 0.8 : 1),
       wait: 0,
       tolls: [],

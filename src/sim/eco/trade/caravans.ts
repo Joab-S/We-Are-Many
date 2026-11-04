@@ -33,6 +33,7 @@ export const caravansPart = {
     for (const i of this.residents(v.id)) {
       if (i === leader || this.role[i] === CHILD) continue;
       if (this.age[i] >= elderAge(this.species[v.species], Math.floor(v.tech))) continue;
+      if (this.trip[i]) continue;
       if (this.role[i] === role) return i;
       if (pick < 0) pick = i;
     }
@@ -46,8 +47,39 @@ export const caravansPart = {
     return crew;
   },
 
+  /**
+   * Quem vai à frente da caravana, do rebanho ou da comitiva: continua no mapa (dá para clicar e seguir)
+   * e anda com ela; a decisão e o movimento próprios param até a volta.
+   */
+  escort(this: Ecosystem, i: number): Crew {
+    this.trip[i] = 1;
+    this.jobKind[i] = 0;
+    this.carry[i] = 0;
+    this.gesture[i] = 0;
+    return { age: this.age[i], role: this.role[i], live: true, who: this.identity(i) };
+  },
+
+  /** Índice de quem vai à frente da caravana (-1 se não está mais vivo ou é de um save antigo). */
+  leaderOfCaravan(this: Ecosystem, c: Caravan): number {
+    if (!c.crew.live || !c.crew.who) return -1;
+    const k = this.uidIndex.get(c.crew.who.uid);
+    return k !== undefined && this.alive[k] ? k : -1;
+  },
+
   /** O viajante volta para casa. */
   disembark(this: Ecosystem, v: Village, crew: Crew, x: number, y: number): void {
+    if (crew.live) {
+      // Já está no mapa: só para de andar com a caravana, onde ela parou.
+      const k = crew.who ? this.uidIndex.get(crew.who.uid) : undefined;
+      if (k === undefined || !this.alive[k]) return;
+      this.trip[k] = 0;
+      this.x[k] = x;
+      this.y[k] = y;
+      this.vx[k] = 0;
+      this.vy[k] = 0;
+      this.think[k] = 0;
+      return;
+    }
     if (v.abandoned) return;
     const c = this.spawn(v.species, x, y, v.id, crew.age);
     if (c < 0) return;
@@ -57,6 +89,16 @@ export const caravansPart = {
 
   /** O viajante morreu no caminho: a saída vira morte, com a causa. */
   lostCrew(this: Ecosystem, v: Village, crew: Crew, cause: DeathCause, x: number, y: number): void {
+    if (crew.live) {
+      const k = crew.who ? this.uidIndex.get(crew.who.uid) : undefined;
+      if (k !== undefined && this.alive[k]) {
+        this.trip[k] = 0;
+        this.x[k] = x;
+        this.y[k] = y;
+        this.kill(k, false, cause);
+      }
+      return;
+    }
     const vital = (v.vitalNow ??= emptyVital());
     vital.left = Math.max(0, vital.left - 1);
     vital.deaths[cause] = (vital.deaths[cause] ?? 0) + 1;
@@ -145,7 +187,7 @@ export const caravansPart = {
       cart: cartOf(era),
       cargo: cargo.filter((c) => c.amount >= 1),
       purse,
-      crew: this.embark(i),
+      crew: this.escort(i),
       speed: B.CARAVAN_SPEED * (animal === 'horse' ? B.HORSE_SPEED : 1),
       wait: 0,
       tolls: [],
@@ -306,6 +348,18 @@ export const caravansPart = {
     for (let k = this.caravans.length - 1; k >= 0; k--) {
       const c = this.caravans[k];
       const home = this.villages[c.home];
+      // Quem ia à frente morreu no caminho (fome, frio, predador, guerra, a mão do jogador): a viagem acaba,
+      // a carga se perde e o rebanho volta sozinho para casa.
+      const lead = this.leaderOfCaravan(c);
+      if (c.crew.live && lead < 0) {
+        if (c.kind === 'flock' && home.herd && !home.abandoned) home.herd.away = undefined;
+        this.caravans.splice(k, 1);
+        continue;
+      }
+      if (lead >= 0) {
+        this.vx[lead] = 0;
+        this.vy[lead] = 0;
+      }
       if (c.wait > 0) {
         c.wait -= dt;
         continue;
@@ -339,6 +393,15 @@ export const caravansPart = {
         c.x = (((c.x + (dx / d) * move) % w) + w) % w;
         c.y += (dy / d) * move;
         if (Math.abs(dx) > 0.05) c.facing = dx > 0 ? 1 : -1;
+      }
+      // Quem lidera anda junto, à frente dos animais (a tela anima o passo pela velocidade).
+      if (lead >= 0) {
+        this.x[lead] = c.x;
+        this.y[lead] = c.y;
+        if (d > 0.01) {
+          this.vx[lead] = (dx / d) * c.speed;
+          this.vy[lead] = (dy / d) * c.speed;
+        }
       }
       if (d - move < 0.05) {
         if (this.traffic[t] < 65535) this.traffic[t]++;
@@ -590,7 +653,7 @@ export const caravansPart = {
       cart: 0,
       cargo: [],
       purse: 0,
-      crew: this.embark(i),
+      crew: this.escort(i),
       speed: B.FLOCK_SPEED,
       wait: 0,
       tolls: [],

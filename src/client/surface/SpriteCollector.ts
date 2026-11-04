@@ -389,7 +389,9 @@ export class SpriteCollector {
    * a faixa da cintura e a farda de soldados e guardas levam a cor do reino.
    */
   private human(eco: Ecosystem, layer: SpriteLayer, i: number, sx: number, sy: number, z: number, now: number, tint: readonly number[]): void {
-    const key = this.humanKey(eco, i);
+    let key = this.humanKey(eco, i);
+    // O mercador na estrada, à frente da caravana, é o comerciante viajante (mochila e cajado).
+    if (key === 'merchant' && eco.trip[i]) key = 'trader';
     const person = personOf(eco.uid[i], key === ELDER);
     const frames = HUMAN_FRAMES[key][person.female ? 1 : 0];
     const hgt = z * HUMAN_H;
@@ -513,20 +515,15 @@ export class SpriteCollector {
           const ay = Y(c.y + 0.35 * (((k * 7) % 3) - 1));
           layer.push(left ? this.left(name) : name, ax, ay - z * 0.5, z * 0.62, HERD_TINT[c.animal] ?? FLOCK_TINT);
         }
-        this.walker(layer, body, 'shepherd', c.id * 31 + 1, sx, sy, z, now, home.color, sp.color);
+        // O pastor é uma pessoa do mapa (desenhada com as criaturas); só os saves antigos guardam ele na caravana.
+        if (!c.crew.live) this.walker(layer, body, 'shepherd', c.id * 31 + 1, sx, sy, z, now, home.color, sp.color);
         continue;
       }
-      // Visita (RF-AS-42): viajantes a pé, sem animal; colonos (RF-AS-03): famílias andando atrás do enxoval.
+      // Visita (RF-AS-42): quem viaja vai a pé, sem animal. Toda pessoa na tela é de verdade (dá para clicar):
+      // quem lidera anda no mapa com as criaturas, e a caravana só desenha os animais e a carroça.
       if (c.kind === 'visit') {
-        this.walker(layer, body, 'free', c.id * 31 + 2, bx(0.7), by(0.7), z, now, home.color, sp.color);
-        this.walker(layer, body, 'trader', c.id * 31 + 3, sx, sy, z, now, home.color, sp.color);
+        if (!c.crew.live) this.walker(layer, body, 'trader', c.id * 31 + 3, sx, sy, z, now, home.color, sp.color);
         continue;
-      }
-      if (c.kind === 'settlers') {
-        for (let k = 3; k >= 1; k--) {
-          const d = 1.6 + k * 0.6;
-          this.walker(layer, body, k === 3 ? 'child' : 'farmer', c.id * 31 + 4 + k, bx(d), by(d), z, now, home.color, sp.color);
-        }
       }
       const animal = c.animal === 'donkey' ? 'donkey' : c.animal;
       const tint = c.animal === 'donkey' ? DONKEY_TINT : (HERD_TINT[c.animal] ?? CARGO_TINT);
@@ -544,7 +541,7 @@ export class SpriteCollector {
         layer.push(left ? this.left(animal) : animal, ax, ay - z * 0.5, z * 0.72, tint);
         if (c.cart === 0) layer.push(left ? 'packs:l' : 'packs', ax - c.facing * z * 0.05, ay - z * 0.5 + z * 0.42, z * 0.32, tint);
       }
-      this.walker(layer, body, 'trader', c.id * 31 + 9, sx, sy, z, now, home.color, sp.color);
+      if (!c.crew.live) this.walker(layer, body, 'trader', c.id * 31 + 9, sx, sy, z, now, home.color, sp.color);
     }
   }
 
