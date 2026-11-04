@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { loadManifest, loadNames } from '../universe/loader';
+import { DEBUG } from './debug';
 import { AdaptiveResolution } from './quality';
 import { SoftRenderer, webglAvailable, type GameRenderer } from './renderer';
 import { seedFor } from '../core/rng';
@@ -142,6 +143,20 @@ function newState(manifest: GameState['manifest'], names: GameState['names']): G
 
 async function boot(): Promise<void> {
   const [manifest, names] = await Promise.all([loadManifest(), loadNames()]);
+
+  // `?cena=nome` (cenas.ts): um mundo montado na hora. Não toca no save de verdade: não lê, não grava e nem mostra
+  // a barra de salvar. O módulo só é baixado quando pedido.
+  const sceneName = new URLSearchParams(location.search).get('cena');
+  if (sceneName !== null) {
+    canSave = false;
+    const { buildScene } = await import('./cenas');
+    const state = newState(manifest, names);
+    const view = await buildScene(sceneName, state, (text) => (loading.textContent = text));
+    loading.remove();
+    startFrom(state, view);
+    return;
+  }
+
   const base = { manifest, names };
   let notice = '';
   let loaded: Awaited<ReturnType<SaveManager['load']>>;
@@ -188,9 +203,7 @@ async function boot(): Promise<void> {
 }
 
 // `?debug`: atalho para entrar na Terra direto (captura de telas em tools/capture-settlements.mjs).
-if (new URLSearchParams(location.search).has('debug')) {
-  (window as unknown as { debugEarth: () => void }).debugEarth = () => current && enterSurface(current, planetParams(SOL_PLANETS[2]));
-}
+if (DEBUG) window.debugEarth = () => current && enterSurface(current, planetParams(SOL_PLANETS[2]));
 
 boot().catch((err) => {
   loading.textContent = `Falha ao carregar o universo: ${String(err)}`;

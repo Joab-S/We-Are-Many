@@ -8,8 +8,9 @@ import { Input } from '../input';
 import type { GameMode } from '../mode';
 import type { AdaptiveResolution } from '../quality';
 import type { GameRenderer } from '../renderer';
+import { DEBUG } from '../debug';
 import type { GameState } from '../state';
-import { disposeGlowTexture } from './bodies';
+import { disposeGlowTexture, litSide, planetRadius, tileDirection } from './bodies';
 import { CommandMap, KeyBindings, MANEUVERS } from './commands';
 import { disposeObject } from './dispose';
 import { FloatingOrigin } from './FloatingOrigin';
@@ -51,8 +52,8 @@ export class SpaceMode implements GameMode {
   private readonly input: Input;
   private readonly stars: StarField;
   private readonly origin = new FloatingOrigin();
-  private readonly systems: SystemManager;
-  private readonly ship: ShipController;
+  readonly systems: SystemManager;
+  readonly ship: ShipController;
   private readonly shipView = new ShipView();
   private readonly hud: SpaceHud;
   private readonly guide: GuideHud;
@@ -73,7 +74,7 @@ export class SpaceMode implements GameMode {
   constructor(
     private readonly renderer: GameRenderer,
     private readonly resolution: AdaptiveResolution,
-    private readonly state: GameState,
+    readonly state: GameState,
     hud: HTMLElement,
     private readonly callbacks: SpaceCallbacks,
   ) {
@@ -130,6 +131,8 @@ export class SpaceMode implements GameMode {
 
     this.resize();
     window.addEventListener('resize', this.resize);
+    // `?debug` deixa a cena acessível no console (testes): `ship`, `systems`, `state` e `goToPlanet`.
+    if (DEBUG) window.space = this;
   }
 
   start(): void {
@@ -288,7 +291,29 @@ export class SpaceMode implements GameMode {
     this.state.nav.autopilot = false;
   }
 
+  /**
+   * Só para o `?debug` (como os atalhos 1, 2 e 3): leva a nave, parada, a `radii` raios do centro do planeta (nome
+   * ou id, do sistema em volta ou do Solar) e a aponta para ele. A menos de 4 raios é órbita; a menos de 1,6 a colisão
+   * empurra a nave para 1,6. Do lado iluminado ou, com `facing`, de frente para esse tile do mapa da superfície, se
+   * ela já foi gerada (a esfera continua girando depois). Devolve o planeta; nome desconhecido é erro.
+   */
+  goToPlanet(name: string, radii = 3, facing?: { x: number; y: number }): PlanetData {
+    const matches = (p: PlanetData) => p.id === name || p.name.toLowerCase() === name.toLowerCase();
+    const sys = this.systems.system;
+    const body = sys?.planets.find((b) => matches(b.planet!));
+    const planet = body?.planet ?? SOL_PLANETS.find(matches);
+    if (!planet) throw new Error(`Planeta desconhecido: ${name}`);
+    // Fora do sistema dele, só o Solar é conhecido: o sistema nasce no próximo quadro, com a nave já lá.
+    const center = body?.pos.clone() ?? planetOffset(planet, this.state.time, new THREE.Vector3());
+    const map = this.state.surfaces.get(planet.id);
+    const side = facing && map && body ? tileDirection(body.surface!, facing.x / map.width, facing.y / map.height) : litSide(center, sys && body ? sys.star.pos : new THREE.Vector3());
+    this.state.shipPos.copy(center).addScaledVector(side, radii * planetRadius(planet));
+    this.lookAt(center);
+    return planet;
+  }
+
   dispose(): void {
+    if (DEBUG) delete window.space;
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     window.removeEventListener('resize', this.resize);

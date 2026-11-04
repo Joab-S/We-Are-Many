@@ -7,7 +7,7 @@
 import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
-// O Playwright não é dependência do projeto: usa o que estiver instalado na máquina (global ou local).
+// O Playwright vem com a devDependency @playwright/test (navegador: npx playwright install chromium).
 const { chromium } = createRequire(import.meta.url)('playwright');
 
 const url = process.argv[2] ?? 'http://localhost:5173';

@@ -228,8 +228,32 @@ export function applyPreview(body: Body, preview: PlanetPixels, anisotropy: numb
   body.previewPending = false;
 }
 
+/** Raio do planeta na cena, em UA. */
+export function planetRadius(p: PlanetData): number {
+  return (p.radiusKm / KM_PER_AU) * PLANET_SCALE;
+}
+
+/**
+ * Para onde olhar um planeta de frente: o lado da estrela, um pouco acima do plano das órbitas (os anéis
+ * aparecem). Vetor unitário, do planeta para a nave.
+ */
+export function litSide(planet: THREE.Vector3, star: THREE.Vector3): THREE.Vector3 {
+  const toStar = new THREE.Vector3(star.x - planet.x, star.y - planet.y, 0).normalize();
+  return toStar.setZ(0.4).normalize();
+}
+
+/**
+ * Direção, a partir do centro do planeta, do ponto do mapa em frações (`u` = x/largura, `v` = linha/altura), com
+ * o giro atual da esfera. A conta é a da `SphereGeometry`; a textura tem `flipY`, então a linha 0 fica no polo norte.
+ */
+export function tileDirection(surface: THREE.Object3D, u: number, v: number): THREE.Vector3 {
+  const phi = u * Math.PI * 2;
+  const theta = v * Math.PI;
+  return new THREE.Vector3(-Math.cos(phi) * Math.sin(theta), Math.cos(theta), Math.sin(phi) * Math.sin(theta)).applyEuler(surface.rotation);
+}
+
 export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces' | 'surfaceArt'>, anisotropy = 1): Body {
-  const radius = (p.radiusKm / KM_PER_AU) * PLANET_SCALE;
+  const radius = planetRadius(p);
   let map: THREE.Texture;
   let previewPending = false;
   if (p.kind === 'rocky') {

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { SOL_PLANETS, type PlanetData } from '../../nav/planets';
 import { generateSurface, type SurfaceMap } from '../../procgen/surface';
 import { generateSurfaceAsync } from '../surface/generateAsync';
-import { applyPreview, axialTilt, createPlanetBody, loadPreview, planetParams, type Body } from './bodies';
+import { applyPreview, axialTilt, createPlanetBody, litSide, loadPreview, planetParams, planetRadius, tileDirection, type Body } from './bodies';
 
 vi.mock('../surface/generateAsync', () => ({ generateSurfaceAsync: vi.fn() }));
 
@@ -29,6 +29,35 @@ const normalOf = (flat: THREE.Object3D) => new THREE.Vector3(0, 0, 1).applyEuler
 beforeAll(() => vi.stubGlobal('document', stubDocument()));
 afterAll(() => vi.unstubAllGlobals());
 beforeEach(() => vi.mocked(generateSurfaceAsync).mockReset());
+
+describe('de onde olhar um planeta', () => {
+  it('o raio de planetRadius é o do corpo', () => {
+    expect(createPlanetBody(mars, empty).radius).toBe(planetRadius(mars));
+  });
+
+  it('litSide fica do lado da estrela, acima do plano das órbitas', () => {
+    const star = new THREE.Vector3(0, 0, 0);
+    const planet = new THREE.Vector3(10, 0, 0);
+    const side = litSide(planet, star);
+    expect(side.length()).toBeCloseTo(1, 9);
+    expect(side.x).toBeLessThan(0);
+    expect(side.y).toBeCloseTo(0, 9);
+    expect(side.z).toBeGreaterThan(0);
+  });
+
+  it('tileDirection aponta para o vértice da esfera com a mesma coordenada do mapa, já com o giro', () => {
+    const sphere = createPlanetBody(mars, empty).surface as THREE.Mesh;
+    sphere.rotation.y = 1.3;
+    const position = sphere.geometry.getAttribute('position');
+    const uv = sphere.geometry.getAttribute('uv');
+    for (const i of [70, 500, 1500]) {
+      // A textura tem flipY: a linha 0 do mapa fica no topo da imagem, onde o `v` do uv é 1.
+      const dir = tileDirection(sphere, uv.getX(i), 1 - uv.getY(i));
+      const vertex = new THREE.Vector3().fromBufferAttribute(position, i).normalize().applyEuler(sphere.rotation);
+      expect(dir.distanceTo(vertex)).toBeLessThan(1e-6);
+    }
+  });
+});
 
 describe('eixo dos planetas', () => {
   it('sem inclinação, o polo é perpendicular ao plano das órbitas', () => {

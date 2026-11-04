@@ -222,7 +222,7 @@ export class SurfaceMode {
     this.resize();
     this.ready = true;
     // `?debug` deixa a cena acessível no console (testes e calibragem).
-    if (new URLSearchParams(location.search).has('debug')) (window as unknown as { surface: SurfaceMode }).surface = this;
+    if (DEBUG) window.surface = this;
     this.raf = requestAnimationFrame(this.frame);
   }
 
@@ -880,6 +880,7 @@ export class SurfaceMode {
   }
 
   dispose(): void {
+    if (DEBUG) delete window.surface;
     cancelAnimationFrame(this.raf);
     this.abort.abort();
     this.input.dispose();
