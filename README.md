@@ -14,7 +14,7 @@ Jogo de navegador de exploração espacial, replicação de sondas e terraforma�
 ```bash
 npm install
 npm run dev        # abre em http://localhost:5173
-npm test           # testes do núcleo (vitest)
+npm test           # a suíte inteira (vitest); ver "Testando"
 npm run build      # checagem de tipos + build de produção em dist/
 ```
 
@@ -25,6 +25,45 @@ Os chunks de estrelas já estão versionados em `public/universe/v1/`. Para ger�
 ```bash
 npm run data
 ```
+
+## Testando
+
+| Comando | O que faz | Tempo |
+|---|---|---|
+| `npm run test:rapido` | Tudo menos os testes que rodam um mundo simulado por anos (a lista está em `vitest.rapido.config.ts`). Para usar enquanto se trabalha | 15 a 20 s |
+| `npm test` | A suíte inteira. É ela que vale antes de abrir um PR | cerca de 3 min |
+| `npm run test:jogo` | Teste de fumaça: compila, serve o `dist` e abre o jogo de verdade num Chromium sem placa de vídeo, no WebGL e no `?soft` | cerca de 2 min |
+| `npm run typecheck` | Os tipos, inclusive os dos testes em `tests/` | alguns segundos |
+
+O `test:jogo` precisa do navegador do Playwright, instalado uma vez:
+
+```bash
+npx playwright install chromium
+```
+
+Ele joga como o jogador, pelas teclas: abre, aperta `1` (salta para a Terra, já em órbita), `F` (desce à superfície), espera e aperta `Esc` (volta). Confere que a superfície abriu de verdade, que "EM ÓRBITA" está na tela antes e depois, que a cortina `#fade` saiu, que algo foi desenhado no meio da tela e que o console não tem erro. As capturas ficam em `test-results/<teste>/`, com o rastro de quem falhou (`npx playwright show-trace <arquivo>`). Para rodar uma parte: `npx playwright test -g "software"`.
+
+**Depuração no console.** Com `?debug` no endereço:
+
+| Alça | O que é |
+|---|---|
+| `window.space` | O modo espaço aberto agora: `ship` (a nave), `systems` (o `SystemManager`), `state` |
+| `space.goToPlanet('Saturno', 3)` | Leva a nave, parada, a 3 raios do planeta (nome ou id), olhando para ele. Órbita é a menos de 4 raios. Com `{ x, y }` no terceiro argumento, fica de frente para esse tile do mapa |
+| `window.surface` | O modo superfície aberto agora, com o mundo em `eco` |
+| `debugEarth()` | Desce direto à superfície da Terra |
+
+`space` e `surface` só existem enquanto o modo está aberto. Sem `?debug`, nada disso existe.
+
+**Cenas prontas.** Com `?cena=nome` no endereço, o jogo abre num estado conhecido, sempre o mesmo para a mesma versão do jogo e do navegador. Uma cena não lê nem grava o save de verdade (nem mostra a barra de salvar). Combina com `?debug` e `?soft`.
+
+| Cena | Como abre |
+|---|---|
+| `?cena=terra-cidade` | Superfície da Terra, parada, com a câmera numa Cidade (o mundo é simulado antes de abrir, cerca de 30 s). O `Esc` volta à órbita da Terra, com as ruas na esfera |
+| `?cena=saturno` | Em órbita de Saturno, a 3 raios, com os anéis à vista |
+
+Para uma cena nova, acrescente uma função em `src/client/cenas.ts`.
+
+**CI.** Cada PR para a `development` roda, em `.github/workflows/ci.yml`, os tipos, o build, a suíte inteira e o `test:jogo`. As capturas ficam como artefato (`capturas`) na página da rodada.
 
 ## Controles
 
