@@ -377,7 +377,7 @@ export const entitiesPart = {
     if (cause !== 'partiu') {
       this.diary.delete(this.uid[i]);
       this.mourn(i);
-      this.deaths.unshift({ uid: this.uid[i], cause, age: this.age[i], x: this.x[i], y: this.y[i] });
+      this.deaths.unshift({ uid: this.uid[i], cause, age: this.age[i], x: this.x[i], y: this.y[i], kind: s, role: this.role[i], village: this.village[i] });
       if (this.deaths.length > 64) this.deaths.pop();
     }
     if (this.village[i] >= 0) {

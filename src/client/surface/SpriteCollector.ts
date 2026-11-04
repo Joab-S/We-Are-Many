@@ -41,6 +41,22 @@ const VIOLENT = new Set<string>(['guerra', 'predador', 'desastre', 'jogador', 'o
 /** Tempos da morte na tela (ms): normal, vermelho, preto em pé e deitado até sumir. */
 const DEATH_MS = { hit: 220, red: 440, dark: 800, end: 4000 };
 
+/** Profissão (ou idade) que define a aparência de um humano. */
+export function humanKey(eco: Ecosystem, kind: number, village: number, role: number, age: number): string {
+  if (village < 0 || !eco.villages[village]) return 'free';
+  if (role === CHILD) return 'child';
+  const era = Math.floor(eco.villages[village].tech);
+  if (role < LEADER && age >= elderAge(eco.species[kind], era)) return ELDER;
+  return lookKey(ROLES[role]);
+}
+
+/** Sprite parado, pele e cabelo do humano `i` (o retrato da ficha usa o mesmo que anda no mapa). */
+export function humanPortrait(eco: Ecosystem, i: number): { name: string; person: Person } {
+  const key = humanKey(eco, eco.kind[i], eco.village[i], eco.role[i], eco.age[i]);
+  const person = personOf(eco.uid[i], key === ELDER);
+  return { name: HUMAN_FRAMES[key][person.female ? 1 : 0].idle[0], person };
+}
+
 /** Pessoa morrendo na tela: o lugar, os quadros e as cores de quem caiu. */
 interface Dying {
   x: number;
@@ -366,15 +382,8 @@ export class SpriteCollector {
     layer.push(eco.vx[i] < 0 ? this.left(name) : name, sx, sy - z * 0.5, z * height, tint);
   }
 
-  /** Profissão (ou idade) que define a aparência do humano `i`. */
   private humanKey(eco: Ecosystem, i: number): string {
-    const vi = eco.village[i];
-    if (vi < 0) return 'free';
-    const role = eco.role[i];
-    if (role === CHILD) return 'child';
-    const era = Math.floor(eco.villages[vi].tech);
-    if (role < LEADER && eco.age[i] >= elderAge(eco.species[eco.kind[i]], era)) return ELDER;
-    return lookKey(ROLES[role]);
+    return humanKey(eco, eco.kind[i], eco.village[i], eco.role[i], eco.age[i]);
   }
 
   /**
@@ -440,18 +449,12 @@ export class SpriteCollector {
     } else if (!small) {
       for (let k = 0; k < list.length && list[k] !== this.lastDeath; k++) {
         const d = list[k];
-        let j = -1;
-        for (let q = 0; q < eco.count; q++) {
-          if (eco.uid[q] === d.uid && !eco.alive[q]) {
-            j = q;
-            break;
-          }
-        }
-        if (j < 0) continue;
-        const sp = eco.species[eco.kind[j]];
+        // Quem morreu vem descrito na própria morte: o índice pode já ter sido reaproveitado por um nascimento.
+        if (d.kind === undefined || d.village === undefined || d.role === undefined) continue;
+        const sp = eco.species[d.kind];
         if (sp?.kind !== 'sapient' || bodyOf(sp) !== 'human') continue;
-        const vi = eco.village[j];
-        const key = this.humanKey(eco, j);
+        const vi = d.village;
+        const key = humanKey(eco, d.kind, vi, d.role, d.age);
         const person = personOf(d.uid, key === ELDER);
         this.dying.push({
           x: d.x,

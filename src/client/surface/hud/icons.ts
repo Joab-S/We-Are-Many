@@ -13,11 +13,11 @@ export class IconCache {
   constructor(private readonly atlas: SpriteAtlas) {}
 
   /** Ícone de sprite como imagem (para botões e janelas). */
-  icon(name: string, tint: readonly number[] = [200, 200, 200], skin: readonly number[] = tint): string {
-    const key = `${name}|${tint.join(',')}|${skin.join(',')}`;
+  icon(name: string, tint: readonly number[] = [200, 200, 200], skin: readonly number[] = tint, hair: readonly number[] = skin): string {
+    const key = `${name}|${tint.join(',')}|${skin.join(',')}|${hair.join(',')}`;
     let url = this.icons.get(key);
     if (!url) {
-      url = SPRITES[name] ? this.atlas.tinted(name, tint, skin).toDataURL() : '';
+      url = SPRITES[name] ? this.atlas.tinted(name, tint, skin, hair).toDataURL() : '';
       this.icons.set(key, url);
     }
     return url ? `<img class="wb-px" src="${url}" alt="">` : '';

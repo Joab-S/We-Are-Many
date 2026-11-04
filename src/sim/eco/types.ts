@@ -421,6 +421,10 @@ export interface Death {
   age: number;
   x: number;
   y: number;
+  /** Espécie, profissão e assentamento de quem morreu (a tela desenha a queda; o índice já pode ter outro dono). */
+  kind?: number;
+  role?: number;
+  village?: number;
 }
 
 /** Produção e consumo por recurso num ano. */
