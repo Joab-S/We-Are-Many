@@ -4,8 +4,10 @@ import { LruCache } from '../../core/lru';
 import { mulberry32, seedFor } from '../../core/rng';
 import { EARTH_RADIUS_KM, KM_PER_AU } from '../../core/units';
 import { compressOrbit, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
-import { nativeLifeLevel } from '../../sim/species';
-import { generateSurface, mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '../../procgen/surface';
+import { EARTH_ID, nativeLifeLevel } from '../../sim/species';
+import { mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '../../procgen/surface';
+import type { GameState } from '../state';
+import { generateSurfaceAsync } from '../surface/generateAsync';
 import { markShared } from './dispose';
 
 /**
@@ -48,6 +50,34 @@ export interface Body {
   tail?: THREE.Line;
   surface?: THREE.Object3D;
   rocks?: THREE.Object3D;
+  /** A esfera nasceu com a textura provisória de faixas: falta pedir a prévia (`loadPreview`). */
+  previewPending?: boolean;
+}
+
+/** Inclinação do eixo dos planetas com anéis, em radianos (o anel fica no equador). */
+const RING_TILT = 0.45;
+const EARTH_TILT = 0.41;
+
+/**
+ * Inclinação do eixo do planeta, em radianos. Enquanto o eixo não vem dos dados
+ * do planeta, só a Terra e os planetas com anéis têm um: sem inclinação, os
+ * anéis ficariam de perfil para quem voa no plano das órbitas.
+ */
+export function axialTilt(p: PlanetData): number {
+  if (p.id === EARTH_ID) return EARTH_TILT;
+  return p.rings ? RING_TILT : 0;
+}
+
+/**
+ * Põe o eixo da esfera perpendicular ao plano das órbitas (XY), inclinado em
+ * torno de um eixo desse plano. A `SphereGeometry` tem os polos em ±Y; na ordem
+ * XZY a rotação é Rx(90°)·Rz(inclinação)·Ry(giro), então `rotation.y` continua
+ * sendo só o giro em torno do próprio eixo e o polo não bamboleia com ele.
+ */
+function orientPlanet(sphere: THREE.Object3D, tilt: number): void {
+  sphere.rotation.order = 'XZY';
+  sphere.rotation.x = Math.PI / 2;
+  sphere.rotation.z = tilt;
 }
 
 let glowTexture: THREE.Texture | null = null;
@@ -118,53 +148,112 @@ function bandTexture(p: PlanetData): THREE.Texture {
   return tex;
 }
 
-/** Textura do planeta rochoso a partir do mesmo mapa da superfície 2D. */
-function surfaceTexture(map: SurfaceMap): THREE.Texture {
-  const rgba = new Uint8Array(map.width * map.height * 4);
-  paintSurface(map, rgba);
-  const tex = new THREE.DataTexture(rgba, map.width, map.height);
+/** Teto da anisotropia: de longe a esfera é pequena, e mais que isso só gasta GPU. */
+const MAX_ANISOTROPY = 8;
+
+/** Mapa de um planeta já em pixels RGBA, pronto para virar textura. */
+export interface PlanetPixels {
+  pixels: Uint8Array;
+  width: number;
+  height: number;
+}
+
+/**
+ * Pixels do planeta a partir do mesmo mapa da superfície 2D. `art` é o retrato do
+ * mapa com ruas e casas (`GameState.surfaceArt`), se o planeta já foi visitado;
+ * sem ele, pinta o terreno, o que custa caro num mapa inteiro.
+ */
+function planetPixels(map: SurfaceMap, art?: Uint8Array): PlanetPixels {
+  const { width, height } = map;
+  if (art?.length === width * height * 4) return { pixels: art, width, height };
+  const pixels = new Uint8Array(width * height * 4);
+  paintSurface(map, pixels);
+  return { pixels, width, height };
+}
+
+/** Textura da esfera. Os mipmaps evitam a cintilação do mapa ao se afastar. */
+function surfaceTexture({ pixels, width, height }: PlanetPixels, anisotropy: number): THREE.Texture {
+  const tex = new THREE.DataTexture(pixels, width, height);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.flipY = true;
   tex.wrapS = THREE.RepeatWrapping;
   tex.magFilter = THREE.LinearFilter;
-  tex.minFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.anisotropy = Math.min(anisotropy, MAX_ANISOTROPY);
   tex.needsUpdate = true;
   return tex;
 }
 
 /**
- * Mapas de 256 pixels dos planetas ainda não visitados: a geração é
- * determinística, então guarda-se para as próximas voltas ao espaço. Cada
- * um tem ~0,8 MB; o cache guarda os 16 usados mais recentemente (o bastante
+ * Prévias de 256 pixels dos planetas ainda não visitados: a geração é
+ * determinística, então guarda-se para as próximas voltas ao espaço. Ficam já
+ * pintadas, porque repintar sete rochosos a cada volta passa de um quadro. Cada
+ * uma tem ~130 KB; o cache guarda as 16 usadas mais recentemente (o bastante
  * para alguns sistemas) e não segura memória da GPU (a textura é do corpo).
  */
 const PREVIEW_LIMIT = 16;
-const previews = new LruCache<string, SurfaceMap>(PREVIEW_LIMIT);
+const previews = new LruCache<string, PlanetPixels>(PREVIEW_LIMIT);
+const loading = new Map<string, Promise<PlanetPixels>>();
+/** As prévias saem uma por vez: um sistema pode ter vários rochosos, e cada uma ocupa um Worker. */
+let previewQueue: Promise<unknown> = Promise.resolve();
 
-function previewSurface(id: string, params: PlanetParams): SurfaceMap {
-  let map = previews.get(id);
-  if (!map) {
-    map = generateSurface(params, Math.min(1, 256 / mapSizeFor(params.radiusEarth).width));
-    previews.set(id, map);
+/** Prévia do planeta, gerada num Web Worker para não travar a entrada no sistema. */
+export function loadPreview(id: string, params: PlanetParams): Promise<PlanetPixels> {
+  const cached = previews.get(id);
+  if (cached) return Promise.resolve(cached);
+  let job = loading.get(id);
+  if (!job) {
+    const scale = Math.min(1, 256 / mapSizeFor(params.radiusEarth).width);
+    job = previewQueue
+      .then(() => generateSurfaceAsync(params, scale))
+      .then((map) => {
+        const preview = planetPixels(map);
+        previews.set(id, preview);
+        return preview;
+      })
+      .finally(() => loading.delete(id));
+    loading.set(id, job);
+    // Uma prévia que falha não trava as seguintes.
+    previewQueue = job.catch(() => undefined);
   }
-  return map;
+  return job;
 }
 
-export function createPlanetBody(p: PlanetData, surfaces: Map<string, SurfaceMap>): Body {
+/** Troca a textura provisória de faixas pela prévia que chegou. */
+export function applyPreview(body: Body, preview: PlanetPixels, anisotropy: number): void {
+  const material = (body.surface as THREE.Mesh).material as THREE.MeshLambertMaterial;
+  material.map?.dispose();
+  material.map = surfaceTexture(preview, anisotropy);
+  body.previewPending = false;
+}
+
+export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces' | 'surfaceArt'>, anisotropy = 1): Body {
   const radius = (p.radiusKm / KM_PER_AU) * PLANET_SCALE;
   let map: THREE.Texture;
+  let previewPending = false;
   if (p.kind === 'rocky') {
-    // Planeta já visitado usa o mapa completo (com a terraformação); os outros,
-    // uma versão de 256 pixels de largura, bem mais rápida de gerar.
-    const params = planetParams(p);
-    const surface = surfaces.get(p.id) ?? previewSurface(p.id, params);
-    map = surfaceTexture(surface);
+    // Planeta já visitado usa o mapa completo (com a terraformação e as ruas); os outros,
+    // uma versão de 256 pixels de largura. Se ela ainda não existe, a esfera nasce
+    // com as faixas na cor do planeta até a prévia chegar do Worker (`loadPreview`).
+    const visited = world.surfaces.get(p.id);
+    const pixels = visited ? planetPixels(visited, world.surfaceArt.get(p.id)) : previews.get(p.id);
+    // Depois de carregar um save não há retrato: o terreno é pintado só na primeira
+    // entrada, porque o mapa inteiro custa dezenas de ms. A superfície troca o retrato ao sair.
+    if (visited && pixels) world.surfaceArt.set(p.id, pixels.pixels);
+    if (pixels) {
+      map = surfaceTexture(pixels, anisotropy);
+    } else {
+      map = bandTexture(p);
+      previewPending = true;
+    }
   } else {
     map = bandTexture(p);
   }
+  const tilt = axialTilt(p);
   const group = new THREE.Group();
   const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 32), new THREE.MeshLambertMaterial({ map }));
-  sphere.rotation.z = 0.2;
+  orientPlanet(sphere, tilt);
   sphere.name = 'surface';
   group.add(sphere);
   let rocks: THREE.Object3D | undefined;
@@ -205,12 +294,13 @@ export function createPlanetBody(p: PlanetData, surfaces: Map<string, SurfaceMap
       new THREE.RingGeometry(radius * 1.3, radius * 2.3, 96, 1),
       new THREE.MeshBasicMaterial({ color: 0xd8c79a, side: THREE.DoubleSide, transparent: true, opacity: 0.55, depthWrite: false }),
     );
-    ring.rotation.x = Math.PI / 2 - 0.45;
+    // O anel nasce no plano XY; girar em Y leva a normal dele até o polo do planeta (o equador).
+    ring.rotation.y = -tilt;
     group.add(ring);
-    rocks = createRingRocks(p, radius * 1.3, radius * 2.3, ring.rotation.x);
+    rocks = createRingRocks(p, radius * 1.3, radius * 2.3, tilt);
     group.add(rocks);
   }
-  return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p, surface: sphere, rocks };
+  return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p, surface: sphere, rocks, previewPending };
 }
 
 /** Linha da órbita comprimida. */
@@ -324,7 +414,7 @@ function createRingRocks(p: PlanetData, inner: number, outer: number, tilt: numb
   geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const rocks = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }));
-  rocks.rotation.x = tilt;
+  rocks.rotation.y = -tilt;
   rocks.name = 'ring-rocks';
   rocks.userData.rocks = true;
   return rocks;

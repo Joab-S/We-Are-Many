@@ -20,8 +20,17 @@ export interface GameState {
   time: number;
   /** Superfícies já geradas ou alteradas, por id do planeta. */
   surfaces: Map<string, SurfaceMap>;
-  /** Planeta em cuja órbita a nave estava ao entrar na superfície. */
+  /**
+   * Cor de cada tile, por id do planeta, para a esfera em órbita mostrar o mesmo
+   * mapa da superfície: guardada ao sair dela, com ruas e construções. É derivada
+   * do mundo e não vai para o save; depois de carregar, fica só o terreno pintado
+   * até a próxima visita.
+   */
+  surfaceArt: Map<string, Uint8Array>;
+  /** Planeta em cuja órbita a nave estava ao entrar na superfície; limpo quando ela volta a ele. */
   orbitPlanetId: string | null;
+  /** Nave menos planeta ao descer, em UA: onde a nave reaparece ao voltar da superfície. */
+  orbitOffset: THREE.Vector3 | null;
   /** Ecossistemas em andamento, por id do planeta. */
   ecosystems: Map<string, Ecosystem>;
   /** Espécies que o jogador já conheceu e pode levar a outros planetas. */

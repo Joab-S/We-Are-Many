@@ -80,11 +80,17 @@ export class SpaceMode implements GameMode {
     state.nav ??= createNavState();
     state.probes ??= createProbeState();
     this.scene.background = new THREE.Color(0x02030a);
-    this.systems = new SystemManager(this.scene, this.origin, state, {
-      systemEntered: (sys) => this.director.systemEntered(sys),
-      systemLeft: () => this.hud.renderOrbitMenu(),
-      visitorArrived: (sys, comet, entering) => this.director.visitorArrived(sys, comet, entering),
-    });
+    this.systems = new SystemManager(
+      this.scene,
+      this.origin,
+      state,
+      {
+        systemEntered: (sys) => this.director.systemEntered(sys),
+        systemLeft: () => this.hud.renderOrbitMenu(),
+        visitorArrived: (sys, comet, entering) => this.director.visitorArrived(sys, comet, entering),
+      },
+      renderer.capabilities.getMaxAnisotropy(),
+    );
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.08), this.systems.starLight);
     this.stars = new StarField(state.manifest);
     this.scene.add(this.stars.group);
@@ -168,6 +174,9 @@ export class SpaceMode implements GameMode {
     if (this.disposed) return;
     this.systems.update(this.director.nearestStar);
     this.systems.updateBodies(state.time, nav.autopilot ? nav.target?.id ?? null : null);
+    // De volta da superfície: a nave retoma a órbita do planeta, olhando para ele.
+    const anchored = this.systems.restoreOrbit();
+    if (anchored) this.ship.lookAt(anchored.pos);
     const view = this.director.resolveView();
 
     // Voo: o piloto automático desliga se o piloto mexer em algo ou o alvo sumir.
@@ -254,7 +263,7 @@ export class SpaceMode implements GameMode {
   private observe(): void {
     const p = this.systems.orbitBody?.planet;
     if (p?.kind !== 'rocky') return;
-    this.state.orbitPlanetId = p.id;
+    this.systems.rememberOrbit();
     this.callbacks.onObserve(p);
   }
 
