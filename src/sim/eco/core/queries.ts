@@ -6,7 +6,7 @@
 import type { Ecosystem } from '../../ecosystem';
 import { temperatureAt } from '../../../procgen/surface';
 import { CHILD, ROLE, ROLES } from '../../roles';
-import { BOND } from '../../../ai/relations';
+import { BOND } from '../../../IAUS/npc/relations';
 import { wrapDx } from '../../settlement';
 import { ecologyOf, HUNGRY, STARVING } from '../../fauna';
 import * as constantsModule from '../constants';

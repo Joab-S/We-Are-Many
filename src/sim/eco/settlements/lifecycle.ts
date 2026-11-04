@@ -9,9 +9,9 @@ import { happens } from '../../stochastic';
 import * as P from '../../progress';
 import { emptyMade, emptyStock, makeCulture } from '../../economy';
 import { CHILD, ROLE, ROLES } from '../../roles';
-import { BOND, partnerOf } from '../../../ai/relations';
-import { LEADER } from '../../../ai/tuning';
-import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../../../ai/decisions/leader';
+import { BOND, partnerOf } from '../../../IAUS/npc/relations';
+import { LEADER } from '../../../IAUS/npc/tuning';
+import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../../../IAUS/npc/decisions/leader';
 import { completeness, missingText } from '../../plan';
 import { welfare } from '../../needs';
 import { TIER_RADIUS } from '../../settlement';
@@ -47,7 +47,7 @@ export const lifecyclePart = {
       v.leader = -1;
       return;
     }
-    // O povo escolhe (IA local, src/ai/decisions/leader.ts): carisma, ambição, idade e amigos; num reino, o herdeiro.
+    // O povo escolhe (IA local, src/IAUS/npc/decisions/leader.ts): carisma, ambição, idade e amigos; num reino, o herdeiro.
     const sp = this.species[v.species];
     const elder = elderAge(sp, Math.floor(v.tech));
     const old = v.leaderUid ?? 0;

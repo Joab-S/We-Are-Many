@@ -2,7 +2,7 @@
 
 Documento técnico · 31/10/2026
 
-`npm run calibrar:ajustar -- <plano.json>` procura sozinho os valores das constantes de equilíbrio (`src/sim/balance.ts` e `src/ai/tuning.ts`) que deixam a simulação mais perto das metas. O método é o CMA-ES, uma estratégia evolutiva. Ele substitui o ajuste por tentativa e erro, em que se troca um número, roda a calibração, olha a tabela e repete.
+`npm run calibrar:ajustar -- <plano.json>` procura sozinho os valores das constantes de equilíbrio (`src/sim/balance.ts` e `src/IAUS/npc/tuning.ts`) que deixam a simulação mais perto das metas. O método é o CMA-ES, uma estratégia evolutiva. Ele substitui o ajuste por tentativa e erro, em que se troca um número, roda a calibração, olha a tabela e repete.
 
 ## O problema
 
@@ -47,7 +47,7 @@ plano.json ─► tools/tune.mjs (CMA-ES) ─┬─► vitest + vitest.tune.conf
 - **Escala.** O otimizador trabalha em [0, 1] por parâmetro, com escala logarítmica quando pedida. Um candidato fora da faixa é avaliado na borda e paga uma multa pela distância.
 - **O centro.** A cada geração, o centro da nuvem (a média do CMA-ES) também é avaliado. Com ruído, ele costuma ser a melhor resposta, e mostra o progresso nas mesmas sementes.
 - **Validação contra a maldição do vencedor.** O melhor candidato de uma geração tende a ter tido sorte nas suas sementes. Por isso, no fim, três finalistas rodam de novo no horizonte da calibração longa (`validar`, 1000 anos por padrão): os valores de agora, o centro final e o melhor visto. Fica o melhor ali. Nos planos de exemplo, a validação usa sementes que a otimização nunca viu (9 a 14 contra 0 a 8), então o resultado não é decorado.
-- **Cache e retomada.** Toda avaliação vai para `avaliacoes.jsonl` na pasta de saída. A chave inclui uma impressão do código da simulação (`src/sim`, `src/ai`, `src/procgen` e `src/core`), então uma rodada interrompida continua de onde parou, e um cache feito com outro código não é usado.
+- **Cache e retomada.** Toda avaliação vai para `avaliacoes.jsonl` na pasta de saída. A chave inclui uma impressão do código da simulação (`src/sim`, `src/IAUS`, `src/procgen` e `src/core`), então uma rodada interrompida continua de onde parou, e um cache feito com outro código não é usado.
 
 ## Uso
 

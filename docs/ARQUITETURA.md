@@ -8,7 +8,7 @@ O jogo roda inteiro no navegador, mas o código já está dividido para que o **
 
 | Camada | O que é | Pastas e arquivos | Regra |
 | --- | --- | --- | --- |
-| **Motor puro** | Simulação e geração, determinísticas, sem tela | `src/core`, `src/procgen` (menos o Worker), `src/sim` (com `src/sim/api`), `src/ai`, `src/nav`, `src/explore`, `src/universe/manifest.ts`, `src/universe/starIndex.ts`, `src/save/snapshot.ts` | Nada de three.js, DOM ou `src/client`, nem pelo que importam |
+| **Motor puro** | Simulação e geração, determinísticas, sem tela | `src/core`, `src/procgen` (menos o Worker), `src/sim` (com `src/sim/api`), `src/IAUS`, `src/nav`, `src/explore`, `src/universe/manifest.ts`, `src/universe/starIndex.ts`, `src/save/snapshot.ts` | Nada de three.js, DOM ou `src/client`, nem pelo que importam |
 | **Plataforma** | Adaptadores do navegador | `src/universe/loader.ts` (fetch), `src/universe/chunkCache.ts` e `src/save/store.ts` (IndexedDB), `src/procgen/surface.worker.ts` (Worker), `src/save/game.ts` e `src/save/manager.ts` (o save do `GameState`, com a nave em `THREE.Vector3`) | O motor nunca os alcança |
 | **Cliente** | Desenho, entrada e HUD | `src/client/**` | Fala com a simulação pela fachada (`src/sim/api`) |
 
@@ -224,7 +224,7 @@ Partes que valem conhecer além dos domínios:
 | `eco/core/residents.ts` | Índice uid → slot e índice vila → moradores |
 | `eco/core/probe.ts` | Gancho da vista de depuração: as partes do passo (`STEP_PARTS`) e o que o motor entrega com a gravação ligada |
 | `eco/settlements/siteField.ts` | Campo de notas dos sítios (mapa de influência): uma célula de 16×16 tiles, com Double Buffer (`raw`/`rawNext`) e Dirty Flag por fundação, abandono e terreno mudado; `siteRing`, `chooseSite` (melhor de N), `siteFilter` (veto único) e `catchRadius` |
-| `src/ai/decisions/move.ts` | Utility AI de ficar, migrar ou fundar, por família, com histerese por `movedAt`, laços, apego e pressão social |
+| `src/IAUS/npc/decisions/move.ts` | Utility AI de ficar, migrar ou fundar, por família, com histerese por `movedAt`, laços, apego e pressão social |
 
 ## Os 19 padrões no código
 
@@ -239,7 +239,7 @@ Partes que valem conhecer além dos domínios:
 | **Double Buffer** | Posições do passo anterior no `SimDriver` (`prevX`, `prevY`) para interpolar; umidade do clima (`humidPrev` no `Weather`, sem o viés do vento); campo de notas dos sítios (`raw`/`rawNext` em `siteField.ts`) | Nada |
 | **Game Loop** | `SimDriver` (`src/client/surface/SimDriver.ts`): passo fixo de 0,25 s, teto, acumulador e interpolação; `requestAnimationFrame` em cada modo (`src/client/mode.ts`) | No Worker, o relógio vai junto com o motor e o cliente só interpola |
 | **Update Method** | `Ecosystem.step` por criatura; `Weather.step`; `HudComponent.tick` no HUD | Sistemas com relógio declarado (por passo, por segundo, por ano) |
-| **Bytecode** | Não se aplica: as considerações da IA são funções (`src/ai/utility.ts`, usadas pela jornada, pelo trabalho, pela vida social, pelo líder e por ficar/migrar/fundar em `src/ai/decisions/`) | Nada |
+| **Bytecode** | Não se aplica: as considerações da IA são funções (Considerations do IAUS em `src/IAUS`, ligadas pela ponte `src/IAUS/npc/mind.ts` à jornada, ao trabalho, ao líder e a ficar/migrar/fundar em `src/IAUS/npc/decisions/`) | Nada |
 | **Subclass Sandbox** | Os contextos do motor (`PlanContext` em `src/sim/plan.ts`, `RoleContext` em `src/sim/roles.ts`, `BuildContext` em `src/sim/eco/types.ts`); `ToolContext` e `HudComponent` no cliente | Nada |
 | **Type Object** | `Species`, `TECHS` (`src/sim/progress.ts`), `BOATS` e `ERAS` (`src/sim/eco/constants.ts`), `ITEMS` (`src/sim/items.ts`), `ROLES` (`src/sim/roles.ts`), `BUILDING_TYPES` (`src/sim/buildingTypes.ts`) | Nada |
 | **Component** | `SurfaceMode` e `SpaceMode` compostos de partes (`Viewport`, `SimDriver`, `MapRaster`, `SpriteCollector`, `hud/*`); o `Ecosystem` dividido por domínio (classe parcial) | O `Ecosystem` ainda é um objeto só; `Creatures`, `FaunaSystem` e `TradeSystem` no molde do `Weather` |

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import balanceSource from './balance.ts?raw';
-import tuningSource from '../ai/tuning.ts?raw';
+import tuningSource from '../IAUS/npc/tuning.ts?raw';
 import * as B from './balance';
-import { MOVE_W } from '../ai/tuning';
+import { MOVE_W } from '../IAUS/npc/tuning';
 import { LONG_TARGETS, type Indicators } from './calibrate';
 import { goalLoss, goalMiss, goalsFrom } from './tuneGoals';
 import { formatNumber, readConstant, writeConstant } from '../../tools/tune/constants.mjs';

@@ -7,7 +7,7 @@ import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
 import * as surfaceModule from '../../../procgen/surface';
 import { CHILD, pickRole, ROLE } from '../../roles';
-import { randomTraits, TRAIT_COUNT } from '../../../ai/traits';
+import { randomTraits, TRAIT_COUNT } from '../../../IAUS/npc/traits';
 import { emptyVital, type Exit } from '../../people';
 import { habitatOf, type Species } from '../../species';
 import { DECISIONS_PER_YEAR } from '../../fauna';
