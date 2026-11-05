@@ -80,10 +80,11 @@ Convenções do projeto que valem para tudo aqui:
 
 ### B. Vida e metas por planeta
 
-- [ ] **B1. Metas relativas à área habitável.** (M)
+- [x] **B1. Metas relativas à área habitável.** (M)
   - Estratégia: `LONG_TARGETS` (`calibrate.ts`) são contagens absolutas da Terra (40 a 90 assentamentos, 5 a 25 reinos). Definir `habitableTiles(map, params)` (terra com temperatura na faixa e umidade mínima) e escalar as metas de contagem por `habitable / habitableEarth`; as de proporção (fome, parte em cidades) ficam. O painel F3 (`debugView.ts`, `liveTargets`) passa a mostrar as metas escaladas.
   - Onde: `src/sim/calibrate.ts`, `src/sim/api/debugView.ts`, `src/sim/tuneGoals.ts`.
   - Pronto quando: `tuneGoals.test.ts` confere que na Terra as metas são as de hoje; o painel num planeta pequeno mostra metas menores.
+  - Feito: `habitableTiles` conta a terra com umidade de pelo menos 0,1 e até 31,5 K da temperatura do planeta (a largura da faixa do povo). `scaledTargets` escala só as metas de contagem, arredondando para fora para a faixa não fechar num planeta pequeno; as de proporção ficam. A Terra usa `LONG_TARGETS` como está, em qualquer raio, e o F3 lê `liveTargets`. `EARTH_HABITABLE_TILES` é 138.716, e um teste avisa se o gerador mudar esse número.
 - [ ] **B2. Calibração curta em planetas tipo.** (M)
   - Estratégia: `src/sim/planetas.calib.ts` (novo) roda 200 anos em três planetas (frio, seco, oceano quente) com um povo alienígena semeado, e imprime a tabela contra as metas de B1. Não é meta a bater; é para achar o que quebra (lenha sem mata, roça sem estação, pesca sem costa).
   - Onde: `src/sim/*.calib.ts`, `vitest.calib.config.ts`, `package.json` (`calibrar:planetas`).

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { snapshotEcosystem } from '../../save/snapshot';
-import { runWorld, seedWorld } from '../calibrate';
+import { generateSurface } from '../../procgen/surface';
+import { LONG_TARGETS, runWorld, seedWorld } from '../calibrate';
 import baseline from '../calibrate.baseline.json';
 import { ERAS, YEAR_SECONDS } from '../ecosystem';
 import { worldFingerprint } from '../fingerprint';
@@ -176,6 +177,17 @@ describe('vista de depuração do motor (engine.debug)', () => {
     expect(eco.probe).not.toBeNull();
     run(engine, 2);
     expect(d.world().series.length).toBe(Math.floor(eco.year) - Math.floor(at));
+  });
+});
+
+describe('metas no painel, por planeta', () => {
+  it('um planeta pequeno mostra metas menores que a Terra', () => {
+    const planet = { id: 'painel-pequeno', name: 'Pequeno', radiusEarth: 0.3, temperatureK: 288, water: 0.6, life: 0.5 };
+    const e = createEngine(generateSurface(planet), { seed: 1, species: [] });
+    const earth = LONG_TARGETS.find((t) => t.key === 'settlements')!;
+    const here = e.debug.world().targets.find((t) => t.key === 'settlements')!;
+    expect(here.max).toBeLessThan(earth.max);
+    expect(here.min).toBeLessThan(earth.min);
   });
 });
 
