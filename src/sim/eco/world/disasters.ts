@@ -141,7 +141,6 @@ export const disastersPart = {
           this.road[t] = 0;
           this.mainStreet[t] = 0;
           this.traffic[t] = 0;
-          this.tolls.delete(t);
           roads++;
           this.onTileChanged(t);
         }

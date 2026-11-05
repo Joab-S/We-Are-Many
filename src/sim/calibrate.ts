@@ -64,8 +64,6 @@ export interface Indicators {
   routeTiles: number;
   /** Assentamentos que produzem algum luxo (RF-VIDA-282). */
   luxuries: number;
-  /** Postos de pedágio (RF-VIDA-286). */
-  tolls: number;
   /** Seção 19.19: moradores no fim e a razão entre o fim e 60% da rodada (boom acima de 1, declínio abaixo). */
   people: number;
   peopleTrend: number;
@@ -365,7 +363,6 @@ export function indicatorsOf(eco: Ecosystem, seed: number, base: IndicatorBase, 
     agreements: eco.agreements.length,
     routeTiles: eco.routeTiles,
     luxuries: live.filter((v) => v.luxury && Math.floor(v.tech) >= 0).filter((v) => (v.ledger?.[v.luxury!]?.[0] ?? 0) > 0).length,
-    tolls: eco.tolls.size,
     people,
     peopleTrend: run.mid ? people / run.mid : 0,
     foodNeed: live.reduce((n, v) => n + (v.needs?.food ?? 1), 0) / Math.max(1, live.length),
@@ -564,7 +561,6 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   agreements: 'Acordos comerciais no fim',
   routeTiles: 'Tiles de estrada nascidos do uso',
   luxuries: 'Assentamentos que produzem luxo',
-  tolls: 'Postos de pedágio',
   people: 'Moradores no fim',
   peopleTrend: 'Moradores: fim ÷ 60% da rodada',
   foodNeed: 'Atendimento médio de comida',

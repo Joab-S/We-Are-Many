@@ -799,16 +799,6 @@ export const ART = {
     'KKKKKKKKKKKK',
     '.Kp......pK.',
   ],
-  // Posto de pedágio no passo da montanha (RF-VIDA-286): guarita e cancela.
-  toll: [
-    '.KKKK.......',
-    'KMMMMK......',
-    'KWWWWK......',
-    'KWDOWKKKKKKK',
-    'KWDWWKWRWRWK',
-    'KWDWWKKKKKKK',
-    'KKKKKK......',
-  ],
   // Lampião das ruas calçadas da Era Industrial.
   lamp: [
     '.K.',

@@ -119,7 +119,6 @@ export const playerPart = {
         this.road[t] = 0;
         this.mainStreet[t] = 0;
         this.traffic[t] = 0;
-        this.tolls.delete(t);
         this.onTileChanged(t);
         tiles++;
       }

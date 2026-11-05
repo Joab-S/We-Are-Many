@@ -306,8 +306,6 @@ export class Ecosystem {
   readonly trafficTiles = new Set<number>();
   /** Tiles de estrada que nasceram do uso. */
   routeTiles = 0;
-  /** Postos de pedágio: tile do passo e o assentamento que cobra (RF-VIDA-286). */
-  readonly tolls = new Map<number, number>();
   /** Jazidas de minério do planeta, e o índice delas por tile. */
   readonly deposits: Deposit[];
   readonly depositAt: Int32Array;

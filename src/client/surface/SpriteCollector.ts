@@ -69,7 +69,7 @@ const STALLS: [number, number][] = [[-2.6, -0.2], [2.6, -0.2], [-0.9, -2.3], [1.
 
 /**
  * Monta a camada de sprites da superfície a partir do ecossistema e da
- * câmera: casas, jazidas, ruínas, pedágios, barcos, caravanas, carcaças,
+ * câmera: casas, jazidas, ruínas, barcos, caravanas, carcaças,
  * criaturas e efeitos. Só lê o mundo; os nomes de sprite compostos
  * (`corpo:profissão`, `nome:l`) ficam em tabelas para não criar texto a cada
  * quadro, e a posição na tela sai em números soltos, sem tuplas.

@@ -210,8 +210,6 @@ export interface Caravan {
   speed: number;
   /** Segundos parado (neve, pasto, feira). */
   wait: number;
-  /** Reinos a quem já pagou pedágio nesta viagem. */
-  tolls: number[];
   /** Era de quem mandou (calçamento por uso, RF-VIDA-233). */
   era: number;
 }
