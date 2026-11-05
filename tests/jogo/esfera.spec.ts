@@ -226,6 +226,27 @@ test.describe('a esfera do rochoso', () => {
     }
   });
 
+  test('sem WebGL, fica a esfera, e a nave para a 1,6 raio', async ({ page }, info) => {
+    await page.goto('/?debug&soft');
+    await page.keyboard.press('Digit1');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    expect(await usaWebGL(page)).toBe(false);
+    await page.evaluate(() => void window.space!.goToPlanet('Terra', 1.2));
+    await page.keyboard.down('KeyW');
+    await page.waitForTimeout(1500);
+    await page.keyboard.up('KeyW');
+    const estado = await page.evaluate(() => {
+      const { state, systems } = window.space!;
+      const b = systems.orbitBody!;
+      return { raios: state.shipPos.distanceTo(b.pos) / b.radius, quad: !!b.quad, esfera: b.surface!.visible, tipo: (b.surface as unknown as { material: { type: string } }).material.type };
+    });
+    expect(estado.raios).toBeGreaterThanOrEqual(1.6 - 1e-6);
+    expect(estado).toMatchObject({ quad: false, esfera: true, tipo: 'MeshLambertMaterial' });
+    await esperarImagem(page, 'a esfera na tela');
+    await capturar(page, info, 'sem-webgl-1-6-raio');
+  });
+
   test('a borda azul da Terra e a alaranjada de Marte', async ({ page }, info) => {
     await page.goto('/?debug');
     await page.keyboard.press('Digit1');
