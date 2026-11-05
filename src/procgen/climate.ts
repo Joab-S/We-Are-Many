@@ -21,6 +21,8 @@ export interface ClimateInput {
   wet: PerlinNoise3;
   /** Fração de água do planeta: o teto da umidade. */
   water: number;
+  /** Rotação lenta (`isSlowRotator`): uma faixa de vento só. */
+  slowDay?: boolean;
 }
 
 export interface ClimateField {
@@ -91,20 +93,28 @@ export function westerlyAt(y: number, height: number): number {
   return s(0.26, 0.4) * (1 - s(0.64, 0.78));
 }
 
+/** Dias acima disto não têm as três faixas de vento da Terra: é uma célula de Hadley só, como em Vênus. */
+const SLOW_DAY_HOURS = 100;
+
+/** Rotação lenta: o vento só desce dos polos ao equador, sem as faixas de oeste. */
+export function isSlowRotator(params: { dayHours?: number }): boolean {
+  return (params.dayHours ?? 24) > SLOW_DAY_HOURS;
+}
+
 /**
  * Leva o ar pelo vento em cada linha: sobre o mar ele se carrega de umidade;
  * sobre a terra perde um pouco a cada passo (o interior seca) e perde muito
  * ao subir uma encosta (chuva orográfica). Depois da crista o ar chega seco:
  * a sombra de chuva. Devolve a chuva relativa de cada tile (0..1).
  */
-export function rainfall(elevation: Float32Array, width: number, height: number, fullWidth: number, step: number): Float32Array {
+export function rainfall(elevation: Float32Array, width: number, height: number, fullWidth: number, step: number, slowDay = false): Float32Array {
   const rain = new Float32Array(width * height);
   // Comprimento (pixels do mapa completo) em que o ar perde ~63% da umidade sobre terra plana.
   const landLoss = 1 - Math.exp(-step / (fullWidth * 0.2));
   const seaGain = 1 - Math.exp(-step / (fullWidth * 0.015));
   for (let y = 0; y < height; y++) {
     // Na faixa de transição os dois ventos contam; fora dela, só um é calculado.
-    const k = westerlyAt(y, height);
+    const k = slowDay ? 0 : westerlyAt(y, height);
     if (k < 1) windRow(elevation, rain, y * width, width, step, landLoss, seaGain, -1, 1 - k);
     if (k > 0) windRow(elevation, rain, y * width, width, step, landLoss, seaGain, 1, k);
   }
@@ -177,12 +187,12 @@ export function moistureCeiling(water: number): number {
 }
 
 export function climateStage(inp: ClimateInput): ClimateField {
-  const { elevation, width, height, fullWidth, step, cosA, sinA, featureScale, wet, water } = inp;
+  const { elevation, width, height, fullWidth, step, cosA, sinA, featureScale, wet, water, slowDay } = inp;
   const n = width * height;
   const climate = new Float32Array(n);
   const moisture = new Float32Array(n);
   const dist = waterDistance(elevation, width, height, step);
-  const rain = rainfall(elevation, width, height, fullWidth, step);
+  const rain = rainfall(elevation, width, height, fullWidth, step, slowDay);
   const coastScale = fullWidth * 0.018;
   const interiorScale = fullWidth * 0.12;
   const raw = new Float32Array(n);

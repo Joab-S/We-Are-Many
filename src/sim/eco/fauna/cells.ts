@@ -6,6 +6,7 @@
 import type { Ecosystem } from '../../ecosystem';
 import * as floraModule from '../../flora';
 import type { Flora } from '../../flora';
+import { isSlowRotator } from '../../../procgen/climate';
 import { windAt } from '../../climate';
 import * as surfaceModule from '../../../procgen/surface';
 import type { Biome } from '../../../procgen/surface';
@@ -119,7 +120,7 @@ export const faunaCellsPart = {
     const y = (t - x) / w;
     const k = wx.of(x, y, w);
     const temp = temperatureAt(this.map, t) + (wx.tempNow(k, this.yearPhase()) - wx.temp[k]);
-    return { temp, rain: wx.rain[k], snow: wx.snow[k], soil: wx.soil[k], wind: windAt(y, this.map.height) };
+    return { temp, rain: wx.rain[k], snow: wx.snow[k], soil: wx.soil[k], wind: windAt(y, this.map.height, isSlowRotator(this.map.params)) };
   },
 
   /** Come até `need` unidades de pasto em volta do tile (a mancha cresce com o tamanho do bicho); devolve o que comeu. */

@@ -70,8 +70,8 @@ describe('sistemas gerados: os mesmos ids dão os mesmos planetas de antes', () 
 
 describe('física dos planetas', () => {
   it('a Terra tem exatamente os valores padrão', () => {
-    const { star, axialTilt, dayHours, periodYears, atmosphere } = planetParams(SOL_PLANETS[2]);
-    expect({ star, axialTilt, dayHours, periodYears, atmosphere }).toEqual(EARTH_PHYSICS);
+    const { star, axialTilt, dayHours, periodYears, atmosphere, gravity } = planetParams(SOL_PLANETS[2]);
+    expect({ star, axialTilt, dayHours, periodYears, atmosphere, gravity }).toEqual(EARTH_PHYSICS);
   });
 
   it('o que falta vem da Terra, e o que existe fica', () => {
@@ -115,14 +115,10 @@ describe('física dos planetas', () => {
     expect(new Set(planets.map((p) => p.dayHours)).size).toBeGreaterThan(50);
   });
 
-  it('a física ainda não muda o mapa gerado', () => {
+  it('a física não muda a altitude: é o mesmo chão, com outro clima', () => {
     const proximaB = generateSystem(CATALOGUED[0]).planets[1];
     const full = planetParams(proximaB);
     const bare = { id: full.id, name: full.name, radiusEarth: full.radiusEarth, temperatureK: full.temperatureK, water: full.water, life: full.life };
-    const a = generateSurface(full, 0.25);
-    const b = generateSurface(bare, 0.25);
-    expect(a.elevation).toEqual(b.elevation);
-    expect(a.moisture).toEqual(b.moisture);
-    expect(a.biome).toEqual(b.biome);
+    expect(generateSurface(full, 0.25).elevation).toEqual(generateSurface(bare, 0.25).elevation);
   });
 });

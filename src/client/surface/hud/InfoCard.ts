@@ -1,7 +1,8 @@
 import { BIOME_NAMES, Boundary, BOUNDARY_NAMES, temperatureAt } from '../../../procgen/surface';
 import { BUILDING_NAMES, HERD_NAMES, type Ecosystem, type Village } from '../../../sim/ecosystem';
-import { NEED_NAMES, NEEDS, SEASONS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../../sim/needs';
+import { NEED_NAMES, NEEDS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../../sim/needs';
 import { ORE_NAMES, STOCK_NAMES, WONDER_NAMES } from '../../../sim/economy';
+import { NO_SEASONS, seasonLabel } from '../calendar';
 import { economicState, stateIcons, sumLedger } from '../settlementWindow';
 import { previewHtml, type CreatureSheet } from './CreatureSheet';
 import { DEBUG } from '../tools';
@@ -182,10 +183,10 @@ export class InfoCard extends HudComponent {
       const have = k === 'food' ? v.food : v.stock[k as keyof typeof v.stock];
       return typeof have === 'number' && have >= eco.capOf(v, k as never) * 0.95;
     });
-    const season = SEASONS[eco.season()];
+    const season = seasonLabel(eco.season(), eco.map.params);
     return `${needs}
       ${made || used ? `<span>Últimos 10 anos: fez ${made || 'nada'} · gastou ${used || 'nada'}${full.length ? ` · sobra ${full.map(([k]) => names.get(k)).join(', ')}` : ''}</span>` : ''}
-      <span>Agora é ${season}</span>`;
+      <span>${season === NO_SEASONS ? 'Este planeta não tem estações' : `Agora é ${season}`}</span>`;
   }
 
   /** Balão leve do assentamento sob o mouse (RF-VIDA-349); o detalhe fica na janela. */

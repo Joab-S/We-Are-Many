@@ -1,6 +1,6 @@
 import { seedFor } from '../core/rng';
 import { Biome, PALETTE, temperatureNorm, whittaker } from './biomes';
-import { climateStage } from './climate';
+import { climateStage, isSlowRotator } from './climate';
 import { PerlinNoise3 } from './noise';
 import { makePlates, tectonicStage, type Plate } from './tectonics';
 
@@ -52,9 +52,11 @@ export interface PlanetParams {
   /** Período da órbita, em anos terrestres. */
   periodYears?: number;
   atmosphere?: Atmosphere;
+  /** Gravidade na superfície, em g: a altitude esfria mais onde ela é maior. */
+  gravity?: number;
 }
 
-type PlanetPhysics = Required<Pick<PlanetParams, 'star' | 'axialTilt' | 'dayHours' | 'periodYears' | 'atmosphere'>>;
+type PlanetPhysics = Required<Pick<PlanetParams, 'star' | 'axialTilt' | 'dayHours' | 'periodYears' | 'atmosphere' | 'gravity'>>;
 
 /** A física da Terra: vale para quem não tem a sua (save antigo, planeta de teste). */
 export const EARTH_PHYSICS: Readonly<PlanetPhysics> = {
@@ -63,6 +65,7 @@ export const EARTH_PHYSICS: Readonly<PlanetPhysics> = {
   dayHours: 24,
   periodYears: 1,
   atmosphere: { pressure: 1, greenhouse: 33 },
+  gravity: 1,
 };
 
 /** Os parâmetros com a física completa: o que faltar vem da Terra. */
@@ -74,7 +77,63 @@ export function withPhysics(p: PlanetParams): PlanetParams & PlanetPhysics {
     dayHours: p.dayHours ?? EARTH_PHYSICS.dayHours,
     periodYears: p.periodYears ?? EARTH_PHYSICS.periodYears,
     atmosphere: p.atmosphere ?? { ...EARTH_PHYSICS.atmosphere },
+    gravity: p.gravity ?? EARTH_PHYSICS.gravity,
   };
+}
+
+/**
+ * As contas da temperatura local (K): `T + a - b·lat² - c·alt`, mais `lock` no lado que olha a estrela, num mundo
+ * travado por maré. Calculadas uma vez e guardadas no mapa: `temperatureAt` é chamada por tile o tempo todo.
+ */
+export interface Thermal {
+  a: number;
+  b: number;
+  c: number;
+  lock: number;
+}
+
+/** Os valores da Terra, e de um mapa sem `thermal` (um save da versão 1 continua com as contas com que foi feito). */
+export const EARTH_THERMAL: Readonly<Thermal> = { a: 22, b: 55, c: 30, lock: 0 };
+
+const EARTH_EQUILIBRIUM_K = 255;
+const HOURS_PER_YEAR = 8766;
+
+/** Luz recebida em relação à Terra: a temperatura sem o efeito estufa, à quarta potência. */
+function received(p: PlanetParams & PlanetPhysics): number {
+  const eq = Math.max(1, p.temperatureK - p.atmosphere.greenhouse);
+  return Math.min(3, Math.max(0.02, (eq / EARTH_EQUILIBRIUM_K) ** 4));
+}
+
+/** O ar leva calor do equador aos polos: Vênus é uniforme; sem ar, a diferença é o dobro da da Terra. */
+function airSpread(p: PlanetParams & PlanetPhysics): number {
+  return p.atmosphere.pressure <= 0 ? 2 : Math.min(2, p.atmosphere.pressure ** -0.66);
+}
+
+/** O dia é tão longo quanto o ano: o planeta mostra sempre a mesma face à estrela. */
+export function isTidallyLocked(params: PlanetParams): boolean {
+  const p = withPhysics(params);
+  return p.dayHours >= p.periodYears * HOURS_PER_YEAR;
+}
+
+export function thermalOf(params: PlanetParams): Thermal {
+  const p = withPhysics(params);
+  const light = received(p);
+  const air = airSpread(p);
+  const locked = isTidallyLocked(p);
+  // Num mundo travado, o que manda é o lado da estrela, e não a latitude.
+  const b = Math.min(160, EARTH_THERMAL.b * light * air * (locked ? 0.25 : 1));
+  return {
+    a: (EARTH_THERMAL.a * b) / EARTH_THERMAL.b,
+    b,
+    c: EARTH_THERMAL.c * p.gravity,
+    lock: locked ? Math.min(150, 70 * light ** 0.25 * air) : 0,
+  };
+}
+
+/** Força das estações, com 1 na Terra: o eixo (virado ou não) e a luz recebida. Sem inclinação, não há estação. */
+export function seasonStrength(params: PlanetParams): number {
+  const p = withPhysics(params);
+  return (Math.min(p.axialTilt, Math.PI - p.axialTilt) / EARTH_PHYSICS.axialTilt) * received(p);
 }
 
 export { Biome, BIOME_NAMES, isForestBiome, isRockyBiome } from './biomes';
@@ -102,6 +161,8 @@ export interface SurfaceMap {
   felled?: Uint8Array;
   /** Desvio de temperatura das frentes climáticas (K); ausente em saves antigos. */
   climate?: Float32Array;
+  /** As contas da temperatura do planeta; ausente em saves antigos, que ficam com as da Terra. */
+  thermal?: Thermal;
   /** Placas tectônicas, a placa de cada tile, o tipo de limite próximo e a tensão sísmica (0..255). */
   plates?: Plate[];
   plate?: Uint8Array;
@@ -174,7 +235,7 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   if (params.water < DRY_WATER) dryPonds(elevation, width, height);
 
   // Etapa 3: temperatura (frentes) e umidade (costa, interior e sombra de chuva).
-  const { climate, moisture } = climateStage({ elevation, width, height, fullWidth: full.width, step, cosA, sinA, featureScale: FEATURE_SCALE, wet, water: params.water });
+  const { climate, moisture } = climateStage({ elevation, width, height, fullWidth: full.width, step, cosA, sinA, featureScale: FEATURE_SCALE, wet, water: params.water, slowDay: isSlowRotator(params) });
   for (let i = 0; i < n; i++) vegetation[i] = params.life * Math.min(1, Math.max(0, moisture[i] * 1.4 - 0.2));
 
   const map: SurfaceMap = {
@@ -187,6 +248,7 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
     vegetation,
     biome: new Uint8Array(n),
     climate,
+    thermal: thermalOf(params),
     plates,
     plate: tect.plate,
     boundary: tect.boundary,
@@ -234,7 +296,11 @@ export function temperatureAt(map: SurfaceMap, i: number): number {
   const lat = Math.abs(y / (map.height - 1) - 0.5) * 2;
   const alt = Math.max(0, map.elevation[i]);
   const fronts = map.climate ? map.climate[i] : 0;
-  return map.params.temperatureK + 22 - lat * lat * 55 - alt * 30 + fronts + map.heat[i];
+  const th = map.thermal ?? EARTH_THERMAL;
+  const t = map.params.temperatureK + th.a - lat * lat * th.b - alt * th.c + fronts + map.heat[i];
+  if (!th.lock) return t;
+  // A estrela fica sempre sobre a coluna 0: quente nela, gelado do outro lado, frio nos polos.
+  return t + th.lock * Math.cos((2 * Math.PI * (i % map.width)) / map.width) * Math.cos((lat * Math.PI) / 2);
 }
 
 /** O terreno sobe rápido logo atrás do tile (2 tiles para dentro há uma encosta alta): costa de penhasco. */

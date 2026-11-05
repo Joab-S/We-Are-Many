@@ -1,5 +1,6 @@
 import { icon as svgIcon } from '../../ui/icons';
 import { Ecosystem, ERAS, WAR_MOTIVES } from '../../../sim/ecosystem';
+import { yearLabel } from '../calendar';
 import { SPEEDS } from '../SimDriver';
 import { REAL_YEAR_SECONDS } from '../tools';
 import { HtmlSlot, HudComponent } from './component';
@@ -64,7 +65,7 @@ export class SidePanel extends HudComponent {
     const events = eco.chronicle.filter((e) => this.settings.showMinor || e.major).slice(0, 6);
     const speed = this.speed();
     this.clock.set(`
-      <div class="wb-clock-text"><b>${era}</b><span>Ano ${Math.floor(eco.year)}${progressLine(live)}</span></div>
+      <div class="wb-clock-text"><b>${era}</b><span>${yearLabel(eco.year, eco.map.params)}${progressLine(live)}</span></div>
       <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === speed ? 'on' : ''}" title="${v === 0 ? 'Pausa (Espaço)' : `Velocidade ${v}x (${k + 1})`}">${v === 0 ? svgIcon('pause') : `${v}x`}</button>`).join('')}</div>`);
     this.panel.set(`
       <div class="wb-section">População</div>

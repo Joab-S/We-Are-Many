@@ -71,6 +71,8 @@ export function planetParams(p: PlanetData): PlanetParams {
     dayHours: p.dayHours,
     periodYears: p.periodYears,
     atmosphere: p.air,
+    // Densidade parecida com a da Terra: a gravidade sai do raio, como nos bichos de `alienFauna`.
+    gravity: Math.max(0.3, Math.min(2.5, p.radiusKm / EARTH_RADIUS_KM)),
   };
 }
 

@@ -98,7 +98,10 @@ export const biomePart = {
    * cresce com a latitude e com o bioma (`AreaYield.amp`). O ano soma o mesmo; muda só a época.
    */
   seasonWeightOf(this: Ecosystem, v: Village, base: readonly number[]): number {
-    return seasonWeight(base, this.season(), this.areaOf(v).amp);
+    const wx = this.weather;
+    const amp = Math.min(B.SEASON_AMP_MAX, this.areaOf(v).amp * (wx?.seasonAmp ?? 1));
+    const season = wx?.southShift && v.y > this.map.height / 2 ? (this.season() + 2) % 4 : this.season();
+    return seasonWeight(base, season, amp);
   },
 
   /** Temperatura de agora no centro do lugar (K): a do clima vivo, com a estação; sem ele, a média do tile. */

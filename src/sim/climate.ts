@@ -3,10 +3,12 @@
  * oeste nas latitudes médias e de leste perto dos polos, todos puxando um pouco para o equador
  * (como na circulação de Hadley e Ferrel). Linha 0 do mapa é o polo norte.
  */
-export function windAt(y: number, height: number): { x: number; y: number } {
+export function windAt(y: number, height: number, slowDay = false): { x: number; y: number } {
   const lat = (y / Math.max(1, height - 1)) * 2 - 1;
   const a = Math.abs(lat);
   const toEquator = lat < 0 ? 1 : -1;
+  // Rotação lenta: uma célula de Hadley só, do polo ao equador.
+  if (slowDay) return { x: -1, y: 0.3 * toEquator };
   if (a < 0.33) return { x: -1, y: 0.3 * toEquator };
   if (a < 0.66) return { x: 1, y: -0.25 * toEquator };
   return { x: -0.8, y: 0.3 * toEquator };

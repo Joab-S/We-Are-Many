@@ -1,14 +1,14 @@
 import * as B from './balance';
 import { Weather } from './weather';
 import { streams } from './stochastic';
-import type { SurfaceMap } from '../procgen/surface';
+import { seasonStrength, type SurfaceMap } from '../procgen/surface';
 import { generateDeposits, type Deposit } from './economy';
 import { yearlyEvents } from './events';
 import type { Thought } from '../IAUS/npc/trace';
 import type { Bond } from '../IAUS/npc/relations';
 import type { BoardTask } from '../IAUS/npc/decisions/day';
 import type { Agreement, Caravan } from './trade';
-import type { Species } from './species';
+import { EARTH_ID, type Species } from './species';
 import { DECISIONS_PER_YEAR, ECO_CELL } from './fauna';
 import type { ChronicleKind, ChronicleEntry, Effect, War, WarPlan, Boat, Raft, Building, Village, Death, Carcass } from './eco/types';
 import * as constantsModule from './eco/constants';
@@ -653,7 +653,7 @@ export class Ecosystem {
     }
     if (probe) probe.lap(STEP.view);
     // Clima vivo: uma fatia das células por passo, o mundo inteiro duas vezes por mês de jogo.
-    this.weather ??= new Weather(this.map.width, this.map.height);
+    this.weather ??= new Weather(this.map.width, this.map.height, seasonStrength(this.map.params), this.map.params.id === EARTH_ID ? 0 : 0.5);
     this.weather.step(this.map, this.year, this.yearPhase(), yr, (x, y) => -this.climateAt(x, y));
     if (probe) probe.lap(STEP.weather);
     // Fogo natural: uma vez por ano, no auge do verão.
