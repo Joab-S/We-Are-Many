@@ -163,6 +163,11 @@ function planetPixels(map: SurfaceMap, art?: Uint8Array): PlanetPixels {
   return { pixels, width, height };
 }
 
+/** O mapa inteiro de um planeta ainda não visitado, pronto para `applyPreview`. Pinta na thread principal: uma vez por órbita. */
+export function planetPixelsOf(map: SurfaceMap): PlanetPixels {
+  return { ...planetPixels(map), relief: reliefPixels(map.elevation, map.width, map.height) };
+}
+
 /** Textura da esfera. Os mipmaps evitam a cintilação do mapa ao se afastar. */
 function surfaceTexture({ pixels, width, height }: PlanetPixels, anisotropy: number): THREE.Texture {
   const tex = new THREE.DataTexture(pixels, width, height);
@@ -200,7 +205,7 @@ export function loadPreview(id: string, params: PlanetParams): Promise<PlanetPix
     job = previewQueue
       .then(() => generateSurfaceAsync(params, scale))
       .then((map) => {
-        const preview: PlanetPixels = { ...planetPixels(map), relief: reliefPixels(map.elevation, map.width, map.height) };
+        const preview = planetPixelsOf(map);
         previews.set(id, preview);
         return preview;
       })

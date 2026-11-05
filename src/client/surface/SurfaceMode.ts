@@ -10,6 +10,7 @@ import { earthCatalog, nativeSpecies } from '../../sim/species';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
 import type { GameState } from '../state';
+import { takePregen } from '../space/planet/pregen';
 import { generateSurfaceAsync } from './generateAsync';
 import { SETTLEMENT_TABS, type CompareKey, type PeriodSpan, type SettlementTab } from './settlementWindow';
 import { SpriteAtlas, SpriteLayer } from './sprites';
@@ -170,7 +171,7 @@ export class SurfaceMode {
 
     const existing = state.surfaces.get(params.id);
     if (existing) this.init(existing);
-    else void generateSurfaceAsync(params).then((map) => this.init(map));
+    else void (takePregen(state, params.id) ?? generateSurfaceAsync(params)).then((map) => this.init(map));
   }
 
   /** O mapa está pronto: antes de abrir, põe em dia os anos em que o planeta ficou sem ser olhado (C2). */

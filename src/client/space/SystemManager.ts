@@ -26,14 +26,16 @@ import {
   createOrbitLine,
   createPathLine,
   createPlanetBody,
-  spinRate,
   createPoiBody,
   createStarBody,
   loadPreview,
   planetParams,
+  planetPixelsOf,
+  spinRate,
   type Body,
 } from './bodies';
 import { disposeObject } from './dispose';
+import { requestPregen } from './planet/pregen';
 import type { FloatingOrigin } from './FloatingOrigin';
 
 /** Distância (pc) em que o sistema de uma estrela passa a ser desenhado. */
@@ -166,7 +168,8 @@ export class SystemManager {
     const p = body.planet!;
     void loadPreview(p.id, planetParams(p)).then(
       (preview) => {
-        if (this.system?.planets.includes(body)) applyPreview(body, preview, this.anisotropy);
+        // Se o mapa inteiro chegou primeiro, a prévia não toma o lugar dele.
+        if (body.previewPending && this.system?.planets.includes(body)) applyPreview(body, preview, this.anisotropy);
       },
       (err) => console.warn(`Falha ao gerar a prévia de ${p.name}`, err),
     );
@@ -356,7 +359,18 @@ export class SystemManager {
     }
     if (orbit === this.orbitBody) return false;
     this.orbitBody = orbit;
+    if (orbit?.kind === 'rocky' && !this.state.surfaces.has(orbit.planet!.id)) this.pregenerate(orbit);
     return true;
+  }
+
+  /** Adianta o mapa do planeta em órbita. Quando ele chega, a esfera troca a prévia pelo mapa inteiro. */
+  private pregenerate(body: Body): void {
+    const slot = requestPregen(this.state, planetParams(body.planet!));
+    if (!this.webgl) return;
+    void slot.job.then((map) => {
+      if (!this.system?.planets.includes(body) || this.state.pregen !== slot) return;
+      applyPreview(body, planetPixelsOf(map), this.anisotropy);
+    });
   }
 
   /** A nave vai descer ao planeta em órbita: guarda onde ela estava em relação a ele. */

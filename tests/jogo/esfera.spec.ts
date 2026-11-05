@@ -1,4 +1,4 @@
-import { capturar, esperarImagem, esperarOrbita, esperarSemCortina, expect, MAPA_MS, test, usaWebGL } from './apoio';
+import { capturar, esperarImagem, esperarOrbita, esperarSemCortina, expect, MAPA_MS, superficie, test, usaWebGL } from './apoio';
 
 /** Põe a nave sobre o polo do planeta em órbita, olhando para o centro: é onde o uv da esfera apertava a imagem. */
 async function sobreOPolo(page: import('@playwright/test').Page, raios: number): Promise<void> {
@@ -33,6 +33,43 @@ test.describe('a esfera do rochoso', () => {
     await page.waitForTimeout(500);
     await esperarImagem(page, 'o polo na tela', 0.2);
     await capturar(page, info, 'terra-polo');
+  });
+
+  test('o mapa do planeta em órbita fica pronto antes de descer', async ({ page }) => {
+    test.setTimeout(MAPA_MS + 60_000);
+    await page.goto('/?debug');
+    await page.keyboard.press('Digit1');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    await expect.poll(() => page.evaluate(() => !!window.space!.state.pregen?.map), { timeout: MAPA_MS }).toBe(true);
+    // Em órbita, a esfera já tem o mapa inteiro, e a Terra ainda não conta como visitada.
+    const antes = await page.evaluate(() => {
+      const { state, systems } = window.space!;
+      const material = (systems.orbitBody!.surface as unknown as { material: { uniforms: { uMap: { value: { image: { width: number } } } } } }).material;
+      return { visitada: state.surfaces.has('sol-3'), largura: material.uniforms.uMap.value.image.width, mapa: state.pregen!.map!.width };
+    });
+    expect(antes.visitada).toBe(false);
+    expect(antes.largura).toBe(antes.mapa);
+    await page.evaluate(() => void ((window.space!.state.pregen!.map as unknown as { marcado: boolean }).marcado = true));
+
+    // Do F até o mapa na tela, medido dentro da página.
+    const ms = await page.evaluate(
+      () =>
+        new Promise<number>((resolve) => {
+          let inicio = 0;
+          window.addEventListener('keydown', () => (inicio = performance.now()), { capture: true, once: true });
+          const espia = setInterval(() => {
+            if (!document.querySelector('.surface-hud [data-a="back"]')) return;
+            clearInterval(espia);
+            resolve(performance.now() - inicio);
+          }, 4);
+          window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF', bubbles: true }));
+        }),
+    );
+    console.log(`do F ao mapa, com o mapa adiantado: ${Math.round(ms)} ms`);
+    await expect(superficie(page)).toBeVisible();
+    // O mesmo objeto, e não um mapa gerado de novo.
+    expect(await page.evaluate(() => (window.surface!.eco.map as unknown as { marcado?: boolean }).marcado)).toBe(true);
   });
 
   test('a borda azul da Terra e a alaranjada de Marte', async ({ page }, info) => {

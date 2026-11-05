@@ -6,6 +6,7 @@ import type { Species } from '../sim/species';
 import type { NavState } from '../nav/guide';
 import type { ProbeState } from '../explore/probes';
 import type { WorldRecord } from '../save/snapshot';
+import type { PregenSlot } from './space/planet/pregen';
 
 /**
  * Estado lógico que sobrevive às trocas de modo 3D/2D. As cenas são
@@ -28,6 +29,8 @@ export interface GameState {
    * até a próxima visita.
    */
   surfaceArt: Map<string, Uint8Array>;
+  /** O mapa do planeta em órbita, gerado antes de a nave descer. Não vai para o save. */
+  pregen?: PregenSlot | null;
   /** Planeta em cuja órbita a nave estava ao entrar na superfície; limpo quando ela volta a ele. */
   orbitPlanetId: string | null;
   /** Nave menos planeta ao descer, em UA: onde a nave reaparece ao voltar da superfície. */
