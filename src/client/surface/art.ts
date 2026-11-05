@@ -3,6 +3,7 @@ import { ROLES, type Role } from '../../sim/roles';
 import { VEHICLE_PALETTE, VEHICLES } from './vehicleArt';
 import { HUMAN_ICON_PALETTES, HUMAN_ICONS, HUMAN_PALETTES, HUMAN_SPRITES } from './humanArt';
 import { ANIMAL_PALETTES, ANIMAL_SPRITES } from './animalArt';
+import { NATURE_PALETTES, NATURE_SPRITES } from './natureArt';
 import { CREATURE_ART, EFFECT_ART, EXTRA_COLORS, ITEM_ICONS, SAPIENT_BODIES, SAPIENT_CHILDREN } from './art-extra';
 
 /**
@@ -1166,6 +1167,9 @@ for (const [name, rows] of Object.entries(ANIMAL_SPRITES)) {
   SPRITE_PALETTES[name] = ANIMAL_PALETTES[name];
   SPRITE_PALETTES[`${name}:l`] = ANIMAL_PALETTES[name];
 }
+// Natureza no estilo novo (`nat:nome`): árvores, arbustos, pedras e o veio de minério.
+Object.assign(SPRITES, NATURE_SPRITES);
+Object.assign(SPRITE_PALETTES, NATURE_PALETTES);
 // Ícones dos humanos (`human:profissão`): o sprite novo parado, com pele e cabelo fixos.
 for (const [role, rows] of Object.entries(HUMAN_ICONS)) {
   SPRITES[`human:${role}`] = rows;
