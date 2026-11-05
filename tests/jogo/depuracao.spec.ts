@@ -158,6 +158,55 @@ test.describe('?debug', () => {
     expect(replayCase(caso)).toMatchObject({ tick: caso.tick, fingerprint: caso.fingerprint, same: true });
   });
 
+  test('uma criatura colhida na Terra vai no porão até Marte, e lá soltar gasta a carga e o frio cobra', async ({ page }) => {
+    test.setTimeout(240_000);
+    await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
+    await page.evaluate(() => window.debugEarth!());
+    await expect(superficie(page)).toBeVisible({ timeout: MAPA_MS });
+
+    // Colhe um bicho de verdade: a ferramenta só escolhe o ponto, e o resto é o comando.
+    const nome = await page.evaluate(() => {
+      const { eco, driver } = window.surface as unknown as {
+        eco: { count: number; alive: Uint8Array; kind: Uint8Array; x: Float32Array; y: Float32Array; species: { kind: string; name: string; tempMin: number }[] };
+        driver: { enqueue(cmd: unknown): void };
+      };
+      for (let i = 0; i < eco.count; i++) {
+        if (!eco.alive[i] || eco.species[eco.kind[i]].kind !== 'herbivore') continue;
+        driver.enqueue({ kind: 'collect', x: eco.x[i], y: eco.y[i], r: 0.01, room: 0 });
+        return eco.species[eco.kind[i]].name;
+      }
+      throw new Error('nenhum herbívoro');
+    });
+    const noPorao = page.locator('.wb-sp', { hasText: 'no porão' });
+    await page.keyboard.press('KeyE');
+    await expect(noPorao).toContainText(nome);
+
+    await page.keyboard.press('KeyE');
+    await superficie(page).click();
+    await expect(espaco(page)).toBeVisible();
+    await expect(page.locator('.probe-panel')).toContainText(nome);
+
+    await page.evaluate(() => void window.space!.goToPlanet('Marte', 3));
+    await esperarOrbita(page, 'Marte');
+    await page.keyboard.press('KeyF');
+    await expect(superficie(page)).toBeVisible({ timeout: MAPA_MS });
+
+    // Em Marte, só dá para soltar o que veio no porão.
+    await page.keyboard.press('KeyE');
+    await expect(noPorao.locator('[data-pick]')).toBeEnabled();
+    await expect(page.locator('.wb-sp', { hasNotText: 'no porão' }).first().locator('[data-pick]')).toBeDisabled();
+    // Escolher a ferramenta já fecha a janela (o Esc largaria a ferramenta).
+    await noPorao.locator('[data-pick]').click();
+    await page.mouse.click(640, 400);
+    const estado = () =>
+      page.evaluate(() => {
+        const { eco, state } = window.surface as unknown as { eco: { exposures: unknown[] }; state: { probes: { specimens: Record<string, number> } } };
+        return { expostas: eco.exposures.length, porao: Object.keys(state.probes.specimens).length };
+      });
+    await expect.poll(estado).toEqual({ expostas: 1, porao: 0 });
+  });
+
   test('sem ?debug não há alça nenhuma', async ({ page }) => {
     await page.goto('/');
     await expect(espaco(page)).toBeVisible();

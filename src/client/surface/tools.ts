@@ -302,6 +302,16 @@ export function buildTools(knownSpecies: Iterable<Species>): Tool[] {
       act: introduce(sp),
     }));
   life.push(
+    {
+      id: 'collect',
+      tab: 'life',
+      group: 'Levar',
+      label: 'Coletar',
+      icon: '🧺',
+      tip: 'Captura a criatura mais perto do clique e a guarda no porão da nave, para soltar em outro planeta. Custa uma vida daqui e um ano de trabalho da equipe; fora da Terra, só se solta o que veio no porão.',
+      mode: 'click',
+      act: (ctx, x, y) => ctx.enqueue({ kind: 'collect', x, y: ctx.toRow(y), r: Math.max(3, ctx.brush), room: 0 }),
+    },
     { id: 'feed', tab: 'life', group: 'Cuidar', label: 'Alimentar', icon: '🍎', tip: 'Enche a energia das criaturas no pincel.', mode: 'brush', act: (ctx, x, y) => ctx.enqueue({ kind: 'feed', x, y: ctx.toRow(y), r: ctx.brush }) },
     { id: 'cull', tab: 'life', group: 'Cuidar', label: 'Reduzir', icon: '✖', tip: 'Remove as criaturas dentro do pincel (controle de população).', mode: 'click', act: (ctx, x, y) => ctx.enqueue({ kind: 'cull', x, y: ctx.toRow(y), r: ctx.brush }) },
   );

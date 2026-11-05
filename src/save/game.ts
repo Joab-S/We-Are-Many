@@ -46,7 +46,8 @@ export function restoreGame(raw: unknown, base: Pick<GameState, 'manifest' | 'na
     replays: d.replays ?? new Map(),
     knownSpecies: d.knownSpecies,
     nav: d.nav,
-    probes: d.probes,
+    // Save de antes do porão de criaturas.
+    probes: { ...d.probes, specimens: d.probes.specimens ?? {} },
   };
   return { state, view: d.view, savedAt: d.savedAt };
 }

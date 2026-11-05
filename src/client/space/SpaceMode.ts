@@ -107,7 +107,7 @@ export class SpaceMode implements GameMode {
       bookmarkRemove: (id) => this.director.removeBookmark(id),
       keyOf: (action) => this.bindings.label(action),
     });
-    this.probes = new ProbeControl(this.hud.root, state.probes, this.scene, (text, tone) => this.guide.say(text, tone), (text) => this.director.addLog(text));
+    this.probes = new ProbeControl(this.hud.root, state.probes, this.scene, (text, tone) => this.guide.say(text, tone), (text) => this.director.addLog(text), (id) => state.knownSpecies.get(id)?.name ?? id);
     this.director = new NavDirector(state, this.stars, this.systems, this.guide, this.probes);
     this.world = { bodies: () => this.systems.bodies(), nearbyStars: () => this.director.nearbyStars };
     this.hud.connect({

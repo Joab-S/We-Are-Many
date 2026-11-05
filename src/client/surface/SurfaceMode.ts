@@ -41,6 +41,8 @@ import { bindNotices } from './hud/notices';
 import { Labels } from './hud/Labels';
 import { DebugPanel } from './hud/DebugPanel';
 import { downloadLegends } from './hud/legends';
+import { SPECIMEN_HOLD, specimensAboard, storeSpecimen, takeSpecimen } from '../../explore/probes';
+import { EARTH_ID } from '../../sim/species';
 import { buildTools, DEBUG, plain, REAL_YEAR_SECONDS, SETTLEMENT_TAB_ICONS, TAB_ICONS, TABS, WINDOW_ICONS, WINDOWS, type FxKind, type Tab, type Tool, type ToolContext, type Win } from './tools';
 
 /** Folga (tiles) do recorte das criaturas pela grade: o desenho interpolado fica a até 3 tiles da posição atual. */
@@ -245,11 +247,13 @@ export class SurfaceMode {
     }
     // O que o jogador muda vai para a tela no mesmo quadro; o que veio dos passos anteriores, não.
     this.pullTiles();
+    this.fillHold(cmd);
     const res = this.engine.apply(cmd, { journal: cmd.kind === 'terraform' ? this.history.journal : null });
     this.raster.urgent = true;
     this.pullTiles();
     this.raster.urgent = false;
     if (res.hint) this.toast.say(res.hint);
+    this.settleHold(cmd, res);
     this.applied++;
     this.dirty = true;
     if (cmd.kind === 'surprise' && res.at) this.goTo(res.at.x, res.at.y);
@@ -260,6 +264,23 @@ export class SurfaceMode {
       if (fx && a) this.fx.burst(fx, a.x, this.map.height - a.y);
     }
     if (cmd.kind === 'events') this.windows.refresh(this.eco);
+  }
+
+  /** O porão é da nave: entra no comando antes de aplicar (o log refaz o mesmo mundo sem ela). */
+  private fillHold(cmd: EngineCommand): void {
+    const probes = this.state.probes;
+    if (cmd.kind === 'introduce') cmd.cargo = probes.specimens[cmd.species.id] ?? 0;
+    if (cmd.kind === 'collect') cmd.room = SPECIMEN_HOLD - specimensAboard(probes);
+  }
+
+  /** E o que o motor fez volta para ele: quem foi solto sai, quem foi capturado entra. Na Terra, soltar é de graça. */
+  private settleHold(cmd: EngineCommand, res: { ok: boolean; collected?: string }): void {
+    const probes = this.state.probes;
+    if (cmd.kind === 'introduce' && res.ok && this.params.id !== EARTH_ID) takeSpecimen(probes, cmd.species.id);
+    if (res.collected) {
+      storeSpecimen(probes, res.collected);
+      this.toast.say(`${this.state.knownSpecies.get(res.collected)?.name ?? 'Criatura'} no porão: ${specimensAboard(probes)} de ${SPECIMEN_HOLD}`);
+    }
   }
 
   /** Ctrl+Z: desfaz o último traço do pincel de terreno ou clima. */
@@ -392,7 +413,7 @@ export class SurfaceMode {
     const view = this.view;
     const redraw = () => (this.dirty = true);
     this.toast = new Toast(q('[data-toast]'));
-    this.windows = new Windows(root, this.icons, this.settings, this.state.knownSpecies, this.params.id);
+    this.windows = new Windows(root, this.icons, this.settings, this.state.knownSpecies, this.params.id, this.state.probes);
     this.vwin = new SettlementView(root, this.icons);
     // Consumidores da fila de eventos do motor (Observer): avisos dos acontecimentos, a janela do assentamento e as
     // setas das colônias e das famílias que se mudam.

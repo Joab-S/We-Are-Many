@@ -468,6 +468,12 @@ export class Ecosystem {
    * só empurra (`emit`), quem ouve drena (`drainEvents`). Vai no save, então nada se perde ao carregar.
    */
   readonly events: EngineEvent[] = [];
+  /** Espécies soltas pelo jogador fora da faixa de temperatura: quando o clima cobra, e a temperatura que achou (K). */
+  exposures: { species: number; until: number; temp: number }[] = [];
+  /** Por que uma espécie morreu aqui, pelo id dela (a ficha mostra). */
+  fates: Record<string, string> = {};
+  /** O ano da última coleta (o tempo que capturar custa). */
+  lastCollect = -1e9;
   /** A história do mundo (modo lendas): os eventos que contam, do ano 0 até agora. Vai no save. */
   legends: LegendEntry[] = [];
   /** Quantas lendas antigas já saíram por causa do limite. */
@@ -655,6 +661,7 @@ export class Ecosystem {
     if (probe) probe.begin();
     const yr = dt / this.yearSpan;
     this.year += yr;
+    if (this.exposures.length) this.settleExposures();
     // Nível de detalhe (RF-AS-31): com a tela aberta, os lugares a até JOURNEY_MARGIN tiles da vista (e o da pessoa
     // seguida) rodam as jornadas; os demais, o modo agregado. Revisto a cada meio segundo de jogo.
     if (this.focus && (this.watchClock -= dt) <= 0) {

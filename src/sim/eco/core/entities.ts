@@ -200,6 +200,30 @@ export const entitiesPart = {
     return t >= sp.tempMin - 5 && t <= sp.tempMax + 5;
   },
 
+  /**
+   * Cobra o clima de quem foi solto fora da faixa: passado o prazo, quem da espécie ainda está em terreno fora dela
+   * morre, e a ficha e a crônica dizem por quê. Quem achou um lugar bom a tempo se salva, com os filhotes.
+   */
+  settleExposures(this: Ecosystem): void {
+    for (let k = this.exposures.length - 1; k >= 0; k--) {
+      const { species: s, until, temp } = this.exposures[k];
+      if (this.year < until) continue;
+      this.exposures.splice(k, 1);
+      const sp = this.species[s];
+      const cold = temp < sp.tempMin;
+      let last: { x: number; y: number } | null = null;
+      for (let i = 0; i < this.count; i++) {
+        if (!this.alive[i] || this.kind[i] !== s || this.habitable(s, this.tileOf(i))) continue;
+        last = { x: this.x[i], y: this.y[i] };
+        this.kill(i, true, cold ? 'frio' : 'calor');
+      }
+      if (!last && this.population[s] > 0) continue;
+      const text = `${sp.name} morreu de ${cold ? 'frio' : 'calor'}: foi solta a ${(temp - 273).toFixed(0)} °C, e vive de ${(sp.tempMin - 273).toFixed(0)} a ${(sp.tempMax - 273).toFixed(0)} °C`;
+      this.fates[sp.id] = text;
+      this.note(text, 'natureza', last, { major: true });
+    }
+  },
+
   grow(this: Ecosystem, capacity: number): void {
     const copy = <T extends Float32Array | Uint8Array | Int8Array | Int16Array | Int32Array | Uint32Array>(a: T, make: (n: number) => T): T => {
       const b = make(capacity);

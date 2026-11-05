@@ -167,6 +167,10 @@ export const DUNBAR = 150;
  * (em múltiplos do teto, `realmCrowding`), vezes CROWD_PRESSURE, soma à pressão de sair: um reino cheio quer fundar mais,
  * sem esperar a fome. Com 45 a mediana dos lugares fica perto do teto; com 80 ou 120, quase nenhum reino passa dele.
  */
+/** Anos entre uma coleta e outra (C1): capturar para levar na nave custa tempo. */
+export const COLLECT_COOLDOWN = 1;
+/** Anos que uma espécie aguenta fora da faixa de temperatura, solta pelo jogador (C1). */
+export const EXPOSURE_YEARS = 5;
 export const CAP_PER_SITE = 45;
 export const CROWD_PRESSURE = 1;
 export const INST_ORG = 1;

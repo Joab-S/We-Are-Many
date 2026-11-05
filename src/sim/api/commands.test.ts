@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { classify, generateSurface, type PlanetParams } from '../../procgen/surface';
+import { classify, generateSurface, temperatureAt, type PlanetParams } from '../../procgen/surface';
+import { createProbeState, specimensAboard, storeSpecimen, takeSpecimen } from '../../explore/probes';
+import { restoreEcosystem, snapshotEcosystem } from '../../save/snapshot';
+import { B } from '../live';
 import { Ecosystem, isLand } from '../ecosystem';
-import { nativeSpecies } from '../species';
+import { habitatOf, nativeSpecies, type Species } from '../species';
 import { applyCommand, sameView, TERRAFORM_TOOLS, TileJournal, VIEW_CELL, viewCell, viewCommand, type EngineCommand } from './commands';
 import source from './commands.ts?raw';
 
@@ -92,6 +95,8 @@ describe('comandos do jogador (src/sim/api/commands.ts)', () => {
       { kind: 'demolish', x: 1, y: 2, r: 3 },
       { kind: 'ore', x: 1, y: 2, ore: 'iron' },
       { kind: 'introduce', species: eco.species[0], x: 1, y: 2 },
+      { kind: 'introduce', species: eco.species[0], x: 1, y: 2, cargo: 3 },
+      { kind: 'collect', x: 1, y: 2, r: 3, room: 12 },
       { kind: 'feed', x: 1, y: 2, r: 3 },
       { kind: 'cull', x: 1, y: 2, r: 3 },
       { kind: 'teach', x: 1, y: 2, r: 3, amount: 0.1 },
@@ -204,5 +209,147 @@ describe('comandos do jogador (src/sim/api/commands.ts)', () => {
       expect(p).not.toMatch(/client/);
       expect(p).not.toMatch(/^three/);
     }
+  });
+});
+
+describe('levar e trazer custa (C1)', () => {
+  const alien: PlanetParams = { id: 'outro-1', name: 'Outro', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
+
+  function alienWorld() {
+    const map = generateSurface(alien);
+    const eco = new Ecosystem(map, 42);
+    for (const sp of nativeSpecies(earth)) eco.addSpecies(sp);
+    eco.populate();
+    return { map, eco };
+  }
+
+  /** Um visitante que não vive no planeta. `temp` é a faixa dele, em K. */
+  const visitor = (eco: Ecosystem, temp: [number, number] = [260, 320]): Species => ({
+    ...eco.species.find((s) => s.kind === 'herbivore')!,
+    id: 'visitante',
+    name: 'Visitante',
+    tempMin: temp[0],
+    tempMax: temp[1],
+  });
+
+  /** Terra plana e temperada: o lugar onde qualquer um fica de pé. */
+  function ground(eco: Ecosystem): { x: number; y: number } {
+    const map = eco.map;
+    for (let y = Math.floor(map.height * 0.3); y < map.height * 0.7; y++) {
+      for (let x = 0; x < map.width; x++) {
+        const i = y * map.width + x;
+        if (isLand(map, i) && map.elevation[i] < 0.4 && Math.abs(temperatureAt(map, i) - 288) < 15) return { x: x + 0.5, y: y + 0.5 };
+      }
+    }
+    throw new Error('sem terra');
+  }
+
+  it('fora da Terra, soltar sem carga é recusado e não muda nada', () => {
+    const { map, eco } = alienWorld();
+    const sp = visitor(eco);
+    const at = ground(eco);
+    const before = eco.species.length;
+    const res = applyCommand(eco, map, { kind: 'introduce', species: sp, ...at });
+    expect(res.ok).toBe(false);
+    expect(eco.hint).toContain('não há no porão');
+    expect(eco.species.length).toBe(before);
+    expect(applyCommand(eco, map, { kind: 'introduce', species: sp, ...at, cargo: 0 }).ok).toBe(false);
+  });
+
+  it('com carga, a espécie chega', () => {
+    const { map, eco } = alienWorld();
+    const sp = visitor(eco);
+    expect(applyCommand(eco, map, { kind: 'introduce', species: sp, ...ground(eco), cargo: 1 }).ok).toBe(true);
+    expect(eco.population[eco.species.findIndex((s) => s.id === 'visitante')]).toBe(1);
+    expect(eco.exposures).toEqual([]);
+  });
+
+  it('na Terra continua de graça', () => {
+    const { map, eco } = world();
+    expect(applyCommand(eco, map, { kind: 'introduce', species: visitor(eco), ...ground(eco) }).ok).toBe(true);
+  });
+
+  it('coletar tira uma criatura daqui e diz qual; recusa com o porão cheio, sem ninguém perto e antes do tempo', () => {
+    const { map, eco } = world();
+    const s = eco.species.findIndex((sp) => sp.kind === 'herbivore');
+    const i = eco.alive.findIndex((a, k) => a === 1 && eco.kind[k] === s);
+    const at = { x: eco.x[i], y: eco.y[i] };
+    const pop = eco.total;
+
+    expect(applyCommand(eco, map, { kind: 'collect', ...at, r: 3, room: 0 }).ok).toBe(false);
+    expect(eco.hint).toContain('porão');
+    expect(eco.total).toBe(pop);
+
+    const taken = applyCommand(eco, map, { kind: 'collect', ...at, r: 3, room: 1 });
+    expect(taken.ok).toBe(true);
+    expect(taken.collected).toBe(eco.species[s].id);
+    expect(eco.total).toBe(pop - 1);
+    expect(eco.alive[i]).toBe(0);
+    expect(eco.chronicle.some((e) => e.text === `Você coletou ${eco.species[s].name.toLowerCase()}`)).toBe(true);
+
+    expect(applyCommand(eco, map, { kind: 'collect', ...at, r: 3, room: 1 }).ok).toBe(false);
+    expect(eco.hint).toContain('ocupada');
+    eco.year += B.COLLECT_COOLDOWN;
+    expect(applyCommand(eco, map, { kind: 'collect', x: -500, y: -500, r: 3, room: 1 }).ok).toBe(false);
+    expect(eco.hint).toContain('ninguém');
+  });
+
+  it('fora da faixa nasce, e em 5 anos morre com a causa na crônica e na ficha', () => {
+    const { map, eco } = world();
+    const at = ground(eco);
+    const sp = visitor(eco, [120, 140]);
+    expect(applyCommand(eco, map, { kind: 'introduce', species: sp, ...at }).ok).toBe(true);
+    const s = eco.species.findIndex((o) => o.id === 'visitante');
+    expect(eco.population[s]).toBe(1);
+    expect(eco.exposures.length).toBe(1);
+    expect(eco.hint).toContain('quente demais');
+
+    const start = eco.year;
+    while (eco.year < start + B.EXPOSURE_YEARS - 0.1) eco.step(0.25);
+    expect(eco.exposures.length).toBe(1);
+    while (eco.year < start + B.EXPOSURE_YEARS + 0.1) eco.step(0.25);
+    expect(eco.exposures).toEqual([]);
+    expect(eco.population[s]).toBe(0);
+    expect(eco.fates.visitante).toContain('morreu de calor');
+    expect(eco.fates.visitante).toContain('vive de -153 a -133 °C');
+    expect(eco.chronicle.some((e) => e.major && e.text === eco.fates.visitante)).toBe(true);
+    expect(eco.extinct.has(s)).toBe(true);
+  });
+
+  it('solta de novo num lugar bom, a ficha esquece; onde nem consegue ficar, é recusada', () => {
+    const { map, eco } = world();
+    const at = ground(eco);
+    eco.fates.visitante = 'morreu de calor';
+    expect(applyCommand(eco, map, { kind: 'introduce', species: visitor(eco), ...at }).ok).toBe(true);
+    expect(eco.fates.visitante).toBeUndefined();
+    const fish = eco.species.find((o) => habitatOf(o) === 1)!;
+    expect(applyCommand(eco, map, { kind: 'introduce', species: fish, ...at }).ok).toBe(false);
+    expect(eco.exposures).toEqual([]);
+  });
+
+  it('o prazo, a causa e o tempo da coleta vão no save', () => {
+    const { map, eco } = world();
+    applyCommand(eco, map, { kind: 'introduce', species: visitor(eco, [120, 140]), ...ground(eco) });
+    eco.lastCollect = 3;
+    eco.fates.outro = 'morreu de frio';
+    const back = restoreEcosystem(structuredClone(snapshotEcosystem(eco, 42)), map);
+    expect(back.exposures).toEqual(eco.exposures);
+    expect(back.lastCollect).toBe(3);
+    expect(back.fates).toEqual({ outro: 'morreu de frio' });
+  });
+});
+
+describe('porão de criaturas', () => {
+  it('guarda, conta e tira; a espécie sem nenhuma some da lista', () => {
+    const s = createProbeState();
+    expect(specimensAboard(s)).toBe(0);
+    storeSpecimen(s, 'a');
+    storeSpecimen(s, 'a');
+    storeSpecimen(s, 'b');
+    expect(specimensAboard(s)).toBe(3);
+    takeSpecimen(s, 'a');
+    expect(s.specimens).toEqual({ a: 1, b: 1 });
+    takeSpecimen(s, 'a');
+    expect(s.specimens).toEqual({ b: 1 });
   });
 });
