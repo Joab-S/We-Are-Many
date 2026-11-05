@@ -104,19 +104,19 @@ Caminho na longa de 1000 anos (média das três sementes): ondas sem calibrar 45
 
 | Indicador | Média | Mediana | 10% a 90% | Meta | Situação |
 |---|---|---|---|---|---|
-| Moradores no fim | 0,50 | 1 | 0 a 1 |  |  |
-| Moradores: fim ÷ 60% da rodada | 0 | 0 | 0 a 0 | 1 a 3 | **fora** |
+| Moradores no fim | 2,50 | 5 | 0 a 5 |  |  |
+| Moradores: fim ÷ 60% da rodada | 0,50 | 1 | 0 a 1 | 1 a 3 | **fora** |
 | Assentamentos vivos | 0,50 | 1 | 0 a 1 | 18 a 43 | **fora** |
 | Assentamentos fundados na rodada | 2,50 | 3 | 2 a 3 | 28 a 52 | **fora** |
-| Êxodos por falta | 3 | 4 | 2 a 4 |  |  |
-| Mediana de moradores por assentamento | 0,50 | 1 | 0 a 1 | 50 a 99999 | **fora** |
-| Maior assentamento (moradores) | 0,50 | 1 | 0 a 1 | 400 a 99999 | **fora** |
+| Êxodos por falta | 4 | 6 | 2 a 6 |  |  |
+| Mediana de moradores por assentamento | 2,50 | 5 | 0 a 5 | 50 a 99999 | **fora** |
+| Maior assentamento (moradores) | 2,50 | 5 | 0 a 5 | 400 a 99999 | **fora** |
 | Metrópoles (400 ou mais) | 0 | 0 | 0 a 0 | 0 a 2 | dentro |
 | Reinos (com cidade como capital) | 0 | 0 | 0 a 0 | 2 a 12 | **fora** |
-| Mortes de fome por ano, por 100 moradores | 66 | 73,50 | 58,50 a 73,50 | 0 a 0,50 | **fora** |
+| Mortes de fome por ano, por 100 moradores | 39,75 | 66 | 13,50 a 66 | 0 a 0,50 | **fora** |
 | Parte do povo em cidades e metrópoles | 0 | 0 | 0 a 0 | 0,20 a 0,60 | **fora** |
 
-Lugares que chegaram a existir, por rodada: 8,50. Rendimento médio por lugar vivo no fim: farm 0,01, irrigated 0,01, graze 0,38, fish 0,63, wood 0,25, forage 0,40.
+Lugares que chegaram a existir, por rodada: 8,50. Rendimento médio por lugar vivo no fim: farm 0,01, irrigated 0,01, graze 0,38, fish 0,63, wood 0,25, forage 0,48.
 
 ### Seco (água, lenha e pesca no seco)
 
@@ -144,19 +144,19 @@ Lugares que chegaram a existir, por rodada: 1. Rendimento médio por lugar vivo 
 
 | Indicador | Média | Mediana | 10% a 90% | Meta | Situação |
 |---|---|---|---|---|---|
-| Moradores no fim | 71 | 72 | 70 a 72 |  |  |
-| Moradores: fim ÷ 60% da rodada | 1,60 | 2,69 | 0,50 a 2,69 | 1 a 3 | **fora** |
-| Assentamentos vivos | 3 | 3 | 3 a 3 | 1 a 5 | dentro |
-| Assentamentos fundados na rodada | 4 | 5 | 3 a 5 | 2 a 6 | dentro |
-| Êxodos por falta | 20,50 | 36 | 5 a 36 |  |  |
-| Mediana de moradores por assentamento | 24 | 26 | 22 a 26 | 50 a 99999 | **fora** |
-| Maior assentamento (moradores) | 42 | 43 | 41 a 43 | 400 a 99999 | **fora** |
+| Moradores no fim | 64,50 | 82 | 47 a 82 |  |  |
+| Moradores: fim ÷ 60% da rodada | 0,71 | 0,73 | 0,68 a 0,73 | 1 a 3 | **fora** |
+| Assentamentos vivos | 3,50 | 4 | 3 a 4 | 1 a 5 | dentro |
+| Assentamentos fundados na rodada | 3,50 | 4 | 3 a 4 | 2 a 6 | dentro |
+| Êxodos por falta | 39 | 51 | 27 a 51 |  |  |
+| Mediana de moradores por assentamento | 10,50 | 16 | 5 a 16 | 50 a 99999 | **fora** |
+| Maior assentamento (moradores) | 47,50 | 74 | 21 a 74 | 400 a 99999 | **fora** |
 | Metrópoles (400 ou mais) | 0 | 0 | 0 a 0 | 0 a 1 | dentro |
 | Reinos (com cidade como capital) | 0 | 0 | 0 a 0 | 0 a 2 | dentro |
-| Mortes de fome por ano, por 100 moradores | 1,99 | 2,37 | 1,61 a 2,37 | 0 a 0,50 | **fora** |
+| Mortes de fome por ano, por 100 moradores | 2,54 | 3,09 | 1,99 a 3,09 | 0 a 0,50 | **fora** |
 | Parte do povo em cidades e metrópoles | 0 | 0 | 0 a 0 | 0,20 a 0,60 | **fora** |
 
-Lugares que chegaram a existir, por rodada: 10. Rendimento médio por lugar vivo no fim: farm 0,73, irrigated 0,98, graze 0,76, fish 1,01, wood 1,01, forage 0,69.
+Lugares que chegaram a existir, por rodada: 9,50. Rendimento médio por lugar vivo no fim: farm 0,73, irrigated 0,93, graze 0,79, fish 1,03, wood 1,04, forage 0,78.
 
 ### O que quebra
 

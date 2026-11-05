@@ -325,6 +325,10 @@ function alienFauna(planet: PlanetParams, rnd: () => number, color: () => [numbe
     };
     const spread = 45 + rnd() * 15;
     const mid = planet.temperatureK + (rnd() - 0.5) * 10;
+    const tempMin = Math.round(mid - spread * 0.55);
+    const tempMax = Math.round(mid + spread * 0.45);
+    // A faixa ideal varia por espécie: uma tolera bem as pontas, outra sofre mais perto delas.
+    const edge = 4 + rnd() * 8;
     out.push({
       ...TEMPLATES[kind],
       id: `${planet.id}:${eco.guild}-${out.length}`,
@@ -332,8 +336,9 @@ function alienFauna(planet: PlanetParams, rnd: () => number, color: () => [numbe
       origin: planet.id,
       color: color(),
       sprite,
-      tempMin: Math.round(mid - spread * 0.55),
-      tempMax: Math.round(mid + spread * 0.45),
+      tempMin,
+      tempMax,
+      tempIdeal: [tempMin + edge, tempMax - edge],
       maxAge: Math.round(TEMPLATES[kind].maxAge * (0.8 + big)),
       speed: TEMPLATES[kind].speed / Math.sqrt(g),
       size: Math.max(0.5, Math.min(1.5, 0.6 + Math.log10(mass + 1) * 0.25)),
@@ -370,6 +375,34 @@ export function safeWeb(list: Species[]): Species[] {
   return list;
 }
 
+/** Chance de um caçador alienígena evitar uma guilda (presa venenosa, de gosto ruim) e de um pastador não se deixar domesticar. */
+const AVOID_CHANCE = 0.3;
+const UNTAMED_CHANCE = 0.3;
+
+/**
+ * Relações sorteadas por guilda (Rain World), com um gerador próprio para não mexer nas outras contas do planeta: cada
+ * caçador pode evitar guildas, desde que fique com duas presas de tamanho possível (a regra da teia segura), e parte dos
+ * pastadores não se domestica.
+ */
+export function alienRelations(list: Species[], rnd: () => number): Species[] {
+  const prey = list.filter((sp) => sp.kind === 'herbivore');
+  const guilds = [...new Set(prey.map((sp) => sp.eco!.guild!))];
+  for (const sp of prey) if (sp.eco!.guild === 'pastador' && rnd() < UNTAMED_CHANCE) sp.eco!.untamed = true;
+  for (const sp of list) {
+    const e = sp.eco;
+    if (sp.kind !== 'predator' || !e || !(e.meat! > 0) || !(e.maxPrey! > 0)) continue;
+    const relations: NonNullable<Ecology['relations']> = {};
+    const fits = (mass: number) => mass <= e.maxPrey! * (e.pack ? 2 : 1) && mass >= e.mass! * 0.015;
+    for (const guild of guilds) {
+      const roll = rnd();
+      const left = prey.filter((p) => p.eco!.guild !== guild && relations[p.eco!.guild!] !== 'evita' && fits(p.eco!.mass!));
+      relations[guild] = roll < AVOID_CHANCE && left.length >= 2 ? 'evita' : 'presa';
+    }
+    e.relations = relations;
+  }
+  return list;
+}
+
 /**
  * Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas.
  * `attempt` anda o sorteio das espécies, sem mudar o nível de vida (a tentativa 0 é o sorteio de sempre), e `tier` força um nível (calibração).
@@ -386,7 +419,7 @@ export function nativeSpecies(planet: PlanetParams, attempt = 0, tier = nativeLi
   if (tier === 'none' || tier === 'plants') return [];
   const rnd = mulberry32(seedFor(`${planet.id}:species`, attempt + 1));
   const color = (): [number, number, number] => [60 + rnd() * 190, 60 + rnd() * 190, 60 + rnd() * 190].map(Math.round) as [number, number, number];
-  const list = [make('fish', alienName(rnd), color()), ...safeWeb(alienFauna(planet, rnd, color))];
+  const list = [make('fish', alienName(rnd), color()), ...alienRelations(safeWeb(alienFauna(planet, rnd, color)), mulberry32(seedFor(`${planet.id}:relations`, attempt + 1)))];
   if (tier === 'sapient') list.push({ ...make('sapient', alienName(rnd), color()), body: ALIEN_BODIES[Math.floor(rnd() * ALIEN_BODIES.length)] });
   if (planet.life > 0.4) list.push(make('shark', alienName(rnd), color()));
   return list;
