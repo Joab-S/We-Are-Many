@@ -69,10 +69,11 @@ Convenções do projeto que valem para tudo aqui:
   - Estratégia: `surface.ts:90-100` amostra o ruído num cilindro (`cosA`, `sinA`, y). Amostrar em `(cos lat · cos lon, cos lat · sin lon, sin lat)`: a linha polar converge num ponto de verdade, o que é o certo para o 3D. Como isso muda todo planeta, fazer junto com A1 e usar `seedFor(id, generatorVersion = 2)` (`src/core/rng.ts:46`) para os planetas novos; os já salvos mantêm o mapa, que carrega os próprios parâmetros.
   - Onde: `src/procgen/surface.ts`, `src/procgen/noise.ts`, `src/core/rng.ts`.
   - Pronto quando: teste de que a linha polar tem a mesma altitude em todas as colunas (variância abaixo de um limiar); baseline regravado.
-- [ ] **A5. Faixas de temperatura dos modelos centradas no planeta.** (P; muda o comportamento)
+- [x] **A5. Faixas de temperatura dos modelos centradas no planeta.** (P; muda o comportamento)
   - Estratégia: `make` (`species.ts:359-365`) usa `TEMPLATES` da Terra (`:67-73`) para peixe, tubarão e inteligente; passar `params.temperatureK` e deslocar a faixa como `alienFauna` já faz para os herbívoros.
   - Onde: `src/sim/species.ts`.
   - Pronto quando: teste em `ecosystem.test.ts` de um planeta a 260 K em que o povo inteligente nasce com a faixa centrada em 260 K.
+  - Feito: vale para o peixe, o tubarão e o povo. A largura da faixa continua a do modelo, e a Terra não passa por aqui: a impressão digital não muda. Só mudam os mundos alienígenas ainda não visitados, porque as espécies de um save vêm com a faixa antiga.
 
 ### B. Vida e metas por planeta
 

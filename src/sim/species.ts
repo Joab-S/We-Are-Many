@@ -356,13 +356,12 @@ export function safeWeb(list: Species[]): Species[] {
 /** Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas. */
 export function nativeSpecies(planet: PlanetParams): Species[] {
   if (planet.life <= 0) return [];
-  const make = (kind: SpeciesKind, name: string, color: [number, number, number]): Species => ({
-    ...TEMPLATES[kind],
-    id: `${planet.id}:${kind}`,
-    name,
-    origin: planet.id,
-    color,
-  });
+  const make = (kind: SpeciesKind, name: string, color: [number, number, number]): Species => {
+    const model = TEMPLATES[kind];
+    // A faixa do modelo é a da Terra: aqui ela fica centrada na temperatura do planeta, como a da fauna alienígena.
+    const shift = Math.round(planet.temperatureK - (model.tempMin + model.tempMax) / 2);
+    return { ...model, tempMin: model.tempMin + shift, tempMax: model.tempMax + shift, id: `${planet.id}:${kind}`, name, origin: planet.id, color };
+  };
   if (planet.id === EARTH_ID) return earthCatalog().filter((sp) => EARTH_NATIVE.has(sp.name));
   const tier = nativeLifeTier(planet.id, planet.life);
   if (tier === 'none' || tier === 'plants') return [];

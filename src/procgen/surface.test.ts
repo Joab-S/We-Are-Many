@@ -3,6 +3,27 @@ import { Biome, classify, Decor, decorAt, generateSurface, mapSizeFor, sowVegeta
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 1, temperatureK: 288, water: 0.7, life: 0.8 };
 
+/** FNV-1a dos bytes: uma linha de teste no lugar de milhares de valores. */
+function digest(...arrays: ArrayBufferView[]): string {
+  let h = 0x811c9dc5;
+  for (const a of arrays) {
+    const bytes = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+    for (let i = 0; i < bytes.length; i++) {
+      h ^= bytes[i];
+      h = Math.imul(h, 0x01000193);
+    }
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+/** Os valores da Terra: quem muda o gerador de propósito atualiza aqui e regrava a impressão digital. */
+describe('a Terra por valor', () => {
+  it('altitude, umidade e biomas', () => {
+    const map = generateSurface(earth, 0.25);
+    expect(digest(map.elevation, map.moisture, map.biome)).toBe('a92244ad');
+  });
+});
+
 describe('superfície', () => {
   it('tamanho proporcional ao planeta', () => {
     expect(mapSizeFor(1)).toEqual({ width: 1024, height: 512 });

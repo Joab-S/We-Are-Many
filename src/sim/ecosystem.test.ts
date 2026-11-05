@@ -93,6 +93,29 @@ describe('espécies', () => {
   });
 });
 
+describe('faixas de temperatura dos planetas com vida própria', () => {
+  // Um planeta cujo sorteio deu povo inteligente.
+  let id = '';
+  for (let k = 0; !id; k++) if (nativeLifeTier(`centro-${k}`, 0.9) === 'sapient') id = `centro-${k}`;
+  const planet = (temperatureK: number): PlanetParams => ({ id, name: 'X', radiusEarth: 1, temperatureK, water: 0.5, life: 0.9 });
+
+  it('o povo, o peixe e o tubarão nascem com a faixa centrada no planeta', () => {
+    for (const temperatureK of [260, 288, 330]) {
+      const list = nativeSpecies(planet(temperatureK));
+      for (const kind of ['sapient', 'fish', 'shark'] as const) {
+        const sp = list.find((s) => s.kind === kind)!;
+        expect(Math.abs((sp.tempMin + sp.tempMax) / 2 - temperatureK), `${kind} a ${temperatureK} K`).toBeLessThanOrEqual(0.5);
+      }
+    }
+  });
+
+  it('a Terra continua com as faixas conhecidas', () => {
+    const earth = nativeSpecies({ id: 'sol-3', name: 'Terra', radiusEarth: 1, temperatureK: 260, water: 0.7, life: 0.85 });
+    const before = nativeSpecies({ id: 'sol-3', name: 'Terra', radiusEarth: 1, temperatureK: 288, water: 0.7, life: 0.85 });
+    expect(earth).toEqual(before);
+  });
+});
+
 describe('ecossistema', () => {
   it('começa com população e aldeias', () => {
     const { eco } = world();
