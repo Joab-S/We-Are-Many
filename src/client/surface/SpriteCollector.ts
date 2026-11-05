@@ -160,7 +160,6 @@ export class SpriteCollector {
   collect(eco: Ecosystem, view: Viewport, layer: SpriteLayer, z: number, now: number, pos: CreaturePositions, visible?: VisibleCreatures): void {
     const w = view.width;
     const h = view.height;
-    const mw = eco.map.width;
     layer.begin(w, h);
     const small = z < 3.5;
     const off = (sx: number, sy: number, m: number) => sx < -m || sx > w + m || sy < -m || sy > h + m;
@@ -264,15 +263,6 @@ export class SpriteCollector {
         const sy = Y(r.y);
         if (off(sx, sy, MARGIN)) continue;
         this.building('ruin', sx, sy, z * 1.25, RUIN_TINT);
-      }
-      // Postos de pedágio nos passos de montanha (RF-VIDA-286).
-      for (const [t, owner] of eco.tolls) {
-        const o = eco.villages[owner];
-        if (!o || o.abandoned) continue;
-        const sx = X((t % mw) + 0.5);
-        const sy = Y(Math.floor(t / mw) + 1);
-        if (off(sx, sy, MARGIN)) continue;
-        this.building('toll', sx, sy, z * 0.9, eco.villages[o.kingdom].color);
       }
     }
     // De cima para baixo, para as construções da frente cobrirem as de trás (na ordem de chegada quando empatam).
@@ -532,7 +522,7 @@ export class SpriteCollector {
       if (c.cart > 0) {
         const cart = c.cart >= 2 ? 'wagon' : 'cart';
         const d = 0.8 + n * 0.85;
-        layer.push(left ? this.left(cart) : cart, bx(d), by(d) - z * 0.5, z * (c.cart >= 2 ? 0.95 : 0.7), home.color);
+        layer.push(left ? this.left(cart) : cart, bx(d), by(d) - z * 0.5, z * (c.cart >= 2 ? 1.05 : 0.8), home.color);
       }
       for (let k = n; k >= 1; k--) {
         const d = 0.15 + k * 0.85;
