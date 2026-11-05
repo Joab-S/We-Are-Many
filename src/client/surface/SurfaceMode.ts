@@ -53,7 +53,8 @@ const GRID_SLACK = 4;
 
 /**
  * Visão da superfície no estilo WorldBox (REQUISITOS.md, seção 4.7). Enquanto
- * este modo está ativo, nada do 3D fica carregado.
+ * este modo está ativo, nada do 3D fica carregado, a não ser nos 0,6 s de uma
+ * fusão com ele (`main.ts`).
  *
  * Esta classe só orquestra (padrão Component): a câmera (`Viewport`), o
  * relógio da simulação e a fila de comandos (`SimDriver`), o chão do mapa
@@ -131,6 +132,8 @@ export class SurfaceMode {
    * em qualquer computador.
    */
   private readonly renderer: SoftRenderer;
+  /** Chamado uma vez, depois do primeiro quadro desenhado. */
+  onOpen: (() => void) | null = null;
 
   constructor(
     private readonly shared: GameRenderer,
@@ -138,8 +141,10 @@ export class SurfaceMode {
     private readonly params: PlanetParams,
     hud: HTMLElement,
     private readonly onExit: () => void,
-    /** Câmera e velocidade de um save carregado. */
+    /** Câmera e velocidade de um save carregado, ou da nave que está pousando. */
     private readonly resume?: { center: [number, number]; zoom: number; speed: number },
+    /** Numa fusão, o mapa nasce invisível por cima do 3D, e parado até ela acabar: nem relógio, nem simulação, nem teclas. */
+    private fusing = false,
   ) {
     if (shared instanceof SoftRenderer) {
       this.renderer = shared;
@@ -148,11 +153,15 @@ export class SurfaceMode {
       this.renderer = new SoftRenderer();
       this.renderer.setPixelRatio(1);
       shared.domElement.after(this.renderer.domElement);
-      shared.domElement.style.display = 'none';
+      if (fusing) {
+        this.renderer.domElement.classList.add('fusion-layer');
+        this.renderer.domElement.style.opacity = '0';
+      } else shared.domElement.style.display = 'none';
     }
     this.input = new Input(this.renderer.domElement, false);
     this.root = document.createElement('div');
     this.root.className = 'surface-hud';
+    this.root.classList.toggle('fusing', fusing);
     this.root.innerHTML = `<div class="wb-loading">Observando a superfície de ${params.name}…</div>`;
     hud.appendChild(this.root);
     window.addEventListener('resize', this.resize, { signal: this.abort.signal });
@@ -254,6 +263,7 @@ export class SurfaceMode {
     this.tools = buildTools(state.knownSpecies.values());
 
     this.buildUi();
+    if (this.fusing) this.root.style.opacity = '0';
     if (DEBUG) this.debug = this.buildDebug(record.fromStart);
     this.resize();
     this.ready = true;
@@ -793,9 +803,9 @@ export class SurfaceMode {
     // Relógio do universo (órbitas e sondas, `state.time`): anda no tempo real enquanto a superfície roda e
     // para na pausa dela. A pausa congela o jogo inteiro, não só o planeta; a velocidade (2x, 5x) vale só
     // para a simulação da superfície, porque o ano do planeta já é outra escala (12 s por ano).
-    if (!this.driver.paused) this.state.time += dt;
+    if (!this.driver.paused && !this.fusing) this.state.time += dt;
     this.state.leftAt.set(this.params.id, this.state.time);
-    if (!this.keys(dt)) return;
+    if (!this.fusing && !this.keys(dt)) return;
     const eco = this.eco;
     const view = this.view;
     view.clampCenter();
@@ -818,7 +828,7 @@ export class SurfaceMode {
       this.driver.enqueue(look);
       this.lastLook = look;
     }
-    const steps = this.driver.update(dt);
+    const steps = this.fusing ? 0 : this.driver.update(dt);
     this.debug?.frame(now);
     this.vwin.onSteps(steps);
     if (!this.driver.paused) {
@@ -849,7 +859,51 @@ export class SurfaceMode {
     this.debug?.tick(eco, now);
     this.toolbar.updateCursor();
     this.input.endFrame();
+    if (this.onOpen) {
+      const open = this.onOpen;
+      this.onOpen = null;
+      open();
+    }
   };
+
+  // Fusão com o 3D ---------------------------------------------------------------
+
+  /**
+   * O mapa aparece. Ele nasce como o 3D mostra aquele ponto (no centro da tela e no tamanho da altitude) e vai para o lugar
+   * dele enquanto aparece: o zoom tem teto (`MAX_ZOOM`) e a vista não passa dos polos, e os dois sumiriam num salto.
+   */
+  fadeIn(ms: number): Animation[] {
+    const view = this.view;
+    view.clampCenter();
+    const want = this.resume!;
+    const scale = Math.min(4, Math.max(0.25, want.zoom / view.zoom));
+    const start = `scale(${scale}) translateY(${(want.center[1] - view.center.y) * view.zoom}px)`;
+    const options = { duration: ms, fill: 'both', easing: 'ease-in-out' } as const;
+    const canvas = this.renderer.domElement;
+    const fades = [canvas.animate([{ opacity: 0, transform: start }, { opacity: 1, transform: 'none' }], options), this.root.animate([{ opacity: 0 }, { opacity: 1 }], options)];
+    const areas = this.root.querySelector('[data-terr]');
+    if (areas) fades.push(areas.animate([{ transform: start }, { transform: 'none' }], options));
+    return fades;
+  }
+
+  /** A fusão de descida acabou: o mapa é a tela, e o 3D (que o chamador descarta) sai dela. */
+  fusionDone(): void {
+    const canvas = this.renderer.domElement;
+    canvas.classList.remove('fusion-layer');
+    canvas.style.opacity = '';
+    this.root.style.opacity = '';
+    this.root.classList.remove('fusing');
+    this.shared.domElement.style.display = 'none';
+    this.fusing = false;
+    this.lastTime = performance.now();
+  }
+
+  /** A esfera em órbita mostra o mesmo mapa, com as ruas; numa visão de depuração do gerador os pixels não são o mapa, e ela volta ao terreno pintado. */
+  private publishArt(): void {
+    if (!this.ready) return;
+    if (this.raster.geoView === 'none') this.state.surfaceArt.set(this.params.id, this.raster.pixels);
+    else this.state.surfaceArt.delete(this.params.id);
+  }
 
   /** Teclado do quadro. Devolve falso se o modo foi encerrado (Esc na mão vazia sem nada aberto). */
   private keys(dt: number): boolean {
@@ -955,10 +1009,8 @@ export class SurfaceMode {
     this.abort.abort();
     this.input.dispose();
     if (this.ready) {
-      // A esfera em órbita mostra o mesmo mapa, com as ruas. O raster morre aqui, então não precisa de cópia;
-      // numa visão de depuração do gerador os pixels não são o mapa, e a esfera volta ao terreno pintado.
-      if (this.raster.geoView === 'none') this.state.surfaceArt.set(this.params.id, this.raster.pixels);
-      else this.state.surfaceArt.delete(this.params.id);
+      // O raster morre aqui, então a esfera fica com os pixels dele sem cópia.
+      this.publishArt();
       this.driver.bus.clear();
       this.sprites.dispose();
       this.atlas.dispose();

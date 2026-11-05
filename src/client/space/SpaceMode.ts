@@ -4,6 +4,7 @@ import { createProbeState } from '../../explore/probes';
 import { createNavState } from '../../nav/guide';
 import { planetOffset, SOL_PLANETS, type PlanetData } from '../../nav/planets';
 import type { ViewSnapshot } from '../../save/snapshot';
+import { CAMERA_FOV, wantsLanding, type Landing } from '../fusion';
 import { Input } from '../input';
 import type { GameMode } from '../mode';
 import type { AdaptiveResolution } from '../quality';
@@ -11,7 +12,8 @@ import type { GameRenderer } from '../renderer';
 import { DEBUG } from '../debug';
 import type { GameState } from '../state';
 import { BackgroundWorlds } from './BackgroundWorlds';
-import { disposeGlowTexture, litSide, planetRadius, tileDirection } from './bodies';
+import { disposeGlowTexture, litSide, northOf, planetRadius, tileDirection } from './bodies';
+import { dirToUv } from './planet/sphere';
 import { gpuBytes } from './gpuBudget';
 import { CommandMap, KeyBindings, MANEUVERS } from './commands';
 import { disposeObject } from './dispose';
@@ -29,7 +31,8 @@ import { SystemManager, type CameraView } from './SystemManager';
 export const SPACE_MAX_DT = 0.25;
 
 export interface SpaceCallbacks {
-  onObserve(planet: PlanetData): void;
+  /** A nave desce a este planeta (a tecla F ou o pouso), sobre o ponto `landing`. */
+  onObserve(planet: PlanetData, landing: Landing): void;
 }
 
 /**
@@ -50,7 +53,7 @@ export interface SpaceCallbacks {
  */
 export class SpaceMode implements GameMode {
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(70, 1, 1e-6, 1e10);
+  private readonly camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 1e-6, 1e10);
   private readonly input: Input;
   private readonly stars: StarField;
   private readonly origin = new FloatingOrigin();
@@ -76,6 +79,10 @@ export class SpaceMode implements GameMode {
   private lastDpr = 0;
   private disposed = false;
   private readonly isDisposed = (): boolean => this.disposed;
+  /** Numa fusão com o mapa (`main.ts`) a nave para, o relógio também, e o laço só desenha. */
+  private fusion: 'down' | null = null;
+  /** Descendo, a nave vira para o chão, com o norte para cima como no mapa. */
+  private turn: { from: THREE.Quaternion; progress: () => number } | null = null;
 
   constructor(
     private readonly renderer: GameRenderer,
@@ -188,30 +195,35 @@ export class SpaceMode implements GameMode {
     this.lastTime = now;
     const state = this.state;
     const nav = state.nav;
-    state.time += dt;
-
-    // Comandos das teclas apertadas neste quadro (observar troca de modo: nada mais deste quadro).
-    this.commands.dispatch(this.input, this.bindings, this.isDisposed);
-    if (this.disposed) return;
+    if (!this.fusion) {
+      state.time += dt;
+      // Comandos das teclas apertadas neste quadro (observar troca de modo: nada mais deste quadro).
+      this.commands.dispatch(this.input, this.bindings, this.isDisposed);
+      if (this.disposed) return;
+    }
     this.systems.update(this.director.nearestStar);
     this.systems.updateBodies(state.time, nav.autopilot ? nav.target?.id ?? null : null);
-    // De volta da superfície: a nave retoma a órbita do planeta, olhando para ele.
-    const anchored = this.systems.restoreOrbit();
+    // De volta da superfície: a nave retoma a órbita do planeta, olhando para ele. Descendo, o pedido é o da descida, ainda por vir.
+    const anchored = this.fusion === 'down' ? null : this.systems.restoreOrbit();
     if (anchored) this.ship.lookAt(anchored.pos);
     const view = this.director.resolveView();
 
-    // Voo: o piloto automático desliga se o piloto mexer em algo ou o alvo sumir.
-    if (nav.autopilot) {
-      const manual = this.ship.takesOver(this.bindings.anyHit(this.input, MANEUVERS), this.input);
-      if (manual || !view) this.director.disengage(manual);
+    if (this.fusion) this.turnToGround();
+    else {
+      // Voo: o piloto automático desliga se o piloto mexer em algo ou o alvo sumir.
+      if (nav.autopilot) {
+        const manual = this.ship.takesOver(this.bindings.anyHit(this.input, MANEUVERS), this.input);
+        if (manual || !view) this.director.disengage(manual);
+      }
+      this.readFlightKeys();
+      this.ship.update(dt, this.keys, this.input, nav.autopilot ? view : null, nav.cruise, this.world);
+      if (this.director.checkArrival()) this.ship.halt();
     }
-    this.readFlightKeys();
-    this.ship.update(dt, this.keys, this.input, nav.autopilot ? view : null, nav.cruise, this.world);
-    if (this.director.checkArrival()) this.ship.halt();
     this.shipView.animate(dt, this.ship, state.shipQuat, this.camera);
 
     this.probes.frame(dt, state.shipPos, this.director.source, state.time);
-    this.background.frame(now);
+    // Numa fusão o mundo do planeta está com a superfície: nada começa em segundo plano.
+    if (!this.fusion) this.background.frame(now);
     this.stars.update(state.shipPos, now, this.resolution.pixelRatio);
     this.director.tick(now);
 
@@ -228,6 +240,7 @@ export class SpaceMode implements GameMode {
       this.hud.renderOrbitMenu();
       this.director.orbitEntered(this.systems.orbitBody);
     }
+    this.landIfDiving();
 
     this.renderer.autoClear = false;
     this.renderer.clear();
@@ -241,6 +254,39 @@ export class SpaceMode implements GameMode {
     this.guide.frame(state.shipPos, state.shipQuat, this.camera, this.director.view, this.ship.velocity);
     this.input.endFrame();
   };
+
+  /** Acelerando a prumo e já baixa, a nave pousa. Parada, não: ela pode olhar o chão de perto, e subir de novo. */
+  private landIfDiving(): void {
+    const b = this.systems.orbitBody;
+    if (this.fusion || !b?.quad || !this.keys.thrust) return;
+    const toGround = b.pos.clone().sub(this.state.shipPos);
+    const distance = toGround.length();
+    const nose = new THREE.Vector3(0, 0, -1).applyQuaternion(this.state.shipQuat);
+    if (wantsLanding(distance / b.radius - 1, nose.dot(toGround) / distance)) this.observe();
+  }
+
+  /** O começo de uma fusão: a nave e o relógio param, e as teclas deixam de valer. */
+  beginFusion(): void {
+    this.fusion = 'down';
+    this.hud.root.classList.add('fusing');
+  }
+
+  /** A nave vira para o chão enquanto a fusão anda, de 0 a 1 em `progress`. */
+  turnDown(progress: () => number): void {
+    this.turn = { from: this.state.shipQuat.clone(), progress };
+  }
+
+  private turnToGround(): void {
+    const b = this.systems.orbitBody;
+    if (!this.turn || !b) return;
+    const aim = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(this.state.shipPos, b.pos, northOf(b.surface!)));
+    this.state.shipQuat.slerpQuaternions(this.turn.from, aim, THREE.MathUtils.smoothstep(this.turn.progress(), 0, 1));
+  }
+
+  /** O HUD do espaço aparece ou some junto com a fusão. */
+  fadeHud(from: number, to: number, ms: number): Animation {
+    return this.hud.root.animate([{ opacity: from }, { opacity: to }], { duration: ms, fill: 'both', easing: 'ease-in-out' });
+  }
 
   /** Teclas de voo seguradas, pelas ligações de teclas. */
   private readFlightKeys(): void {
@@ -287,12 +333,16 @@ export class SpaceMode implements GameMode {
     });
   }
 
-  /** F: em órbita de um planeta rochoso, desce para a superfície (o modo é trocado na hora). */
+  /** F: em órbita de um planeta rochoso, desce para a superfície. */
   private observe(): void {
-    const p = this.systems.orbitBody?.planet;
-    if (p?.kind !== 'rocky') return;
+    const b = this.systems.orbitBody;
+    const p = b?.planet;
+    if (!b || p?.kind !== 'rocky' || this.fusion) return;
     this.systems.rememberOrbit();
-    this.callbacks.onObserve(p);
+    // O ponto do mapa sob a nave, no referencial do planeta.
+    const local = this.state.shipPos.clone().sub(b.pos).applyQuaternion(b.surface!.quaternion.clone().invert());
+    const altitude = local.length() / b.radius - 1;
+    this.callbacks.onObserve(p, { ...dirToUv(local.normalize()), altitude });
   }
 
   // Atalhos de teste da Fase 0 para saltar entre estrelas.

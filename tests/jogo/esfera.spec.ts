@@ -1,4 +1,4 @@
-import { capturar, esperarImagem, esperarOrbita, esperarSemCortina, expect, MAPA_MS, superficie, test, usaWebGL } from './apoio';
+import { capturar, espaco, esperarImagem, esperarOrbita, esperarSemCortina, expect, MAPA_MS, superficie, test, usaWebGL } from './apoio';
 
 /** Põe a nave sobre o polo do planeta em órbita, olhando para o centro: é onde o uv da esfera apertava a imagem. */
 async function sobreOPolo(page: import('@playwright/test').Page, raios: number): Promise<void> {
@@ -14,10 +14,59 @@ async function sobreOPolo(page: import('@playwright/test').Page, raios: number):
   }, raios);
 }
 
+/** O tile mais alto fora dos polos, do mapa adiantado da Terra. */
+function montanhaMaisAlta(page: import('@playwright/test').Page): Promise<{ u: number; v: number }> {
+  return page.evaluate(() => {
+    const map = window.space!.state.pregen!.map!;
+    let melhor = 0;
+    for (let i = 0; i < map.width * map.height; i++) {
+      const fora = Math.abs(i / map.width / map.height - 0.5) < 0.3;
+      if (fora && map.elevation[i] > map.elevation[melhor]) melhor = i;
+    }
+    return { u: (melhor % map.width) / map.width, v: Math.floor(melhor / map.width) / map.height };
+  });
+}
+
+/** Leva a nave a `raios` do centro, sobre o ponto, na hora do meio-dia dele; a prumo ou, com `rente`, olhando o horizonte. */
+function voarSobre(page: import('@playwright/test').Page, ponto: { u: number; v: number }, raios: number, rente: boolean): Promise<void> {
+  return page.evaluate(
+    ({ u, v, raios, rente }) => {
+      const space = window.space!;
+      const b = space.systems.orbitBody!;
+      const estrela = space.systems.system!.star;
+      const phi = u * Math.PI * 2;
+      const theta = v * Math.PI;
+      const direcao = () => b.pos.clone().set(-Math.cos(phi) * Math.sin(theta), Math.cos(theta), Math.sin(phi) * Math.sin(theta)).applyEuler(b.surface!.rotation);
+      // O planeta gira e o tempo corre entre as fotos: cada uma pega o meio-dia do lugar, ou a última sai à noite.
+      let melhor = space.state.time;
+      let maior = -2;
+      const inicio = space.state.time;
+      for (let i = 0; i < 300; i++) {
+        space.state.time = inicio + i * 0.5;
+        space.systems.updateBodies(space.state.time, null);
+        const sol = direcao().dot(estrela.pos.clone().sub(b.pos).normalize());
+        if (sol > maior) {
+          maior = sol;
+          melhor = space.state.time;
+        }
+      }
+      space.state.time = melhor;
+      space.systems.updateBodies(melhor, null);
+      const d = direcao();
+      space.state.shipPos.copy(b.pos).addScaledVector(d, raios * b.radius);
+      const lado = b.pos.clone().set(0, 0, 1).cross(d).normalize();
+      const mira = rente ? space.state.shipPos.clone().addScaledVector(lado, 0.2 * b.radius).addScaledVector(d, -0.015 * b.radius) : b.pos;
+      (space as unknown as { lookAt(t: unknown): void }).lookAt(mira);
+    },
+    { ...ponto, raios, rente },
+  );
+}
+
 test.describe('a esfera do rochoso', () => {
   test('no WebGL o rochoso usa o shader por longitude e latitude, sem costura no polo', async ({ page }, info) => {
     test.setTimeout(MAPA_MS + 60_000);
     await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
     await page.keyboard.press('Digit1');
     await esperarOrbita(page, 'Terra');
     await esperarSemCortina(page);
@@ -38,6 +87,7 @@ test.describe('a esfera do rochoso', () => {
   test('o mapa do planeta em órbita fica pronto antes de descer', async ({ page }) => {
     test.setTimeout(MAPA_MS + 60_000);
     await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
     await page.keyboard.press('Digit1');
     await esperarOrbita(page, 'Terra');
     await esperarSemCortina(page);
@@ -75,6 +125,7 @@ test.describe('a esfera do rochoso', () => {
   test('de perto, o quadtree toma o lugar da esfera', async ({ page }, info) => {
     test.setTimeout(MAPA_MS + 60_000);
     await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
     await page.keyboard.press('Digit1');
     await esperarOrbita(page, 'Terra');
     await esperarSemCortina(page);
@@ -103,6 +154,7 @@ test.describe('a esfera do rochoso', () => {
   test('a nave desce voando até perto do chão, sem atravessar, e anda com o planeta', async ({ page }, info) => {
     test.setTimeout(MAPA_MS + 120_000);
     await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
     await page.keyboard.press('Digit1');
     await esperarOrbita(page, 'Terra');
     await esperarSemCortina(page);
@@ -115,7 +167,16 @@ test.describe('a esfera do rochoso', () => {
         const b = systems.orbitBody!;
         return state.shipPos.distanceTo(b.pos) / b.radius - 1;
       });
-    // Acelera para baixo, como quem joga, e guarda a menor altitude de todos os quadros.
+    // Acelera para baixo, como quem joga, e guarda a menor altitude de todos os quadros. Inclinada 35° em relação ao prumo:
+    // a prumo ela pousaria (o último passo do teste).
+    await page.evaluate(() => {
+      const space = window.space!;
+      const b = space.systems.orbitBody!;
+      const baixo = b.pos.clone().sub(space.state.shipPos).normalize();
+      const lado = b.pos.clone().set(0, 0, 1).cross(baixo).normalize();
+      const mira = space.state.shipPos.clone().addScaledVector(baixo, Math.cos(0.61)).addScaledVector(lado, Math.sin(0.61));
+      (space as unknown as { lookAt(t: unknown): void }).lookAt(mira);
+    });
     await page.evaluate(() => {
       const w = window as unknown as { menor: number };
       w.menor = Infinity;
@@ -133,7 +194,7 @@ test.describe('a esfera do rochoso', () => {
     await page.keyboard.up('KeyW');
     await page.waitForTimeout(500);
     await esperarImagem(page, 'o chão na tela');
-    await capturar(page, info, 'a-prumo-0-05-raio');
+    await capturar(page, info, 'inclinada-0-05-raio');
 
     // Sem o motor, a nave para sobre o mesmo ponto do mapa, mesmo com o planeta girando embaixo.
     await page.waitForTimeout(3000);
@@ -156,63 +217,149 @@ test.describe('a esfera do rochoso', () => {
     await expect.poll(altitude, { timeout: 60_000, message: 'a nave chega ao piso' }).toBeLessThan(0.0205);
     await page.waitForTimeout(1000);
     await page.keyboard.up('KeyW');
-    await capturar(page, info, 'a-prumo-no-piso');
+    await capturar(page, info, 'inclinada-no-piso');
     const menor = await page.evaluate(() => (window as unknown as { menor: number }).menor);
     expect(menor, 'não atravessou o chão').toBeGreaterThanOrEqual(0.0199);
     const pedacos = await page.evaluate(() => window.space!.systems.orbitBody!.quad!.drawn);
     expect(pedacos).toBeLessThan(300);
+
+    // Parada a prumo, ela só olha; a prumo e acelerando, pousa.
+    await page.evaluate(() => {
+      const space = window.space!;
+      (space as unknown as { lookAt(t: unknown): void }).lookAt(space.systems.orbitBody!.pos);
+    });
+    await page.waitForTimeout(500);
+    await expect(page.locator('.surface-hud')).toHaveCount(0);
+    await page.keyboard.down('KeyW');
+    await expect(superficie(page)).toBeVisible({ timeout: 30_000 });
+    await page.keyboard.up('KeyW');
+    expect(await page.evaluate(() => window.space)).toBeUndefined();
+  });
+
+  test('a fusão: três fotos, a mesma célula no centro antes e depois', async ({ page }, info) => {
+    test.setTimeout(MAPA_MS + 90_000);
+    await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
+    await page.keyboard.press('Digit1');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    await expect.poll(() => page.evaluate(() => !!window.space!.systems.orbitBody!.quad), { timeout: MAPA_MS }).toBe(true);
+    await voarSobre(page, await montanhaMaisAlta(page), 1.04, false);
+    await page.waitForTimeout(1000);
+    const orbita0 = await page.evaluate(() => window.space!.gpuBytes());
+
+    // O centro da tela do 3D, no referencial do planeta, em (coluna, linha).
+    const noCentro3d = () =>
+      page.evaluate(() => {
+        const { state, systems } = window.space!;
+        const b = systems.orbitBody!;
+        const local = state.shipPos.clone().sub(b.pos).applyQuaternion(b.surface!.quaternion.clone().invert()).normalize();
+        const u = Math.atan2(local.z, -local.x) / (Math.PI * 2);
+        return { coluna: (u < 0 ? u + 1 : u) * 1024, linha: (Math.acos(local.y) / Math.PI) * 512 };
+      });
+    const antes = await noCentro3d();
+
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Performance.enable');
+    const heap = async () => {
+      await cdp.send('HeapProfiler.collectGarbage');
+      const { metrics } = await cdp.send('Performance.getMetrics');
+      return metrics.find((m) => m.name === 'JSHeapUsedSize')!.value;
+    };
+    await page.keyboard.press('KeyF');
+    // Pausa a fusão assim que ela começa: as fotos saem em momentos exatos, mesmo sem GPU.
+    await expect
+      .poll(() => page.evaluate(() => {
+        const fades = document.getAnimations().filter((a) => (a.effect as KeyframeEffect).target instanceof HTMLCanvasElement);
+        for (const a of document.getAnimations()) a.pause();
+        return fades.length;
+      }), { timeout: MAPA_MS })
+      .toBeGreaterThan(0);
+    const irPara = (ms: number) =>
+      page.evaluate((t) => {
+        for (const a of document.getAnimations()) a.currentTime = t;
+      }, ms);
+    await irPara(0);
+    await page.waitForTimeout(400);
+    await capturar(page, info, 'fusao-comeco');
+    await irPara(300);
+    await page.waitForTimeout(400);
+    await capturar(page, info, 'fusao-meio');
+    const pico = await page.evaluate(() => window.space!.gpuBytes());
+    const heapVivo = await heap();
+    await irPara(599);
+    await page.waitForTimeout(400);
+    await capturar(page, info, 'fusao-fim');
+
+    // No último quadro do 3D, a nave aponta para o chão, com o norte para cima; e a célula é a do centro do mapa.
+    const noFim = await page.evaluate(() => {
+      const { state, systems } = window.space!;
+      const b = systems.orbitBody!;
+      const nariz = state.shipQuat.clone();
+      const baixo = b.pos.clone().sub(state.shipPos).normalize();
+      const frente = baixo.clone().set(0, 0, -1).applyQuaternion(nariz);
+      const cima = baixo.clone().set(0, 1, 0).applyQuaternion(nariz);
+      const norte = baixo.clone().set(0, 1, 0).applyEuler(b.surface!.rotation);
+      const { center } = window.surface!.snapshotView();
+      return { prumo: frente.dot(baixo), norte: cima.dot(norte.addScaledVector(baixo, -norte.dot(baixo)).normalize()), coluna: center[0], linha: 512 - center[1] };
+    });
+    const depois = await noCentro3d();
+    expect(noFim.prumo, 'a prumo').toBeGreaterThan(0.999);
+    expect(noFim.norte, 'o norte para cima').toBeGreaterThan(0.99);
+    expect(Math.abs(depois.coluna - antes.coluna), 'a nave não se mexeu').toBeLessThan(0.5);
+    expect(Math.abs(noFim.coluna - depois.coluna), 'a mesma coluna no centro').toBeLessThan(1);
+    expect(Math.abs(noFim.linha - depois.linha), 'a mesma linha no centro').toBeLessThan(1);
+
+    await page.evaluate(() => {
+      for (const a of document.getAnimations()) a.play();
+    });
+    await expect(superficie(page)).toBeVisible();
+    expect(await page.evaluate(() => window.space)).toBeUndefined();
+    await expect(page.locator('#app canvas').first()).toBeHidden();
+    await esperarImagem(page, 'o mapa na tela');
+    await capturar(page, info, 'fusao-depois');
+    // O que a fusão custa a mais que a troca de antes é o espaço vivo junto com a superfície: os bytes dele na GPU, mais o heap que some quando ele é descartado.
+    const heapDepois = await heap();
+    const aMais = pico + Math.max(0, heapVivo - heapDepois);
+    console.log(`na fusão, o 3D ainda vivo ocupa ${(pico / 1048576).toFixed(1)} MB na GPU (${(orbita0 / 1048576).toFixed(1)} MB em órbita) e ${((heapVivo - heapDepois) / 1048576).toFixed(1)} MB de heap`);
+    expect(aMais, 'o pico da descida, além do que a superfície já ocupava').toBeLessThan(40 * 1048576);
+  });
+
+  test('o Esc sobe direto; a nave volta ao mesmo lugar, e não pousa de novo sozinha', async ({ page }) => {
+    test.setTimeout(MAPA_MS + 60_000);
+    await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
+    await page.keyboard.press('Digit1');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    await expect.poll(() => page.evaluate(() => !!window.space!.systems.orbitBody!.quad), { timeout: MAPA_MS }).toBe(true);
+    await page.evaluate(() => void window.space!.goToPlanet('Terra', 1.04));
+    await page.waitForTimeout(500);
+    await page.keyboard.press('KeyF');
+    await expect(superficie(page)).toBeVisible({ timeout: 30_000 });
+    await page.keyboard.press('Escape');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    await page.waitForTimeout(1000);
+    const altitude = await page.evaluate(() => {
+      const { state, systems } = window.space!;
+      const b = systems.orbitBody!;
+      return state.shipPos.distanceTo(b.pos) / b.radius - 1;
+    });
+    expect(altitude).toBeCloseTo(0.04, 3);
+    await expect(page.locator('.surface-hud')).toHaveCount(0);
   });
 
   test('rente à montanha mais alta, sem frestas entre os pedaços', async ({ page }, info) => {
     test.setTimeout(MAPA_MS + 60_000);
     await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
     await page.keyboard.press('Digit1');
     await esperarOrbita(page, 'Terra');
     await esperarSemCortina(page);
     await expect.poll(() => page.evaluate(() => !!window.space!.systems.orbitBody!.quad), { timeout: MAPA_MS }).toBe(true);
-    // O tile mais alto fora dos polos.
-    const alvo = await page.evaluate(() => {
-      const space = window.space!;
-      const map = space.state.pregen!.map!;
-      let melhor = 0;
-      for (let i = 0; i < map.width * map.height; i++) {
-        const fora = Math.abs(i / map.width / map.height - 0.5) < 0.3;
-        if (fora && map.elevation[i] > map.elevation[melhor]) melhor = i;
-      }
-      return { u: (melhor % map.width) / map.width, v: Math.floor(melhor / map.width) / map.height };
-    });
-    const voar = (raios: number, rente: boolean) =>
-      page.evaluate(
-        ({ u, v, raios, rente }) => {
-          const space = window.space!;
-          const b = space.systems.orbitBody!;
-          const estrela = space.systems.system!.star;
-          const phi = u * Math.PI * 2;
-          const theta = v * Math.PI;
-          const direcao = () => b.pos.clone().set(-Math.cos(phi) * Math.sin(theta), Math.cos(theta), Math.sin(phi) * Math.sin(theta)).applyEuler(b.surface!.rotation);
-          // O planeta gira e o tempo corre entre as fotos: cada uma pega o meio-dia do lugar, ou a última sai à noite.
-          let melhor = space.state.time;
-          let maior = -2;
-          const inicio = space.state.time;
-          for (let i = 0; i < 300; i++) {
-            space.state.time = inicio + i * 0.5;
-            space.systems.updateBodies(space.state.time, null);
-            const sol = direcao().dot(estrela.pos.clone().sub(b.pos).normalize());
-            if (sol > maior) {
-              maior = sol;
-              melhor = space.state.time;
-            }
-          }
-          space.state.time = melhor;
-          space.systems.updateBodies(melhor, null);
-          const d = direcao();
-          space.state.shipPos.copy(b.pos).addScaledVector(d, raios * b.radius);
-          const lado = b.pos.clone().set(0, 0, 1).cross(d).normalize();
-          const mira = rente ? space.state.shipPos.clone().addScaledVector(lado, 0.2 * b.radius).addScaledVector(d, -0.015 * b.radius) : b.pos;
-          (space as unknown as { lookAt(t: unknown): void }).lookAt(mira);
-        },
-        { ...alvo, raios, rente },
-      );
+    const alvo = await montanhaMaisAlta(page);
+    const voar = (raios: number, rente: boolean) => voarSobre(page, alvo, raios, rente);
     for (const [nome, raios, rente] of [
       ['a-prumo-0-15-raio', 1.15, false],
       ['a-prumo-0-05-raio', 1.05, false],
@@ -221,13 +368,15 @@ test.describe('a esfera do rochoso', () => {
     ] as const) {
       await voar(raios, rente);
       await page.waitForTimeout(1500);
-      await esperarImagem(page, nome, 0.2);
+      // Rente, o meio da tela é o céu: só faz sentido medir a prumo. Foto tirada na hora: o tempo corre, e o lugar anoitece.
+      if (!rente) await esperarImagem(page, nome, 0.2);
       await capturar(page, info, nome);
     }
   });
 
   test('sem WebGL, fica a esfera, e a nave para a 1,6 raio', async ({ page }, info) => {
     await page.goto('/?debug&soft');
+    await expect(espaco(page)).toBeVisible();
     await page.keyboard.press('Digit1');
     await esperarOrbita(page, 'Terra');
     await esperarSemCortina(page);
@@ -250,6 +399,7 @@ test.describe('a esfera do rochoso', () => {
   test('a medida da descida: chamadas de desenho e bytes na GPU, no painel DEV', async ({ page }) => {
     test.setTimeout(MAPA_MS + 60_000);
     await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
     await page.keyboard.press('Digit1');
     await esperarOrbita(page, 'Terra');
     await esperarSemCortina(page);
@@ -271,6 +421,7 @@ test.describe('a esfera do rochoso', () => {
 
   test('a borda azul da Terra e a alaranjada de Marte', async ({ page }, info) => {
     await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
     await page.keyboard.press('Digit1');
     await esperarOrbita(page, 'Terra');
     await esperarSemCortina(page);

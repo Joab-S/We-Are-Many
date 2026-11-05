@@ -89,6 +89,11 @@ export function axialTilt(p: PlanetData): number {
   return p.rings && Math.sin(tilt) < Math.sin(RING_TILT) ? RING_TILT : tilt;
 }
 
+/** O norte do planeta, na cena: o "para cima" do mapa da superfície. */
+export function northOf(surface: THREE.Object3D): THREE.Vector3 {
+  return tileDirection(surface, 0, 0);
+}
+
 /**
  * Põe o eixo da esfera perpendicular ao plano das órbitas (XY), inclinado em
  * torno de um eixo desse plano. A `SphereGeometry` tem os polos em ±Y; na ordem

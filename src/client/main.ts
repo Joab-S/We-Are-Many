@@ -11,7 +11,8 @@ import { createSaveUi } from './saveUi';
 import { nativeSpecies } from '../sim/species';
 import { createNavState } from '../nav/guide';
 import { createProbeState } from '../explore/probes';
-import type { PlanetParams } from '../procgen/surface';
+import { mapSizeFor, type PlanetParams } from '../procgen/surface';
+import { FUSION_MS, zoomAtAltitude, type Landing } from './fusion';
 import { planetParams, SOL_PLANETS } from './space/bodies';
 import { SpaceMode } from './space/SpaceMode';
 import type { GameMode } from './mode';
@@ -75,8 +76,34 @@ const saves = new SaveManager(indexedDbStore, (planetId) => seedFor(`${planetId}
 /** Falso se o armazenamento não respondeu ao ler: um save pode existir e não deve ser sobrescrito. */
 let canSave = true;
 
-/** Troca de modo: o modo atual é descartado por completo antes do próximo existir. */
+/** O outro modo, nos instantes em que dois estão vivos: o que espera para entrar ou o que está saindo, e as animações da troca. */
+let fusion: { other: GameMode; fades: Animation[] } | null = null;
+
+/** Interrompe uma fusão (carregar um save no meio dela, por exemplo): o outro modo é descartado na hora. */
+function stopFusion(): void {
+  if (!fusion) return;
+  const { other, fades } = fusion;
+  fusion = null;
+  for (const fade of fades) fade.cancel();
+  other.dispose();
+}
+
+/** Deixa as animações correrem e, no fim, chama `done`; se a fusão for interrompida antes, não chama. */
+function whenFaded(other: GameMode, fades: Animation[], done: () => void): void {
+  const current = (fusion = { other, fades });
+  void Promise.all(fades.map((fade) => fade.finished))
+    .then(() => {
+      if (fusion !== current) return;
+      fusion = null;
+      done();
+      for (const fade of fades) fade.cancel();
+    })
+    .catch(() => {});
+}
+
+/** Troca de modo sem fusão: o modo atual é descartado por completo antes do próximo existir. */
 function switchTo(create: () => GameMode): void {
+  stopFusion();
   mode?.dispose();
   mode = null;
   const fade = document.getElementById('fade')!;
@@ -91,12 +118,59 @@ function switchTo(create: () => GameMode): void {
 function enterSpace(state: GameState): void {
   // Ao sair da superfície (ou ao começar no espaço) o estado fica salvo.
   void autosave({ mode: 'space' });
-  switchTo(() => new SpaceMode(renderer, resolution, state, hud, { onObserve: (p) => enterSurface(state, planetParams(p)) }));
+  switchTo(() => createSpace(state));
+}
+
+function createSpace(state: GameState): SpaceMode {
+  const space: SpaceMode = new SpaceMode(renderer, resolution, state, hud, {
+    onObserve: (p, landing) => {
+      // Sem WebGL, o espaço e o mapa dividem o mesmo canvas: não há dois para fundir.
+      if (soft) enterSurface(state, planetParams(p));
+      else land(state, planetParams(p), space, landing);
+    },
+  });
+  return space;
+}
+
+function createSurface(state: GameState, params: PlanetParams, resume?: ConstructorParameters<typeof SurfaceMode>[5], fusing = false): SurfaceMode {
+  return new SurfaceMode(
+    renderer,
+    state,
+    params,
+    hud,
+    () => {
+      if (!fusion) enterSpace(state);
+    },
+    resume,
+    fusing,
+  );
 }
 
 function enterSurface(state: GameState, params: PlanetParams, resume?: ConstructorParameters<typeof SurfaceMode>[5]): void {
-  switchTo(() => new SurfaceMode(renderer, state, params, hud, () => enterSpace(state), resume));
+  switchTo(() => createSurface(state, params, resume));
 }
+
+/**
+ * Descida: o mapa é preparado por trás do 3D, que continua desenhando, com a nave parada, até a superfície estar pronta
+ * (o mapa e o pôr em dia podem levar segundos). Só então os dois se fundem, e o espaço é descartado no fim.
+ */
+function land(state: GameState, params: PlanetParams, space: SpaceMode, landing: Landing): void {
+  space.beginFusion();
+  const { width, height } = mapSizeFor(params.radiusEarth);
+  const resume = { center: [landing.u * width, (1 - landing.v) * height] as [number, number], zoom: zoomAtAltitude(landing.altitude, window.innerHeight, height), speed: 1 };
+  const surface = createSurface(state, params, resume, true);
+  fusion = { other: surface, fades: [] };
+  surface.onOpen = () => {
+    mode = surface;
+    const fades = [...surface.fadeIn(FUSION_MS), space.fadeHud(1, 0, FUSION_MS)];
+    space.turnDown(() => Number(fades[0].currentTime ?? 0) / FUSION_MS);
+    whenFaded(space, fades, () => {
+      space.dispose();
+      surface.fusionDone();
+    });
+  };
+}
+
 
 function startFrom(state: GameState, view: ViewSnapshot): void {
   current = state;

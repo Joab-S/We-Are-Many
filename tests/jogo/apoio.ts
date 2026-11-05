@@ -35,7 +35,7 @@ export const MAPA_MS = 120_000;
 export const espaco = (page: Page) => page.locator('.space-hud .hud-help');
 export const orbita = (page: Page) => page.locator('.space-hud .hud-orbit');
 /** O botão de voltar à órbita só existe depois que o mapa da superfície ficou pronto e o laço começou. */
-export const superficie = (page: Page) => page.locator('.surface-hud [data-a="back"]');
+export const superficie = (page: Page) => page.locator('.surface-hud:not(.fusing) [data-a="back"]');
 
 /** Espera o menu de órbita do planeta. Pelo texto visível: o CSS põe em maiúsculas, e no `hidden` ele fica vazio. */
 export async function esperarOrbita(page: Page, planeta: string): Promise<void> {
