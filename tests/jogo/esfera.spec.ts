@@ -247,6 +247,28 @@ test.describe('a esfera do rochoso', () => {
     await capturar(page, info, 'sem-webgl-1-6-raio');
   });
 
+  test('a medida da descida: chamadas de desenho e bytes na GPU, no painel DEV', async ({ page }) => {
+    test.setTimeout(MAPA_MS + 60_000);
+    await page.goto('/?debug');
+    await page.keyboard.press('Digit1');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    await expect.poll(() => page.evaluate(() => !!window.space!.systems.orbitBody!.quad), { timeout: MAPA_MS }).toBe(true);
+    await page.locator('.dev-pill').click();
+    const medir = () => page.evaluate(() => ({ chamadas: window.space!.drawCalls, bytes: window.space!.gpuBytes() }));
+    for (const raios of [1.6, 1.2, 1.05, 1.02]) {
+      await page.evaluate((r) => void window.space!.goToPlanet('Terra', r), raios);
+      await page.waitForTimeout(1500);
+      const { chamadas, bytes } = await medir();
+      console.log(`a ${raios} raios: ${chamadas} chamadas de desenho, ${(bytes / 1048576).toFixed(1)} MB na GPU`);
+      expect(chamadas).toBeGreaterThan(0);
+      expect(chamadas).toBeLessThan(300);
+      expect(bytes).toBeLessThan(64 * 1048576);
+    }
+    await expect(page.locator('[data-h="drawCalls"]')).toHaveText(/^\d+$/);
+    await expect(page.locator('[data-h="gpuBytes"]')).toHaveText(/\d MB$/);
+  });
+
   test('a borda azul da Terra e a alaranjada de Marte', async ({ page }, info) => {
     await page.goto('/?debug');
     await page.keyboard.press('Digit1');

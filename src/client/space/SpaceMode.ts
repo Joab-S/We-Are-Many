@@ -12,6 +12,7 @@ import { DEBUG } from '../debug';
 import type { GameState } from '../state';
 import { BackgroundWorlds } from './BackgroundWorlds';
 import { disposeGlowTexture, litSide, planetRadius, tileDirection } from './bodies';
+import { gpuBytes } from './gpuBudget';
 import { CommandMap, KeyBindings, MANEUVERS } from './commands';
 import { disposeObject } from './dispose';
 import { FloatingOrigin } from './FloatingOrigin';
@@ -65,6 +66,8 @@ export class SpaceMode implements GameMode {
   private readonly bindings = new KeyBindings();
   private readonly commands: CommandMap;
   private readonly keys: FlightKeys = { thrust: false, brake: false, left: false, right: false, up: false, down: false, rollLeft: false, rollRight: false, turbo: false };
+  /** Chamadas de desenho do mundo no último quadro, sem a vista da nave (painel DEV). */
+  drawCalls = 0;
   private readonly cameraView: CameraView = { quaternion: new THREE.Quaternion(), halfAngle: 1, pixelsPerRadian: 1 };
   private raf = 0;
   private lastTime = performance.now();
@@ -128,6 +131,7 @@ export class SpaceMode implements GameMode {
       guide: this.guide,
       probes: this.probes,
       renderer,
+      gpu: this,
       resolution,
       input: this.input,
       camera: this.camera,
@@ -165,6 +169,11 @@ export class SpaceMode implements GameMode {
     this.camera.updateProjectionMatrix();
     this.shipView.resize(w / h);
   };
+
+  /** Estimativa dos bytes do mundo na GPU (painel DEV). */
+  gpuBytes(): number {
+    return gpuBytes(this.scene);
+  }
 
   /** Um quadro do espaço: passo variável, limitado a SPACE_MAX_DT (ver mode.ts). */
   private readonly frame = (now: number): void => {
@@ -223,6 +232,8 @@ export class SpaceMode implements GameMode {
     this.renderer.autoClear = false;
     this.renderer.clear();
     this.renderer.render(this.scene, this.camera);
+    // Lido aqui: a vista da nave, logo abaixo, zera a conta.
+    this.drawCalls = this.renderer.info.render?.calls ?? 0;
     this.renderer.clearDepth();
     this.shipView.render(this.renderer);
 
