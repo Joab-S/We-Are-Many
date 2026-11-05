@@ -36,6 +36,18 @@ function world(n = 1): SimTarget<Ev> & { steps: number[]; x: Float32Array; y: Fl
 }
 
 describe('SimDriver: passo fixo, teto e interpolação', () => {
+  it('avisa depois de cada passo, com o número dele, no relógio e no Avançar', () => {
+    const w = world();
+    const d = new SimDriver<never, Ev>(w, () => {});
+    const seen: [number, number][] = [];
+    d.afterStep = (tick) => seen.push([tick, w.steps.length]);
+    d.update(SIM_STEP * 2);
+    d.stepBy(3);
+    expect(seen.map(([tick]) => tick)).toEqual([1, 2, 3, 4, 5]);
+    // O passo já aconteceu quando o aviso chega.
+    for (const [tick, steps] of seen) expect(steps).toBe(tick);
+  });
+
   it('usa o mesmo passo da calibração em todas as velocidades', () => {
     expect(SIM_STEP).toBe(0.25);
     for (let s = 1; s < SPEEDS.length; s++) {

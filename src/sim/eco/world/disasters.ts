@@ -4,7 +4,8 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
+import { isSlowRotator } from '../../../procgen/climate';
 import { windAt } from '../../climate';
 import { Biome, classify, temperatureAt } from '../../../procgen/surface';
 import { wrapDx } from '../../settlement';
@@ -310,7 +311,7 @@ export const disastersPart = {
   /** Um incêndio de mata: anda com o vento a partir de (x, y), queimando o que é lenhoso. */
   burn(this: Ecosystem, x: number, y: number): void {
     const map = this.map;
-    const wind = windAt(y, map.height);
+    const wind = windAt(y, map.height, isSlowRotator(map.params));
     let burnt = 0;
     let fx = x;
     let fy = y;

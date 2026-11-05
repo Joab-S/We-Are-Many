@@ -17,9 +17,12 @@ export function snapshotGame(state: GameState, view: ViewSnapshot, seeds: (plane
     ship: { pos: state.shipPos.toArray(), quat: state.shipQuat.toArray() as [number, number, number, number] },
     time: state.time,
     orbitPlanetId: state.orbitPlanetId,
+    orbitSpin: state.orbitSpin ?? null,
     orbitOffset: state.orbitOffset ? ([state.orbitOffset.x, state.orbitOffset.y, state.orbitOffset.z] as [number, number, number]) : null,
     surfaces: state.surfaces,
     ecosystems: new Map([...state.ecosystems].map(([id, eco]) => [id, snapshotEcosystem(eco, seeds(id))])),
+    replays: state.replays,
+    leftAt: state.leftAt,
     knownSpecies: state.knownSpecies,
     nav: state.nav,
     probes: state.probes,
@@ -41,10 +44,15 @@ export function restoreGame(raw: unknown, base: Pick<GameState, 'manifest' | 'na
     surfaceArt: new Map(),
     orbitPlanetId: d.orbitPlanetId,
     orbitOffset: d.orbitOffset ? new THREE.Vector3().fromArray(d.orbitOffset) : null,
+    orbitSpin: d.orbitSpin ?? null,
     ecosystems,
+    replays: d.replays ?? new Map(),
+    leftAt: d.leftAt ?? new Map(),
     knownSpecies: d.knownSpecies,
-    nav: d.nav,
-    probes: d.probes,
+    // Save de antes dos sinais do GUIA.
+    nav: { ...d.nav, signals: d.nav.signals ?? [], worlds: d.nav.worlds ?? {} },
+    // Save de antes do porão de criaturas.
+    probes: { ...d.probes, specimens: d.probes.specimens ?? {} },
   };
   return { state, view: d.view, savedAt: d.savedAt };
 }

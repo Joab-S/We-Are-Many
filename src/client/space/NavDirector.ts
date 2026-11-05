@@ -7,6 +7,7 @@ import {
   formatEta,
   POI_INTEREST,
   rankSuggestions,
+  signalCandidate,
   starInterest,
   type Candidate,
   type NavTarget,
@@ -454,7 +455,9 @@ export class NavDirector {
           : tier === 'sapient' ? 6 : tier === 'animals' ? 5 : tier === 'plants' ? 4.2
           : inZone ? 3.5 : p.kind === 'rocky' ? 1.8 : p.rings ? 1.6 : 1.1;
         const reason = tier !== 'none' ? `${LIFE_LABEL[tier][0].toUpperCase()}${LIFE_LABEL[tier].slice(1)}` : inZone ? 'Rochoso na zona habitável' : `${PLANET_KIND_LABEL[p.kind]} ainda não visitado`;
-        cands.push({ target, distAu: dist, arriveAu: b.radius * 3, interest, reason: visited ? 'Já visitado' : reason });
+        if (this.state.ecosystems.has(p.id)) nav.worlds[p.id] = target;
+        const signal = nav.signals.find((s) => s.planet === p.id);
+        cands.push(signal ? signalCandidate(signal, target, dist, b.radius * 3) : { target, distAu: dist, arriveAu: b.radius * 3, interest, reason: visited ? 'Já visitado' : reason });
       }
       for (const b of sys.comets) {
         const target: NavTarget = { kind: 'comet', id: b.id!, name: b.name, pos: toTuple(sys.star.pos), starId: sys.starId, arrive: sysArrive, info: 'Cometa · gelo e poeira, cauda apontando para longe da estrela' };
@@ -462,6 +465,11 @@ export class NavDirector {
         entries.push({ key: b.id!, group: 'system', target, name: b.name, pos: b.pos, dist, arrive: 0.005, color: '#aee8ff', detail: 'Cometa' });
         cands.push({ target, distAu: dist, arriveAu: 0.005, interest: nav.visitedBodies.has(b.id!) ? 0.2 : 2, reason: 'Cometa com cauda, perto da estrela' });
       }
+    }
+    // Um sinal de planeta em outro sistema: vale a distância até a estrela dele.
+    for (const s of nav.signals) {
+      const target = nav.worlds[s.planet];
+      if (target && !sys?.planets.some((b) => b.planet!.id === s.planet)) cands.push(signalCandidate(s, target, new THREE.Vector3(...target.pos).distanceTo(ship), target.arrive));
     }
     for (const b of nav.bookmarks) {
       const pos = new THREE.Vector3(...b.pos);

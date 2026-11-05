@@ -2,8 +2,12 @@ import type { ViewSnapshot } from '../save/snapshot';
 
 /**
  * Modo de jogo (padrões State e Game Loop): o espaço 3D e a superfície 2D.
- * O main.ts só conhece esta interface; ele cria o modo, chama `start` e, na
- * troca, descarta o modo atual por completo antes de criar o próximo.
+ * O main.ts só conhece esta interface; ele cria o modo e chama `start`. Numa
+ * troca simples (Esc, carregar um save, sem WebGL), descarta o modo atual por
+ * completo antes de criar o próximo. Na fusão (tecla F, pouso, afastar além do
+ * zoom mínimo), os dois ficam vivos por um instante, o espaço parado e a
+ * superfície sem simulação, e só um anda o relógio de cada vez: o main.ts cruza
+ * os dois e descarta o que saiu.
  *
  * Cada modo roda o próprio laço com requestAnimationFrame (um quadro por
  * atualização da tela) e mede o tempo com o `now` que o navegador entrega:

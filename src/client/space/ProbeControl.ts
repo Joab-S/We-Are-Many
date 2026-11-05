@@ -52,6 +52,7 @@ export class ProbeControl {
     private readonly scene: THREE.Scene,
     private readonly say: (text: string, tone?: 'info' | 'good' | 'warn') => void,
     private readonly log: (text: string) => void,
+    private readonly speciesName: (id: string) => string,
   ) {
     this.panel = document.createElement('div');
     this.panel.className = 'hud-panel probe-panel';
@@ -145,6 +146,9 @@ export class ProbeControl {
     const cargo = RESOURCES.filter((r) => s.cargo[r] >= 0.5)
       .map((r) => `<span>${RESOURCE_LABEL[r]}</span><b>${Math.round(s.cargo[r]).toLocaleString('pt-BR')} t</b>`)
       .join('');
+    const living = Object.entries(s.specimens)
+      .map(([id, n]) => `<span>${esc(this.speciesName(id))}</span><b>${n}</b>`)
+      .join('');
     const hints: string[] = [];
     const main = this.pick(false);
     const ring = this.pick(true);
@@ -161,7 +165,7 @@ export class ProbeControl {
       ${rows || '<div class="probe-empty">Nenhuma sonda em missão.</div>'}
       ${hints.join('') || '<div class="probe-empty">Aproxime-se de um planeta rochoso, anel, cometa ou destroço para enviar uma sonda.</div>'}
       <div class="probe-sec">Porão</div>
-      ${cargo ? `<div class="probe-cargo">${cargo}</div>` : '<div class="probe-empty">Vazio.</div>'}`;
+      ${cargo || living ? `<div class="probe-cargo">${cargo}${living}</div>` : '<div class="probe-empty">Vazio.</div>'}`;
     // Refeito 10 vezes por segundo: só reescreve o DOM quando algo mudou.
     if (html === this.html) return;
     this.html = html;

@@ -175,9 +175,12 @@ describe('construções e o terreno', () => {
     const { eco } = world();
     const v = eco.villages[0];
     run(eco, YEAR_SECONDS * 15);
-    const houses = v.houses.length;
+    // O pincel é largo: as casas de um vizinho perto também caem, e entram na conta.
+    const houses = () => eco.villages.reduce((sum, o) => sum + o.houses.length, 0);
+    const before = houses();
     const n = eco.demolish(v.x, v.y, 30);
-    expect(n).toBe(houses);
+    expect(n).toBe(before - houses());
+    expect(n).toBeGreaterThan(0);
     expect(v.houses.length).toBe(0);
   });
 

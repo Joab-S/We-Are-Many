@@ -7,6 +7,7 @@
 import { it } from 'vitest';
 import { LONG_TARGETS, reportRows, runWorld, type Indicators } from './calibrate';
 import { YEAR_SECONDS } from './ecosystem';
+import { OTHER_PLANETS } from './planetas';
 
 const env = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process.env;
 
@@ -31,7 +32,11 @@ ${reportRows(runs, LONG_TARGETS, keys).join('\n')}
 `;
   // Sem tipos do Node no projeto: o módulo é carregado pelo nome.
   const fsName = 'node:fs';
-  const fs = (await import(/* @vite-ignore */ fsName)) as { writeFileSync: (path: string, text: string) => void };
-  fs.writeFileSync(env.SAIDA ?? 'docs/CALIBRACAO-LONGA.md', text);
+  const fs = (await import(/* @vite-ignore */ fsName)) as { existsSync: (path: string) => boolean; readFileSync: (path: string, enc: string) => string; writeFileSync: (path: string, text: string) => void };
+  const path = env.SAIDA ?? 'docs/CALIBRACAO-LONGA.md';
+  // A seção dos outros planetas é de `npm run calibrar:planetas`: fica.
+  const before = fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : '';
+  const others = before.indexOf(OTHER_PLANETS);
+  fs.writeFileSync(path, others >= 0 ? `${text}\n${before.slice(others)}` : text);
   console.log(text);
 });

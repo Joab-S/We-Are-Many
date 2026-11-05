@@ -13,7 +13,7 @@ import * as constantsModule from '../constants';
 import type { EcoCells } from '../cells';
 
 // Cópias locais dos valores importados (eco/*, fauna, superfície; o porquê está em ecosystem.ts).
-const { DECISIONS_PER_YEAR, ECO_CELL, ecologyOf, EDIBLE, FOOD_MIN, HUNGRY, hunts, ANIMAL_PACE, metabolic, REFUGE, SATED, TANK_KG } = faunaModule;
+const { DECISIONS_PER_YEAR, ECO_CELL, ecologyOf, EDIBLE, FOOD_MIN, HUNGRY, hunts, preysOn, ANIMAL_PACE, metabolic, REFUGE, SATED, TANK_KG } = faunaModule;
 const { wrapDx } = settlementModule;
 const { temperatureAt } = surfaceModule;
 const { ACT, MAX_CARCASSES, REFUGES } = constantsModule;
@@ -213,7 +213,7 @@ export const faunaFoodPart = {
       const k = this.kind[j];
       if (k === s || !this.wild(k)) continue;
       const pe = ecologyOf(this.species[k]);
-      if (!hunts(pe) || hunts(e) || e.mass > pe.maxPrey * (pe.pack ? 3 : 1)) continue;
+      if (!preysOn(pe, e) || e.mass > pe.maxPrey * (pe.pack ? 3 : 1)) continue;
       const dx = near.dx[n];
       const dy = near.dy[n];
       const d = dx * dx + dy * dy;
@@ -259,7 +259,7 @@ export const faunaFoodPart = {
       const pe = ecologyOf(this.species[k]);
       // Filhote de bicho grande é presa possível (leões pegam elefantes jovens).
       const mass = this.age[j] < this.species[k].maturity ? pe.mass * 0.3 : pe.mass;
-      if (hunts(pe) || mass > limit || mass < min) continue;
+      if (!preysOn(e, pe) || mass > limit || mass < min) continue;
       seen[k]++;
       cand[n * 3] = j;
       cand[n * 3 + 1] = dx;

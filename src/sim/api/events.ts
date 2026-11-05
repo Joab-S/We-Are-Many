@@ -32,6 +32,9 @@ export type MigrateCause = 'move' | 'lastWave' | 'refuge';
 /** Desastres e catástrofes: os eventos do mundo (cometa, terremoto...) e os do próprio mundo vivo (raio, epidemia, lugar tragado). */
 export type DisasterKind = 'comet' | 'quake' | 'volcano' | 'island' | 'fire' | 'drought' | 'plague' | 'wildfire' | 'epidemic' | 'engulfed';
 
+/** Os apertos que fazem um planeta pedir ajuda. */
+export type IndicatorKind = 'fome' | 'calor' | 'frio';
+
 export type EngineEvent =
   /** Assentamento novo: `from` é o lugar de onde vieram os fundadores (-1 sem origem: bando, nômades, o jogador). */
   | { kind: 'found'; year: number; village: number; from: number; how: FoundHow; x: number; y: number }
@@ -83,7 +86,11 @@ export type EngineEvent =
   /** Desastre num ponto (tile x, linha y); `village` é o lugar atingido, se houver. */
   | { kind: 'disaster'; year: number; what: DisasterKind; x: number; y: number; village: number }
   /** A espécie (índice em `eco.species`) sumiu do planeta. */
-  | { kind: 'extinction'; year: number; species: number };
+  | { kind: 'extinction'; year: number; species: number }
+  /** Espécie nova no planeta (uma variante que surgiu, ou uma que chegou de fora): `species` é o índice em `eco.species`. */
+  | { kind: 'species'; year: number; species: number }
+  /** O planeta passou do limiar de um aperto (fome ou clima contra o povo): uma vez por travessia, e o GUIA avisa. */
+  | { kind: 'indicator'; year: number; what: IndicatorKind; value: number };
 
 export type EngineEventKind = EngineEvent['kind'];
 
@@ -95,6 +102,56 @@ export type EventOf<K extends EngineEventKind> = Extract<EngineEvent, { kind: K 
  * antigos saem e a fila não cresce sem fim. Um ano movimentado dá algumas dezenas de eventos.
  */
 export const EVENT_QUEUE_LIMIT = 2048;
+
+/**
+ * Lendas: os eventos que contam a história do mundo, guardados no save (modo lendas). A fila acima é
+ * entregue e esvazia; isto fica. Ficam de fora o miúdo que passa aos milhares (a família que se mudou, o sítio aberto,
+ * o barco de colonos: a fundação conta a parte que importa), a técnica que não é a primeira do mundo e o fogo ou a
+ * seca que não pegou lugar nenhum (três de cada quatro desastres, medido em 250 anos de um planeta do tamanho da Terra).
+ */
+export type LegendEvent = Exclude<EngineEvent, { kind: 'farmstead' | 'migrate' | 'colony' | 'indicator' }>;
+
+/** Uma lenda: o evento e o reino (id da capital) que o viveu naquele ano; -1 quando não é de reino nenhum. */
+export type LegendEntry = LegendEvent & { realm: number };
+
+/** Limite de segurança: passando disso, os mais antigos saem (e `eco.legendsLost` conta quantos). */
+export const LEGENDS_LIMIT = 30_000;
+
+export function isLegend(e: EngineEvent): e is LegendEvent {
+  if (e.kind === 'farmstead' || e.kind === 'migrate' || e.kind === 'colony' || e.kind === 'indicator') return false;
+  if (e.kind === 'tech') return e.first && !e.lost;
+  if (e.kind === 'disaster') return e.village >= 0 || e.what === 'comet' || e.what === 'quake' || e.what === 'volcano' || e.what === 'island';
+  return true;
+}
+
+/** O reino de um evento quando ele aconteceu: quem age, ou o dono do lugar onde foi. */
+export function legendRealm(e: LegendEvent, realmOf: (village: number) => number): number {
+  switch (e.kind) {
+    case 'warStart':
+    case 'warEnd':
+      return e.a;
+    case 'conquest':
+      return e.winner;
+    case 'revolt':
+      return e.against;
+    case 'annex':
+      return e.to;
+    case 'fission':
+      return realmOf(e.from);
+    case 'extinction':
+    case 'species':
+      return -1;
+    case 'disaster':
+      return e.village >= 0 ? realmOf(e.village) : -1;
+    default:
+      return realmOf(e.village);
+  }
+}
+
+/** A história de um reino: o que ele viveu, e tudo em que a capital dele aparece (a guerra do outro lado, a própria fundação). */
+export function isOfRealm(e: LegendEntry, realm: number): boolean {
+  return e.realm === realm || eventVillages(e).includes(realm);
+}
 
 /** Ids dos assentamentos envolvidos num evento (para quem acompanha um lugar, como a janela do assentamento). */
 export function eventVillages(e: EngineEvent): number[] {
@@ -123,6 +180,8 @@ export function eventVillages(e: EngineEvent): number[] {
     case 'disaster':
       return e.village >= 0 ? [e.village] : [];
     case 'extinction':
+    case 'species':
+    case 'indicator':
       return [];
     default:
       return [e.village];

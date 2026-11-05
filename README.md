@@ -18,7 +18,7 @@ npm test           # a suíte inteira (vitest); ver "Testando"
 npm run build      # checagem de tipos + build de produção em dist/
 ```
 
-Sem WebGL (aceleração de hardware desligada ou GPU bloqueada), o jogo usa sozinho um renderizador por software em Canvas 2D, com visual simplificado. Para testar esse modo, abra com `?soft` no endereço.
+Sem WebGL (aceleração de hardware desligada ou GPU bloqueada), o jogo usa sozinho um renderizador por software em Canvas 2D (a descida livre não existe nele: a nave para a 1,6 raio do planeta, e dali se entra no mapa com F), com visual simplificado. Para testar esse modo, abra com `?soft` no endereço.
 
 Os chunks de estrelas já estão versionados em `public/universe/v1/`. Para gerá-los de novo a partir do catálogo HYG (só biblioteca padrão do Python):
 
@@ -82,7 +82,8 @@ Para uma cena nova, acrescente uma função em `src/client/cenas.ts`.
 | Tab | Turbo (energia limitada, recarrega sozinha) |
 | Roda do mouse | Potência do motor |
 | C | Cruzeiro: mantém a velocidade sem segurar W |
-| F | Observar a superfície (em órbita de um planeta rochoso) |
+| F | Observar a superfície (em órbita de um planeta rochoso): o 3D se funde com o mapa, no ponto sob a nave |
+| W a prumo, perto do chão | Pousa: abaixo de 0,05 raio, a menos de 20° do prumo, o mesmo que o F |
 | G | Painel do GUIA: sugestões, sistema atual, estrelas, pontos de interesse, marcadores, busca e diário de bordo |
 | Ctrl K | Busca do GUIA (a mesma lista do G), em qualquer lugar do espaço |
 | T | Trava como alvo o que estiver na mira |
@@ -98,7 +99,7 @@ Para uma cena nova, acrescente uma função em `src/client/cenas.ts`.
 |---|---|
 | Botão esquerdo | Usa a ferramenta selecionada |
 | Botão direito ou meio, WASD | Move o mapa |
-| Roda do mouse | Zoom (com zoom alto aparecem árvores, casas e criaturas em pixel art) |
+| Roda do mouse | Zoom (com zoom alto aparecem árvores, casas e criaturas em pixel art). No zoom mínimo, um novo giro para trás sobe de volta ao espaço |
 | Abas Terreno / Vida / Civilização | Ferramentas de terraformação, espécies e aldeias |
 | Espaço | Pausa ou retoma o tempo (painel da direita: pausa, 1x, 2x, 5x) |
 | Nome de uma aldeia no painel | Leva a câmera até ela |
@@ -108,7 +109,7 @@ Para uma cena nova, acrescente uma função em `src/client/cenas.ts`.
 ## O que a Fase 0 prova
 
 1. **Campo de estrelas real:** 109 mil estrelas do HYG, convertidas para coordenadas galácticas e divididas em 116 chunks numa octree, carregados conforme a posição da nave e guardados em cache no IndexedDB.
-2. **Escala contínua:** origem flutuante (a câmera fica sempre na origem), depth buffer logarítmico e velocidade adaptativa. O voo vai do espaço interestelar até a órbita da Terra sem tela de carregamento.
+2. **Escala contínua:** origem flutuante (a câmera fica sempre na origem), depth buffer logarítmico e velocidade adaptativa. O voo vai do espaço interestelar até a órbita da Terra sem tela de carregamento. A descida também: com WebGL, a nave voa até perto do chão de um planeta rochoso e o 3D se funde com o mapa da superfície.
 3. **Sistema Solar:** planetas reais em escala visual comprimida, menu orbital e distância mínima de aproximação.
 4. **Superfície estilo WorldBox:** mapa de um pixel por elemento, com tamanho proporcional ao planeta (Terra = 1024×512, até 2048×1024), cilíndrico, gerado num Web Worker, com ferramentas de terraformação e vegetação que se espalha. A cena 3D é descartada ao entrar e reconstruída ao sair.
 5. **Vida na superfície:** peixes, herbívoros, predadores e uma espécie inteligente, cada criatura um ponto no mapa e um sprite em pixel art no zoom. As espécies dependem do clima e do terreno, se reproduzem, caçam e morrem. A espécie inteligente funda assentamentos (aldeia, vila, cidade) com praça, ruas em grade e casas em lotes, cada um com sua área; cidades formam reinos ligados por estradas. As casas mudam de estilo a cada era (Pedra, Bronze, Ferro...). Requisitos completos da vida em [docs/REQUISITOS-VIDA.md](docs/REQUISITOS-VIDA.md). Espécies conhecidas podem ser levadas a outros planetas.

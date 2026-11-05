@@ -5,6 +5,7 @@
  * do degelo fica no solo e seca com o calor. Cada passo refaz só uma fatia das células, e o mundo
  * inteiro WEATHER_PASSES vezes por ano: o custo por ano não muda com a velocidade do jogo.
  */
+import { isSlowRotator } from '../procgen/climate';
 import type { SurfaceMap } from '../procgen/surface';
 import { temperatureAt } from '../procgen/surface';
 import { windAt } from './climate';
@@ -43,8 +44,14 @@ export class Weather {
   readonly at: Float32Array;
   cursor = 0;
   ready = false;
+  /** Força das estações (1 na Terra; 0 sem inclinação do eixo). */
+  seasonAmp: number;
+  /** Fase das estações no hemisfério sul, em anos: meio ano nos outros planetas; a Terra fica como foi calibrada. */
+  southShift: number;
 
-  constructor(width: number, height: number) {
+  constructor(width: number, height: number, seasonAmp = 1, southShift = 0) {
+    this.seasonAmp = seasonAmp;
+    this.southShift = southShift;
     this.cols = Math.ceil(width / ECO_CELL);
     this.rows = Math.ceil(height / ECO_CELL);
     this.n = this.cols * this.rows;
@@ -110,9 +117,11 @@ export class Weather {
 
   /** Temperatura da célula agora: a média do lugar mais a estação (mais forte longe do equador). */
   tempNow(k: number, phase: number): number {
-    const lat = Math.abs((Math.floor(k / this.cols) + 0.5) / this.rows - 0.5) * 2;
+    const row = (Math.floor(k / this.cols) + 0.5) / this.rows;
+    const lat = Math.abs(row - 0.5) * 2;
+    const shift = row > 0.5 ? this.southShift : 0;
     // Pico do verão no meio da estação (fase 0,375), frio maior no meio do inverno.
-    return this.temp[k] + (2 + 12 * lat) * Math.cos(2 * Math.PI * (phase - 0.375));
+    return this.temp[k] + (2 + 12 * lat) * this.seasonAmp * Math.cos(2 * Math.PI * (phase + shift - 0.375));
   }
 
   /** Começa do zero (planeta novo ou save antigo): retrato de todas as células. */
@@ -149,7 +158,7 @@ export class Weather {
     if (dt <= 0) return;
     const cx = k % this.cols;
     const cy = (k - cx) / this.cols;
-    const wind = windAt(cy * ECO_CELL + ECO_CELL / 2, map.height);
+    const wind = windAt(cy * ECO_CELL + ECO_CELL / 2, map.height, isSlowRotator(map.params));
     // Ar que chega de barlavento: a umidade da célula de onde o vento vem.
     const ux = (cx - Math.sign(wind.x) + this.cols) % this.cols;
     const uy = Math.min(this.rows - 1, Math.max(0, cy - Math.round(wind.y)));

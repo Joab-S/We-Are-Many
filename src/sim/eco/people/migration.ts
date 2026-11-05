@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { happens } from '../../stochastic';
 import { CHILD } from '../../roles';
 import { pairKey } from '../../community';
@@ -125,7 +125,7 @@ export const migrationPart = {
       // Fissão por pressão: a social (gente demais para as instituições que o lugar tem) mais a da terra (com
       // fome e sem terra para mais roça perto). Com ela alta, os batedores procuram espaço ou terra (a que mais
       // aperta), cada família pode escolher fundar, e mais famílias pensam em sair.
-      const social = this.socialPressure(v);
+      const social = this.socialPressure(v) + B.CROWD_PRESSURE * (this.realmCrowding(v) - 1);
       const land = this.landPressure(v);
       const pressure = social + land;
       const motive = land > social ? 'terra' : 'espaço';

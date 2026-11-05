@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { seedFor } from '../core/rng';
 import { restoreEcosystem, type ViewSnapshot } from '../save/snapshot';
 import { createEngine } from '../sim/api/engine';
 import { YEAR_SECONDS } from '../sim/ecosystem';
@@ -26,10 +25,15 @@ const STEP_S = 0.25;
 const STEPS_PER_YEAR = YEAR_SECONDS / STEP_S;
 /**
  * Cidade grande: o degrau Cidade (`TIER_NAMES`) ainda cheio. Para quando acontece, e não num ano fixo: guerras e fome
- * esvaziam os lugares, e a história muda com o equilíbrio. Na Terra do jogo, sem semear ninguém, sai perto do ano 100.
+ * esvaziam os lugares, e a história muda com o equilíbrio.
  */
 const CITY_TIER = 2;
 const CITY_PEOPLE = 200;
+/**
+ * A semente desta cena, e não a do jogo: as cidades grandes são passageiras e o ano delas varia muito entre sementes,
+ * e com a da Terra do jogo nenhuma aparece nos primeiros 400 anos (com esta, perto do ano 140).
+ */
+const CITY_SEED = 7;
 /** Sem cidade até aqui, a cena falha na tela: o equilíbrio mudou e o critério acima precisa ser revisto. */
 const MAX_YEARS = 400;
 
@@ -47,7 +51,7 @@ function orbit(state: GameState, planet: PlanetData, radii: number): void {
 async function earthWithCity(state: GameState, report: Report): Promise<ViewSnapshot> {
   const params = planetParams(EARTH);
   const map = await generateSurfaceAsync(params);
-  const engine = createEngine(map, { seed: seedFor(`${params.id}:life`), species: nativeSpecies(params), yearSpan: YEAR_SECONDS });
+  const engine = createEngine(map, { seed: CITY_SEED, species: nativeSpecies(params), yearSpan: YEAR_SECONDS });
   const findCity = () => engine.view.villages.find((v) => !v.abandoned && v.tier >= CITY_TIER && v.population >= CITY_PEOPLE);
   let city = findCity();
   for (let year = 1; !city; year++) {

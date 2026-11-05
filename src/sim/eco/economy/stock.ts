@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { temperatureAt } from '../../../procgen/surface';
 import { buildCost, emptyStock, GOODS, type Good, type Stock } from '../../economy';
 import type { RoleContext } from '../../roles';

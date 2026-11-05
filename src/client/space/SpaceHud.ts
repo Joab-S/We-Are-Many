@@ -60,6 +60,8 @@ export interface HudSources {
   guide: GuideHud;
   probes: ProbeControl;
   renderer: GameRenderer;
+  /** As medidas do mundo na GPU. */
+  gpu: { drawCalls: number; gpuBytes(): number };
   resolution: AdaptiveResolution;
   input: Input;
   camera: THREE.PerspectiveCamera;
@@ -116,6 +118,8 @@ export class SpaceHud {
         <div><span class="k">Chunks</span> <b data-h="chunks"></b></div>
         <div><span class="k">Estrelas carregadas</span> <b data-h="stars"></b></div>
         <div><span class="k">Memória GPU</span> <b data-h="memory"></b></div>
+        <div><span class="k">Bytes na GPU</span> <b data-h="gpuBytes"></b></div>
+        <div><span class="k">Chamadas de desenho</span> <b data-h="drawCalls"></b></div>
         <div><span class="k">Resolução</span> <b data-h="resolution"></b></div>
         <div><span class="k">Posição</span> <b data-h="position"></b></div>
       </div>
@@ -221,6 +225,11 @@ export class SpaceHud {
     this.text(els.chunks, `${s.stars.loadedCount} / ${s.state.manifest.manifest.nodes.length}`);
     this.text(els.stars, s.stars.starCount.toLocaleString('pt-BR'));
     this.text(els.memory, `${mem.geometries} geometrias, ${mem.textures} texturas`);
+    // Percorre a cena inteira: só com o painel aberto.
+    if (!els.dev.hidden) {
+      this.text(els.gpuBytes, `${(s.gpu.gpuBytes() / 1048576).toFixed(1)} MB`);
+      this.text(els.drawCalls, String(s.gpu.drawCalls));
+    }
     this.text(els.resolution, `${Math.round(s.resolution.pixelRatio * 100)}%`);
     els.lock.hidden = s.input.locked || s.guide.panelOpen;
     s.probes.render();

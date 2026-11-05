@@ -1,11 +1,14 @@
-import * as B from '../balance';
-import { indicatorsOf, LONG_TARGETS, type IndicatorBase, type Indicators, type RunSamples } from '../calibrate';
+import { B } from '../live';
+import type { SurfaceMap } from '../../procgen/surface';
+import { indicatorsOf, scaledTargets, type IndicatorBase, type Indicators, type RunSamples } from '../calibrate';
 import { ERAS, type Ecosystem, type Village } from '../ecosystem';
+import { worldFingerprint } from '../fingerprint';
 import { fullNeeds, NEEDS, NEED_NAMES } from '../needs';
 import { wrapDx } from '../settlement';
 import { STEP_PARTS, type EcoProbe, type ProbeSite } from '../eco/core/probe';
 import type { MoveAction } from '../../ai/decisions/move';
 import type { Choice, Scored } from '../../ai/utility';
+import { liveConstants, type LiveConstant } from '../live';
 import { DEBUG_DECISION_LIMIT, DEBUG_SERIES_LIMIT, type DebugFactor, type DebugOption, type DebugTarget, type DebugView, type FamilyDecision, type IndicatorSample, type PlaceDebug, type ProfileDebug, type WorldDebug } from './debug';
 import type { EngineView } from './engine';
 
@@ -29,8 +32,8 @@ const NO_RUN: RunSamples = { wars: NaN, cavalry: NaN, caravans: NaN, caravansMax
 const NO_CEILING = 9999;
 
 /** As metas da calibração longa que têm indicador no mundo vivo, com o "sem teto" como Infinity. */
-export function liveTargets(): DebugTarget[] {
-  return LONG_TARGETS.filter((t) => !RUN_ONLY.has(t.key)).map((t) => ({ key: t.key, label: t.label, min: t.min, max: t.max >= NO_CEILING ? Infinity : t.max }));
+export function liveTargets(map: SurfaceMap): DebugTarget[] {
+  return scaledTargets(map).filter((t) => !RUN_ONLY.has(t.key)).map((t) => ({ key: t.key, label: t.label, min: t.min, max: t.max >= NO_CEILING ? Infinity : t.max }));
 }
 
 /** Nome das partes da área (`AreaYield`) na ficha, na ordem em que aparecem. */
@@ -118,6 +121,8 @@ export class EngineDebug implements DebugView {
   private eco: Ecosystem;
   private on = false;
   private since: Since;
+  /** Metas deste mundo: a terra habitável custa uma varredura do mapa. Conta uma vez, sem acompanhar o que o jogador muda nela. */
+  private targets: DebugTarget[] | null = null;
   /** Amostras dos indicadores, uma por ano de jogo, da mais velha para a mais nova (no máximo DEBUG_SERIES_LIMIT). */
   private series: IndicatorSample[] = [];
   /** Moradores a cada ano amostrado (sem limite: um número por ano), para a amostra do meio da janela de `peopleTrend`. */
@@ -181,6 +186,7 @@ export class EngineDebug implements DebugView {
   adopt(eco: Ecosystem): void {
     if (this.eco !== eco) this.eco.probe = null;
     this.eco = eco;
+    this.targets = null;
     this.since = sinceOf(eco);
     this.series = [];
     this.trendYear = [];
@@ -215,7 +221,7 @@ export class EngineDebug implements DebugView {
       year: eco.year,
       since: this.since.year,
       now: { year: eco.year, values: this.measure() },
-      targets: liveTargets(),
+      targets: (this.targets ??= liveTargets(eco.map)),
       series: this.series.map((s) => ({ year: s.year, values: { ...s.values } })),
     };
   }
@@ -309,6 +315,14 @@ export class EngineDebug implements DebugView {
       out.push(structuredClone(d));
     }
     return out;
+  }
+
+  fingerprint(): string {
+    return worldFingerprint(this.eco);
+  }
+
+  constants(): LiveConstant[] {
+    return liveConstants();
   }
 
   profile(): ProfileDebug | null {

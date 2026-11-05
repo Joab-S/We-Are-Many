@@ -2,7 +2,8 @@ import { classify, sowVegetation, temperatureAt, type SurfaceMap } from '../../p
 import type { Ore } from '../economy';
 import type { Ecosystem, Village } from '../ecosystem';
 import { runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../events';
-import type { Species } from '../species';
+import { B, setConstant } from '../live';
+import { EARTH_ID, type Species } from '../species';
 
 /**
  * Ações do jogador sobre o mundo como comandos (padrão Command, Game
@@ -139,7 +140,10 @@ export type EngineCommand =
   /** Um veio de minério num ponto. */
   | { kind: 'ore'; x: number; y: number; ore: Ore }
   /** Solta um indivíduo da espécie (a espécie vai inteira: pode vir de outro planeta). */
-  | { kind: 'introduce'; species: Species; x: number; y: number }
+  /** `cargo`: quantas o porão da nave tem (o cliente preenche). Fora da Terra, sem carga é recusado. */
+  | { kind: 'introduce'; species: Species; x: number; y: number; cargo?: number }
+  /** Captura a criatura mais perto do ponto, para o porão. `room`: quantas ainda cabem nele (o cliente preenche). */
+  | { kind: 'collect'; x: number; y: number; r: number; room: number }
   | { kind: 'feed'; x: number; y: number; r: number }
   | { kind: 'cull'; x: number; y: number; r: number }
   /** Ensinar (fora da barra desde 24/10/2026, RF-VIDA-75; o método segue no Ecosystem). */
@@ -156,6 +160,13 @@ export type EngineCommand =
   | { kind: 'surprise' }
   /** Eventos aleatórios ligados ou não, e a frequência deles (janela Mundo). */
   | { kind: 'events'; auto?: boolean; rate?: number }
+  /**
+   * O mundo foi posto em dia (`catchUp.ts`): `ran` dos `lost` anos rodaram, e o resto passou sem registro. É comando porque
+   * a nota entra na crônica, que a impressão digital enxerga: o replay tem de fazer o mesmo.
+   */
+  | { kind: 'caughtUp'; lost: number; ran: number; quiet?: boolean }
+  /** Uma constante de equilíbrio muda com o mundo rodando (painel F3, aba Ajustes). */
+  | { kind: 'tune'; name: string; value: number }
   /** A vista do jogador (nível de detalhe da simulação). */
   | ViewCommand;
 
@@ -167,6 +178,8 @@ export type CommandKind = EngineCommand['kind'];
  */
 export interface CommandResult {
   ok: boolean;
+  /** O id da espécie capturada (comando `collect`): o cliente a guarda no porão. */
+  collected?: string;
   at?: { x: number; y: number };
   hint?: string;
 }
@@ -354,16 +367,10 @@ export function applyCommand(eco: Ecosystem, map: SurfaceMap, cmd: EngineCommand
       if (!ok) eco.hint = 'Aqui não dá para colocar minério';
       return { ok };
     }
-    case 'introduce': {
-      const s = eco.addSpecies(cmd.species);
-      const born = eco.introduceOne(s, cmd.x, cmd.y);
-      if (born < 0) {
-        eco.hint = `${cmd.species.name}: o lugar não é habitável`;
-        return { ok: false };
-      }
-      eco.note(`Você soltou ${cmd.species.name.toLowerCase()}`, 'jogador', { x: cmd.x, y: cmd.y }, { key: `spawn:${cmd.species.id}` });
-      return { ok: true };
-    }
+    case 'introduce':
+      return introduce(eco, map, cmd);
+    case 'collect':
+      return collect(eco, map, cmd);
     case 'feed':
       eco.feed(cmd.x, cmd.y, cmd.r);
       return { ok: true };
@@ -405,6 +412,21 @@ export function applyCommand(eco: Ecosystem, map: SurfaceMap, cmd: EngineCommand
       const e = eco.chronicle[0];
       return ev && e && e.x >= 0 ? { ok: true, at: { x: e.x, y: e.y } } : { ok: !!ev };
     }
+    case 'caughtUp': {
+      const skipped = cmd.lost - cmd.ran;
+      eco.caughtUpYears += cmd.ran;
+      eco.skippedYears += skipped;
+      // Andar em segundo plano não é uma volta do jogador: nada a dizer na crônica.
+      if (!cmd.quiet) eco.note(`Você esteve fora por ${cmd.lost} ${cmd.lost === 1 ? 'ano' : 'anos'}${skipped ? `: ${cmd.ran} foram acompanhados e ${skipped} passaram sem registro` : ''}`, 'jogador');
+      return { ok: true };
+    }
+    case 'tune':
+      if (!setConstant(cmd.name, cmd.value)) {
+        eco.hint = `${cmd.name}: não é uma constante ajustável`;
+        return { ok: false };
+      }
+      (eco.tuned ??= {})[cmd.name] = cmd.value;
+      return { ok: true };
     case 'events':
       if (cmd.auto !== undefined) eco.autoEvents = cmd.auto;
       if (cmd.rate !== undefined) eco.eventRate = cmd.rate;
@@ -415,6 +437,70 @@ export function applyCommand(eco: Ecosystem, map: SurfaceMap, cmd: EngineCommand
       eco.pinned = cmd.pinned;
       return { ok: true };
   }
+}
+
+/**
+ * Soltar uma espécie. Fora da Terra, ela tem de ter vindo no porão: o porão é do cliente (como a nave), que põe no
+ * comando quantas tem, e assim o log refaz o mesmo mundo sem saber da nave. Fora da faixa de temperatura ela nasce
+ * assim mesmo e o clima cobra depois (`settleExposures`); onde nem consegue ficar (peixe em terra), é recusada.
+ */
+function introduce(eco: Ecosystem, map: SurfaceMap, cmd: Extract<EngineCommand, { kind: 'introduce' }>): CommandResult {
+  const sp = cmd.species;
+  if (map.params.id !== EARTH_ID && !cmd.cargo) {
+    eco.hint = `${sp.name}: não há no porão. Colete na superfície de onde ela vive e traga na nave`;
+    return { ok: false };
+  }
+  const s = eco.addSpecies(sp);
+  const tile = eco.tileAt(cmd.x, Math.floor(cmd.y));
+  const fits = tile >= 0 && eco.canStand(s, tile);
+  const safe = fits && eco.habitable(s, tile);
+  const born = fits ? eco.spawn(s, cmd.x, cmd.y, -1, sp.maturity + eco.rnd() * 5) : -1;
+  if (born < 0) {
+    eco.hint = `${sp.name}: o lugar não é habitável`;
+    return { ok: false };
+  }
+  if (safe) {
+    delete eco.fates[sp.id];
+    eco.note(`Você soltou ${sp.name.toLowerCase()}`, 'jogador', { x: cmd.x, y: cmd.y }, { key: `spawn:${sp.id}` });
+    return { ok: true };
+  }
+  const temp = temperatureAt(map, tile);
+  if (!eco.exposures.some((x) => x.species === s)) eco.exposures.push({ species: s, until: eco.year + B.EXPOSURE_YEARS, temp });
+  eco.hint = `${sp.name}: ${temp < sp.tempMin ? 'frio' : 'quente'} demais aqui (${(temp - 273).toFixed(0)} °C). Não deve passar de ${B.EXPOSURE_YEARS} anos`;
+  eco.note(`Você soltou ${sp.name.toLowerCase()} num lugar ${temp < sp.tempMin ? 'frio' : 'quente'} demais para ela`, 'jogador', { x: cmd.x, y: cmd.y }, { key: `spawn:${sp.id}` });
+  return { ok: true };
+}
+
+/** Coleta: captura a criatura mais perto do ponto para levar na nave. Custa uma vida daqui e o tempo da equipe. */
+function collect(eco: Ecosystem, map: SurfaceMap, cmd: Extract<EngineCommand, { kind: 'collect' }>): CommandResult {
+  if (cmd.room <= 0) {
+    eco.hint = 'O porão está cheio: solte alguém antes de coletar mais';
+    return { ok: false };
+  }
+  const wait = eco.lastCollect + B.COLLECT_COOLDOWN - eco.year;
+  if (wait > 0) {
+    eco.hint = `A equipe de coleta ainda está ocupada (${wait.toFixed(1)} ano)`;
+    return { ok: false };
+  }
+  let best = -1;
+  let dist = cmd.r;
+  for (let i = 0; i < eco.count; i++) {
+    if (!eco.alive[i]) continue;
+    const d = Math.hypot(wrapDx(eco.x[i] - cmd.x, map.width), eco.y[i] - cmd.y);
+    if (d <= dist) {
+      dist = d;
+      best = i;
+    }
+  }
+  if (best < 0) {
+    eco.hint = 'Não há ninguém para coletar aqui';
+    return { ok: false };
+  }
+  const sp = eco.species[eco.kind[best]];
+  eco.lastCollect = eco.year;
+  eco.note(`Você coletou ${sp.name.toLowerCase()}`, 'jogador', { x: eco.x[best], y: eco.y[best] }, { key: `collect:${sp.id}` });
+  eco.kill(best, true, 'partiu');
+  return { ok: true, collected: sp.id };
 }
 
 function politics(eco: Ecosystem, action: PoliticsAction, a: Village | undefined, b: Village | undefined): CommandResult {

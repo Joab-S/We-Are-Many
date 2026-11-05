@@ -3,8 +3,9 @@
  * Os métodos vão para o protótipo da classe; `this` é o ecossistema inteiro.
  */
 
+import type { IndicatorKind } from '../../api/events';
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import * as surfaceModule from '../../../procgen/surface';
 import { CHILD, pickRole, ROLE } from '../../roles';
 import { randomTraits, TRAIT_COUNT } from '../../../IAUS/npc/traits';
@@ -53,7 +54,7 @@ export const entitiesPart = {
     this.species.forEach((o, s) => {
       if (o.kind === sp.kind) this.caps[s] = this.habitatCap(o);
     });
-    this.onSpecies(sp);
+    this.emit({ kind: 'species', year: this.year, species: this.species.length - 1 });
     return this.species.length - 1;
   },
 
@@ -198,6 +199,65 @@ export const entitiesPart = {
     if (!this.canStand(s, i)) return false;
     const t = temperatureAt(this.map, i);
     return t >= sp.tempMin - 5 && t <= sp.tempMax + 5;
+  },
+
+  /**
+   * Uma vez por ano, vê se o planeta passou de um aperto: fome, ou clima contra o povo nos lugares onde ele vive. Avisa
+   * uma vez por travessia (`indicator`) e só volta a avisar depois de melhorar bem. Só lê, não sorteia.
+   */
+  checkIndicators(this: Ecosystem): void {
+    this.indicatorYear = Math.floor(this.year);
+    const hungry = this.tally.hunger - this.indicatorHunger;
+    this.indicatorHunger = this.tally.hunger;
+    let people = 0;
+    let places = 0;
+    let hot = 0;
+    let cold = 0;
+    for (const v of this.villages) {
+      if (v.abandoned || v.population <= 0) continue;
+      people += v.population;
+      places++;
+      const sp = this.species[v.species];
+      const temp = temperatureAt(this.map, this.tileAt(v.x, Math.floor(v.y)));
+      if (temp > sp.tempMax) hot++;
+      else if (temp < sp.tempMin) cold++;
+    }
+    if (places === 0) return;
+    const check = (what: IndicatorKind, value: number, limit: number) => {
+      if (value >= limit && !this.indicatorsOn[what]) {
+        this.indicatorsOn[what] = true;
+        this.emit({ kind: 'indicator', year: this.year, what, value });
+      } else if (value < limit / 2) {
+        this.indicatorsOn[what] = false;
+      }
+    };
+    check('fome', hungry / people, B.INDICATOR_HUNGER);
+    check('calor', hot / places, B.INDICATOR_CLIMATE);
+    check('frio', cold / places, B.INDICATOR_CLIMATE);
+  },
+
+  /**
+   * Cobra o clima de quem foi solto fora da faixa: passado o prazo, quem da espécie ainda está em terreno fora dela
+   * morre, e a ficha e a crônica dizem por quê. Quem achou um lugar bom a tempo se salva, com os filhotes.
+   */
+  settleExposures(this: Ecosystem): void {
+    for (let k = this.exposures.length - 1; k >= 0; k--) {
+      const { species: s, until, temp } = this.exposures[k];
+      if (this.year < until) continue;
+      this.exposures.splice(k, 1);
+      const sp = this.species[s];
+      const cold = temp < sp.tempMin;
+      let last: { x: number; y: number } | null = null;
+      for (let i = 0; i < this.count; i++) {
+        if (!this.alive[i] || this.kind[i] !== s || this.habitable(s, this.tileOf(i))) continue;
+        last = { x: this.x[i], y: this.y[i] };
+        this.kill(i, true, cold ? 'frio' : 'calor');
+      }
+      if (!last && this.population[s] > 0) continue;
+      const text = `${sp.name} morreu de ${cold ? 'frio' : 'calor'}: foi solta a ${(temp - 273).toFixed(0)} °C, e vive de ${(sp.tempMin - 273).toFixed(0)} a ${(sp.tempMax - 273).toFixed(0)} °C`;
+      this.fates[sp.id] = text;
+      this.note(text, 'natureza', last, { major: true });
+    }
   },
 
   grow(this: Ecosystem, capacity: number): void {

@@ -6,6 +6,7 @@ import { STOCK_NAMES, WONDER_NAMES } from '../../../sim/economy';
 import { QUIET_YEARS } from '../../../sim/events';
 import { CATEGORIES, ITEMS, MATERIALS } from '../../../sim/items';
 import { EARTH_ID, type Species } from '../../../sim/species';
+import type { ProbeState } from '../../../explore/probes';
 import { ecologyOf, guildName } from '../../../sim/fauna';
 import { CURRENCY_NAMES } from '../../../sim/trade';
 import { compareHtml, type CompareKey } from '../settlementWindow';
@@ -13,6 +14,7 @@ import { bodyOf, KIND_ICONS, plain, spriteOf, WINDOWS, type Win } from '../tools
 import { keyLabel } from '../keys';
 import { SPEEDS } from '../SimDriver';
 import { HtmlSlot, HudComponent } from './component';
+import { legendsHtml } from './legends';
 import type { IconCache } from './icons';
 
 /** Opções de exibição da superfície (janela Mundo e atalhos). */
@@ -46,6 +48,7 @@ export class Windows extends HudComponent {
     private readonly settings: SurfaceSettings,
     private readonly known: Map<string, Species>,
     private readonly planetId: string,
+    private readonly hold: Pick<ProbeState, 'specimens'>,
   ) {
     super(600);
     this.body = new HtmlSlot(root.querySelector<HTMLElement>('[data-win-body]')!);
@@ -84,7 +87,9 @@ export class Windows extends HudComponent {
     const body =
       this.win === 'chronicle'
         ? this.chronicleHtml(eco)
-        : this.win === 'kingdoms'
+        : this.win === 'legends'
+          ? legendsHtml(eco, this.filter)
+          : this.win === 'kingdoms'
           ? this.kingdomsHtml(eco)
           : this.win === 'settlements'
             ? compareHtml(eco, this.compareKey, this.compareDesc)
@@ -181,13 +186,17 @@ export class Windows extends HudComponent {
         const s = eco.species.findIndex((o) => o.id === sp.id);
         const pop = s >= 0 ? eco.population[s] : 0;
         const status = s < 0 ? 'Não vive aqui' : eco.extinct.has(s) ? '<span class="bad">Extinta aqui</span>' : `${pop} aqui`;
+        const aboard = this.hold.specimens[sp.id] ?? 0;
+        // Fora da Terra, só se solta o que veio no porão.
+        const free = this.planetId === EARTH_ID;
+        const fate = eco.fates[sp.id];
         const origin = sp.parent ? `variante de ${this.known.get(sp.parent)?.name ?? '?'}` : sp.origin === EARTH_ID ? 'Terra' : sp.origin === this.planetId ? 'nativa' : sp.origin;
         const img = sp.kind === 'sapient' ? this.icons.icon(`${bodyOf(sp)}:gatherer`, [200, 160, 90], sp.color) : this.icons.icon(spriteOf(sp), sp.color);
         return `
           <div class="wb-sp">
             <div class="wb-sp-img">${img}</div>
-            <div><b>${sp.name}</b><div class="wb-dim">${kindName(sp)} · ${origin}</div><div class="wb-dim">${(sp.tempMin - 273).toFixed(0)} a ${(sp.tempMax - 273).toFixed(0)} °C · vive ${Math.round(sp.maxAge)} anos</div><div>${status}</div></div>
-            <button class="wb-mini" data-pick="spawn:${sp.id}">Soltar</button>
+            <div><b>${sp.name}</b><div class="wb-dim">${kindName(sp)} · ${origin}</div><div class="wb-dim">${(sp.tempMin - 273).toFixed(0)} a ${(sp.tempMax - 273).toFixed(0)} °C · vive ${Math.round(sp.maxAge)} anos</div><div>${status}${aboard ? ` · ${aboard} no porão` : ''}</div>${fate ? `<div class="bad">${fate}</div>` : ''}</div>
+            <button class="wb-mini" data-pick="spawn:${sp.id}"${free || aboard ? '' : ' disabled title="Não há no porão: colete na superfície de onde ela vive"'}>Soltar</button>
           </div>`;
       })
       .join('');

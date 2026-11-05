@@ -40,4 +40,5 @@ export class SeededRng implements Rng {
   }
 }
 
-export const defaultRng: Rng = { next: () => Math.random() };
+/** Para quem cria um `Brain` sem `rng`: com semente, como todo sorteio do motor (`npc/mind.ts` passa o próprio). */
+export const defaultRng: Rng = new SeededRng(1);

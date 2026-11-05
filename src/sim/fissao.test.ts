@@ -139,6 +139,37 @@ function neighbour(eco: Ecosystem, s: number, a: Village, n: number): Village | 
   return null;
 }
 
+describe('teto do reino por lugar vivo (4.1)', () => {
+  it('abaixo do teto vale 1, acima mede quantas vezes passou, e cada lugar a mais sobe o teto', () => {
+    const { eco, s, spot } = world();
+    const a = town(eco, s, spot(), 20, 5);
+    expect(eco.realmCrowding(a)).toBe(1);
+    const cap = B.CAP_PER_SITE;
+    a.population = cap * 2;
+    expect(eco.realmCrowding(a)).toBe(2);
+    const b = town(eco, s, spot(), 0, 5);
+    b.kingdom = a.id;
+    expect(eco.realmCrowding(a)).toBe(1);
+    expect(eco.realmCrowding(b)).toBe(1);
+  });
+
+  it('num reino lotado os batedores saem antes de a pressão social chegar lá, e sem fome', () => {
+    const { eco, s, spot } = world();
+    const v = town(eco, s, spot(), Math.round(B.CAP_PER_SITE * 2.2), 5);
+    expect(eco.socialPressure(v)).toBeLessThan(B.PRESSURE_SCOUT);
+    expect(eco.realmCrowding(v)).toBeGreaterThan(2);
+    let asked = 0;
+    const scout = eco.scoutSites;
+    eco.scoutSites = (o, motive, count, min) => {
+      asked++;
+      return scout.call(eco, o, motive, count, min);
+    };
+    eco.year += 1;
+    eco.migrate();
+    expect(asked).toBe(1);
+  });
+});
+
 describe('fissão por pressão: quem sai, quando e com quem', () => {
   it('lugar cheio demais para as instituições: famílias escolhem fundar e a colônia leva famílias inteiras', () => {
     const { eco, s, spot } = world();

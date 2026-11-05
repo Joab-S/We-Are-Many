@@ -1,14 +1,14 @@
-import * as B from './balance';
+import { B } from './live';
 import { Weather } from './weather';
 import { streams } from './stochastic';
-import type { SurfaceMap } from '../procgen/surface';
+import { seasonStrength, type SurfaceMap } from '../procgen/surface';
 import { generateDeposits, type Deposit } from './economy';
 import { yearlyEvents } from './events';
 import type { Thought } from '../IAUS/npc/trace';
 import type { Bond } from '../IAUS/npc/relations';
 import type { BoardTask } from '../IAUS/npc/decisions/day';
 import type { Agreement, Caravan } from './trade';
-import type { Species } from './species';
+import { EARTH_ID, type Species } from './species';
 import { DECISIONS_PER_YEAR, ECO_CELL } from './fauna';
 import type { ChronicleKind, ChronicleEntry, Effect, War, WarPlan, Boat, Raft, Building, Village, Death, Carcass } from './eco/types';
 import * as constantsModule from './eco/constants';
@@ -54,7 +54,7 @@ import { caravansPart, type CaravansPart } from './eco/trade/caravans';
 import { disastersPart, type DisastersPart } from './eco/world/disasters';
 import { playerPart, type PlayerPart } from './eco/world/player';
 import { queriesPart, type QueriesPart } from './eco/core/queries';
-import { EVENT_QUEUE_LIMIT, type EngineEvent } from './api/events';
+import { EVENT_QUEUE_LIMIT, isLegend, legendRealm, LEGENDS_LIMIT, type EngineEvent, type IndicatorKind, type LegendEntry } from './api/events';
 import { residentsPart, ResidentIndex, type ResidentsPart } from './eco/core/residents';
 import { clockPart, type ClockPart } from './eco/core/clock';
 import { siteFieldPart, type SiteField, type SiteFieldPart } from './eco/settlements/siteField';
@@ -361,6 +361,8 @@ export class Ecosystem {
   /** Tremor de terra em andamento (segundos), para a câmera tremer. */
   shake = 0;
   /** Eventos aleatórios do mundo ligados e o ritmo deles (0,5 raro, 1 normal, 2 frequente). */
+  /** Constantes ajustadas ao vivo neste mundo (comando `tune`, sim/live.ts); vai no save. Sem ajuste, não existe. */
+  tuned?: Record<string, number>;
   autoEvents = true;
   eventRate = 1;
   /** Lava que esfria aos poucos: tile e calor que ainda vai perder. */
@@ -452,7 +454,6 @@ export class Ecosystem {
   readonly habitat: (0 | 1 | 2)[] = [];
   readonly everLived: boolean[] = [];
   /** Chamado quando uma espécie entra no planeta (variantes novas vão para o catálogo). */
-  onSpecies: (sp: Species) => void = () => {};
   /** Anos de calendário desde a chegada (o ano que a tela mostra). */
   year = 0;
   /**
@@ -467,6 +468,24 @@ export class Ecosystem {
    * só empurra (`emit`), quem ouve drena (`drainEvents`). Vai no save, então nada se perde ao carregar.
    */
   readonly events: EngineEvent[] = [];
+  /** Espécies soltas pelo jogador fora da faixa de temperatura: quando o clima cobra, e a temperatura que achou (K). */
+  exposures: { species: number; until: number; temp: number }[] = [];
+  /** Por que uma espécie morreu aqui, pelo id dela (a ficha mostra). */
+  fates: Record<string, string> = {};
+  /** O ano da última coleta (o tempo que capturar custa). */
+  lastCollect = -1e9;
+  /** Os apertos que já foram avisados (`indicator`), e a conta da fome no último ano olhado. */
+  indicatorsOn: Partial<Record<IndicatorKind, boolean>> = {};
+  indicatorYear = 0;
+  indicatorHunger = 0;
+  /** Anos rodados sem ninguém olhando, ao voltar ao planeta (`sim/api/catchUp.ts`). */
+  caughtUpYears = 0;
+  /** Anos que passaram sem rodar: acima do teto do pôr em dia. */
+  skippedYears = 0;
+  /** A história do mundo (modo lendas): os eventos que contam, do ano 0 até agora. Vai no save. */
+  legends: LegendEntry[] = [];
+  /** Quantas lendas antigas já saíram por causa do limite. */
+  legendsLost = 0;
   /** Ano do último acontecimento importante (para detectar marasmo). */
   lastMajor = 0;
   /** Aviso curto para o jogador (ex.: lugar inválido): a fachada (src/sim/api/engine.ts) o devolve no resultado do comando e limpa. */
@@ -618,6 +637,13 @@ export class Ecosystem {
   emit(e: EngineEvent): void {
     if (this.events.length >= EVENT_QUEUE_LIMIT) this.events.shift();
     this.events.push(e);
+    if (!isLegend(e)) return;
+    // Em bloco: tirar um por vez do começo de um vetor tão grande custaria caro a cada evento.
+    if (this.legends.length >= LEGENDS_LIMIT) {
+      const out = this.legends.splice(0, 1024);
+      this.legendsLost += out.length;
+    }
+    this.legends.push({ ...e, realm: legendRealm(e, (id) => this.villages[id]?.kingdom ?? -1) });
   }
 
   /** Entrega e esvazia a fila de eventos, do mais antigo para o mais novo. */
@@ -643,6 +669,8 @@ export class Ecosystem {
     if (probe) probe.begin();
     const yr = dt / this.yearSpan;
     this.year += yr;
+    if (this.exposures.length) this.settleExposures();
+    if (Math.floor(this.year) !== this.indicatorYear) this.checkIndicators();
     // Nível de detalhe (RF-AS-31): com a tela aberta, os lugares a até JOURNEY_MARGIN tiles da vista (e o da pessoa
     // seguida) rodam as jornadas; os demais, o modo agregado. Revisto a cada meio segundo de jogo.
     if (this.focus && (this.watchClock -= dt) <= 0) {
@@ -654,7 +682,7 @@ export class Ecosystem {
     }
     if (probe) probe.lap(STEP.view);
     // Clima vivo: uma fatia das células por passo, o mundo inteiro duas vezes por mês de jogo.
-    this.weather ??= new Weather(this.map.width, this.map.height);
+    this.weather ??= new Weather(this.map.width, this.map.height, seasonStrength(this.map.params), this.map.params.id === EARTH_ID ? 0 : 0.5);
     this.weather.step(this.map, this.year, this.yearPhase(), yr, (x, y) => -this.climateAt(x, y));
     if (probe) probe.lap(STEP.weather);
     // Fogo natural: uma vez por ano, no auge do verão.

@@ -4,7 +4,7 @@
  */
 
 import type { DayNote, Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import type { Good } from '../../economy';
 import { ROLE, ROLE_NAMES, ROLES } from '../../roles';
 import { TRAIT, TRAIT_COUNT } from '../../../IAUS/npc/traits';

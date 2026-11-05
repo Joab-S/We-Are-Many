@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { bvToTemperature, stellarRadius, temperatureToRgb } from '../../core/astro';
 import { LruCache } from '../../core/lru';
 import { mulberry32, seedFor } from '../../core/rng';
-import { EARTH_RADIUS_KM, KM_PER_AU } from '../../core/units';
+import { KM_PER_AU } from '../../core/units';
 import { compressOrbit, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
-import { EARTH_ID, nativeLifeLevel } from '../../sim/species';
 import { mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '../../procgen/surface';
 import type { GameState } from '../state';
 import { generateSurfaceAsync } from '../surface/generateAsync';
 import { markShared } from './dispose';
+import type { QuadSphere } from './planet/QuadSphere';
+import { ATMOSPHERE_SHELL, atmosphereLook, atmosphereMaterial, flatRelief, reliefPixels, reliefTexture, rockyMaterial, setRockyTextures } from './planet/sphere';
 
 /**
  * Corpos desenhados em 3D perto da nave: a estrela local e, no Sistema Solar,
@@ -17,21 +18,10 @@ import { markShared } from './dispose';
  * Os dados e a escala ficam em nav/planets.ts, sem three.js; daqui são
  * reexportados para quem já importava deste módulo.
  */
-export { compressOrbit, planetOffset, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
+export { compressOrbit, planetOffset, planetParams, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
 
 /** Fator de exagero do raio dos planetas. */
 const PLANET_SCALE = 100;
-
-export function planetParams(p: PlanetData): PlanetParams {
-  return {
-    id: p.id,
-    name: p.name,
-    radiusEarth: p.radiusKm / EARTH_RADIUS_KM,
-    temperatureK: p.temperatureK,
-    water: p.water,
-    life: nativeLifeLevel(p.id, p.life),
-  };
-}
 
 /** Corpo com o qual a nave interage (colisão, órbita, velocidade adaptativa). */
 export interface Body {
@@ -52,20 +42,56 @@ export interface Body {
   rocks?: THREE.Object3D;
   /** A esfera nasceu com a textura provisória de faixas: falta pedir a prévia (`loadPreview`). */
   previewPending?: boolean;
+  /** Direção da estrela, a partir do planeta, na cena: os shaders lêem este vetor, atualizado a cada quadro. */
+  starDir?: THREE.Vector3;
+  /** O planeta de perto, em órbita, quando já há mapa para ele (`SystemManager`). */
+  quad?: QuadSphere;
 }
 
-/** Inclinação do eixo dos planetas com anéis, em radianos (o anel fica no equador). */
-const RING_TILT = 0.45;
-const EARTH_TILT = 0.41;
+/** Distância mínima de um planeta com quadtree, em raios do centro: 0,02 raio de altitude, acima da maior montanha. */
+export const DESCENT_FLOOR = 1.02;
+/** Abaixo desta altitude, em raios, a nave anda com o chão: gira com o planeta e nivela com o horizonte. */
+export const LOW_ALTITUDE = 0.5;
+
+/** A nave mais perto do corpo que isto: sem quadtree (sem WebGL, ou ainda sem mapa), ela fica onde a esfera lisa aguenta. */
+export function minDistanceRadii(b: Pick<Body, 'kind' | 'quad'>): number {
+  return b.kind === 'star' ? 2 : b.quad ? DESCENT_FLOOR : 1.6;
+}
+
+/** A nave está baixa o bastante para andar com o chão deste corpo. */
+export function isLowOver(b: Pick<Body, 'pos' | 'radius'>, ship: THREE.Vector3): boolean {
+  return b.pos.distanceTo(ship) < b.radius * (1 + LOW_ALTITUDE);
+}
+
+const spinAxis = new THREE.Vector3();
+const spinTurn = new THREE.Quaternion();
 
 /**
- * Inclinação do eixo do planeta, em radianos. Enquanto o eixo não vem dos dados
- * do planeta, só a Terra e os planetas com anéis têm um: sem inclinação, os
- * anéis ficariam de perfil para quem voa no plano das órbitas.
+ * Leva `offset` (a nave menos o planeta) `delta` radianos no giro do planeta, e a orientação junto, se houver. Sem isso o
+ * chão foge: no equador da Terra ele passa a 2e-4 UA/s, e o teto da nave perto do chão é de 3e-5 UA/s.
+ */
+export function turnWithPlanet(surface: THREE.Object3D, delta: number, offset: THREE.Vector3, quat?: THREE.Quaternion): void {
+  spinTurn.setFromAxisAngle(spinAxis.set(0, 1, 0).applyEuler(surface.rotation), delta);
+  offset.applyQuaternion(spinTurn);
+  quat?.premultiply(spinTurn);
+}
+
+/** Inclinação mínima do eixo dos planetas com anéis, em radianos (o anel fica no equador). */
+const RING_TILT = 0.45;
+
+/**
+ * Inclinação do eixo do planeta, em radianos, a dos dados dele. Um planeta com
+ * anéis não fica com o eixo quase em pé nem quase de ponta-cabeça: os anéis
+ * ficariam de perfil para quem voa no plano das órbitas.
  */
 export function axialTilt(p: PlanetData): number {
-  if (p.id === EARTH_ID) return EARTH_TILT;
-  return p.rings ? RING_TILT : 0;
+  const tilt = p.axialTilt ?? 0;
+  return p.rings && Math.sin(tilt) < Math.sin(RING_TILT) ? RING_TILT : tilt;
+}
+
+/** O norte do planeta, na cena: o "para cima" do mapa da superfície. */
+export function northOf(surface: THREE.Object3D): THREE.Vector3 {
+  return tileDirection(surface, 0, 0);
 }
 
 /**
@@ -156,6 +182,8 @@ export interface PlanetPixels {
   pixels: Uint8Array;
   width: number;
   height: number;
+  /** Relevo pronto (`reliefPixels`). Só as prévias o guardam: num planeta visitado ele sai do mapa. */
+  relief?: Uint8Array;
 }
 
 /**
@@ -169,6 +197,11 @@ function planetPixels(map: SurfaceMap, art?: Uint8Array): PlanetPixels {
   const pixels = new Uint8Array(width * height * 4);
   paintSurface(map, pixels);
   return { pixels, width, height };
+}
+
+/** O mapa inteiro de um planeta ainda não visitado, pronto para `applyPreview`. Pinta na thread principal: uma vez por órbita. */
+export function planetPixelsOf(map: SurfaceMap): PlanetPixels {
+  return { ...planetPixels(map), relief: reliefPixels(map.elevation, map.width, map.height) };
 }
 
 /** Textura da esfera. Os mipmaps evitam a cintilação do mapa ao se afastar. */
@@ -208,7 +241,7 @@ export function loadPreview(id: string, params: PlanetParams): Promise<PlanetPix
     job = previewQueue
       .then(() => generateSurfaceAsync(params, scale))
       .then((map) => {
-        const preview = planetPixels(map);
+        const preview = planetPixelsOf(map);
         previews.set(id, preview);
         return preview;
       })
@@ -222,10 +255,24 @@ export function loadPreview(id: string, params: PlanetParams): Promise<PlanetPix
 
 /** Troca a textura provisória de faixas pela prévia que chegou. */
 export function applyPreview(body: Body, preview: PlanetPixels, anisotropy: number): void {
-  const material = (body.surface as THREE.Mesh).material as THREE.MeshLambertMaterial;
-  material.map?.dispose();
-  material.map = surfaceTexture(preview, anisotropy);
+  const material = (body.surface as THREE.Mesh).material as THREE.MeshLambertMaterial | THREE.ShaderMaterial;
+  if (material instanceof THREE.ShaderMaterial) {
+    setRockyTextures(material, surfaceTexture(preview, anisotropy), reliefTexture(preview.relief!, preview.width, preview.height));
+  } else {
+    material.map?.dispose();
+    material.map = surfaceTexture(preview, anisotropy);
+  }
   body.previewPending = false;
+}
+
+/** Giro da Terra na cena, em radianos por segundo. É artístico: uma volta a cada 2 minutos, e não em 24 horas de jogo. */
+const EARTH_SPIN = 0.05;
+/** Teto do giro: um gigante de dia curto, ou um planeta sorteado, não vira um pião. */
+const MAX_SPIN = 0.2;
+
+/** Giro do planeta: os dias dele em relação aos da Terra, na mesma escala. Um mundo de face travada quase não gira. */
+export function spinRate(p: Pick<PlanetData, 'dayHours'>): number {
+  return Math.min(MAX_SPIN, (EARTH_SPIN * 24) / (p.dayHours ?? 24));
 }
 
 /** Raio do planeta na cena, em UA. */
@@ -252,9 +299,14 @@ export function tileDirection(surface: THREE.Object3D, u: number, v: number): TH
   return new THREE.Vector3(-Math.cos(phi) * Math.sin(theta), Math.cos(theta), Math.sin(phi) * Math.sin(theta)).applyEuler(surface.rotation);
 }
 
-export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces' | 'surfaceArt'>, anisotropy = 1): Body {
+/**
+ * `webgl`: o rochoso usa o shader de `planet/sphere.ts`. Sem ele (o `SoftRenderer` só sabe desenhar a esfera com
+ * `material.map`) e nos gigantes, que são faixas sem mapa, fica o material comum.
+ */
+export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces' | 'surfaceArt'>, anisotropy = 1, webgl = false): Body {
   const radius = planetRadius(p);
   let map: THREE.Texture;
+  let relief: THREE.Texture | null = null;
   let previewPending = false;
   if (p.kind === 'rocky') {
     // Planeta já visitado usa o mapa completo (com a terraformação e as ruas); os outros,
@@ -267,6 +319,10 @@ export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces
     if (visited && pixels) world.surfaceArt.set(p.id, pixels.pixels);
     if (pixels) {
       map = surfaceTexture(pixels, anisotropy);
+      if (webgl) {
+        const bytes = pixels.relief ?? reliefPixels(visited!.elevation, pixels.width, pixels.height, pixels.pixels);
+        relief = reliefTexture(bytes, pixels.width, pixels.height);
+      }
     } else {
       map = bandTexture(p);
       previewPending = true;
@@ -276,42 +332,18 @@ export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces
   }
   const tilt = axialTilt(p);
   const group = new THREE.Group();
-  const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 32), new THREE.MeshLambertMaterial({ map }));
+  const starDir = new THREE.Vector3(1, 0, 0);
+  const pressure = p.air?.pressure ?? 1;
+  const material = webgl && p.kind === 'rocky' ? rockyMaterial(map, relief ?? flatRelief(), starDir, p.atmosphere ? atmosphereLook(pressure).strength : 0) : new THREE.MeshLambertMaterial({ map });
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 32), material);
   orientPlanet(sphere, tilt);
   sphere.name = 'surface';
   group.add(sphere);
   let rocks: THREE.Object3D | undefined;
   if (p.atmosphere) {
-    const atmo = new THREE.Mesh(
-      new THREE.SphereGeometry(radius * 1.04, 48, 24),
-      new THREE.ShaderMaterial({
-        uniforms: { uColor: { value: new THREE.Color(p.atmosphere) } },
-        vertexShader: /* glsl */ `
-          #include <common>
-          #include <logdepthbuf_pars_vertex>
-          varying vec3 vN; varying vec3 vV;
-          void main() {
-            vec4 mv = modelViewMatrix * vec4(position, 1.0);
-            vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
-            gl_Position = projectionMatrix * mv;
-            #include <logdepthbuf_vertex>
-          }`,
-        fragmentShader: /* glsl */ `
-          #include <common>
-          #include <logdepthbuf_pars_fragment>
-          uniform vec3 uColor; varying vec3 vN; varying vec3 vV;
-          void main() {
-            #include <logdepthbuf_fragment>
-            float rim = pow(1.0 - max(dot(vN, vV), 0.0), 3.0);
-            gl_FragColor = vec4(uColor * rim, rim);
-          }`,
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.FrontSide,
-      }),
-    );
-    group.add(atmo);
+    // O `SoftRenderer` desenha um halo pela casca: a dele continua com a folga de antes.
+    const geometry = webgl ? new THREE.SphereGeometry(radius * ATMOSPHERE_SHELL, 96, 48) : new THREE.SphereGeometry(radius * 1.04, 48, 24);
+    group.add(new THREE.Mesh(geometry, atmosphereMaterial(p.atmosphere, pressure, starDir)));
   }
   if (p.rings) {
     const ring = new THREE.Mesh(
@@ -324,7 +356,7 @@ export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces
     rocks = createRingRocks(p, radius * 1.3, radius * 2.3, tilt);
     group.add(rocks);
   }
-  return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p, surface: sphere, rocks, previewPending };
+  return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p, surface: sphere, rocks, previewPending, starDir };
 }
 
 /** Linha da órbita comprimida. */

@@ -5,6 +5,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 /** Menor e maior zoom (pixels de tela por tile). */
 export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 48;
+/** Quanto a roda precisa ficar parada para o próximo giro contar como um gesto novo. */
+const WHEEL_REST_MS = 300;
 
 /**
  * Câmera da superfície: centro, zoom e o tamanho da tela. Duas convenções de
@@ -29,6 +31,7 @@ export class Viewport {
   /** Tamanho da tela em pixels (o renderizador usa razão de pixel 1). */
   width = 1;
   height = 1;
+  private lastWheel = -Infinity;
 
   constructor(
     readonly mapWidth: number,
@@ -51,6 +54,16 @@ export class Viewport {
 
   setZoom(z: number): void {
     this.zoom = clamp(z, MIN_ZOOM, MAX_ZOOM);
+  }
+
+  /**
+   * A roda pede para afastar além do zoom mínimo? Só um gesto novo, de quem já parou lá: o giro que chegou ao mínimo
+   * não sai do mapa sem querer. Chamar a cada quadro com a roda girando.
+   */
+  wantsOut(wheel: number, now: number): boolean {
+    const fresh = now - this.lastWheel > WHEEL_REST_MS;
+    this.lastWheel = now;
+    return wheel > 0 && fresh && this.zoom <= MIN_ZOOM;
   }
 
   /** Converte coordenadas da vista (y para o norte) em linha do mapa. */

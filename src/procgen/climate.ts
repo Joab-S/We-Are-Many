@@ -1,4 +1,4 @@
-import { CoarseField, type PerlinNoise3 } from './noise';
+import { CoarseField, latitudeOf, type PerlinNoise3 } from './noise';
 
 /**
  * Etapa 3 do gerador: temperatura e umidade. A temperatura do jogo continua
@@ -15,10 +15,15 @@ export interface ClimateInput {
   height: number;
   fullWidth: number;
   step: number;
+  fullHeight: number;
   cosA: Float32Array;
   sinA: Float32Array;
-  featureScale: number;
+  radius: number;
   wet: PerlinNoise3;
+  /** Fração de água do planeta: o teto da umidade. */
+  water: number;
+  /** Rotação lenta (`isSlowRotator`): uma faixa de vento só. */
+  slowDay?: boolean;
 }
 
 export interface ClimateField {
@@ -89,20 +94,28 @@ export function westerlyAt(y: number, height: number): number {
   return s(0.26, 0.4) * (1 - s(0.64, 0.78));
 }
 
+/** Dias acima disto não têm as três faixas de vento da Terra: é uma célula de Hadley só, como em Vênus. */
+const SLOW_DAY_HOURS = 100;
+
+/** Rotação lenta: o vento só desce dos polos ao equador, sem as faixas de oeste. */
+export function isSlowRotator(params: { dayHours?: number }): boolean {
+  return (params.dayHours ?? 24) > SLOW_DAY_HOURS;
+}
+
 /**
  * Leva o ar pelo vento em cada linha: sobre o mar ele se carrega de umidade;
  * sobre a terra perde um pouco a cada passo (o interior seca) e perde muito
  * ao subir uma encosta (chuva orográfica). Depois da crista o ar chega seco:
  * a sombra de chuva. Devolve a chuva relativa de cada tile (0..1).
  */
-export function rainfall(elevation: Float32Array, width: number, height: number, fullWidth: number, step: number): Float32Array {
+export function rainfall(elevation: Float32Array, width: number, height: number, fullWidth: number, step: number, slowDay = false): Float32Array {
   const rain = new Float32Array(width * height);
   // Comprimento (pixels do mapa completo) em que o ar perde ~63% da umidade sobre terra plana.
   const landLoss = 1 - Math.exp(-step / (fullWidth * 0.2));
   const seaGain = 1 - Math.exp(-step / (fullWidth * 0.015));
   for (let y = 0; y < height; y++) {
     // Na faixa de transição os dois ventos contam; fora dela, só um é calculado.
-    const k = westerlyAt(y, height);
+    const k = slowDay ? 0 : westerlyAt(y, height);
     if (k < 1) windRow(elevation, rain, y * width, width, step, landLoss, seaGain, -1, 1 - k);
     if (k > 0) windRow(elevation, rain, y * width, width, step, landLoss, seaGain, 1, k);
   }
@@ -164,22 +177,33 @@ function rowBuffer(width: number): Float32Array {
   return scratch;
 }
 
+/**
+ * Teto da umidade da terra pela água do planeta: quem tem muita água chega ao topo da faixa, para todos os biomas da
+ * matriz aparecerem; um planeta com 5% de água não passa de 0,06. De 0,6 de água em diante, é o topo inteiro.
+ */
+export function moistureCeiling(water: number): number {
+  if (water >= 0.6) return 0.96;
+  const t = Math.max(0, (water - 0.2) / 0.4);
+  return water * 1.2 + 0.24 * t * t * (3 - 2 * t);
+}
+
 export function climateStage(inp: ClimateInput): ClimateField {
-  const { elevation, width, height, fullWidth, step, cosA, sinA, featureScale, wet } = inp;
+  const { elevation, width, height, fullWidth, fullHeight, step, cosA, sinA, radius, wet, water, slowDay } = inp;
   const n = width * height;
   const climate = new Float32Array(n);
   const moisture = new Float32Array(n);
   const dist = waterDistance(elevation, width, height, step);
-  const rain = rainfall(elevation, width, height, fullWidth, step);
+  const rain = rainfall(elevation, width, height, fullWidth, step, slowDay);
   const coastScale = fullWidth * 0.018;
   const interiorScale = fullWidth * 0.12;
   const raw = new Float32Array(n);
   let landCount = 0;
   // Os dois ruídos são suaves: grade grossa de ~4 px do mapa completo, interpolada.
   const smooth = new CoarseField(width, height, 4 / step, 2, (x, y, out) => {
-    const cx = cosA[x];
-    const cz = sinA[x];
-    const cy = (y * step) / featureScale;
+    const lat = latitudeOf(y, step, fullHeight);
+    const cx = cosA[x] * Math.cos(lat);
+    const cz = sinA[x] * Math.cos(lat);
+    const cy = radius * Math.sin(lat);
     // Frentes climáticas: ondas largas de ar quente e frio.
     out[0] = FRONTS_K * wet.fbm(cx * 0.6 + 41, cy * 0.6, cz * 0.6 + 29, 2);
     out[1] = 0.5 + 0.6 * wet.fbm(cx * 1.3 + 3, cy * 1.3, cz * 1.3 + 7, 3);
@@ -199,13 +223,17 @@ export function climateStage(inp: ClimateInput): ClimateField {
       landCount++;
     }
   }
-  // Equalização na terra: a umidade cobre a faixa toda, então todos os biomas da matriz aparecem.
+  // Equalização na terra: a umidade cobre a faixa até o teto do planeta.
   // A posição de cada tile vem de uma busca binária nos valores ordenados (sort nativo de array tipado).
   const sorted = new Float32Array(landCount);
   let k = 0;
   for (let i = 0; i < n; i++) if (elevation[i] >= 0) sorted[k++] = raw[i];
   sorted.sort();
   const last = Math.max(1, landCount - 1);
+  const ceiling = moistureCeiling(water);
+  const floor = Math.min(0.04, ceiling);
+  // O vão de 0,92 é escrito assim para a Terra dar os mesmos valores: 0,96 - 0,04 não é 0,92 em ponto flutuante.
+  const span = ceiling === 0.96 ? 0.92 : ceiling - floor;
   for (let i = 0; i < n; i++) {
     if (elevation[i] < 0) continue;
     const v = Math.fround(raw[i]);
@@ -216,7 +244,7 @@ export function climateStage(inp: ClimateInput): ClimateField {
       if (sorted[mid] < v) lo = mid + 1;
       else hi = mid;
     }
-    moisture[i] = 0.04 + 0.92 * Math.min(1, lo / last);
+    moisture[i] = floor + span * Math.min(1, lo / last);
   }
   return { climate, moisture };
 }

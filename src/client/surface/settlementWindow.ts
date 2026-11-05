@@ -1,3 +1,4 @@
+import { seasonLabel } from './calendar';
 import { TIER_NAMES_NEW } from '../../sim/community';
 import { TIER_POPULATION_NEW } from '../../sim/balance';
 /**
@@ -9,7 +10,7 @@ import { TIER_POPULATION_NEW } from '../../sim/balance';
 
 import { BUILDING_NAMES, ERAS, HERD_NAMES, type Ecosystem, type Ledger, type Village } from '../../sim/ecosystem';
 import { GOODS, ORE_NAMES, STOCK_NAMES, WONDER_NAMES, type Good } from '../../sim/economy';
-import { NEED_NAMES, NEEDS, SEASONS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../sim/needs';
+import { NEED_NAMES, NEEDS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../sim/needs';
 import { DEATH_CAUSES, emptyVital, familyName, personName, type DeathCause, type Vital } from '../../sim/people';
 import { CHILD, ROLE_NAMES, ROLES, type Role } from '../../sim/roles';
 import { MATERIAL_NAMES } from '../../sim/architecture';
@@ -236,7 +237,7 @@ function economyHtml(eco: Ecosystem, v: Village, span: PeriodSpan): string {
     <div class="wb-kv"><span>Caixa</span><b>${Math.floor(v.stock.gold)} de ouro</b></div>
     ${v.herd ? `<div class="wb-kv"><span>Rebanho</span><b>${v.herd.head} ${HERD_NAMES[v.herd.kind]}${(v.herd.plague ?? 0) > eco.year ? ' · <span class="bad">com praga</span>' : ''}</b></div>` : ''}
     ${v.soil !== undefined ? `<div class="wb-kv"><span>Solo</span>${bar(v.soil, `fertilidade ${pct(v.soil)}`)}</div>` : ''}
-    <div class="wb-kv"><span>Estação</span><b>${SEASONS[eco.season()]}</b></div>
+    <div class="wb-kv"><span>Estação</span><b>${seasonLabel(eco.season(), eco.map.params)}</b></div>
     ${tradeHtml(eco, v)}
     <div class="wb-note">Tudo sai do mapa: a madeira de árvores cortadas, que demoram a crescer de novo; a pedra da rocha e das pedras soltas, que acabam; a comida da coleta, da caça, das roças, do rebanho e da pesca. O que não cabe no estoque se perde. O preço sobe com a falta que o bem faz; as caravanas levam o que vale mais lá do que aqui.</div>`;
 }

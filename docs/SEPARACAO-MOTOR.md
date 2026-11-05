@@ -8,7 +8,7 @@ Quanto custa tirar a simulação da thread da tela (Web Worker), levá-la para u
 
 1. **Dá para separar.** O motor (`src/sim` e `src/ai`, umas 24 mil linhas sem os testes) já é puro e roda no Node, e os comandos e os eventos já são dados. O que prende é a **leitura**: a tela ainda lê o `Ecosystem` vivo.
 2. Só há um `ecosystemOf` em produção (`SurfaceMode.ts`), mas ele entrega o `Ecosystem` a 18 arquivos do cliente: umas 300 linhas com `eco.` e 42 métodos chamados na hora (`pick`, `settlementAt`, `activityOf`, `priceAt`...).
-3. **Volume:** cerca de 0,5 MB por passo, 10 MB/s em 5x **[estimativa]**. Cabe em `postMessage` com buffers transferidos, sem `SharedArrayBuffer`. Os assentamentos não podem ir inteiros a cada passo: vão em projeção, por versão ou por assinatura.
+3. **Volume:** cerca de 150 KB por passo, 3 MB/s em 5x **[medido na Terra em 100 anos; a estimativa era 0,5 MB e 10 MB/s; ver seção 2]**. Cabe em `postMessage` com buffers transferidos, sem `SharedArrayBuffer`. Os assentamentos não podem ir inteiros a cada passo: vão em projeção, por versão ou por assinatura.
 4. **Esforço:**
    - motor sem tela: P a M, 3 a 6 dias;
    - Worker: G, 18 a 25 dias;
@@ -73,18 +73,29 @@ Num coop, a nave pediria uma autoridade à parte.
 - A vegetação mexe em cerca de 2.600 tiles por passo.
 - O campo de sítios tem 64×32 células, e a crônica, no máximo 400 linhas.
 
-**[estimativa]:** de 8 a 16 mil slots de criatura e de 20 a 40 lugares.
+**[medido em 05/11/2026]**, com `src/sim/frame.calib.ts`: a Terra com raio 1 (1024×512), semente 1234, 6 aldeias semeadas, 100 anos e 2.400 passos, sem tela. O teste de orçamento `src/sim/api/frame.test.ts` confere a ordem de grandeza num mundo menor.
 
-| O que a tela lê | Frequência | Bytes por passo [estimativa] |
+| O que | Média | p95 | Máximo |
+|---|---|---|---|
+| Slots de criatura (`count`) | 3.401 | 3.702 | 3.712 |
+| Tiles sujos por passo | 1.199 | 1.719 | 4.053 |
+| Barcos, caravanas e efeitos (KB, JSON) | 6,7 | 12,5 | 15,6 |
+| Todos os lugares vivos (KB, JSON; lido uma vez por ano) | 463 | 862 | 909 |
+| O maior lugar (KB, JSON) | 49 | 80 | 82 |
+| **Por passo: criaturas, tiles e listas (KB)** | **148** | **161** | **171** |
+
+Mundos mais velhos ou mais povoados, e o crescimento com o jogador soltando espécies, ficam sem essa medida. Medir a cena `terra-cidade` ou 400 anos antes de dimensionar o transporte.
+
+| O que a tela lê | Frequência | Bytes por passo |
 |---|---|---|
-| Criaturas (14 arrays, 12 mil slots) | por passo | ~470 KB (só x e y: ~96 KB) |
-| Tiles sujos (índice, vegetação, bioma e `felled`; 1 a 2,6 mil) | por passo | 10 a 30 KB, com picos no crescimento anual e nos pincéis |
-| Barcos, caravanas, efeitos, carcaças e ruínas | por passo | 5 a 20 KB |
-| Projeção de desenho dos lugares (posição, era, cor, reino, contorno; casas só quando mudam) | quando muda | 5 a 15 KB |
-| Lugar inteiro (114 campos com casas, `ledgers` e `history`) | só a janela aberta, 4 Hz | 10 a 30 KB cada |
-| Ruas, casas e muralhas por tile | quando muda | poucos KB (2 MB na carga) |
-| Campo de sítios e clima | por versão; 1 a 2 Hz | 8 KB; 25 a 100 KB |
-| Carga inicial (mapa e arrays por tile) | uma vez | ~33 MB |
+| Criaturas (14 arrays, ~3,4 mil slots) | por passo | ~130 KB, medido (só x e y: ~27 KB). Antes: ~470 KB, estimados com 12 mil slots |
+| Tiles sujos (índice, vegetação, bioma e `felled`; ~1,2 mil) | por passo | ~12 KB, medido; 40 KB no pico. Antes: 10 a 30 KB |
+| Barcos, caravanas e efeitos | por passo | ~7 KB, medido; 16 KB no pico. Antes: 5 a 20 KB, com carcaças e ruínas, que não estão na medida |
+| Projeção de desenho dos lugares (posição, era, cor, reino, contorno; casas só quando mudam) | quando muda | 5 a 15 KB [estimativa] |
+| Lugar inteiro (114 campos com casas, `ledgers` e `history`) | só a janela aberta, 4 Hz | até 82 KB cada, medido. Antes: 10 a 30 KB |
+| Ruas, casas e muralhas por tile | quando muda | poucos KB (2 MB na carga) [estimativa] |
+| Campo de sítios e clima | por versão; 1 a 2 Hz | 8 KB; 25 a 100 KB [estimativa] |
+| Carga inicial (mapa e arrays por tile) | uma vez | ~33 MB [estimativa] |
 
 Os arrays tipados vão por buffers transferidos, com uma piscina de ida e volta, por menos de 1 ms por passo. O caro é o `structuredClone` de listas de objetos.
 
@@ -174,7 +185,7 @@ Recomendado: estado autoritativo. É um jogo de deus, sem avatar, então não pr
 1. **Teste-catraca (0,5 dia).** Conta no `src/client` de produção as chamadas a `ecosystemOf(`, os arquivos que importam `Ecosystem` e as linhas com `eco.`, e só deixa os números caírem.
 2. **Pureza ampliada (0,5 dia).** `purity.test.ts` passa a proibir `Math.random`, `Date.now`, `new Date` e `performance.now` nas contas do motor. A medição do painel fica na lista de exceções.
 3. ~~Fechar o vazamento do `pick`~~ **(feito: `withFreshGrid`, teste em `src/sim/api/pick.test.ts`).**
-4. **Ganchos viram dados (1 dia).** A fachada junta os tiles sujos de cada passo (`drainTiles(): Int32Array`), e a espécie nova vira um `EngineEvent`.
-5. **Medir os bytes (1 dia).** Um `frame.calib.ts` roda a Terra com raio 1 por 100 anos e mede `count`, os tiles sujos por passo e o tamanho dos lugares, barcos e caravanas. Ele troca as estimativas acima por números e vira teste de orçamento.
+4. **Ganchos viram dados (1 dia; feito).** A fachada junta os tiles sujos de cada passo (`drainTiles(): Int32Array`), e a espécie nova vira um `EngineEvent`.
+5. **Medir os bytes (1 dia; feito).** Um `frame.calib.ts` roda a Terra com raio 1 por 100 anos e mede `count`, os tiles sujos por passo e o tamanho dos lugares, barcos e caravanas. Ele troca as estimativas acima por números e vira teste de orçamento.
 
 Depois de A1, um teste de fumaça com o transporte local: 30 anos, com a impressão digital igual à de um mundo rodado direto.

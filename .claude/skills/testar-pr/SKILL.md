@@ -43,7 +43,7 @@ Vale para qualquer IA de código (Claude Code, Codex, Cursor e as outras): cada 
 |---|---|---|
 | `src/client/**` | `npm run test:rapido` e `npx playwright test -g "WebGL"` | Olhar as capturas (abaixo) |
 | `src/sim`, `src/IAUS`, `src/procgen` | `npx vitest run <pasta ou arquivo>` | Impressão digital (abaixo) |
-| `src/save` | `npx vitest run src/save` | Salvar e carregar à mão: o `test:jogo` não recarrega um save |
+| `src/save` | `npx vitest run src/save` | `npx playwright test save`, que recarrega no navegador um save da versão anterior. Ao subir `SAVE_VERSION`, mantenha esse caso funcionando |
 | `tests/jogo` | `npx playwright test -g "<parte do título>"` | Provar que o teste falha (abaixo) |
 | Só documentação | Nada | Nada |
 
@@ -104,6 +104,7 @@ Importe `test`, `expect` e as funções de `./apoio`, não do `@playwright/test`
 O que costuma pegar quem escreve um teste novo:
 
 - **Espere o passo anterior aparecer antes da próxima tecla.** Cada modo tem o seu `Input`, então uma tecla apertada durante a troca de modo se perde.
+- **A fusão não é instantânea.** O `F` e o pouso mantêm os dois modos vivos por 0,6 s, depois de a superfície ficar pronta, e as teclas não valem nesse meio tempo: `superficie(page)` em `tests/jogo/apoio.ts` só aparece no fim, e é ela que se espera antes de apertar qualquer tecla. Para fotografar um momento exato, pause as animações (`document.getAnimations()`) e ponha o `currentTime`, como em `esfera.spec.ts`. A nave parada a prumo não pousa; acelerando, sim: um teste que desce com `W` e não quer pousar vai inclinado.
 - **A mesma tecla muda de sentido.** `F` no espaço só funciona em órbita de planeta rochoso, e fora disso não faz nada, sem erro. Na superfície, `F` é seguir e `1` é pausar. Por isso um `F` perdido pode passar despercebido se o teste não conferir que a superfície abriu.
 - **Mande as teclas pelo código:** `Digit1`, `KeyF`, `Escape`, como em `src/client/space/commands.ts` e `surface/keys.ts`.
 - **Use `esperarImagem` antes de medir ou fotografar.** No primeiro segundo de um navegador recém-aberto, sem GPU, o contexto WebGL às vezes cai e volta sozinho. Nesse intervalo a foto sai branca, com um ícone de imagem quebrada no canto. Um tempo fixo de espera não resolve isso.
@@ -147,7 +148,7 @@ Olhe o PNG do teste que falhou. Se a tela está branca ou preta, é um problema 
 Se a mudança encosta nisto, confira à mão e diga no PR. Com `npm run dev`, `/?cena=saturno` leva direto à órbita, e a tecla `1` leva à da Terra.
 
 - Os botões do HUD (o fluxo usa as teclas), o GUIA, o piloto automático, as sondas e os saltos `2` e `3`.
-- Recarregar um save.
+- Recarregar um save feito na superfície: `tests/jogo/save.spec.ts` só recarrega um feito no espaço.
 - O `Esc` soltando a trava do mouse no espaço.
 - A descida em outros planetas além da Terra, e `terra-cidade` no `?soft`.
 - Qualquer navegador além do Chromium sem GPU em 1280x800: GPU real, Firefox, Safari e celular.

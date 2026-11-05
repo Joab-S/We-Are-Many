@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { AU_PER_PC } from '../../core/units';
 import { planetOffset } from '../../nav/planets';
+import type { SurfaceMap } from '../../procgen/surface';
 import type { Poi } from '../../nav/poi';
 import {
   COMET_RADIUS,
@@ -30,10 +31,31 @@ import {
   createStarBody,
   loadPreview,
   planetParams,
+  planetPixelsOf,
+  tileDirection,
+  isLowOver,
+  spinRate,
+  turnWithPlanet,
   type Body,
 } from './bodies';
 import { disposeObject } from './dispose';
+import type { LodView } from './planet/lod';
+import { requestPregen } from './planet/pregen';
+import { mapHeight, QuadSphere } from './planet/QuadSphere';
 import type { FloatingOrigin } from './FloatingOrigin';
+
+/** Dentro desta distância, em raios do centro, o quadtree toma o lugar da esfera (2 raios de altitude). */
+const QUAD_DISTANCE = 3;
+/** Até aqui a nave conta como em órbita: é o que o quadtree dura na memória. */
+const ORBIT_DISTANCE = 4;
+
+/** De onde a câmera do mundo olha, em cada quadro, para o quadtree escolher o detalhe. */
+export interface CameraView {
+  quaternion: THREE.Quaternion;
+  /** Metade do ângulo de visão da diagonal da tela, em radianos. */
+  halfAngle: number;
+  pixelsPerRadian: number;
+}
 
 /** Distância (pc) em que o sistema de uma estrela passa a ser desenhado. */
 export const SYSTEM_ENTER_PC = 0.05;
@@ -88,6 +110,9 @@ export class SystemManager {
   /** Muda a cada troca de corpos: quem guarda algo derivado deles sabe quando refazer. */
   version = 0;
   private readonly prev = new THREE.Vector3();
+  private readonly forward = new THREE.Vector3();
+  private readonly spin = new THREE.Quaternion();
+  private readonly lodView: LodView = { camera: this.prev, pixelsPerRadian: 1 };
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -95,6 +120,8 @@ export class SystemManager {
     private readonly state: GameState,
     private readonly listener: SystemListener,
     private readonly anisotropy = 1,
+    /** O renderizador é o WebGL: os rochosos usam o shader, e não o material que o `SoftRenderer` entende. */
+    private readonly webgl = false,
   ) {}
 
   private changed(): void {
@@ -132,7 +159,7 @@ export class SystemManager {
     };
     const planets: Body[] = [];
     for (const p of data.planets) {
-      const body = createPlanetBody(p, this.state, this.anisotropy);
+      const body = createPlanetBody(p, this.state, this.anisotropy, this.webgl);
       planets.push(body);
       group.add(body.object);
       this.origin.anchor(body.object, body.pos);
@@ -163,7 +190,8 @@ export class SystemManager {
     const p = body.planet!;
     void loadPreview(p.id, planetParams(p)).then(
       (preview) => {
-        if (this.system?.planets.includes(body)) applyPreview(body, preview, this.anisotropy);
+        // Se o mapa inteiro chegou primeiro, a prévia não toma o lugar dele.
+        if (body.previewPending && this.system?.planets.includes(body)) applyPreview(body, preview, this.anisotropy);
       },
       (err) => console.warn(`Falha ao gerar a prévia de ${p.name}`, err),
     );
@@ -174,7 +202,10 @@ export class SystemManager {
     if (!sys) return;
     this.scene.remove(sys.group);
     this.origin.release(sys.star.object);
-    for (const b of sys.planets) this.origin.release(b.object);
+    for (const b of sys.planets) {
+      b.quad?.dispose();
+      this.origin.release(b.object);
+    }
     for (const b of sys.comets) this.origin.release(b.object);
     for (const o of sys.orbits) this.origin.release(o);
     disposeObject(sys.group);
@@ -192,7 +223,14 @@ export class SystemManager {
       const prev = this.prev.copy(b.pos);
       planetOffset(b.planet!, time, b.pos).add(sys.star.pos);
       if ((this.orbitBody === b || this.chasing(b, chaseId)) && prev.lengthSq() > 0) ship.add(prev.sub(b.pos).negate());
-      b.surface!.rotation.y = time * 0.05;
+      const surface = b.surface!;
+      const before = surface.rotation.y;
+      surface.rotation.y = time * spinRate(b.planet!);
+      if (this.orbitBody === b && isLowOver(b, ship)) {
+        const offset = this.prev.subVectors(ship, b.pos);
+        turnWithPlanet(surface, surface.rotation.y - before, offset, this.state.shipQuat);
+        ship.copy(b.pos).add(offset);
+      }
     }
     const window = Math.floor(time / VISITOR_WINDOW_S);
     if (window !== sys.visitor.window) this.swapVisitor(window, false);
@@ -297,7 +335,7 @@ export class SystemManager {
    * menores que um ponto, caudas dos cometas, pedras dos anéis e a luz da
    * estrela. As posições já foram postas pela origem flutuante.
    */
-  place(ship: THREE.Vector3, time: number): void {
+  place(ship: THREE.Vector3, time: number, camera?: CameraView): void {
     for (const { poi, body } of this.poiBodies.values()) {
       const dist = body.pos.distanceTo(ship);
       const glow = body.glow!;
@@ -318,6 +356,8 @@ export class SystemManager {
     for (const b of planets) {
       // As pedras dos anéis só aparecem de perto; de longe o anel liso basta.
       if (b.rocks) b.rocks.visible = b.pos.distanceTo(ship) < b.radius * 60;
+      b.starDir?.subVectors(star.object.position, b.object.position).normalize();
+      if (camera) this.updateQuad(b, ship, camera);
     }
     const away = this.prev;
     for (const b of comets) {
@@ -337,6 +377,51 @@ export class SystemManager {
     this.starLight.intensity = 3;
   }
 
+  /** O mapa em que o chão do planeta se apoia: o da visita ou o adiantado da órbita. */
+  private mapOf(id: string): SurfaceMap | null {
+    const { surfaces, pregen } = this.state;
+    return surfaces.get(id) ?? (pregen?.id === id ? pregen.map : null);
+  }
+
+  private ensureQuad(b: Body): void {
+    if (b.quad || !this.webgl || b.kind !== 'rocky') return;
+    const map = this.mapOf(b.planet!.id);
+    if (!map) return;
+    b.quad = new QuadSphere(b.radius, mapHeight(map), (b.surface as THREE.Mesh).material as THREE.Material);
+    b.object.add(b.quad.group);
+  }
+
+  /** O quadtree existe enquanto a nave está em órbita e há mapa; sem WebGL, nunca: fica a esfera. */
+  private updateQuad(b: Body, ship: THREE.Vector3, camera: CameraView): void {
+    if (!this.webgl || b.kind !== 'rocky') return;
+    const surface = b.surface as THREE.Mesh;
+    const distance = b.pos.distanceTo(ship);
+    if (distance >= b.radius * ORBIT_DISTANCE) {
+      if (b.quad) {
+        b.quad.dispose();
+        b.quad = undefined;
+        surface.visible = true;
+      }
+      return;
+    }
+    this.ensureQuad(b);
+    if (!b.quad) return;
+    const near = distance < b.radius * QUAD_DISTANCE;
+    surface.visible = !near;
+    b.quad.group.visible = near;
+    if (!near) return;
+    b.quad.group.quaternion.copy(surface.quaternion);
+    // A câmera no referencial do planeta, em raios.
+    const toPlanet = this.spin.copy(surface.quaternion).invert();
+    const local = this.prev.subVectors(ship, b.pos).applyQuaternion(toPlanet).divideScalar(b.radius);
+    const forward = this.forward.set(0, 0, -1).applyQuaternion(camera.quaternion).applyQuaternion(toPlanet);
+    this.lodView.camera = local;
+    this.lodView.forward = forward;
+    this.lodView.halfAngle = camera.halfAngle;
+    this.lodView.pixelsPerRadian = camera.pixelsPerRadian;
+    b.quad.update(this.lodView);
+  }
+
   /** Posição da estrela local na cena (depois da origem flutuante), ou null no espaço profundo. */
   starLocal(): THREE.Vector3 | null {
     return this.system ? this.system.star.object.position : null;
@@ -352,7 +437,18 @@ export class SystemManager {
     }
     if (orbit === this.orbitBody) return false;
     this.orbitBody = orbit;
+    if (orbit?.kind === 'rocky' && !this.state.surfaces.has(orbit.planet!.id)) this.pregenerate(orbit);
     return true;
+  }
+
+  /** Adianta o mapa do planeta em órbita. Quando ele chega, a esfera troca a prévia pelo mapa inteiro. */
+  private pregenerate(body: Body): void {
+    const slot = requestPregen(this.state, planetParams(body.planet!));
+    if (!this.webgl) return;
+    void slot.job.then((map) => {
+      if (!this.system?.planets.includes(body) || this.state.pregen !== slot) return;
+      applyPreview(body, planetPixelsOf(map), this.anisotropy);
+    });
   }
 
   /** A nave vai descer ao planeta em órbita: guarda onde ela estava em relação a ele. */
@@ -361,6 +457,8 @@ export class SystemManager {
     if (!body?.planet) return;
     this.state.orbitPlanetId = body.planet.id;
     this.state.orbitOffset = this.state.shipPos.clone().sub(body.pos);
+    // Perto do chão, a nave está num lugar do planeta, e não num lugar em volta dele: ao voltar, é o mesmo lugar do mapa.
+    this.state.orbitSpin = isLowOver(body, this.state.shipPos) ? body.surface!.rotation.y : null;
   }
 
   /**
@@ -376,12 +474,19 @@ export class SystemManager {
     // Sem o sistema (a estrela ainda não carregou), o pedido espera os próximos quadros.
     if (state.orbitPlanetId === null || !sys) return null;
     const body = sys.planets.find((b) => b.planet!.id === state.orbitPlanetId);
-    const offset = state.orbitOffset;
+    const lift = state.liftOff;
+    const offset = lift && body ? tileDirection(body.surface!, lift.u, lift.v).multiplyScalar(body.radius * (1 + lift.altitude)) : state.orbitOffset;
+    const spin = lift ? null : state.orbitSpin;
     state.orbitPlanetId = null;
     state.orbitOffset = null;
+    state.orbitSpin = null;
+    state.liftOff = null;
     // Saves antigos guardam o planeta sem o deslocamento: a nave fica onde está.
     if (!body || !offset) return null;
+    if (spin != null) turnWithPlanet(body.surface!, body.surface!.rotation.y - spin, offset);
     state.shipPos.copy(body.pos).add(offset);
+    // Já neste quadro, ou a colisão empurra a nave para onde a esfera lisa aguenta.
+    this.ensureQuad(body);
     return body;
   }
 
