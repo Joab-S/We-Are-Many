@@ -32,6 +32,12 @@ const NOT_ENGINE = /\.(test|calib)\.ts$/;
 const IMPORT = /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/g;
 /** Uso de APIs do navegador (não confunde com nomes de parâmetros como `window`). */
 const BROWSER = /\b(?:document|window|navigator|localStorage|sessionStorage|indexedDB)\s*\.|\bfetch\s*\(|\brequestAnimationFrame\b|\bHTML\w*Element\b|\bimport\.meta\.env\b/;
+/** Sorteio e relógio de fora da semente: com eles, a mesma semente deixaria de dar o mesmo mundo. */
+const NOT_SEEDED = /\b(?:Math\.random|Date\.now|performance\.now)\b|\bnew\s+Date\b/;
+/** A medição do passo no painel de depuração: mede o tempo de máquina, e o resultado não entra nas contas do mundo. */
+const MAY_READ_CLOCK = ['sim/api/debugView.ts'];
+/** Tira os comentários (`core/rng.ts` explica em um deles que não se usa `Math.random`). */
+const withoutComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
 /** Junta um caminho relativo ao diretório do arquivo, como o path.posix. */
 function resolveFrom(file: string, spec: string): string {
@@ -98,5 +104,11 @@ describe('motor puro sem three.js, DOM ou cliente', () => {
   it('nenhum arquivo usa APIs do navegador', () => {
     const bad = [...files].filter(([, f]) => BROWSER.test(f.src)).map(([name]) => name);
     expect(bad).toEqual([]);
+  });
+
+  it('só a medição do painel lê o relógio, e ninguém sorteia fora da semente', () => {
+    const readers = [...files].filter(([, f]) => NOT_SEEDED.test(withoutComments(f.src))).map(([name]) => name);
+    // Igual, e não "contido": uma exceção que deixou de ser necessária também sai da lista.
+    expect(readers).toEqual(MAY_READ_CLOCK);
   });
 });
