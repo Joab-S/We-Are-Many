@@ -222,6 +222,8 @@ export interface EngineOptions {
   populate?: boolean;
   /** Segundos de jogo por ano (padrão YEAR_SECONDS, o da calibração). */
   yearSpan?: number;
+  /** Linhas para a crônica de um mundo novo (o que aconteceu antes de ele existir). */
+  notes?: readonly string[];
 }
 
 /** O Ecosystem por trás de cada motor (ver `ecosystemOf`). */
@@ -456,6 +458,7 @@ export function createEngine(map: SurfaceMap, opts: EngineOptions): Engine {
     for (const sp of opts.species ?? []) eco.addSpecies(sp);
     if (opts.populate ?? !!opts.species?.length) eco.populate();
     eco.drainEvents();
+    for (const text of opts.notes ?? []) eco.note(text, 'natureza');
   }
   if (opts.yearSpan !== undefined) eco.yearSpan = opts.yearSpan;
   let tiles = new TileSink(map.width * map.height);

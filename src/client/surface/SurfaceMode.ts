@@ -178,9 +178,10 @@ export class SurfaceMode {
     // conhecidas (podem ser levadas a outros planetas). O ano na tela dura REAL_YEAR_SECONDS.
     const seed = seedFor(`${this.params.id}:life`);
     const saved = state.ecosystems.get(this.params.id);
-    const natives = saved ? [] : nativeSpecies(this.params);
+    const natives = saved ? [] : nativeSpecies(this.params, map.life?.attempt ?? 0);
+    if (DEBUG && !saved) for (const line of map.life?.notes ?? []) console.info(line);
     for (const sp of natives) state.knownSpecies.set(sp.id, sp);
-    this.engine = createEngine(map, saved ? { seed, eco: saved, yearSpan: REAL_YEAR_SECONDS } : { seed, species: natives, yearSpan: REAL_YEAR_SECONDS });
+    this.engine = createEngine(map, saved ? { seed, eco: saved, yearSpan: REAL_YEAR_SECONDS } : { seed, species: natives, yearSpan: REAL_YEAR_SECONDS, notes: map.life?.notes });
     const eco = ecosystemOf(this.engine);
     if (!saved) state.ecosystems.set(this.params.id, eco);
     this.eco = eco;

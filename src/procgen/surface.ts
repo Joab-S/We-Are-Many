@@ -139,8 +139,16 @@ export function seasonStrength(params: PlanetParams): number {
 export { Biome, BIOME_NAMES, isForestBiome, isRockyBiome } from './biomes';
 export { Boundary, BOUNDARY_NAMES, type Plate } from './tectonics';
 
+/** O sorteio da vida que ficou (sim/lifeTrial.ts), com o motivo de cada rejeição. */
+export interface LifeChoice {
+  attempt: number;
+  notes: string[];
+}
+
 export interface SurfaceMap {
   params: PlanetParams;
+  /** Só no mapa completo de um planeta novo, gerado no Worker; sem isto, vale o primeiro sorteio. */
+  life?: LifeChoice;
   width: number;
   height: number;
   /** Altitude relativa ao nível do mar (-1..1). */
