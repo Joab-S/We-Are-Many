@@ -550,6 +550,9 @@ describe('aba Tempo e o caso copiado', () => {
   });
 
   it('mostra a impressão digital e o passo em que ela foi tirada', () => {
+    expect(timeHtml(base)).not.toContain('Pôr em dia');
+    expect(timeHtml({ ...base, caughtUp: 40, skipped: 0 })).toContain('nenhum ano pulado');
+    expect(timeHtml({ ...base, caughtUp: 200, skipped: 310 })).toContain('310 anos pulados');
     expect(timeHtml(base)).not.toContain('Impressão digital</span>');
     const html = timeHtml({ ...base, hash: { tick: 5760, value: 'abcd1234' } });
     clean(html);

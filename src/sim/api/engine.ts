@@ -60,6 +60,9 @@ export interface EngineView {
   // O mundo dos povos.
   readonly villages: readonly Readonly<Village>[];
   readonly chronicle: readonly Readonly<ChronicleEntry>[];
+  /** Anos rodados ao voltar ao planeta e anos que passaram sem rodar (painel F3). */
+  readonly caughtUpYears: number;
+  readonly skippedYears: number;
   /** A história do mundo do ano 0 até agora (modo lendas). */
   readonly legends: readonly Readonly<LegendEntry>[];
   /** Quantas lendas antigas já saíram por causa do limite. */
@@ -322,6 +325,12 @@ class LiveView implements EngineView {
   }
   get chronicle() {
     return this.eco.chronicle;
+  }
+  get caughtUpYears() {
+    return this.eco.caughtUpYears;
+  }
+  get skippedYears() {
+    return this.eco.skippedYears;
   }
   get legends() {
     return this.eco.legends;

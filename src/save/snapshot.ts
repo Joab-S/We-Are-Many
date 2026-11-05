@@ -58,6 +58,8 @@ export interface SaveData {
   replays?: Map<string, WorldRecord>;
   knownSpecies: Map<string, Species>;
   nav: NavState;
+  /** Quando cada planeta foi visto pela última vez. Save de antes disso: nenhum perdeu nada. */
+  leftAt?: Map<string, number>;
   probes: ProbeState;
   view: ViewSnapshot;
 }

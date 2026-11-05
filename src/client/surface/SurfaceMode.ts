@@ -40,6 +40,7 @@ import { Toast } from './hud/Toast';
 import { bindNotices } from './hud/notices';
 import { Labels } from './hud/Labels';
 import { DebugPanel } from './hud/DebugPanel';
+import { catchUpPlanet, yearsToCatchUp } from './catchUp';
 import { downloadLegends } from './hud/legends';
 import { SPECIMEN_HOLD, specimensAboard, storeSpecimen, takeSpecimen } from '../../explore/probes';
 import { EARTH_ID } from '../../sim/species';
@@ -171,11 +172,26 @@ export class SurfaceMode {
     else void generateSurfaceAsync(params).then((map) => this.init(map));
   }
 
+  /** O mapa está pronto: antes de abrir, põe em dia os anos em que o planeta ficou sem ser olhado (C2). */
   private init(map: SurfaceMap): void {
     if (this.abort.signal.aborted) return;
     const state = this.state;
-    this.map = map;
     state.surfaces.set(this.params.id, map);
+    if (yearsToCatchUp(state, this.params.id) < 1) {
+      this.openWorld(map);
+      return;
+    }
+    const label = this.root.querySelector<HTMLElement>('.wb-loading');
+    const say = (year: number) => label && (label.textContent = `Pondo em dia ${this.params.name}: ano ${Math.floor(year)}…`);
+    say(state.ecosystems.get(this.params.id)!.year);
+    void catchUpPlanet(state, this.params.id, { onYear: say }).then(() => {
+      if (!this.abort.signal.aborted) this.openWorld(state.surfaces.get(this.params.id)!);
+    });
+  }
+
+  private openWorld(map: SurfaceMap): void {
+    const state = this.state;
+    this.map = map;
 
     // O motor: o mundo salvo (ou já visitado) ou um novo, com as espécies nativas, que passam a ser
     // conhecidas (podem ser levadas a outros planetas). O ano na tela dura REAL_YEAR_SECONDS.
@@ -762,6 +778,7 @@ export class SurfaceMode {
     // para na pausa dela. A pausa congela o jogo inteiro, não só o planeta; a velocidade (2x, 5x) vale só
     // para a simulação da superfície, porque o ano do planeta já é outra escala (12 s por ano).
     if (!this.driver.paused) this.state.time += dt;
+    this.state.leftAt.set(this.params.id, this.state.time);
     if (!this.keys(dt)) return;
     const eco = this.eco;
     const view = this.view;

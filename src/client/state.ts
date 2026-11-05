@@ -36,6 +36,8 @@ export interface GameState {
   ecosystems: Map<string, Ecosystem>;
   /** O relógio e o log de comandos de cada mundo: com a semente, refazem o mundo (`npm run replay`). */
   replays: Map<string, WorldRecord>;
+  /** O relógio do universo (`time`) quando cada planeta foi visto pela última vez: de lá conta o que ele perdeu. */
+  leftAt: Map<string, number>;
   /** Espécies que o jogador já conheceu e pode levar a outros planetas. */
   knownSpecies: Map<string, Species>;
   /** Alvo, marcadores, descobertas e diário de bordo do GUIA. */

@@ -21,6 +21,7 @@ export function snapshotGame(state: GameState, view: ViewSnapshot, seeds: (plane
     surfaces: state.surfaces,
     ecosystems: new Map([...state.ecosystems].map(([id, eco]) => [id, snapshotEcosystem(eco, seeds(id))])),
     replays: state.replays,
+    leftAt: state.leftAt,
     knownSpecies: state.knownSpecies,
     nav: state.nav,
     probes: state.probes,
@@ -44,6 +45,7 @@ export function restoreGame(raw: unknown, base: Pick<GameState, 'manifest' | 'na
     orbitOffset: d.orbitOffset ? new THREE.Vector3().fromArray(d.orbitOffset) : null,
     ecosystems,
     replays: d.replays ?? new Map(),
+    leftAt: d.leftAt ?? new Map(),
     knownSpecies: d.knownSpecies,
     nav: d.nav,
     // Save de antes do porão de criaturas.

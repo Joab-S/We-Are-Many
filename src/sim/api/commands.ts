@@ -160,6 +160,11 @@ export type EngineCommand =
   | { kind: 'surprise' }
   /** Eventos aleatórios ligados ou não, e a frequência deles (janela Mundo). */
   | { kind: 'events'; auto?: boolean; rate?: number }
+  /**
+   * O mundo foi posto em dia (`catchUp.ts`): `ran` dos `lost` anos rodaram, e o resto passou sem registro. É comando porque
+   * a nota entra na crônica, que a impressão digital enxerga: o replay tem de fazer o mesmo.
+   */
+  | { kind: 'caughtUp'; lost: number; ran: number }
   /** Uma constante de equilíbrio muda com o mundo rodando (painel F3, aba Ajustes). */
   | { kind: 'tune'; name: string; value: number }
   /** A vista do jogador (nível de detalhe da simulação). */
@@ -406,6 +411,13 @@ export function applyCommand(eco: Ecosystem, map: SurfaceMap, cmd: EngineCommand
       const ev = runRandomEvent(eco);
       const e = eco.chronicle[0];
       return ev && e && e.x >= 0 ? { ok: true, at: { x: e.x, y: e.y } } : { ok: !!ev };
+    }
+    case 'caughtUp': {
+      const skipped = cmd.lost - cmd.ran;
+      eco.caughtUpYears += cmd.ran;
+      eco.skippedYears += skipped;
+      eco.note(`Você esteve fora por ${cmd.lost} ${cmd.lost === 1 ? 'ano' : 'anos'}${skipped ? `: ${cmd.ran} foram acompanhados e ${skipped} passaram sem registro` : ''}`, 'jogador');
+      return { ok: true };
     }
     case 'tune':
       if (!setConstant(cmd.name, cmd.value)) {

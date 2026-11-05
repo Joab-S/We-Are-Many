@@ -751,6 +751,9 @@ export function timeHtml(args: {
   /** A última impressão digital tirada e o passo dela. */
   hash: { tick: number; value: string } | null;
   copied: string;
+  /** Anos rodados ao voltar ao planeta, e anos que passaram sem rodar (acima do teto). */
+  caughtUp?: number;
+  skipped?: number;
 }): string {
   const a = args;
   const speeds = SPEEDS.map((v, k) => `<button class="${k === a.speed ? 'on' : ''}" data-dspeed="${k}" title="${v === 0 ? 'Pausa (Espaço)' : `Velocidade ${v}x (${k + 1})`}">${v === 0 ? 'Pausa' : `${v}x`}</button>`).join('');
@@ -768,6 +771,7 @@ export function timeHtml(args: {
     ${kv('Ano', yearText(a.year).slice(4))}
     ${kv('Passo', String(a.tick), `${num(a.stepsPerYear)} por ano`)}
     ${kv('Log de comandos', String(a.log), `limite ${a.logLimit}${a.pending ? ` · ${a.pending} na fila` : ''}`)}
+    ${a.caughtUp || a.skipped ? kv('Pôr em dia', `${num(Math.round(a.caughtUp ?? 0))} anos rodados`, a.skipped ? `${num(a.skipped)} anos pulados, sem registro` : 'nenhum ano pulado') : ''}
     ${a.hash ? kv('Impressão digital', a.hash.value, `no passo ${a.hash.tick}`) : ''}
     <div class="wb-dim wb-dnote">A impressão digital é tirada a cada ano de jogo e, na pausa, a cada mudança. Com a mesma semente e o mesmo log, o mesmo passo dá o mesmo valor.</div>
     <div class="wb-section">Caso para reproduzir</div>

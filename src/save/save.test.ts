@@ -44,6 +44,7 @@ function game(): GameState {
     orbitOffset: new THREE.Vector3(1e-3, -2e-3, 3e-3),
     ecosystems: new Map([[earth.id, eco]]),
     replays: new Map(),
+    leftAt: new Map(),
     knownSpecies: known,
     nav,
     probes,
@@ -56,6 +57,17 @@ const roundTrip = (s: GameState, view: ViewSnapshot = space) => restoreGame(stru
 const run = (eco: Ecosystem, seconds: number) => {
   for (let t = 0; t < seconds; t += 0.1) eco.step(0.1);
 };
+
+describe('quando cada planeta foi visto', () => {
+  it('volta do save, e um save de antes disso não tem planeta nenhum', () => {
+    const s = game();
+    s.leftAt.set('sol-3', 123);
+    expect(roundTrip(s).state.leftAt.get('sol-3')).toBe(123);
+    const old = structuredClone(snapshotGame(s, space, () => 1));
+    delete old.leftAt;
+    expect(restoreGame(old, s).state.leftAt.size).toBe(0);
+  });
+});
 
 describe('save: ida e volta', () => {
   it('guarda o relógio e o log de cada mundo, e um save sem eles continua valendo', () => {

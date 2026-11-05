@@ -232,6 +232,8 @@ export class DebugPanel extends HudComponent {
           last: this.lastAdvance,
           hash: this.hash,
           copied: this.copied,
+          caughtUp: view.caughtUpYears,
+          skipped: view.skippedYears,
         });
     }
   }

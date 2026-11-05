@@ -207,6 +207,50 @@ test.describe('?debug', () => {
     await expect.poll(estado).toEqual({ expostas: 1, porao: 0 });
   });
 
+  test('quem volta a um planeta o encontra em dia, num Worker, e o caso copiado ainda refaz o mundo', async ({ page, context }, info) => {
+    test.setTimeout(240_000);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
+    await page.evaluate(() => window.debugEarth!());
+    await expect(superficie(page)).toBeVisible({ timeout: MAPA_MS });
+    const mundo = () =>
+      page.evaluate(() => {
+        const { eco } = window.surface as unknown as { eco: { year: number; caughtUpYears: number; skippedYears: number; chronicle: { text: string }[] } };
+        return { ano: eco.year, rodados: eco.caughtUpYears, pulados: eco.skippedYears, nota: eco.chronicle.find((e) => e.text.startsWith('Você esteve fora'))?.text };
+      });
+    const antes = await mundo();
+    expect(antes.rodados).toBe(0);
+
+    await superficie(page).click();
+    await expect(espaco(page)).toBeVisible();
+    // Seis anos fora, sem esperar 72 s de verdade.
+    await page.evaluate(() => {
+      window.space!.state.time += 6 * 12;
+    });
+    await page.evaluate(() => window.debugEarth!());
+    await expect(page.locator('.wb-loading')).toContainText('Pondo em dia Terra');
+    await expect(superficie(page)).toBeVisible({ timeout: MAPA_MS });
+
+    const depois = await mundo();
+    expect(depois.rodados, 'rodou alguma coisa').toBeGreaterThan(0);
+    expect(depois.rodados + depois.pulados).toBe(6);
+    expect(depois.ano - antes.ano).toBeGreaterThanOrEqual(depois.rodados - 0.01);
+    expect(depois.nota).toContain('Você esteve fora por 6 anos');
+
+    const painel = page.locator('.wb-debugp');
+    await page.keyboard.press('F3');
+    await painel.locator('[data-dtab="time"]').click();
+    await expect(painel).toContainText('Pôr em dia');
+    await painel.locator('[data-dspeed="0"]').click();
+    await painel.locator('[data-dcopy]').click();
+    await expect(painel.locator('.good')).toBeVisible();
+    const json = await page.evaluate(() => navigator.clipboard.readText());
+    await info.attach('caso.json', { body: json, contentType: 'application/json' });
+    const caso = JSON.parse(json) as ReplayCase;
+    expect(replayCase(caso)).toMatchObject({ tick: caso.tick, fingerprint: caso.fingerprint, same: true });
+  });
+
   test('sem ?debug não há alça nenhuma', async ({ page }) => {
     await page.goto('/');
     await expect(espaco(page)).toBeVisible();

@@ -474,6 +474,10 @@ export class Ecosystem {
   fates: Record<string, string> = {};
   /** O ano da última coleta (o tempo que capturar custa). */
   lastCollect = -1e9;
+  /** Anos rodados sem ninguém olhando, ao voltar ao planeta (`sim/api/catchUp.ts`). */
+  caughtUpYears = 0;
+  /** Anos que passaram sem rodar: acima do teto do pôr em dia. */
+  skippedYears = 0;
   /** A história do mundo (modo lendas): os eventos que contam, do ano 0 até agora. Vai no save. */
   legends: LegendEntry[] = [];
   /** Quantas lendas antigas já saíram por causa do limite. */
