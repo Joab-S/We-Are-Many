@@ -26,6 +26,7 @@ import {
   createOrbitLine,
   createPathLine,
   createPlanetBody,
+  spinRate,
   createPoiBody,
   createStarBody,
   loadPreview,
@@ -194,7 +195,7 @@ export class SystemManager {
       const prev = this.prev.copy(b.pos);
       planetOffset(b.planet!, time, b.pos).add(sys.star.pos);
       if ((this.orbitBody === b || this.chasing(b, chaseId)) && prev.lengthSq() > 0) ship.add(prev.sub(b.pos).negate());
-      b.surface!.rotation.y = time * 0.05;
+      b.surface!.rotation.y = time * spinRate(b.planet!);
     }
     const window = Math.floor(time / VISITOR_WINDOW_S);
     if (window !== sys.visitor.window) this.swapVisitor(window, false);

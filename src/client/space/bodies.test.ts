@@ -3,8 +3,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { SOL_PLANETS, type PlanetData } from '../../nav/planets';
 import { generateSurface, type SurfaceMap } from '../../procgen/surface';
 import { generateSurfaceAsync } from '../surface/generateAsync';
-import { dirToUv, RELIEF_SLOPE_RANGE, reliefPixels } from './planet/sphere';
-import { applyPreview, axialTilt, createPlanetBody, litSide, loadPreview, planetParams, planetRadius, tileDirection, type Body } from './bodies';
+import { atmosphereLook, dirToUv, RELIEF_SLOPE_RANGE, reliefPixels } from './planet/sphere';
+import { applyPreview, axialTilt, createPlanetBody, litSide, loadPreview, planetParams, planetRadius, spinRate, tileDirection, type Body } from './bodies';
 
 vi.mock('../surface/generateAsync', () => ({ generateSurfaceAsync: vi.fn() }));
 
@@ -228,6 +228,44 @@ describe('a esfera no WebGL', () => {
     expect(uniforms.uMap.value).not.toBe(before[0]);
     expect(uniforms.uRelief.value).not.toBe(before[1]);
     expect(uniforms.uRelief.value.image.width).toBe(uniforms.uMap.value.image.width);
+  });
+});
+
+describe('a atmosfera', () => {
+  it('quanto mais ar, mais brilho e mais a borda avança sobre o disco', () => {
+    const [mercury, venus] = SOL_PLANETS;
+    const look = (p: PlanetData) => atmosphereLook(p.air!.pressure);
+    expect(look(earth).strength).toBe(1);
+    expect(look(venus).strength).toBeGreaterThan(look(earth).strength);
+    expect(look(mars).strength).toBeLessThan(look(earth).strength);
+    expect(look(venus).falloff).toBeLessThan(look(earth).falloff);
+    expect(look(mars).falloff).toBeGreaterThan(look(earth).falloff);
+    // Sem ar nenhum a conta não quebra; o corpo nem chega a ter a casca.
+    expect(Number.isFinite(look(mercury).falloff)).toBe(true);
+    expect(createPlanetBody(mercury, empty, 1, true).object.children).toHaveLength(1);
+  });
+
+  it('a casca do WebGL é fina e lê a mesma direção da estrela; a do modo sem WebGL fica como era', () => {
+    const shell = (webgl: boolean) => {
+      const body = createPlanetBody(earth, empty, 1, webgl);
+      return { body, mesh: body.object.children[1] as THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> };
+    };
+    const hard = shell(true);
+    expect(hard.mesh.geometry.parameters.radius / hard.body.radius).toBeCloseTo(1.02, 9);
+    expect(hard.mesh.material.uniforms.uStarDir.value).toBe(hard.body.starDir);
+    const soft = shell(false);
+    expect(soft.mesh.geometry.parameters.radius / soft.body.radius).toBeCloseTo(1.04, 9);
+    expect(soft.mesh.material.uniforms.uColor.value).toBeInstanceOf(THREE.Color);
+  });
+});
+
+describe('o giro do planeta', () => {
+  it('a Terra continua como era, e cada planeta gira pelos dias dele, com um teto', () => {
+    expect(spinRate(earth)).toBeCloseTo(0.05, 9);
+    expect(spinRate({})).toBeCloseTo(0.05, 9);
+    expect(spinRate(SOL_PLANETS.find((p) => p.name === 'Júpiter')!)).toBeGreaterThan(spinRate(earth));
+    expect(spinRate(SOL_PLANETS[0])).toBeLessThan(spinRate(earth) / 50);
+    expect(spinRate({ dayHours: 0.1 })).toBe(0.2);
   });
 });
 

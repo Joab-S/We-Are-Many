@@ -8,7 +8,7 @@ import { mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '..
 import type { GameState } from '../state';
 import { generateSurfaceAsync } from '../surface/generateAsync';
 import { markShared } from './dispose';
-import { flatRelief, reliefPixels, reliefTexture, rockyMaterial, setRockyTextures } from './planet/sphere';
+import { ATMOSPHERE_SHELL, atmosphereLook, atmosphereMaterial, flatRelief, reliefPixels, reliefTexture, rockyMaterial, setRockyTextures } from './planet/sphere';
 
 /**
  * Corpos desenhados em 3D perto da nave: a estrela local e, no Sistema Solar,
@@ -224,6 +224,16 @@ export function applyPreview(body: Body, preview: PlanetPixels, anisotropy: numb
   body.previewPending = false;
 }
 
+/** Giro da Terra na cena, em radianos por segundo. É artístico: uma volta a cada 2 minutos, e não em 24 horas de jogo. */
+const EARTH_SPIN = 0.05;
+/** Teto do giro: um gigante de dia curto, ou um planeta sorteado, não vira um pião. */
+const MAX_SPIN = 0.2;
+
+/** Giro do planeta: os dias dele em relação aos da Terra, na mesma escala. Um mundo de face travada quase não gira. */
+export function spinRate(p: Pick<PlanetData, 'dayHours'>): number {
+  return Math.min(MAX_SPIN, (EARTH_SPIN * 24) / (p.dayHours ?? 24));
+}
+
 /** Raio do planeta na cena, em UA. */
 export function planetRadius(p: PlanetData): number {
   return (p.radiusKm / KM_PER_AU) * PLANET_SCALE;
@@ -282,43 +292,17 @@ export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces
   const tilt = axialTilt(p);
   const group = new THREE.Group();
   const starDir = new THREE.Vector3(1, 0, 0);
-  const material = webgl && p.kind === 'rocky' ? rockyMaterial(map, relief ?? flatRelief(), starDir, p.atmosphere ? 1 : 0) : new THREE.MeshLambertMaterial({ map });
+  const pressure = p.air?.pressure ?? 1;
+  const material = webgl && p.kind === 'rocky' ? rockyMaterial(map, relief ?? flatRelief(), starDir, p.atmosphere ? atmosphereLook(pressure).strength : 0) : new THREE.MeshLambertMaterial({ map });
   const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 32), material);
   orientPlanet(sphere, tilt);
   sphere.name = 'surface';
   group.add(sphere);
   let rocks: THREE.Object3D | undefined;
   if (p.atmosphere) {
-    const atmo = new THREE.Mesh(
-      new THREE.SphereGeometry(radius * 1.04, 48, 24),
-      new THREE.ShaderMaterial({
-        uniforms: { uColor: { value: new THREE.Color(p.atmosphere) } },
-        vertexShader: /* glsl */ `
-          #include <common>
-          #include <logdepthbuf_pars_vertex>
-          varying vec3 vN; varying vec3 vV;
-          void main() {
-            vec4 mv = modelViewMatrix * vec4(position, 1.0);
-            vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
-            gl_Position = projectionMatrix * mv;
-            #include <logdepthbuf_vertex>
-          }`,
-        fragmentShader: /* glsl */ `
-          #include <common>
-          #include <logdepthbuf_pars_fragment>
-          uniform vec3 uColor; varying vec3 vN; varying vec3 vV;
-          void main() {
-            #include <logdepthbuf_fragment>
-            float rim = pow(1.0 - max(dot(vN, vV), 0.0), 3.0);
-            gl_FragColor = vec4(uColor * rim, rim);
-          }`,
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.FrontSide,
-      }),
-    );
-    group.add(atmo);
+    // O `SoftRenderer` desenha um halo pela casca: a dele continua com a folga de antes.
+    const geometry = webgl ? new THREE.SphereGeometry(radius * ATMOSPHERE_SHELL, 96, 48) : new THREE.SphereGeometry(radius * 1.04, 48, 24);
+    group.add(new THREE.Mesh(geometry, atmosphereMaterial(p.atmosphere, pressure, starDir)));
   }
   if (p.rings) {
     const ring = new THREE.Mesh(

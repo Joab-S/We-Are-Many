@@ -172,6 +172,70 @@ export function rockyMaterial(map: THREE.Texture, relief: THREE.Texture, starDir
   });
 }
 
+/** Altura da casca da atmosfera, em raios. */
+export const ATMOSPHERE_SHELL = 1.02;
+
+/**
+ * Como a atmosfera aparece, pela pressão na superfície (em atmosferas), numa escala de ordem de grandeza: de 0,006 em Marte
+ * a 92 em Vênus. `strength` é o brilho, e 1 é a Terra; quanto menor `falloff`, mais a borda avança sobre o disco.
+ */
+export function atmosphereLook(pressure: number): { strength: number; falloff: number } {
+  const orders = Math.log10(Math.max(pressure, 1e-3));
+  return { strength: Math.max(0.35, Math.min(1.4, 1 + orders * 0.2)), falloff: Math.max(5, Math.min(26, 12 - orders * 3.5)) };
+}
+
+const ATMOSPHERE_VERTEX = /* glsl */ `
+  #include <common>
+  #include <logdepthbuf_pars_vertex>
+  varying vec3 vN;
+  varying vec3 vV;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vN = normalMatrix * normal;
+    vV = -mv.xyz;
+    gl_Position = projectionMatrix * mv;
+    #include <logdepthbuf_vertex>
+  }`;
+
+const ATMOSPHERE_FRAGMENT = /* glsl */ `
+  #include <common>
+  #include <logdepthbuf_pars_fragment>
+  uniform vec3 uColor;
+  uniform vec3 uStarDir;
+  uniform float uStrength;
+  uniform float uFalloff;
+  varying vec3 vN;
+  varying vec3 vV;
+  void main() {
+    #include <logdepthbuf_fragment>
+    vec3 normal = normalize(vN);
+    // A que distância do centro passa o raio de visão, em raios da casca: 1 é a beira de fora, e a conta abaixo diz onde fica o chão.
+    float ndv = max(dot(normal, normalize(vV)), 0.0);
+    float miss = sqrt(max(1.0 - ndv * ndv, 0.0));
+    float ground = 1.0 / ${ATMOSPHERE_SHELL.toFixed(3)};
+    // Sobre o disco, o ar some rápido em direção ao centro; fora dele, some até a beira da casca, sem a linha dura.
+    float glow = miss < ground ? pow(miss / ground, uFalloff) : 1.0 - smoothstep(ground, 1.0, miss);
+    float sun = dot(normal, normalize(mat3(viewMatrix) * uStarDir));
+    float lit = smoothstep(-0.28, 0.3, sun);
+    // Perto do terminador a luz atravessa mais ar, e sobra o vermelho.
+    vec3 tint = mix(vec3(0.75, 0.28, 0.1), uColor, smoothstep(0.0, 0.45, sun));
+    gl_FragColor = vec4(tint, glow * lit * uStrength);
+  }`;
+
+/** Material da casca da atmosfera (o `SoftRenderer` só lê `uColor`). */
+export function atmosphereMaterial(color: number, pressure: number, starDir: THREE.Vector3): THREE.ShaderMaterial {
+  const { strength, falloff } = atmosphereLook(pressure);
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(color) }, uStarDir: { value: starDir }, uStrength: { value: strength }, uFalloff: { value: falloff } },
+    vertexShader: ATMOSPHERE_VERTEX,
+    fragmentShader: ATMOSPHERE_FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.FrontSide,
+  });
+}
+
 /** Troca as texturas do material, liberando as anteriores. */
 export function setRockyTextures(material: THREE.ShaderMaterial, map: THREE.Texture, relief: THREE.Texture): void {
   (material.uniforms.uMap.value as THREE.Texture).dispose();

@@ -34,4 +34,19 @@ test.describe('a esfera do rochoso', () => {
     await esperarImagem(page, 'o polo na tela', 0.2);
     await capturar(page, info, 'terra-polo');
   });
+
+  test('a borda azul da Terra e a alaranjada de Marte', async ({ page }, info) => {
+    await page.goto('/?debug');
+    await page.keyboard.press('Digit1');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    await esperarImagem(page, 'a Terra na tela');
+    await capturar(page, info, 'atmosfera-terra');
+    await page.evaluate(() => void window.space!.goToPlanet('Marte', 2.2));
+    await esperarOrbita(page, 'Marte');
+    await expect.poll(() => page.evaluate(() => window.space!.systems.orbitBody!.previewPending)).toBe(false);
+    await page.waitForTimeout(500);
+    await esperarImagem(page, 'Marte na tela');
+    await capturar(page, info, 'atmosfera-marte');
+  });
 });
