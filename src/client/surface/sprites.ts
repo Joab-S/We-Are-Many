@@ -37,7 +37,7 @@ export class SpriteAtlas {
 
   constructor() {
     const names = Object.keys(SPRITES);
-    const cols = 16;
+    const cols = 32;
     const rows = Math.ceil(names.length / cols);
     const canvas = document.createElement('canvas');
     canvas.width = cols * CELL;

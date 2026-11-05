@@ -2,6 +2,7 @@ import { CREST_EMBLEMS } from '../../sim/architecture';
 import { ROLES, type Role } from '../../sim/roles';
 import { VEHICLE_PALETTE, VEHICLES } from './vehicleArt';
 import { HUMAN_ICON_PALETTES, HUMAN_ICONS, HUMAN_PALETTES, HUMAN_SPRITES } from './humanArt';
+import { ANIMAL_PALETTES, ANIMAL_SPRITES } from './animalArt';
 import { CREATURE_ART, EFFECT_ART, EXTRA_COLORS, ITEM_ICONS, SAPIENT_BODIES, SAPIENT_CHILDREN } from './art-extra';
 
 /**
@@ -1157,6 +1158,13 @@ for (const [name, rows] of Object.entries(VEHICLES)) {
   SPRITES[`${name}:l`] = flip(rows);
   SPRITE_PALETTES[name] = VEHICLE_PALETTE;
   SPRITE_PALETTES[`${name}:l`] = VEHICLE_PALETTE;
+}
+// Bichos no estilo novo (`an:bicho:n|x:quadro`), cada um com a própria paleta, e espelhados para a esquerda.
+for (const [name, rows] of Object.entries(ANIMAL_SPRITES)) {
+  SPRITES[name] = rows;
+  SPRITES[`${name}:l`] = flip(rows);
+  SPRITE_PALETTES[name] = ANIMAL_PALETTES[name];
+  SPRITE_PALETTES[`${name}:l`] = ANIMAL_PALETTES[name];
 }
 // Ícones dos humanos (`human:profissão`): o sprite novo parado, com pele e cabelo fixos.
 for (const [role, rows] of Object.entries(HUMAN_ICONS)) {
