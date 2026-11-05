@@ -6,6 +6,7 @@ import type { Species } from '../sim/species';
 import type { NavState } from '../nav/guide';
 import type { ProbeState } from '../explore/probes';
 import type { WorldRecord } from '../save/snapshot';
+import type { Landing } from './fusion';
 import type { PregenSlot } from './space/planet/pregen';
 
 /**
@@ -37,6 +38,8 @@ export interface GameState {
   orbitOffset: THREE.Vector3 | null;
   /** O giro do planeta ao descer de perto do chão: `orbitOffset` vale nesse giro. Sem ele, a nave volta ao mesmo lugar em volta do planeta. */
   orbitSpin?: number | null;
+  /** A nave sobe pelo zoom do mapa: em vez de `orbitOffset`, ela volta sobre este ponto. Não vai para o save. */
+  liftOff?: Landing | null;
   /** Ecossistemas em andamento, por id do planeta. */
   ecosystems: Map<string, Ecosystem>;
   /** O relógio e o log de comandos de cada mundo: com a semente, refazem o mundo (`npm run replay`). */

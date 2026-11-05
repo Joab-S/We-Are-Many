@@ -233,8 +233,9 @@ export class ShipController {
   }
 
   /** Aponta a nave para `target`, parada (atalhos de salto). */
-  lookAt(target: THREE.Vector3): void {
-    this.up.set(0, 0, 1);
+  lookAt(target: THREE.Vector3, up?: THREE.Vector3): void {
+    if (up) this.up.copy(up);
+    else this.up.set(0, 0, 1);
     this.quat.setFromRotationMatrix(this.look.lookAt(this.pos, target, this.up));
     this.velocity.set(0, 0, 0);
     this.speedFactor = 0;

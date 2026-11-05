@@ -325,6 +325,71 @@ test.describe('a esfera do rochoso', () => {
     expect(aMais, 'o pico da descida, além do que a superfície já ocupava').toBeLessThan(40 * 1048576);
   });
 
+  test('descer e subir dez vezes, sem vazar memória da GPU nem perder a órbita', async ({ page }) => {
+    test.setTimeout(MAPA_MS + 300_000);
+    await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
+    await page.keyboard.press('Digit1');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    await expect.poll(() => page.evaluate(() => !!window.space!.state.pregen?.map), { timeout: MAPA_MS }).toBe(true);
+    // Sobe pelo zoom: no mínimo, um giro novo da roda.
+    let centro: [number, number] = [0, 0];
+    const subir = async () => {
+      await page.evaluate(() => {
+        window.surface!.zoom = 0.5;
+      });
+      await page.waitForTimeout(500);
+      centro = await page.evaluate(() => window.surface!.snapshotView().center);
+      await page.mouse.move(640, 400);
+      await page.mouse.wheel(0, 100);
+      await expect.poll(() => page.evaluate(() => !window.surface && !!window.space && !document.querySelector('.space-hud.fusing')), { timeout: 30_000 }).toBe(true);
+    };
+    const contas = () =>
+      page.evaluate(() => {
+        const { memory } = (window.space as unknown as { renderer: { info: { memory: { geometries: number; textures: number } } } }).renderer.info;
+        return { geometrias: memory.geometries, texturas: memory.textures };
+      });
+    // Com a nave longe, o quadtree foi embora: as contas só dizem algo no mesmo lugar, e em descanso.
+    const longe = async () => {
+      await page.evaluate(() => void window.space!.goToPlanet('Terra', 5));
+      await page.waitForTimeout(1000);
+      const r = await contas();
+      await page.evaluate(() => void window.space!.goToPlanet('Terra', 3));
+      await esperarOrbita(page, 'Terra');
+      return r;
+    };
+    let primeira: Awaited<ReturnType<typeof contas>> | null = null;
+    for (let i = 0; i < 10; i++) {
+      await esperarOrbita(page, 'Terra');
+      await page.keyboard.press('KeyF');
+      await expect(superficie(page)).toBeVisible({ timeout: 30_000 });
+      expect(await page.evaluate(() => window.space)).toBeUndefined();
+      await subir();
+      const sobre = await page.evaluate(() => {
+        const { state, systems } = window.space!;
+        const b = systems.orbitBody;
+        if (!b) return { altitude: -1, coluna: -1, linha: -1 };
+        const local = state.shipPos.clone().sub(b.pos).applyQuaternion(b.surface!.quaternion.clone().invert()).normalize();
+        const u = Math.atan2(local.z, -local.x) / (Math.PI * 2);
+        return { orbita: b.name, altitude: state.shipPos.distanceTo(b.pos) / b.radius - 1, coluna: (u < 0 ? u + 1 : u) * 1024, linha: (Math.acos(local.y) / Math.PI) * 512, baixo: b.pos.clone().set(0, 0, -1).applyQuaternion(state.shipQuat).dot(b.pos.clone().sub(state.shipPos).normalize()) };
+      });
+      expect(sobre.orbita, `volta ${i + 1}: a nave ficou em órbita`).toBe('Terra');
+      expect(sobre.altitude).toBeCloseTo(2.9, 1);
+      // A nave não para sobre o mesmo ponto: a 2,9 raios ela não anda com o planeta, e o tempo corre desde a subida, 8 tiles por segundo.
+      expect(Math.abs(((sobre.coluna - centro[0] + 1536) % 1024) - 512), 'a mesma coluna do centro do mapa').toBeLessThan(40);
+      expect(Math.abs(sobre.linha - (512 - centro[1])), 'a mesma linha do centro do mapa').toBeLessThan(40);
+      expect(sobre.baixo, 'apontando para baixo').toBeGreaterThan(0.99);
+      if (i === 0) primeira = await longe();
+      else if (i === 9) {
+        const ultima = await longe();
+        console.log('contas da GPU na primeira e na décima volta:', primeira, ultima);
+        expect(ultima).toEqual(primeira);
+      }
+      await page.evaluate(() => void window.space!.goToPlanet('Terra', 3));
+    }
+  });
+
   test('o Esc sobe direto; a nave volta ao mesmo lugar, e não pousa de novo sozinha', async ({ page }) => {
     test.setTimeout(MAPA_MS + 60_000);
     await page.goto('/?debug');

@@ -80,9 +80,12 @@ export class SpaceMode implements GameMode {
   private disposed = false;
   private readonly isDisposed = (): boolean => this.disposed;
   /** Numa fusão com o mapa (`main.ts`) a nave para, o relógio também, e o laço só desenha. */
-  private fusion: 'down' | null = null;
+  private fusion: 'down' | 'up' | null = null;
   /** Descendo, a nave vira para o chão, com o norte para cima como no mapa. */
   private turn: { from: THREE.Quaternion; progress: () => number } | null = null;
+  private readonly bornAt = performance.now();
+  /** Chamado uma vez, depois de a nave chegar ao lugar dela e o quadro sair: daí a tela pode aparecer. */
+  onSettled: (() => void) | null = null;
 
   constructor(
     private readonly renderer: GameRenderer,
@@ -205,7 +208,7 @@ export class SpaceMode implements GameMode {
     this.systems.updateBodies(state.time, nav.autopilot ? nav.target?.id ?? null : null);
     // De volta da superfície: a nave retoma a órbita do planeta, olhando para ele. Descendo, o pedido é o da descida, ainda por vir.
     const anchored = this.fusion === 'down' ? null : this.systems.restoreOrbit();
-    if (anchored) this.ship.lookAt(anchored.pos);
+    if (anchored) this.ship.lookAt(anchored.pos, this.fusion === 'up' ? northOf(anchored.surface!) : undefined);
     const view = this.director.resolveView();
 
     if (this.fusion) this.turnToGround();
@@ -253,6 +256,11 @@ export class SpaceMode implements GameMode {
     this.hud.frame(now);
     this.guide.frame(state.shipPos, state.shipQuat, this.camera, this.director.view, this.ship.velocity);
     this.input.endFrame();
+    if (this.onSettled && (state.orbitPlanetId === null || now - this.bornAt > 1000)) {
+      const settled = this.onSettled;
+      this.onSettled = null;
+      settled();
+    }
   };
 
   /** Acelerando a prumo e já baixa, a nave pousa. Parada, não: ela pode olhar o chão de perto, e subir de novo. */
@@ -266,9 +274,10 @@ export class SpaceMode implements GameMode {
   }
 
   /** O começo de uma fusão: a nave e o relógio param, e as teclas deixam de valer. */
-  beginFusion(): void {
-    this.fusion = 'down';
+  beginFusion(direction: 'down' | 'up'): void {
+    this.fusion = direction;
     this.hud.root.classList.add('fusing');
+    if (direction === 'up') this.hud.root.style.opacity = '0';
   }
 
   /** A nave vira para o chão enquanto a fusão anda, de 0 a 1 em `progress`. */
@@ -286,6 +295,14 @@ export class SpaceMode implements GameMode {
   /** O HUD do espaço aparece ou some junto com a fusão. */
   fadeHud(from: number, to: number, ms: number): Animation {
     return this.hud.root.animate([{ opacity: from }, { opacity: to }], { duration: ms, fill: 'both', easing: 'ease-in-out' });
+  }
+
+  /** A fusão de subida acabou: a nave volta às mãos do jogador. */
+  endFusion(): void {
+    this.fusion = null;
+    this.hud.root.classList.remove('fusing');
+    this.hud.root.style.opacity = '';
+    this.lastTime = performance.now();
   }
 
   /** Teclas de voo seguradas, pelas ligações de teclas. */

@@ -7,6 +7,7 @@ import { sameView, viewCommand, type EngineCommand, type ViewCommand } from '../
 import { createEngine, ecosystemOf, type Engine } from '../../sim/api/engine';
 import type { EngineEvent } from '../../sim/api/events';
 import { earthCatalog, nativeSpecies } from '../../sim/species';
+import { altitudeAtZoom, type Landing } from '../fusion';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
 import type { GameState } from '../state';
@@ -140,7 +141,8 @@ export class SurfaceMode {
     private readonly state: GameState,
     private readonly params: PlanetParams,
     hud: HTMLElement,
-    private readonly onExit: () => void,
+    /** Com `lift`, o jogador afastou além do zoom mínimo: a nave volta sobre esse ponto. */
+    private readonly onExit: (lift?: Landing) => void,
     /** Câmera e velocidade de um save carregado, ou da nave que está pousando. */
     private readonly resume?: { center: [number, number]; zoom: number; speed: number },
     /** Numa fusão, o mapa nasce invisível por cima do 3D, e parado até ela acabar: nem relógio, nem simulação, nem teclas. */
@@ -898,6 +900,21 @@ export class SurfaceMode {
     this.lastTime = performance.now();
   }
 
+  /** Começa a subir: o mapa para e fica por cima do 3D, que volta à tela atrás dele. */
+  beginLeaving(): void {
+    this.fusing = true;
+    this.publishArt();
+    this.root.classList.add('fusing');
+    this.renderer.domElement.classList.add('fusion-layer');
+    this.shared.domElement.style.display = '';
+  }
+
+  /** O mapa some, com o 3D já pronto atrás dele. */
+  fadeOut(ms: number): Animation[] {
+    const options = { duration: ms, fill: 'both', easing: 'ease-in-out' } as const;
+    return [this.renderer.domElement, this.root].map((el) => el.animate([{ opacity: 1 }, { opacity: 0 }], options));
+  }
+
   /** A esfera em órbita mostra o mesmo mapa, com as ruas; numa visão de depuração do gerador os pixels não são o mapa, e ela volta ao terreno pintado. */
   private publishArt(): void {
     if (!this.ready) return;
@@ -933,7 +950,13 @@ export class SurfaceMode {
     const pan = 300 / view.zoom;
     view.center.x += ((input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0)) * pan * dt;
     view.center.y += ((input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0)) * pan * dt;
-    if (input.wheel) view.setZoom(view.zoom * (input.wheel < 0 ? 1.25 : 0.8));
+    if (input.wheel) {
+      if (view.wantsOut(input.wheel, performance.now())) {
+        this.onExit({ u: view.center.x / view.mapWidth, v: view.toRow(view.center.y) / view.mapHeight, altitude: altitudeAtZoom(view.zoom, view.height, view.mapHeight) });
+        return false;
+      }
+      view.setZoom(view.zoom * (input.wheel < 0 ? 1.25 : 0.8));
+    }
     return true;
   }
 

@@ -32,6 +32,7 @@ import {
   loadPreview,
   planetParams,
   planetPixelsOf,
+  tileDirection,
   isLowOver,
   spinRate,
   turnWithPlanet,
@@ -473,11 +474,13 @@ export class SystemManager {
     // Sem o sistema (a estrela ainda não carregou), o pedido espera os próximos quadros.
     if (state.orbitPlanetId === null || !sys) return null;
     const body = sys.planets.find((b) => b.planet!.id === state.orbitPlanetId);
-    const offset = state.orbitOffset;
-    const spin = state.orbitSpin;
+    const lift = state.liftOff;
+    const offset = lift && body ? tileDirection(body.surface!, lift.u, lift.v).multiplyScalar(body.radius * (1 + lift.altitude)) : state.orbitOffset;
+    const spin = lift ? null : state.orbitSpin;
     state.orbitPlanetId = null;
     state.orbitOffset = null;
     state.orbitSpin = null;
+    state.liftOff = null;
     // Saves antigos guardam o planeta sem o deslocamento: a nave fica onde está.
     if (!body || !offset) return null;
     if (spin != null) turnWithPlanet(body.surface!, body.surface!.rotation.y - spin, offset);

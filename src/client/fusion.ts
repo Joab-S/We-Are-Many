@@ -11,6 +11,8 @@ export const FUSION_MS = 600;
 export const LAND_ALTITUDE = 0.05;
 /** Cosseno do ângulo máximo entre o nariz e o prumo para pousar sozinha (20°). */
 export const LAND_PLUMB_COS = Math.cos((20 * Math.PI) / 180);
+/** Altitude máxima, em raios, ao subir pelo zoom: 3,9 raios do centro é menos que os 4 da órbita (`ORBIT_DISTANCE`). */
+export const LIFT_CEILING = 2.9;
 
 /** Um ponto do mapa (como em `tileDirection`) e a altitude da nave sobre ele, em raios. */
 export interface Landing {
@@ -30,6 +32,11 @@ function pixelsPerRadian(screenHeight: number): number {
  */
 export function zoomAtAltitude(altitude: number, screenHeight: number, mapHeight: number): number {
   return (pixelsPerRadian(screenHeight) * Math.PI) / (mapHeight * altitude);
+}
+
+/** O contrário de `zoomAtAltitude`, sem passar do teto da órbita. */
+export function altitudeAtZoom(zoom: number, screenHeight: number, mapHeight: number): number {
+  return Math.min(LIFT_CEILING, (pixelsPerRadian(screenHeight) * Math.PI) / (mapHeight * zoom));
 }
 
 /** A nave pousa sozinha? `plumb` é o cosseno entre o nariz e o centro do planeta. Só quem acelera: parada, ela pode olhar. */

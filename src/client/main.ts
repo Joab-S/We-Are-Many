@@ -133,17 +133,20 @@ function createSpace(state: GameState): SpaceMode {
 }
 
 function createSurface(state: GameState, params: PlanetParams, resume?: ConstructorParameters<typeof SurfaceMode>[5], fusing = false): SurfaceMode {
-  return new SurfaceMode(
+  const surface: SurfaceMode = new SurfaceMode(
     renderer,
     state,
     params,
     hud,
-    () => {
-      if (!fusion) enterSpace(state);
+    (lift) => {
+      if (fusion) return;
+      if (lift && !soft) liftOff(state, params, surface, lift);
+      else enterSpace(state);
     },
     resume,
     fusing,
   );
+  return surface;
 }
 
 function enterSurface(state: GameState, params: PlanetParams, resume?: ConstructorParameters<typeof SurfaceMode>[5]): void {
@@ -155,7 +158,7 @@ function enterSurface(state: GameState, params: PlanetParams, resume?: Construct
  * (o mapa e o pôr em dia podem levar segundos). Só então os dois se fundem, e o espaço é descartado no fim.
  */
 function land(state: GameState, params: PlanetParams, space: SpaceMode, landing: Landing): void {
-  space.beginFusion();
+  space.beginFusion('down');
   const { width, height } = mapSizeFor(params.radiusEarth);
   const resume = { center: [landing.u * width, (1 - landing.v) * height] as [number, number], zoom: zoomAtAltitude(landing.altitude, window.innerHeight, height), speed: 1 };
   const surface = createSurface(state, params, resume, true);
@@ -171,6 +174,24 @@ function land(state: GameState, params: PlanetParams, space: SpaceMode, landing:
   };
 }
 
+/** Subida, pelo zoom: o espaço nasce atrás do mapa, com a nave sobre o mesmo ponto, e o mapa some quando ele já tem o que mostrar. */
+function liftOff(state: GameState, params: PlanetParams, surface: SurfaceMode, lift: Landing): void {
+  void autosave({ mode: 'space' });
+  state.orbitPlanetId = params.id;
+  state.liftOff = lift;
+  surface.beginLeaving();
+  const space = createSpace(state);
+  space.beginFusion('up');
+  mode = space;
+  fusion = { other: surface, fades: [] };
+  space.onSettled = () => {
+    whenFaded(surface, [...surface.fadeOut(FUSION_MS), space.fadeHud(0, 1, FUSION_MS)], () => {
+      surface.dispose();
+      space.endFusion();
+    });
+  };
+  space.start();
+}
 
 function startFrom(state: GameState, view: ViewSnapshot): void {
   current = state;
