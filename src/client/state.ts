@@ -35,6 +35,8 @@ export interface GameState {
   orbitPlanetId: string | null;
   /** Nave menos planeta ao descer, em UA: onde a nave reaparece ao voltar da superfície. */
   orbitOffset: THREE.Vector3 | null;
+  /** O giro do planeta ao descer de perto do chão: `orbitOffset` vale nesse giro. Sem ele, a nave volta ao mesmo lugar em volta do planeta. */
+  orbitSpin?: number | null;
   /** Ecossistemas em andamento, por id do planeta. */
   ecosystems: Map<string, Ecosystem>;
   /** O relógio e o log de comandos de cada mundo: com a semente, refazem o mundo (`npm run replay`). */

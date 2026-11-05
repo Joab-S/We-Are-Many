@@ -107,6 +107,20 @@ const VERTEX = /* glsl */ `
 const FRAGMENT = /* glsl */ `
   #include <common>
   #include <logdepthbuf_pars_fragment>
+  float cellHash(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1) * 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+  float valueNoise(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(mix(cellHash(i), cellHash(i + vec3(1, 0, 0)), f.x), mix(cellHash(i + vec3(0, 1, 0)), cellHash(i + vec3(1, 1, 0)), f.x), f.y),
+      mix(mix(cellHash(i + vec3(0, 0, 1)), cellHash(i + vec3(1, 0, 1)), f.x), mix(cellHash(i + vec3(0, 1, 1)), cellHash(i + vec3(1, 1, 1)), f.x), f.y),
+      f.z
+    );
+  }
   uniform sampler2D uMap;
   uniform sampler2D uRelief;
   uniform vec3 uStarDir;
@@ -133,6 +147,15 @@ const FRAGMENT = /* glsl */ `
     vec2 gradY = vec2(dot(dirY, east) / column, dot(dirY, north) / PI);
     vec3 albedo = textureGrad(uMap, uv, gradX, gradY).rgb;
     vec4 relief = textureGrad(uRelief, uv, gradX, gradY);
+    // De perto, um tile cobre muitos pixels e a imagem vira um borrão: um ruído de detalhe na terra, sem geometria. A onda
+    // é um quarto de tile, e ele entra só quando ela já ocupa alguns pixels.
+    float wave = float(textureSize(uMap, 0).y) / PI * 4.0;
+    float waveInPixels = 1.0 / (wave * max(length(dirX) + length(dirY), 1e-7));
+    float detail = smoothstep(2.0, 8.0, waveInPixels) * relief.a;
+    if (detail > 0.0) {
+      float grain = valueNoise(dir * wave) * 0.65 + valueNoise(dir * wave * 3.1) * 0.35;
+      albedo *= 1.0 + (grain - 0.5) * 0.5 * detail;
+    }
 
     vec2 slope = (relief.rg - 128.0 / 255.0) * (255.0 / 127.0) * ${RELIEF_SLOPE_RANGE.toFixed(1)};
     vec3 normal = normalize(vToView * normalize(dir - uExaggeration * (slope.x * east + slope.y * north)));

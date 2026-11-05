@@ -3,7 +3,7 @@ import { adaptiveMaxSpeed, directionalDistance } from '../../core/flight';
 import { stepSpeedFactor, THROTTLE, Turbo, TURBO } from '../../core/shipControl';
 import { starVisualRadius } from '../../nav/systemGen';
 import type { Input } from '../input';
-import type { Body } from './bodies';
+import { isLowOver, minDistanceRadii, type Body } from './bodies';
 import type { TargetView } from './GuideHud';
 import type { CatalogStar } from './starField';
 
@@ -12,6 +12,8 @@ const MOUSE_SENSITIVITY = 0.0022;
 const TURN_RATE = 1.25;
 /** Quão rápido a direção do movimento acompanha o nariz da nave (deriva nas curvas). */
 const GRIP = 2.2;
+/** Quão rápido a nave desfaz a rolagem perto do chão, por segundo. */
+const LEVEL_RATE = 1.5;
 /** Quantas das estrelas mais próximas seguram a velocidade. */
 const SPEED_STARS = 12;
 
@@ -137,6 +139,7 @@ export class ShipController {
       // Acelerador com arrancada, freio e deslize (ou velocidade mantida no cruzeiro).
       this.speedFactor = stepSpeedFactor(this.speedFactor, (k(keys.thrust) - k(keys.brake)) as -1 | 0 | 1, dt, THROTTLE, cruise);
     }
+    this.levelOut(dt, world.bodies());
     if (input.wheel) this.throttle = THREE.MathUtils.clamp(this.throttle - input.wheel * 0.1, 0.1, 1);
 
     // Tab no lugar de Ctrl: Ctrl+W fecha a aba do navegador e não pode ser bloqueado.
@@ -163,11 +166,33 @@ export class ShipController {
     this.collide(world.bodies());
   }
 
+  /**
+   * Perto do chão, o "cima" da nave vai aos poucos para o céu. Só desfaz a rolagem: gira em torno do nariz, e a mira fica
+   * onde o piloto a pôs, ou a nave não conseguiria apontar para baixo. Rolar de propósito (Q/E) leva a melhor.
+   */
+  private levelOut(dt: number, bodies: readonly Body[]): void {
+    if (this.roll !== 0) return;
+    for (let i = 0; i < bodies.length; i++) {
+      const b = bodies[i];
+      if (!b.quad || !isLowOver(b, this.pos)) continue;
+      const forward = this.forward.set(0, 0, -1).applyQuaternion(this.quat);
+      const sky = this.rel.subVectors(this.pos, b.pos).normalize();
+      const wanted = sky.addScaledVector(forward, -sky.dot(forward));
+      // Olhando a prumo, nenhum lado é o de cima.
+      if (wanted.lengthSq() < 0.01) return;
+      wanted.normalize();
+      const up = this.up.set(0, 1, 0).applyQuaternion(this.quat);
+      const angle = Math.atan2(this.moveDir.crossVectors(up, wanted).dot(forward), up.dot(wanted));
+      this.quat.premultiply(this.turn.setFromAxisAngle(forward, angle * (1 - Math.exp(-LEVEL_RATE * dt)))).normalize();
+      return;
+    }
+  }
+
   /** Distância mínima: a nave nunca entra numa estrela ou planeta (RF-NAV-05). */
   private collide(bodies: readonly Body[]): void {
     for (let i = 0; i < bodies.length; i++) {
       const b = bodies[i];
-      const minDist = b.radius * (b.kind === 'star' ? 2 : 1.6);
+      const minDist = b.radius * minDistanceRadii(b);
       const offset = this.rel.copy(this.pos).sub(b.pos);
       const d = offset.length();
       if (d < minDist) {

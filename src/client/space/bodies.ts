@@ -48,6 +48,34 @@ export interface Body {
   quad?: QuadSphere;
 }
 
+/** Distância mínima de um planeta com quadtree, em raios do centro: 0,02 raio de altitude, acima da maior montanha. */
+export const DESCENT_FLOOR = 1.02;
+/** Abaixo desta altitude, em raios, a nave anda com o chão: gira com o planeta e nivela com o horizonte. */
+export const LOW_ALTITUDE = 0.5;
+
+/** A nave mais perto do corpo que isto: sem quadtree (sem WebGL, ou ainda sem mapa), ela fica onde a esfera lisa aguenta. */
+export function minDistanceRadii(b: Pick<Body, 'kind' | 'quad'>): number {
+  return b.kind === 'star' ? 2 : b.quad ? DESCENT_FLOOR : 1.6;
+}
+
+/** A nave está baixa o bastante para andar com o chão deste corpo. */
+export function isLowOver(b: Pick<Body, 'pos' | 'radius'>, ship: THREE.Vector3): boolean {
+  return b.pos.distanceTo(ship) < b.radius * (1 + LOW_ALTITUDE);
+}
+
+const spinAxis = new THREE.Vector3();
+const spinTurn = new THREE.Quaternion();
+
+/**
+ * Leva `offset` (a nave menos o planeta) `delta` radianos no giro do planeta, e a orientação junto, se houver. Sem isso o
+ * chão foge: no equador da Terra ele passa a 2e-4 UA/s, e o teto da nave perto do chão é de 3e-5 UA/s.
+ */
+export function turnWithPlanet(surface: THREE.Object3D, delta: number, offset: THREE.Vector3, quat?: THREE.Quaternion): void {
+  spinTurn.setFromAxisAngle(spinAxis.set(0, 1, 0).applyEuler(surface.rotation), delta);
+  offset.applyQuaternion(spinTurn);
+  quat?.premultiply(spinTurn);
+}
+
 /** Inclinação mínima do eixo dos planetas com anéis, em radianos (o anel fica no equador). */
 const RING_TILT = 0.45;
 

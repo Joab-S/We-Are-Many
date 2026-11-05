@@ -32,7 +32,9 @@ import {
   loadPreview,
   planetParams,
   planetPixelsOf,
+  isLowOver,
   spinRate,
+  turnWithPlanet,
   type Body,
 } from './bodies';
 import { disposeObject } from './dispose';
@@ -220,7 +222,14 @@ export class SystemManager {
       const prev = this.prev.copy(b.pos);
       planetOffset(b.planet!, time, b.pos).add(sys.star.pos);
       if ((this.orbitBody === b || this.chasing(b, chaseId)) && prev.lengthSq() > 0) ship.add(prev.sub(b.pos).negate());
-      b.surface!.rotation.y = time * spinRate(b.planet!);
+      const surface = b.surface!;
+      const before = surface.rotation.y;
+      surface.rotation.y = time * spinRate(b.planet!);
+      if (this.orbitBody === b && isLowOver(b, ship)) {
+        const offset = this.prev.subVectors(ship, b.pos);
+        turnWithPlanet(surface, surface.rotation.y - before, offset, this.state.shipQuat);
+        ship.copy(b.pos).add(offset);
+      }
     }
     const window = Math.floor(time / VISITOR_WINDOW_S);
     if (window !== sys.visitor.window) this.swapVisitor(window, false);
@@ -373,6 +382,14 @@ export class SystemManager {
     return surfaces.get(id) ?? (pregen?.id === id ? pregen.map : null);
   }
 
+  private ensureQuad(b: Body): void {
+    if (b.quad || !this.webgl || b.kind !== 'rocky') return;
+    const map = this.mapOf(b.planet!.id);
+    if (!map) return;
+    b.quad = new QuadSphere(b.radius, mapHeight(map), (b.surface as THREE.Mesh).material as THREE.Material);
+    b.object.add(b.quad.group);
+  }
+
   /** O quadtree existe enquanto a nave está em órbita e há mapa; sem WebGL, nunca: fica a esfera. */
   private updateQuad(b: Body, ship: THREE.Vector3, camera: CameraView): void {
     if (!this.webgl || b.kind !== 'rocky') return;
@@ -386,12 +403,8 @@ export class SystemManager {
       }
       return;
     }
-    if (!b.quad) {
-      const map = this.mapOf(b.planet!.id);
-      if (!map) return;
-      b.quad = new QuadSphere(b.radius, mapHeight(map), surface.material as THREE.Material);
-      b.object.add(b.quad.group);
-    }
+    this.ensureQuad(b);
+    if (!b.quad) return;
     const near = distance < b.radius * QUAD_DISTANCE;
     surface.visible = !near;
     b.quad.group.visible = near;
@@ -443,6 +456,8 @@ export class SystemManager {
     if (!body?.planet) return;
     this.state.orbitPlanetId = body.planet.id;
     this.state.orbitOffset = this.state.shipPos.clone().sub(body.pos);
+    // Perto do chão, a nave está num lugar do planeta, e não num lugar em volta dele: ao voltar, é o mesmo lugar do mapa.
+    this.state.orbitSpin = isLowOver(body, this.state.shipPos) ? body.surface!.rotation.y : null;
   }
 
   /**
@@ -459,11 +474,16 @@ export class SystemManager {
     if (state.orbitPlanetId === null || !sys) return null;
     const body = sys.planets.find((b) => b.planet!.id === state.orbitPlanetId);
     const offset = state.orbitOffset;
+    const spin = state.orbitSpin;
     state.orbitPlanetId = null;
     state.orbitOffset = null;
+    state.orbitSpin = null;
     // Saves antigos guardam o planeta sem o deslocamento: a nave fica onde está.
     if (!body || !offset) return null;
+    if (spin != null) turnWithPlanet(body.surface!, body.surface!.rotation.y - spin, offset);
     state.shipPos.copy(body.pos).add(offset);
+    // Já neste quadro, ou a colisão empurra a nave para onde a esfera lisa aguenta.
+    this.ensureQuad(body);
     return body;
   }
 

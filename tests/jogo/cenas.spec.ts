@@ -97,7 +97,7 @@ test.describe('?cena', () => {
     await esperarSemCortina(page);
     expect(await page.evaluate(() => window.space!.state.surfaceArt.has('sol-3'))).toBe(true);
 
-    // A cidade de frente, o mais perto que a colisão deixa.
+    // A cidade de frente, bem perto.
     await page.evaluate(({ x, y }) => void window.space!.goToPlanet('Terra', 1.7, { x, y }), cidade);
     await page.waitForTimeout(1000);
     await esperarImagem(page, 'a cidade na esfera');

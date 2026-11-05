@@ -308,7 +308,7 @@ export class SpaceMode implements GameMode {
 
   /**
    * Só para o `?debug` (como os atalhos 1, 2 e 3): leva a nave, parada, a `radii` raios do centro do planeta (nome
-   * ou id, do sistema em volta ou do Solar) e a aponta para ele. A menos de 4 raios é órbita; a menos de 1,6 a colisão
+   * ou id, do sistema em volta ou do Solar) e a aponta para ele. A menos de 4 raios é órbita; a menos de 1,6 (1,02 com o quadtree) a colisão
    * empurra a nave para 1,6. Do lado iluminado ou, com `facing`, de frente para esse tile do mapa da superfície, se
    * ela já foi gerada (a esfera continua girando depois). Devolve o planeta; nome desconhecido é erro.
    */

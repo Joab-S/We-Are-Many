@@ -52,6 +52,8 @@ export interface SaveData {
   orbitPlanetId: string | null;
   /** Nave menos planeta ao descer. Opcional: saves anteriores não têm, e continuam valendo. */
   orbitOffset?: [number, number, number] | null;
+  /** O giro do planeta quando a nave desceu de perto do chão. */
+  orbitSpin?: number | null;
   surfaces: Map<string, SurfaceMap>;
   ecosystems: Map<string, EcosystemSnapshot>;
   /** Opcional: saves anteriores não têm, e os mundos deles passam a registrar dali em diante. */
@@ -107,6 +109,7 @@ export function validateSave(raw: unknown): SaveData {
   if (typeof d.version !== 'number' || d.version < OLDEST_SAVE || d.version > SAVE_VERSION) throw new SaveFormatError(`versão ${String(d.version)} incompatível (esperada de ${OLDEST_SAVE} a ${SAVE_VERSION})`);
   if (!finiteTuple(d.ship?.pos, 3) || !finiteTuple(d.ship?.quat, 4)) throw new SaveFormatError('posição da nave inválida');
   if (!finite(d.time) || d.time < 0) throw new SaveFormatError('tempo de jogo inválido');
+  if (d.orbitSpin != null && !Number.isFinite(d.orbitSpin)) throw new SaveFormatError('órbita: o giro do planeta não é um número');
   if (d.orbitOffset != null && !finiteTuple(d.orbitOffset, 3)) throw new SaveFormatError('órbita da nave inválida');
   if (!(d.surfaces instanceof Map) || !(d.ecosystems instanceof Map) || !(d.knownSpecies instanceof Map)) throw new SaveFormatError('mundo ausente');
   if (d.replays !== undefined && !(d.replays instanceof Map)) throw new SaveFormatError('registro dos mundos inválido');

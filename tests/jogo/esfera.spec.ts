@@ -100,6 +100,69 @@ test.describe('a esfera do rochoso', () => {
     await capturar(page, info, 'quadtree-1-7-raios');
   });
 
+  test('a nave desce voando até perto do chão, sem atravessar, e anda com o planeta', async ({ page }, info) => {
+    test.setTimeout(MAPA_MS + 120_000);
+    await page.goto('/?debug');
+    await page.keyboard.press('Digit1');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    await expect.poll(() => page.evaluate(() => !!window.space!.systems.orbitBody!.quad), { timeout: MAPA_MS }).toBe(true);
+    await page.evaluate(() => void window.space!.goToPlanet('Terra', 1.5));
+
+    const altitude = () =>
+      page.evaluate(() => {
+        const { state, systems } = window.space!;
+        const b = systems.orbitBody!;
+        return state.shipPos.distanceTo(b.pos) / b.radius - 1;
+      });
+    // Acelera para baixo, como quem joga, e guarda a menor altitude de todos os quadros.
+    await page.evaluate(() => {
+      const w = window as unknown as { menor: number };
+      w.menor = Infinity;
+      const espia = () => {
+        const s = window.space;
+        if (!s) return;
+        const b = s.systems.orbitBody;
+        if (b) w.menor = Math.min(w.menor, s.state.shipPos.distanceTo(b.pos) / b.radius - 1);
+        requestAnimationFrame(espia);
+      };
+      requestAnimationFrame(espia);
+    });
+    await page.keyboard.down('KeyW');
+    await expect.poll(altitude, { timeout: 60_000, message: 'a nave chega a 0,05 raio' }).toBeLessThan(0.05);
+    await page.keyboard.up('KeyW');
+    await page.waitForTimeout(500);
+    await esperarImagem(page, 'o chão na tela');
+    await capturar(page, info, 'a-prumo-0-05-raio');
+
+    // Sem o motor, a nave para sobre o mesmo ponto do mapa, mesmo com o planeta girando embaixo.
+    await page.waitForTimeout(3000);
+    const ponto = () =>
+      page.evaluate(() => {
+        const { state, systems } = window.space!;
+        const b = systems.orbitBody!;
+        const inverso = b.surface!.quaternion.clone().invert();
+        const local = state.shipPos.clone().sub(b.pos).applyQuaternion(inverso).divideScalar(b.radius);
+        return { x: local.x, y: local.y, z: local.z, giro: b.surface!.rotation.y };
+      });
+    const a = await ponto();
+    await page.waitForTimeout(2000);
+    const b = await ponto();
+    expect(b.giro, 'o planeta girou').toBeGreaterThan(a.giro + 0.05);
+    expect(Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), 'a nave ficou sobre o mesmo ponto').toBeLessThan(0.002);
+
+    // Até o piso, sem passar dele.
+    await page.keyboard.down('KeyW');
+    await expect.poll(altitude, { timeout: 60_000, message: 'a nave chega ao piso' }).toBeLessThan(0.0205);
+    await page.waitForTimeout(1000);
+    await page.keyboard.up('KeyW');
+    await capturar(page, info, 'a-prumo-no-piso');
+    const menor = await page.evaluate(() => (window as unknown as { menor: number }).menor);
+    expect(menor, 'não atravessou o chão').toBeGreaterThanOrEqual(0.0199);
+    const pedacos = await page.evaluate(() => window.space!.systems.orbitBody!.quad!.drawn);
+    expect(pedacos).toBeLessThan(300);
+  });
+
   test('a borda azul da Terra e a alaranjada de Marte', async ({ page }, info) => {
     await page.goto('/?debug');
     await page.keyboard.press('Digit1');
