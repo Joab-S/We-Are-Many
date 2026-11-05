@@ -213,10 +213,14 @@ const ATMOSPHERE_VERTEX = /* glsl */ `
   #include <logdepthbuf_pars_vertex>
   varying vec3 vN;
   varying vec3 vV;
+  varying float vNear;
   void main() {
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     vN = normalMatrix * normal;
     vV = -mv.xyz;
+    // De longe o brilho é uma linha na borda; rente ao chão, a borda ocupa a tela e apagaria as cores do mapa.
+    float altitude = length((modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz) * ${ATMOSPHERE_SHELL.toFixed(3)} / length(position) - 1.0;
+    vNear = mix(0.4, 1.0, smoothstep(0.02, 0.5, altitude));
     gl_Position = projectionMatrix * mv;
     #include <logdepthbuf_vertex>
   }`;
@@ -230,6 +234,7 @@ const ATMOSPHERE_FRAGMENT = /* glsl */ `
   uniform float uFalloff;
   varying vec3 vN;
   varying vec3 vV;
+  varying float vNear;
   void main() {
     #include <logdepthbuf_fragment>
     vec3 normal = normalize(vN);
@@ -243,7 +248,7 @@ const ATMOSPHERE_FRAGMENT = /* glsl */ `
     float lit = smoothstep(-0.28, 0.3, sun);
     // Perto do terminador a luz atravessa mais ar, e sobra o vermelho.
     vec3 tint = mix(vec3(0.75, 0.28, 0.1), uColor, smoothstep(0.0, 0.45, sun));
-    gl_FragColor = vec4(tint, glow * lit * uStrength);
+    gl_FragColor = vec4(tint, glow * lit * uStrength * vNear);
   }`;
 
 /** Material da casca da atmosfera (o `SoftRenderer` só lê `uColor`). */
