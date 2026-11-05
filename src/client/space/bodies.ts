@@ -2,9 +2,8 @@ import * as THREE from 'three';
 import { bvToTemperature, stellarRadius, temperatureToRgb } from '../../core/astro';
 import { LruCache } from '../../core/lru';
 import { mulberry32, seedFor } from '../../core/rng';
-import { EARTH_RADIUS_KM, KM_PER_AU } from '../../core/units';
+import { KM_PER_AU } from '../../core/units';
 import { compressOrbit, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
-import { EARTH_ID, nativeLifeLevel } from '../../sim/species';
 import { mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '../../procgen/surface';
 import type { GameState } from '../state';
 import { generateSurfaceAsync } from '../surface/generateAsync';
@@ -17,21 +16,10 @@ import { markShared } from './dispose';
  * Os dados e a escala ficam em nav/planets.ts, sem three.js; daqui são
  * reexportados para quem já importava deste módulo.
  */
-export { compressOrbit, planetOffset, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
+export { compressOrbit, planetOffset, planetParams, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData, type PlanetKind } from '../../nav/planets';
 
 /** Fator de exagero do raio dos planetas. */
 const PLANET_SCALE = 100;
-
-export function planetParams(p: PlanetData): PlanetParams {
-  return {
-    id: p.id,
-    name: p.name,
-    radiusEarth: p.radiusKm / EARTH_RADIUS_KM,
-    temperatureK: p.temperatureK,
-    water: p.water,
-    life: nativeLifeLevel(p.id, p.life),
-  };
-}
 
 /** Corpo com o qual a nave interage (colisão, órbita, velocidade adaptativa). */
 export interface Body {
@@ -54,18 +42,17 @@ export interface Body {
   previewPending?: boolean;
 }
 
-/** Inclinação do eixo dos planetas com anéis, em radianos (o anel fica no equador). */
+/** Inclinação mínima do eixo dos planetas com anéis, em radianos (o anel fica no equador). */
 const RING_TILT = 0.45;
-const EARTH_TILT = 0.41;
 
 /**
- * Inclinação do eixo do planeta, em radianos. Enquanto o eixo não vem dos dados
- * do planeta, só a Terra e os planetas com anéis têm um: sem inclinação, os
- * anéis ficariam de perfil para quem voa no plano das órbitas.
+ * Inclinação do eixo do planeta, em radianos, a dos dados dele. Um planeta com
+ * anéis não fica com o eixo quase em pé nem quase de ponta-cabeça: os anéis
+ * ficariam de perfil para quem voa no plano das órbitas.
  */
 export function axialTilt(p: PlanetData): number {
-  if (p.id === EARTH_ID) return EARTH_TILT;
-  return p.rings ? RING_TILT : 0;
+  const tilt = p.axialTilt ?? 0;
+  return p.rings && Math.sin(tilt) < Math.sin(RING_TILT) ? RING_TILT : tilt;
 }
 
 /**

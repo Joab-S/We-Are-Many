@@ -16,6 +16,22 @@ import { makePlates, tectonicStage, type Plate } from './tectonics';
  * 4. Atribuição de bioma (biomes.ts + `classify`): matriz de Whittaker e transições de costa.
  */
 
+/** A luz da estrela de um planeta. */
+export interface StarLight {
+  /** Luminosidade, em sóis. */
+  luminosity: number;
+  /** Temperatura da superfície da estrela, em Kelvin. */
+  kelvin: number;
+}
+
+/** A atmosfera de um planeta. */
+export interface Atmosphere {
+  /** Pressão na superfície, em bar. Nos gigantes, que não têm superfície, 1: o nível de referência. */
+  pressure: number;
+  /** Quanto o efeito estufa aquece a superfície, em Kelvin. */
+  greenhouse: number;
+}
+
 export interface PlanetParams {
   id: string;
   name: string;
@@ -27,6 +43,38 @@ export interface PlanetParams {
   water: number;
   /** Quantidade de vida vegetal inicial (0..1). */
   life: number;
+  // A física do planeta. Opcional, e ausente vale o da Terra (`withPhysics`). Por enquanto, não entra no mapa nem no clima.
+  star?: StarLight;
+  /** Inclinação do eixo em relação à órbita, em radianos. Acima de π/2, o planeta gira ao contrário. */
+  axialTilt?: number;
+  /** Duração do dia, em horas. Num planeta travado por maré, é o período da órbita. */
+  dayHours?: number;
+  /** Período da órbita, em anos terrestres. */
+  periodYears?: number;
+  atmosphere?: Atmosphere;
+}
+
+type PlanetPhysics = Required<Pick<PlanetParams, 'star' | 'axialTilt' | 'dayHours' | 'periodYears' | 'atmosphere'>>;
+
+/** A física da Terra: vale para quem não tem a sua (save antigo, planeta de teste). */
+export const EARTH_PHYSICS: Readonly<PlanetPhysics> = {
+  star: { luminosity: 1, kelvin: 5772 },
+  axialTilt: 0.41,
+  dayHours: 24,
+  periodYears: 1,
+  atmosphere: { pressure: 1, greenhouse: 33 },
+};
+
+/** Os parâmetros com a física completa: o que faltar vem da Terra. */
+export function withPhysics(p: PlanetParams): PlanetParams & PlanetPhysics {
+  return {
+    ...p,
+    star: p.star ?? { ...EARTH_PHYSICS.star },
+    axialTilt: p.axialTilt ?? EARTH_PHYSICS.axialTilt,
+    dayHours: p.dayHours ?? EARTH_PHYSICS.dayHours,
+    periodYears: p.periodYears ?? EARTH_PHYSICS.periodYears,
+    atmosphere: p.atmosphere ?? { ...EARTH_PHYSICS.atmosphere },
+  };
 }
 
 export { Biome, BIOME_NAMES, isForestBiome, isRockyBiome } from './biomes';

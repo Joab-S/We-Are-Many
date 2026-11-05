@@ -61,14 +61,28 @@ describe('de onde olhar um planeta', () => {
 
 describe('eixo dos planetas', () => {
   it('sem inclinação, o polo é perpendicular ao plano das órbitas', () => {
-    expect(axialTilt(mars)).toBe(0);
-    const sphere = createPlanetBody(mars, empty).surface!;
+    const upright = { ...mars, axialTilt: 0 };
+    expect(axialTilt(upright)).toBe(0);
+    const sphere = createPlanetBody(upright, empty).surface!;
     expect(poleOf(sphere).distanceTo(new THREE.Vector3(0, 0, 1))).toBeLessThan(1e-9);
   });
 
   it('a Terra inclina o polo 0,41 rad em relação à normal do plano das órbitas', () => {
     const sphere = createPlanetBody(earth, empty).surface!;
     expect(poleOf(sphere).angleTo(new THREE.Vector3(0, 0, 1))).toBeCloseTo(0.41, 9);
+  });
+
+  it('cada planeta inclina o eixo pelos dados dele, e Vênus fica de ponta-cabeça', () => {
+    const poleAngle = (p: PlanetData) => poleOf(createPlanetBody(p, empty).surface!).angleTo(new THREE.Vector3(0, 0, 1));
+    expect(poleAngle(mars)).toBeCloseTo(0.4396, 9);
+    expect(poleAngle(SOL_PLANETS[1])).toBeGreaterThan(Math.PI / 2);
+  });
+
+  it('planeta com anéis nunca fica de perfil, com o eixo quase em pé ou quase de ponta-cabeça', () => {
+    expect(axialTilt(saturn)).toBe(saturn.axialTilt);
+    expect(axialTilt({ ...saturn, axialTilt: 0 })).toBe(0.45);
+    expect(axialTilt({ ...saturn, axialTilt: Math.PI - 0.01 })).toBe(0.45);
+    expect(axialTilt({ ...saturn, axialTilt: 1.7 })).toBe(1.7);
   });
 
   it('o giro diário não mexe no polo', () => {

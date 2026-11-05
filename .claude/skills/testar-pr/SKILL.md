@@ -32,7 +32,7 @@ Na primeira vez, o `test:jogo` precisa do navegador: `npx playwright install chr
 |---|---|---|
 | `src/client/**` | `npm run test:rapido` e `npx playwright test -g "WebGL"` | Olhar as capturas (abaixo) |
 | `src/sim`, `src/IAUS`, `src/procgen` | `npx vitest run <pasta ou arquivo>` | Impressão digital (abaixo) |
-| `src/save` | `npx vitest run src/save` | Salvar e carregar à mão: o `test:jogo` não recarrega um save |
+| `src/save` | `npx vitest run src/save` | `npx playwright test save`, que recarrega no navegador um save da versão anterior. Ao subir `SAVE_VERSION`, mantenha esse caso funcionando |
 | `tests/jogo` | `npx playwright test -g "<parte do título>"` | Provar que o teste falha (abaixo) |
 | Só documentação | Nada | Nada |
 
@@ -134,7 +134,7 @@ Olhe o PNG do teste que falhou. Se a tela está branca ou preta, é um problema 
 Se a mudança encosta nisto, confira à mão e diga no PR. Com `npm run dev`, `/?cena=saturno` leva direto à órbita, e a tecla `1` leva à da Terra.
 
 - Os botões do HUD (o fluxo usa as teclas), o GUIA, o piloto automático, as sondas e os saltos `2` e `3`.
-- Recarregar um save.
+- Recarregar um save feito na superfície: `tests/jogo/save.spec.ts` só recarrega um feito no espaço.
 - O `Esc` soltando a trava do mouse no espaço.
 - A descida em outros planetas além da Terra, e `terra-cidade` no `?soft`.
 - Qualquer navegador além do Chromium sem GPU em 1280x800: GPU real, Firefox, Safari e celular.

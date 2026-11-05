@@ -1,6 +1,6 @@
 import { Ecosystem } from '../sim/ecosystem';
 import type { StatefulRng } from '../core/rng';
-import type { PlanetParams, SurfaceMap } from '../procgen/surface';
+import { withPhysics, type PlanetParams, type SurfaceMap } from '../procgen/surface';
 import type { Species } from '../sim/species';
 import type { NavState } from '../nav/guide';
 import type { ProbeState } from '../explore/probes';
@@ -19,8 +19,9 @@ import type { ProbeState } from '../explore/probes';
  * montado em `game.ts`.
  */
 
-/** Sobe quando o formato muda de um jeito que saves antigos não entendem. */
-export const SAVE_VERSION = 1;
+/** Sobe quando o formato muda. Os saves de OLDEST_SAVE em diante carregam: `migrate` os traz para esta versão. */
+export const SAVE_VERSION = 2;
+const OLDEST_SAVE = 1;
 
 /** Onde o jogador estava e como via: a superfície guarda também câmera e velocidade. */
 export type ViewSnapshot = { mode: 'space' } | { mode: 'surface'; params: PlanetParams; center: [number, number]; zoom: number; speed: number };
@@ -76,10 +77,22 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 const finiteTuple = (v: unknown, n: number): boolean => Array.isArray(v) && v.length === n && v.every(finite);
 
 /** Confere o essencial antes de mexer no jogo; um save adulterado ou de outra versão é recusado inteiro. */
+/**
+ * Traz um save já validado para a versão atual. A versão 1 não tinha a física dos planetas: eles recebem a da Terra,
+ * os valores com que as contas daquele mundo foram feitas.
+ */
+function migrate(d: SaveData): void {
+  if (d.version < 2) {
+    for (const map of d.surfaces.values()) map.params = withPhysics(map.params);
+    if (d.view.mode === 'surface') d.view.params = withPhysics(d.view.params);
+  }
+  d.version = SAVE_VERSION;
+}
+
 export function validateSave(raw: unknown): SaveData {
   const d = raw as Partial<SaveData> | null;
   if (!d || typeof d !== 'object') throw new SaveFormatError('save vazio');
-  if (d.version !== SAVE_VERSION) throw new SaveFormatError(`versão ${String(d.version)} incompatível (esperada ${SAVE_VERSION})`);
+  if (typeof d.version !== 'number' || d.version < OLDEST_SAVE || d.version > SAVE_VERSION) throw new SaveFormatError(`versão ${String(d.version)} incompatível (esperada de ${OLDEST_SAVE} a ${SAVE_VERSION})`);
   if (!finiteTuple(d.ship?.pos, 3) || !finiteTuple(d.ship?.quat, 4)) throw new SaveFormatError('posição da nave inválida');
   if (!finite(d.time) || d.time < 0) throw new SaveFormatError('tempo de jogo inválido');
   if (d.orbitOffset != null && !finiteTuple(d.orbitOffset, 3)) throw new SaveFormatError('órbita da nave inválida');
@@ -90,6 +103,7 @@ export function validateSave(raw: unknown): SaveData {
     if (!map || !(map.elevation instanceof Float32Array) || map.elevation.length !== map.width * map.height) throw new SaveFormatError(`terreno de ${id} ausente ou corrompido`);
     if (!snap || !snap.fields || !snap.rng) throw new SaveFormatError(`ecossistema de ${id} corrompido`);
   }
+  migrate(d as SaveData);
   return d as SaveData;
 }
 

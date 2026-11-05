@@ -3,8 +3,10 @@ import * as THREE from 'three';
 import { seedFor, type StatefulRng } from '../core/rng';
 import { createNavState } from '../nav/guide';
 import { createProbeState } from '../explore/probes';
-import { generateSurface, type PlanetParams } from '../procgen/surface';
-import { Ecosystem } from '../sim/ecosystem';
+import { EARTH_PHYSICS, generateSurface, type PlanetParams } from '../procgen/surface';
+import { SIM_STEP } from '../client/surface/SimDriver';
+import { Ecosystem, YEAR_SECONDS } from '../sim/ecosystem';
+import { worldFingerprint } from '../sim/fingerprint';
 import { nativeSpecies } from '../sim/species';
 import { streams } from '../sim/stochastic';
 import type { GameState } from '../client/state';
@@ -192,6 +194,42 @@ describe('save: ida e volta', () => {
     expect(a.population).toEqual(b.population);
   }, 60000);
 
+  it('salvar e carregar não muda o mundo: 20 anos, o save, e mais 20 anos dão a mesma impressão digital', () => {
+    const years = (eco: Ecosystem, n: number) => {
+      for (let s = 0; s < n * (YEAR_SECONDS / SIM_STEP); s++) eco.step(SIM_STEP);
+    };
+    const s = game();
+    const original = s.ecosystems.get('sol-3')!;
+    years(original, 20);
+    const loaded = roundTrip(s).state.ecosystems.get('sol-3')!;
+    expect(worldFingerprint(loaded)).toBe(worldFingerprint(original));
+    // De 5 em 5 anos, para a falha dizer quando os dois mundos se separaram.
+    for (let k = 1; k <= 4; k++) {
+      years(original, 5);
+      years(loaded, 5);
+      expect(worldFingerprint(loaded), `${k * 5} anos depois de carregar`).toBe(worldFingerprint(original));
+    }
+  }, 120000);
+
+  it('save da versão 1, sem a física dos planetas, carrega com a da Terra e fica na versão atual', () => {
+    const view: ViewSnapshot = { mode: 'surface', params: earth, center: [100, 50], zoom: 6, speed: 2 };
+    const data = structuredClone(snapshotGame(game(), view, seeds));
+    data.version = 1;
+    const loaded = restoreGame(data, base);
+    expect(data.version).toBe(SAVE_VERSION);
+    expect(loaded.state.surfaces.get('sol-3')!.params).toEqual({ ...earth, ...EARTH_PHYSICS });
+    if (loaded.view.mode !== 'surface') throw new Error('a vista do save era a superfície');
+    expect(loaded.view.params).toEqual({ ...earth, ...EARTH_PHYSICS });
+  });
+
+  it('save da versão atual guarda a física de cada planeta', () => {
+    const s = game();
+    const mars: PlanetParams = { ...earth, id: 'sol-4', axialTilt: 0.44, dayHours: 24.62, atmosphere: { pressure: 0.006, greenhouse: 5 } };
+    s.surfaces.get('sol-3')!.params = mars;
+    const params = roundTrip(s).state.surfaces.get('sol-3')!.params;
+    expect(params).toEqual(mars);
+  });
+
   it('salvar não altera o jogo em andamento', () => {
     const s = game();
     const eco = s.ecosystems.get('sol-3')!;
@@ -211,10 +249,13 @@ describe('save: gerenciador', () => {
     if (r.status === 'ok') expect(r.state.time).toBe(123.5);
   });
 
-  it('recusa save de outra versão sem derrubar o jogo, e guarda o original', async () => {
+  it.each([
+    ['mais nova', SAVE_VERSION + 1],
+    ['anterior às que carregam', 0],
+  ])('recusa save de versão %s sem derrubar o jogo, e guarda o original', async (_n, version) => {
     const store = memoryStore();
     const data = structuredClone(snapshotGame(game(), space, seeds));
-    data.version = SAVE_VERSION + 1;
+    data.version = version;
     await store.put(SAVE_KEY, data);
     const r = await new SaveManager(store, seeds).load(base);
     expect(r.status).toBe('rejected');
