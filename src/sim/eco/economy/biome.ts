@@ -5,7 +5,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { areaYield, biomeYield, densityOf, lifewayFor, lifewayReach, seasonWeight, type AreaYield, type Lifeway } from '../../biomeYield';
 import { temperatureAt } from '../../../procgen/surface';
 import { FREEZE_K } from '../../weather';

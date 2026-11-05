@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { isStreet, TRAIL } from '../../architecture';
 import { wrapDx } from '../../settlement';
 import type { Village } from '../types';

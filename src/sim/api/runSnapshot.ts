@@ -1,4 +1,5 @@
 import { restoreEcosystem, snapshotEcosystem } from '../../save/snapshot';
+import { applyTuned } from '../live';
 import { worldFingerprint } from '../fingerprint';
 import type { EngineSnapshot } from './engine';
 
@@ -34,6 +35,7 @@ export function runSnapshot(req: RunRequest, clock: () => number, onYear?: (year
   const seed = req.snapshot.eco.seed;
   const map = req.snapshot.map;
   const eco = restoreEcosystem(req.snapshot.eco, map);
+  applyTuned(eco.tuned);
   const stepsPerYear = Math.round(eco.yearSpan / RUN_STEP);
   const total = Math.round(req.years * stepsPerYear);
   let done = 0;

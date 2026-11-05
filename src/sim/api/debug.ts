@@ -1,4 +1,5 @@
 import type { Lifeway } from '../biomeYield';
+import type { LiveConstant } from '../live';
 
 /**
  * Vista de depuração do motor (`engine.debug`): o que o painel de depuração do cliente (`?debug`, F3) mostra
@@ -129,6 +130,8 @@ export interface DebugView {
    * valor. Varre o mundo inteiro (dezenas de ms na Terra), então não é para chamar a cada quadro.
    */
   fingerprint(): string;
+  /** As constantes ajustáveis e os valores de agora (aba Ajustes). */
+  constants(): LiveConstant[];
 }
 
 /** Amostras da série dos indicadores guardadas (uma por ano de jogo). */
@@ -145,4 +148,5 @@ export const EMPTY_DEBUG: DebugView = {
   decisions: () => [],
   profile: () => null,
   fingerprint: () => '',
+  constants: () => [],
 };

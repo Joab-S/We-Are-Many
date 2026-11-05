@@ -74,6 +74,45 @@ test.describe('?debug', () => {
     expect((await ler()).valor).not.toBe(antes.valor);
   });
 
+  test('a aba Ajustes muda uma constante na hora, sem as teclas irem para o jogo, e provoca um evento', async ({ page }) => {
+    await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
+    await page.evaluate(() => window.debugEarth!());
+    await expect(superficie(page)).toBeVisible({ timeout: MAPA_MS });
+
+    const painel = page.locator('.wb-debugp');
+    await page.keyboard.press('F3');
+    await painel.locator('[data-dtab="time"]').click();
+    await painel.locator('[data-dspeed="0"]').click();
+    const log = async () => Number((await painel.locator('.wb-kv', { hasText: 'Log de comandos' }).innerText()).match(/d+/)![0]);
+    const antes = await log();
+
+    await painel.locator('[data-dtab="tune"]').click();
+    // "site_min_value" tem T, N e I, que abririam camadas e janelas no jogo.
+    await painel.locator('[data-dfilter]').pressSequentially('site_min_value');
+    await expect(page.locator('.wb-window:visible')).toHaveCount(0);
+    const linhas = painel.locator('[data-dname]:visible');
+    await expect(linhas).toHaveCount(1);
+
+    const minima = () =>
+      page.evaluate(() => {
+        const { engine } = window.surface as unknown as { engine: { view: { siteAt(x: number, y: number): { min: number } | null } } };
+        return engine.view.siteAt(300, 200)?.min;
+      });
+    expect(await minima()).toBe(4.2);
+    const campo = painel.locator('[data-dtune="SITE_MIN_VALUE"]');
+    await campo.fill('2.5');
+    await campo.press('Enter');
+    await expect.poll(minima).toBe(2.5);
+    await expect(painel.locator('.wb-dtune.on')).toContainText('era 4.2');
+    // A busca continua valendo depois que o HTML é refeito.
+    await expect(linhas).toHaveCount(1);
+
+    await painel.locator('[data-dsurprise]').click();
+    await painel.locator('[data-dtab="time"]').click();
+    await expect.poll(log).toBe(antes + 2);
+  });
+
   test('sem ?debug não há alça nenhuma', async ({ page }) => {
     await page.goto('/');
     await expect(espaco(page)).toBeVisible();

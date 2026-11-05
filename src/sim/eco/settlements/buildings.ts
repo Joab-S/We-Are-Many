@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { happens } from '../../stochastic';
 import { Biome, isForestBiome, isRockyBiome, temperatureAt } from '../../../procgen/surface';
 import { WONDER_NAMES } from '../../economy';

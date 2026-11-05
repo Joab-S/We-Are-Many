@@ -637,6 +637,10 @@ export class SurfaceMode {
           this.openSettlement(id);
         },
         goTo: (x, row) => this.goTo(x, row),
+        spot: () => {
+          const v = this.engine.view.villages[this.selectedPlace()];
+          return v ? { x: v.x, y: v.y } : { x: Math.floor(this.view.center.x), y: this.view.toRow(this.view.center.y) };
+        },
         advance: (n) => {
           const steps = this.driver.stepBy(n);
           this.vwin.onSteps(steps);

@@ -13,7 +13,7 @@
  * Sem estado e sem dependência do Ecosystem: só o mapa, os tipos e `balance.ts`.
  */
 
-import * as B from './balance';
+import { B } from './live';
 import { Biome } from '../procgen/biomes';
 import { temperatureAt, vegetationCap, type SurfaceMap } from '../procgen/surface';
 

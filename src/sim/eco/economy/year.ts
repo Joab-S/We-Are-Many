@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { happens, ouStep } from '../../stochastic';
 import { GOODS, type Good } from '../../economy';
 import { CHILD, ROLES } from '../../roles';

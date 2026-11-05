@@ -1,6 +1,6 @@
 import type { SurfaceMap } from '../../procgen/surface';
 import { restoreEcosystem, snapshotEcosystem, type EcosystemSnapshot } from '../../save/snapshot';
-import * as B from '../balance';
+import { applyTuned, B } from '../live';
 import { siteValue, type ColonyMotive, type SiteLook } from '../community';
 import { ECO_CELL } from '../fauna';
 import type { Caravan } from '../trade';
@@ -461,6 +461,8 @@ export function createEngine(map: SurfaceMap, opts: EngineOptions): Engine {
     for (const text of opts.notes ?? []) eco.note(text, 'natureza');
   }
   if (opts.yearSpan !== undefined) eco.yearSpan = opts.yearSpan;
+  // As constantes valem por mundo: as de fábrica mais o ajuste guardado nele.
+  applyTuned(eco.tuned);
   let tiles = new TileSink(map.width * map.height);
   eco.onTileChanged = tiles.add;
   // A vista lê o mundo vivo; no `restore` ela passa a ler o mundo novo (a de depuração também).
@@ -487,6 +489,7 @@ export function createEngine(map: SurfaceMap, opts: EngineOptions): Engine {
     restore(snap) {
       const copy = structuredClone(snap);
       eco = restoreEcosystem(copy.eco, copy.map);
+      applyTuned(eco.tuned);
       view.eco = eco;
       debug.adopt(eco);
       // Os tiles anotados eram do mundo que saiu: quem restaura repinta o mapa inteiro.

@@ -4,6 +4,7 @@ import { LABELS } from '../../sim/calibrate';
 import { POLITY_NAMES, TIER_NAMES_NEW } from '../../sim/community';
 import { ERAS, WAR_MOTIVES } from '../../sim/ecosystem';
 import { familyName, personName } from '../../sim/people';
+import { WORLD_EVENT_NAMES, WORLD_EVENTS } from '../../sim/events';
 import { TECH_BY_ID } from '../../sim/progress';
 import { CHILD } from '../../sim/roles';
 import type { EngineCommand } from '../../sim/api/commands';
@@ -11,6 +12,7 @@ import type { DebugFactor, DebugOption, DebugTarget, FamilyDecision, IndicatorSa
 import type { EngineView } from '../../sim/api/engine';
 import { eventVillages, type DisasterKind, type EngineEvent, type EngineEventKind, type MigrateCause } from '../../sim/api/events';
 import { noticeText } from './hud/notices';
+import type { LiveConstant } from '../../sim/live';
 import { SPEEDS, type LoggedCommand } from './SimDriver';
 
 /**
@@ -24,7 +26,7 @@ import { SPEEDS, type LoggedCommand } from './SimDriver';
  * dizem o porquê; Eventos, Desempenho e Tempo não dependem dela.
  */
 
-export type DebugTab = 'world' | 'place' | 'family' | 'events' | 'perf' | 'time';
+export type DebugTab = 'world' | 'place' | 'family' | 'events' | 'perf' | 'time' | 'tune';
 
 export const DEBUG_TABS: [DebugTab, string][] = [
   ['world', 'Mundo'],
@@ -33,6 +35,7 @@ export const DEBUG_TABS: [DebugTab, string][] = [
   ['events', 'Eventos'],
   ['perf', 'Desempenho'],
   ['time', 'Tempo'],
+  ['tune', 'Ajustes'],
 ];
 
 /** Eventos guardados no anel da aba Eventos e quantos dele a aba mostra de uma vez. */
@@ -774,6 +777,27 @@ export function timeHtml(args: {
         : 'Mundo que já existia (save ou visita anterior): a semente e o log só refazem o que aconteceu desde que a superfície abriu; para o resto, use o save.'
     }${a.log >= a.logLimit ? ' <span class="bad">O log chegou ao limite: os comandos mais antigos já saíram.</span>' : ''}</div>
     <div class="wb-dbtns"><button class="wb-btn" data-dcopy>Copiar caso</button>${a.copied ? `<span class="good">${esc(a.copied)}</span>` : ''}</div>`;
+}
+
+// Ajustes -----------------------------------------------------------------
+
+/** A aba Ajustes: provocar um evento e mudar as constantes do motor com o mundo rodando. */
+export function tuneHtml(constants: readonly LiveConstant[]): string {
+  const events = WORLD_EVENTS.map((ev) => `<button class="wb-btn" data-devent="${ev}">${esc(WORLD_EVENT_NAMES[ev])}</button>`).join('');
+  const changed = constants.filter((c) => c.factory !== undefined).length;
+  const rows = constants
+    .map(
+      (c) => `<label class="wb-dtune${c.factory !== undefined ? ' on' : ''}" data-dname="${esc(c.name.toLowerCase())}"><span>${esc(c.name)}</span><input type="number" step="any" value="${c.value}" data-dtune="${esc(c.name)}">${c.factory !== undefined ? `<em>era ${c.factory}</em>` : ''}</label>`,
+    )
+    .join('');
+  return `
+    <div class="wb-section">Provocar evento</div>
+    <div class="wb-dbtns"><button class="wb-btn" data-dsurprise>Surpresa</button>${events}</div>
+    <div class="wb-dim wb-dnote">O evento cai no lugar selecionado ou, sem lugar, no meio da tela.</div>
+    <div class="wb-section">Constantes${changed ? ` (${changed} ${changed === 1 ? 'mudada' : 'mudadas'})` : ''}</div>
+    <input class="wb-dfilter" type="search" placeholder="Filtrar pelo nome" data-dfilter>
+    <div class="wb-dim wb-dnote">Mudou, vale na hora e entra no log de comandos: o caso copiado reproduz com ela. Vale só para este mundo, e vai no save. Uma constante feita de outra não acompanha a de base.</div>
+    <div data-dtunes>${rows}</div>`;
 }
 
 /** O caso que o botão Copiar caso leva: o bastante para refazer o mundo até este passo. */

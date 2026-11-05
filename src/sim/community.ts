@@ -4,7 +4,7 @@
  * Nada aqui sorteia nem mexe no mapa; o Ecosystem lê o mundo, chama estas funções e aplica o resultado.
  */
 
-import * as B from './balance';
+import { B } from './live';
 import type { BuildingKind } from './ecosystem';
 
 // ---- Nascimento (fase 1) ----

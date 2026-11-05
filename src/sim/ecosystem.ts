@@ -1,4 +1,4 @@
-import * as B from './balance';
+import { B } from './live';
 import { Weather } from './weather';
 import { streams } from './stochastic';
 import { seasonStrength, type SurfaceMap } from '../procgen/surface';
@@ -361,6 +361,8 @@ export class Ecosystem {
   /** Tremor de terra em andamento (segundos), para a câmera tremer. */
   shake = 0;
   /** Eventos aleatórios do mundo ligados e o ritmo deles (0,5 raro, 1 normal, 2 frequente). */
+  /** Constantes ajustadas ao vivo neste mundo (comando `tune`, sim/live.ts); vai no save. Sem ajuste, não existe. */
+  tuned?: Record<string, number>;
   autoEvents = true;
   eventRate = 1;
   /** Lava que esfria aos poucos: tile e calor que ainda vai perder. */

@@ -4,6 +4,7 @@ import { earthParams } from '../../sim/calibrate';
 import { viewCommand, type EngineCommand } from '../../sim/api/commands';
 import { DEBUG_DECISION_LIMIT, EMPTY_DEBUG, type DebugOption, type DebugView, type FamilyDecision, type PlaceDebug, type ProfileDebug } from '../../sim/api/debug';
 import { createEngine, type EngineView } from '../../sim/api/engine';
+import { resetConstants } from '../../sim/live';
 import type { EngineEvent, EngineEventKind } from '../../sim/api/events';
 import { CHILD } from '../../sim/roles';
 import { nativeSpecies } from '../../sim/species';
@@ -32,6 +33,7 @@ import {
   sparkSvg,
   targetTone,
   timeHtml,
+  tuneHtml,
   worldHtml,
   type DebugCase,
   type EventEntry,
@@ -182,6 +184,7 @@ function fakeDebug(): DebugView {
     decisions: (f = {}) => DECISIONS.filter((d) => (f.village === undefined || d.village === f.village) && (f.family === undefined || d.family === f.family)).slice(0, f.limit ?? DEBUG_DECISION_LIMIT),
     profile: () => (on ? PROFILE : null),
     fingerprint: () => 'abcd1234',
+    constants: () => [],
   };
 }
 
@@ -603,5 +606,44 @@ describe('aba Tempo e o caso copiado', () => {
     expect(Array.from(b.x.subarray(0, b.count))).toEqual(Array.from(a.x.subarray(0, a.count)));
     // A impressão digital do caso é a do mundo refeito, e é ela que o painel mostra.
     expect(again.debug.fingerprint()).toBe(c.fingerprint);
+  });
+
+  it('o caso reproduz com uma constante mudada no meio', () => {
+    const planet = earthParams(0.2);
+    const engine = createEngine(generateSurface(planet), { seed: 7, species: nativeSpecies(planet), yearSpan: 12 });
+    const d = new SimDriver<EngineCommand, EngineEvent>(engine, (cmd) => engine.apply(cmd), { wrapWidth: engine.view.map.width });
+    d.setSpeed(0);
+    d.stepBy(8);
+    d.enqueue({ kind: 'tune', name: 'SITE_MIN_VALUE', value: 2.5 });
+    for (let s = 0; s < 4; s++) d.enqueue({ kind: 'tune', name: `SEASON_HARVEST[${s}]`, value: 0 });
+    d.stepBy(240);
+    const c: DebugCase = JSON.parse(caseJson(debugCase({ fingerprint: engine.debug.fingerprint(), seed: engine.seed, year: engine.view.year, tick: d.tick, step: d.h, yearSpan: engine.view.yearSpan, planet: engine.view.map.params, fresh: true, log: d.log, logLimit: LOG_LIMIT })));
+    expect(c.log.map((e) => e.cmd.kind)).toEqual(Array(5).fill('tune'));
+    // Sem o ajuste, o mesmo tempo dá outro mundo; com ele, o mesmo.
+    const plain = createEngine(generateSurface(c.planet), { seed: c.seed, species: nativeSpecies(c.planet), yearSpan: c.yearSpan });
+    for (let t = 0; t < c.tick; t++) plain.step(c.step);
+    expect(plain.debug.fingerprint()).not.toBe(c.fingerprint);
+    const again = createEngine(generateSurface(c.planet), { seed: c.seed, species: nativeSpecies(c.planet), yearSpan: c.yearSpan });
+    let k = 0;
+    for (let t = 0; t <= c.tick; t++) {
+      while (k < c.log.length && c.log[k].tick === t) again.apply(c.log[k++].cmd);
+      if (t < c.tick) again.step(c.step);
+    }
+    expect(again.debug.fingerprint()).toBe(c.fingerprint);
+    resetConstants();
+  });
+
+  it('a aba Ajustes lista as constantes, marca a mudada e tem os botões de evento', () => {
+    const html = tuneHtml([
+      { name: 'SITE_MIN_VALUE', value: 2.5, factory: 4.2 },
+      { name: 'DUNBAR', value: 150 },
+    ]);
+    expect(html).toContain('data-dtune="SITE_MIN_VALUE"');
+    expect(html).toContain('value="2.5"');
+    expect(html).toContain('era 4.2');
+    expect(html).toContain('(1 mudada)');
+    expect(html).toContain('data-dname="dunbar"');
+    expect(html).toContain('data-dsurprise');
+    expect(html).toContain('data-devent="comet"');
   });
 });

@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { isSlowRotator } from '../../../procgen/climate';
 import { windAt } from '../../climate';
 import { Biome, classify, temperatureAt } from '../../../procgen/surface';

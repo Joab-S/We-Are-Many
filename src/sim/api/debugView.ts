@@ -1,4 +1,4 @@
-import * as B from '../balance';
+import { B } from '../live';
 import type { SurfaceMap } from '../../procgen/surface';
 import { indicatorsOf, scaledTargets, type IndicatorBase, type Indicators, type RunSamples } from '../calibrate';
 import { ERAS, type Ecosystem, type Village } from '../ecosystem';
@@ -8,6 +8,7 @@ import { wrapDx } from '../settlement';
 import { STEP_PARTS, type EcoProbe, type ProbeSite } from '../eco/core/probe';
 import type { MoveAction } from '../../ai/decisions/move';
 import type { Choice, Scored } from '../../ai/utility';
+import { liveConstants, type LiveConstant } from '../live';
 import { DEBUG_DECISION_LIMIT, DEBUG_SERIES_LIMIT, type DebugFactor, type DebugOption, type DebugTarget, type DebugView, type FamilyDecision, type IndicatorSample, type PlaceDebug, type ProfileDebug, type WorldDebug } from './debug';
 import type { EngineView } from './engine';
 
@@ -318,6 +319,10 @@ export class EngineDebug implements DebugView {
 
   fingerprint(): string {
     return worldFingerprint(this.eco);
+  }
+
+  constants(): LiveConstant[] {
+    return liveConstants();
   }
 
   profile(): ProfileDebug | null {

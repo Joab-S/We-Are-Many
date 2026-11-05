@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import type { Stock } from '../../economy';
 import { missingFunctions, polityOf, POLITY_NAMES, type TierCheck } from '../../community';
 import { TIER_NAMES } from '../../settlement';

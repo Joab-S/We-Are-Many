@@ -5,7 +5,7 @@
  */
 
 import { generateSurface, temperatureAt, type PlanetParams, type SurfaceMap } from '../procgen/surface';
-import * as B from './balance';
+import { B } from './live';
 import { Ecosystem, isLand, YEAR_SECONDS, type Village } from './ecosystem';
 import { isStreet } from './architecture';
 import { GOODS } from './economy';

@@ -2,6 +2,7 @@ import { classify, sowVegetation, temperatureAt, type SurfaceMap } from '../../p
 import type { Ore } from '../economy';
 import type { Ecosystem, Village } from '../ecosystem';
 import { runEvent, runRandomEvent, WORLD_EVENT_NAMES, type WorldEvent } from '../events';
+import { setConstant } from '../live';
 import type { Species } from '../species';
 
 /**
@@ -156,6 +157,8 @@ export type EngineCommand =
   | { kind: 'surprise' }
   /** Eventos aleatórios ligados ou não, e a frequência deles (janela Mundo). */
   | { kind: 'events'; auto?: boolean; rate?: number }
+  /** Uma constante de equilíbrio muda com o mundo rodando (painel F3, aba Ajustes). */
+  | { kind: 'tune'; name: string; value: number }
   /** A vista do jogador (nível de detalhe da simulação). */
   | ViewCommand;
 
@@ -405,6 +408,13 @@ export function applyCommand(eco: Ecosystem, map: SurfaceMap, cmd: EngineCommand
       const e = eco.chronicle[0];
       return ev && e && e.x >= 0 ? { ok: true, at: { x: e.x, y: e.y } } : { ok: !!ev };
     }
+    case 'tune':
+      if (!setConstant(cmd.name, cmd.value)) {
+        eco.hint = `${cmd.name}: não é uma constante ajustável`;
+        return { ok: false };
+      }
+      (eco.tuned ??= {})[cmd.name] = cmd.value;
+      return { ok: true };
     case 'events':
       if (cmd.auto !== undefined) eco.autoEvents = cmd.auto;
       if (cmd.rate !== undefined) eco.eventRate = cmd.rate;

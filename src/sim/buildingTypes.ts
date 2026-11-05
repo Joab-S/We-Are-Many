@@ -8,7 +8,7 @@
  * Sem estado e sem dependência do Ecosystem: só tipos e `balance.ts`.
  */
 
-import * as B from './balance';
+import { B } from './live';
 import type { BuildContext } from './eco/types';
 
 /** Construções especiais, na ordem em que um assentamento costuma erguê-las (a ordem de `nextBuilding` e da planta). */

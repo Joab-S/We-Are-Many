@@ -1,6 +1,6 @@
 import { mulberry32, seedFor } from '../core/rng';
 import type { PlanetParams } from '../procgen/surface';
-import * as B from './balance';
+import { B } from './live';
 import { ecologyOf, hunts, preyInReach, preysOn, type Ecology, type Relation } from './fauna';
 import type { HerdKind } from './eco/types';
 
