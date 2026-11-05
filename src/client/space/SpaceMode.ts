@@ -93,6 +93,7 @@ export class SpaceMode implements GameMode {
         visitorArrived: (sys, comet, entering) => this.director.visitorArrived(sys, comet, entering),
       },
       renderer.capabilities.getMaxAnisotropy(),
+      renderer instanceof THREE.WebGLRenderer,
     );
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.08), this.systems.starLight);
     this.stars = new StarField(state.manifest);

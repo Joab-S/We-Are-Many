@@ -95,6 +95,8 @@ export class SystemManager {
     private readonly state: GameState,
     private readonly listener: SystemListener,
     private readonly anisotropy = 1,
+    /** O renderizador é o WebGL: os rochosos usam o shader, e não o material que o `SoftRenderer` entende. */
+    private readonly webgl = false,
   ) {}
 
   private changed(): void {
@@ -132,7 +134,7 @@ export class SystemManager {
     };
     const planets: Body[] = [];
     for (const p of data.planets) {
-      const body = createPlanetBody(p, this.state, this.anisotropy);
+      const body = createPlanetBody(p, this.state, this.anisotropy, this.webgl);
       planets.push(body);
       group.add(body.object);
       this.origin.anchor(body.object, body.pos);
@@ -318,6 +320,7 @@ export class SystemManager {
     for (const b of planets) {
       // As pedras dos anéis só aparecem de perto; de longe o anel liso basta.
       if (b.rocks) b.rocks.visible = b.pos.distanceTo(ship) < b.radius * 60;
+      b.starDir?.subVectors(star.object.position, b.object.position).normalize();
     }
     const away = this.prev;
     for (const b of comets) {

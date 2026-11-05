@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { disposeObject, markShared } from './dispose';
+import { rockyMaterial, setRockyTextures } from './planet/sphere';
 
 const disposed = (r: THREE.EventDispatcher<{ dispose: object }>): (() => boolean) => {
   let hit = false;
@@ -50,5 +51,26 @@ describe('descarte com recursos compartilhados (Flyweight)', () => {
     expect(inListGone()).toBe(true);
     expect(sharedGone()).toBe(false);
     expect(materialGone()).toBe(true);
+  });
+
+  it('a esfera do rochoso libera as duas texturas, ao sair e ao trocar pela prévia', () => {
+    const map = new THREE.Texture();
+    const relief = new THREE.Texture();
+    const material = rockyMaterial(map, relief, new THREE.Vector3(1, 0, 0));
+    const mapGone = disposed(map);
+    const reliefGone = disposed(relief);
+    const newMap = new THREE.Texture();
+    const newRelief = new THREE.Texture();
+    const newMapGone = disposed(newMap);
+    const newReliefGone = disposed(newRelief);
+
+    setRockyTextures(material, newMap, newRelief);
+    expect(mapGone()).toBe(true);
+    expect(reliefGone()).toBe(true);
+    expect(newMapGone()).toBe(false);
+
+    disposeObject(new THREE.Mesh(new THREE.BufferGeometry(), material));
+    expect(newMapGone()).toBe(true);
+    expect(newReliefGone()).toBe(true);
   });
 });

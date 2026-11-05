@@ -8,6 +8,7 @@ import { mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '..
 import type { GameState } from '../state';
 import { generateSurfaceAsync } from '../surface/generateAsync';
 import { markShared } from './dispose';
+import { flatRelief, reliefPixels, reliefTexture, rockyMaterial, setRockyTextures } from './planet/sphere';
 
 /**
  * Corpos desenhados em 3D perto da nave: a estrela local e, no Sistema Solar,
@@ -40,6 +41,8 @@ export interface Body {
   rocks?: THREE.Object3D;
   /** A esfera nasceu com a textura provisória de faixas: falta pedir a prévia (`loadPreview`). */
   previewPending?: boolean;
+  /** Direção da estrela, a partir do planeta, na cena: os shaders lêem este vetor, atualizado a cada quadro. */
+  starDir?: THREE.Vector3;
 }
 
 /** Inclinação mínima do eixo dos planetas com anéis, em radianos (o anel fica no equador). */
@@ -143,6 +146,8 @@ export interface PlanetPixels {
   pixels: Uint8Array;
   width: number;
   height: number;
+  /** Relevo pronto (`reliefPixels`). Só as prévias o guardam: num planeta visitado ele sai do mapa. */
+  relief?: Uint8Array;
 }
 
 /**
@@ -195,7 +200,7 @@ export function loadPreview(id: string, params: PlanetParams): Promise<PlanetPix
     job = previewQueue
       .then(() => generateSurfaceAsync(params, scale))
       .then((map) => {
-        const preview = planetPixels(map);
+        const preview: PlanetPixels = { ...planetPixels(map), relief: reliefPixels(map.elevation, map.width, map.height) };
         previews.set(id, preview);
         return preview;
       })
@@ -209,9 +214,13 @@ export function loadPreview(id: string, params: PlanetParams): Promise<PlanetPix
 
 /** Troca a textura provisória de faixas pela prévia que chegou. */
 export function applyPreview(body: Body, preview: PlanetPixels, anisotropy: number): void {
-  const material = (body.surface as THREE.Mesh).material as THREE.MeshLambertMaterial;
-  material.map?.dispose();
-  material.map = surfaceTexture(preview, anisotropy);
+  const material = (body.surface as THREE.Mesh).material as THREE.MeshLambertMaterial | THREE.ShaderMaterial;
+  if (material instanceof THREE.ShaderMaterial) {
+    setRockyTextures(material, surfaceTexture(preview, anisotropy), reliefTexture(preview.relief!, preview.width, preview.height));
+  } else {
+    material.map?.dispose();
+    material.map = surfaceTexture(preview, anisotropy);
+  }
   body.previewPending = false;
 }
 
@@ -239,9 +248,14 @@ export function tileDirection(surface: THREE.Object3D, u: number, v: number): TH
   return new THREE.Vector3(-Math.cos(phi) * Math.sin(theta), Math.cos(theta), Math.sin(phi) * Math.sin(theta)).applyEuler(surface.rotation);
 }
 
-export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces' | 'surfaceArt'>, anisotropy = 1): Body {
+/**
+ * `webgl`: o rochoso usa o shader de `planet/sphere.ts`. Sem ele (o `SoftRenderer` só sabe desenhar a esfera com
+ * `material.map`) e nos gigantes, que são faixas sem mapa, fica o material comum.
+ */
+export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces' | 'surfaceArt'>, anisotropy = 1, webgl = false): Body {
   const radius = planetRadius(p);
   let map: THREE.Texture;
+  let relief: THREE.Texture | null = null;
   let previewPending = false;
   if (p.kind === 'rocky') {
     // Planeta já visitado usa o mapa completo (com a terraformação e as ruas); os outros,
@@ -254,6 +268,10 @@ export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces
     if (visited && pixels) world.surfaceArt.set(p.id, pixels.pixels);
     if (pixels) {
       map = surfaceTexture(pixels, anisotropy);
+      if (webgl) {
+        const bytes = pixels.relief ?? reliefPixels(visited!.elevation, pixels.width, pixels.height);
+        relief = reliefTexture(bytes, pixels.width, pixels.height);
+      }
     } else {
       map = bandTexture(p);
       previewPending = true;
@@ -263,7 +281,9 @@ export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces
   }
   const tilt = axialTilt(p);
   const group = new THREE.Group();
-  const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 32), new THREE.MeshLambertMaterial({ map }));
+  const starDir = new THREE.Vector3(1, 0, 0);
+  const material = webgl && p.kind === 'rocky' ? rockyMaterial(map, relief ?? flatRelief(), starDir) : new THREE.MeshLambertMaterial({ map });
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 32), material);
   orientPlanet(sphere, tilt);
   sphere.name = 'surface';
   group.add(sphere);
@@ -311,7 +331,7 @@ export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces
     rocks = createRingRocks(p, radius * 1.3, radius * 2.3, tilt);
     group.add(rocks);
   }
-  return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p, surface: sphere, rocks, previewPending };
+  return { name: p.name, kind: p.kind, pos: new THREE.Vector3(), radius, object: group, planet: p, surface: sphere, rocks, previewPending, starDir };
 }
 
 /** Linha da órbita comprimida. */

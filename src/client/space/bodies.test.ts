@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { SOL_PLANETS, type PlanetData } from '../../nav/planets';
 import { generateSurface, type SurfaceMap } from '../../procgen/surface';
 import { generateSurfaceAsync } from '../surface/generateAsync';
+import { dirToUv, RELIEF_SLOPE_RANGE, reliefPixels } from './planet/sphere';
 import { applyPreview, axialTilt, createPlanetBody, litSide, loadPreview, planetParams, planetRadius, tileDirection, type Body } from './bodies';
 
 vi.mock('../surface/generateAsync', () => ({ generateSurfaceAsync: vi.fn() }));
@@ -175,5 +176,108 @@ describe('textura da esfera', () => {
     const first = pixelsOf(createPlanetBody(mars, world));
     expect(pixelsOf(createPlanetBody(mars, world))).toBe(first);
     expect(world.surfaceArt.get(mars.id)).toBe(first);
+  });
+});
+
+describe('a esfera no WebGL', () => {
+  it('dirToUv desfaz tileDirection em toda a esfera', () => {
+    const still = new THREE.Object3D();
+    for (let v = 0.02; v < 1; v += 0.07) {
+      for (let u = 0; u < 1; u += 0.05) {
+        const back = dirToUv(tileDirection(still, u, v));
+        expect(back.u).toBeCloseTo(u, 9);
+        expect(back.v).toBeCloseTo(v, 9);
+      }
+    }
+  });
+
+  it('dirToUv: os polos são a primeira e a última linha do mapa, e a emenda fecha', () => {
+    expect(dirToUv({ x: 0, y: 1, z: 0 }).v).toBe(0);
+    expect(dirToUv({ x: 0, y: -1, z: 0 }).v).toBe(1);
+    expect(dirToUv({ x: -1, y: 0, z: 0 })).toEqual({ u: 0, v: 0.5 });
+    // Nos dois lados da emenda: u quase 1 e u quase 0.
+    expect(dirToUv({ x: -1, y: 0, z: -1e-6 }).u).toBeGreaterThan(0.999);
+    expect(dirToUv({ x: -1, y: 0, z: 1e-6 }).u).toBeLessThan(0.001);
+  });
+
+  it('o rochoso usa o shader, com a cor e o relevo; o gigante e o modo sem WebGL ficam com o material comum', () => {
+    const material = (b: Body) => (b.surface as THREE.Mesh).material;
+    const world = { surfaces: new Map([[mars.id, smallMap(mars)]]), surfaceArt: new Map<string, Uint8Array>() };
+    const rocky = material(createPlanetBody(mars, world, 1, true)) as THREE.ShaderMaterial;
+    expect(rocky).toBeInstanceOf(THREE.ShaderMaterial);
+    expect((rocky.uniforms.uMap.value as THREE.DataTexture).image.width).toBe(world.surfaces.get(mars.id)!.width);
+    expect((rocky.uniforms.uRelief.value as THREE.DataTexture).image.width).toBe(world.surfaces.get(mars.id)!.width);
+    expect(material(createPlanetBody(saturn, empty, 1, true))).toBeInstanceOf(THREE.MeshLambertMaterial);
+    expect(material(createPlanetBody(mars, world, 1, false))).toBeInstanceOf(THREE.MeshLambertMaterial);
+  });
+
+  it('o shader acompanha a direção da estrela de quem criou o corpo', () => {
+    const body = createPlanetBody(earth, empty, 1, true);
+    const uniforms = ((body.surface as THREE.Mesh).material as THREE.ShaderMaterial).uniforms;
+    expect(uniforms.uStarDir.value).toBe(body.starDir);
+  });
+
+  it('a prévia que chega troca as duas texturas do shader', async () => {
+    const p = { ...earth, id: 'previa-shader' };
+    vi.mocked(generateSurfaceAsync).mockResolvedValueOnce(smallMap(earth));
+    const body = createPlanetBody(p, empty, 1, true);
+    const uniforms = ((body.surface as THREE.Mesh).material as THREE.ShaderMaterial).uniforms;
+    const before = [uniforms.uMap.value, uniforms.uRelief.value];
+    applyPreview(body, await loadPreview(p.id, planetParams(p)), 1);
+    expect(body.previewPending).toBe(false);
+    expect(uniforms.uMap.value).not.toBe(before[0]);
+    expect(uniforms.uRelief.value).not.toBe(before[1]);
+    expect(uniforms.uRelief.value.image.width).toBe(uniforms.uMap.value.image.width);
+  });
+});
+
+describe('textura de relevo', () => {
+  const W = 8;
+  const H = 4;
+  const at = (out: Uint8Array, x: number, y: number) => [...out.subarray((y * W + x) * 4, (y * W + x) * 4 + 4)];
+  const grid = (f: (x: number, y: number) => number) => {
+    const e = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) e[y * W + x] = f(x, y);
+    return e;
+  };
+
+  it('chão plano é 128 nos dois eixos, e o mar marca a máscara', () => {
+    const out = reliefPixels(grid((x) => (x < 4 ? 0.3 : -0.2)), W, H);
+    expect(at(out, 1, 1)).toEqual([128, 128, 0, 255]);
+    expect(at(out, 5, 1)).toEqual([128, 128, 0, 0]);
+  });
+
+  it('subir para o leste aumenta R; subir para o norte (linhas menores) aumenta G', () => {
+    const east = reliefPixels(grid((x) => 0.5 + x * 0.1), W, H);
+    expect(at(east, 3, 1)[0]).toBeGreaterThan(128);
+    expect(at(east, 3, 1)[1]).toBe(128);
+    const north = reliefPixels(grid((_, y) => 0.5 - y * 0.1), W, H);
+    expect(at(north, 3, 1)[1]).toBeGreaterThan(128);
+    expect(at(north, 3, 1)[0]).toBe(128);
+  });
+
+  it('a inclinação é por radiano: a mesma encosta dá o mesmo valor em qualquer resolução do mapa', () => {
+    const slope = 1;
+    const relief = (w: number) => {
+      const e = new Float32Array(w * 4);
+      for (let y = 0; y < 4; y++) for (let x = 0; x < w; x++) e[y * w + x] = 0.5 + Math.sin((x / w) * Math.PI * 2) * slope;
+      return reliefPixels(e, w, 4);
+    };
+    const row = 1;
+    const fine = relief(64);
+    const coarse = relief(32);
+    expect(Math.abs(fine[(row * 64 + 8) * 4] - coarse[(row * 32 + 4) * 4])).toBeLessThanOrEqual(1);
+    expect(fine[(row * 64 + 8) * 4]).toBeGreaterThan(128);
+  });
+
+  it('o mapa dá a volta: a coluna 0 enxerga a última, e a encosta que passa do limite fica no limite', () => {
+    const out = reliefPixels(grid((x) => (x === W - 1 ? 0 : x === 1 ? RELIEF_SLOPE_RANGE * 4 : 0.5)), W, H);
+    expect(at(out, 0, 1)[0]).toBe(255);
+  });
+
+  it('a costa não vira penhasco: o fundo do mar conta como nível zero', () => {
+    const deep = reliefPixels(grid((x) => (x >= 4 ? 0.1 : -0.9)), W, H);
+    const shallow = reliefPixels(grid((x) => (x >= 4 ? 0.1 : -0.01)), W, H);
+    expect(at(deep, 4, 1)).toEqual(at(shallow, 4, 1));
   });
 });
