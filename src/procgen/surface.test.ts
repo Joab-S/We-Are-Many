@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Biome, classify, Decor, decorAt, generateSurface, mapSizeFor, sowVegetation, type PlanetParams } from './surface';
+import { moistureCeiling } from './climate';
+import { Biome, classify, Decor, decorAt, generateSurface, isForestBiome, mapSizeFor, sowVegetation, type PlanetParams } from './surface';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 1, temperatureK: 288, water: 0.7, life: 0.8 };
 
@@ -21,6 +22,76 @@ describe('a Terra por valor', () => {
   it('altitude, umidade e biomas', () => {
     const map = generateSurface(earth, 0.25);
     expect(digest(map.elevation, map.moisture, map.biome)).toBe('a92244ad');
+  });
+});
+
+describe('um planeta seco', () => {
+  const dry = (water: number): PlanetParams => ({ id: 'seco', name: 'Seco', radiusEarth: 0.5, temperatureK: 285, water, life: 0.9 });
+
+  it('sem água, nenhum bioma de mata e nada de umidade', () => {
+    const map = generateSurface(dry(0));
+    const forests = map.biome.filter((b) => isForestBiome(b as Biome)).length;
+    expect(forests).toBe(0);
+    expect(map.moisture.every((m) => m === 0)).toBe(true);
+    expect(map.elevation.some((e) => e < 0)).toBe(false);
+  });
+
+  it('com 5% de água, a umidade da terra não passa de 0,06', () => {
+    const map = generateSurface(dry(0.05));
+    let top = 0;
+    for (let i = 0; i < map.moisture.length; i++) if (map.elevation[i] >= 0) top = Math.max(top, map.moisture[i]);
+    expect(top).toBeLessThanOrEqual(0.0601);
+    expect(top).toBeGreaterThan(0.04);
+  });
+
+  it('a água fica nas bacias grandes: nenhuma lagoa solta, e a área fica perto do pedido', () => {
+    for (const id of ['seco-a', 'seco-b', 'seco-c']) {
+      const map = generateSurface({ ...dry(0.1), id });
+      const n = map.width * map.height;
+      const seen = new Uint8Array(n);
+      let water = 0;
+      for (let s = 0; s < n; s++) {
+        if (seen[s] || map.elevation[s] >= 0) continue;
+        const stack = [s];
+        seen[s] = 1;
+        let size = 0;
+        while (stack.length) {
+          const i = stack.pop()!;
+          size++;
+          const x = i % map.width;
+          const y = (i - x) / map.width;
+          for (const j of [y * map.width + ((x + 1) % map.width), y * map.width + ((x - 1 + map.width) % map.width), y > 0 ? i - map.width : -1, y + 1 < map.height ? i + map.width : -1]) {
+            if (j >= 0 && !seen[j] && map.elevation[j] < 0) {
+              seen[j] = 1;
+              stack.push(j);
+            }
+          }
+        }
+        water += size;
+        expect(size, id).toBeGreaterThanOrEqual(n * 0.001);
+      }
+      expect(water / n, id).toBeGreaterThan(0.08);
+      expect(water / n, id).toBeLessThanOrEqual(0.1);
+    }
+  });
+
+  it('frio e seco, é chão nu: a neve fica nos polos', () => {
+    const map = generateSurface({ id: 'sol-4', name: 'Marte', radiusEarth: 0.53, temperatureK: 210, water: 0.04, life: 0 });
+    const snowAt = (from: number, to: number) => {
+      let snow = 0;
+      for (let y = from; y < to; y++) for (let x = 0; x < map.width; x++) if (map.biome[y * map.width + x] === Biome.Snow) snow++;
+      return snow / ((to - from) * map.width);
+    };
+    expect(snowAt(0, 8)).toBeGreaterThan(0.5);
+    expect(snowAt(Math.floor(map.height * 0.3), Math.floor(map.height * 0.7))).toBe(0);
+  });
+
+  it('muita água: o teto da umidade não muda', () => {
+    expect(moistureCeiling(0.6)).toBe(0.96);
+    expect(moistureCeiling(0.9)).toBe(0.96);
+    // E sobe sem degrau até lá.
+    expect(moistureCeiling(0.59)).toBeGreaterThan(moistureCeiling(0.5));
+    expect(moistureCeiling(0.5999)).toBeCloseTo(0.96, 2);
   });
 });
 

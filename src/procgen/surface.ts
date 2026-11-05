@@ -171,8 +171,10 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
     }
   }
 
+  if (params.water < DRY_WATER) dryPonds(elevation, width, height);
+
   // Etapa 3: temperatura (frentes) e umidade (costa, interior e sombra de chuva).
-  const { climate, moisture } = climateStage({ elevation, width, height, fullWidth: full.width, step, cosA, sinA, featureScale: FEATURE_SCALE, wet });
+  const { climate, moisture } = climateStage({ elevation, width, height, fullWidth: full.width, step, cosA, sinA, featureScale: FEATURE_SCALE, wet, water: params.water });
   for (let i = 0; i < n; i++) vegetation[i] = params.life * Math.min(1, Math.max(0, moisture[i] * 1.4 - 0.2));
 
   const map: SurfaceMap = {
@@ -193,6 +195,37 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   // Etapa 4: bioma pela matriz de Whittaker e pelas regras de costa.
   for (let i = 0; i < n; i++) map.biome[i] = classify(map, i);
   return map;
+}
+
+/** Abaixo desta fração de água o planeta é seco: sem lagoas soltas, sem neve fora dos polos. */
+const DRY_WATER = 0.2;
+/** Corpo d'água menor que esta fração do mapa, num planeta seco, é uma lagoa solta. */
+const POND_AREA = 0.001;
+
+/** Num planeta seco, a água fica nas bacias grandes: as lagoas soltas viram baixada seca. */
+function dryPonds(elevation: Float32Array, width: number, height: number): void {
+  const n = width * height;
+  const seen = new Uint8Array(n);
+  const body: number[] = [];
+  for (let s = 0; s < n; s++) {
+    if (seen[s] || elevation[s] >= 0) continue;
+    body.length = 0;
+    body.push(s);
+    seen[s] = 1;
+    for (let k = 0; k < body.length; k++) {
+      const i = body[k];
+      const x = i % width;
+      const y = (i - x) / width;
+      const near = [y * width + ((x + 1) % width), y * width + ((x - 1 + width) % width), y > 0 ? i - width : -1, y + 1 < height ? i + width : -1];
+      for (const j of near) {
+        if (j >= 0 && !seen[j] && elevation[j] < 0) {
+          seen[j] = 1;
+          body.push(j);
+        }
+      }
+    }
+    if (body.length < n * POND_AREA) for (const i of body) elevation[i] = 0;
+  }
 }
 
 /** Temperatura local (K): base do planeta, latitude, altitude e ajuste do jogador. */
@@ -232,6 +265,12 @@ function nearWater(map: SurfaceMap, i: number, r: number): boolean {
   return false;
 }
 
+/** O tile está na calota polar (o último oitavo do caminho do equador ao polo). */
+function nearPole(map: SurfaceMap, i: number): boolean {
+  const y = Math.floor(i / map.width);
+  return Math.abs(y / (map.height - 1) - 0.5) * 2 > 0.875;
+}
+
 /**
  * Bioma de um tile (etapa 4). O clima (T, H) dá o bioma clímax pela matriz
  * de Whittaker; a vegetação decide se a mata está de pé (cortada vira
@@ -249,6 +288,8 @@ export function classify(map: SurfaceMap, i: number): Biome {
     if (t < 262) return Biome.Ice;
     return e < -0.35 ? Biome.DeepOcean : Biome.Ocean;
   }
+  // Planeta seco e frio: não há água para nevar, e o gelo fica nos polos.
+  if (t < 265 && map.params.water < DRY_WATER && !nearPole(map, i)) return e > 0.72 ? Biome.Mountain : e > 0.55 ? Biome.Rock : Biome.Barren;
   if (e > 0.72) return t < 265 ? Biome.Snow : Biome.Mountain;
   if (e > 0.55) return t < 260 ? Biome.Snow : Biome.Rock;
   if (t < 255) return Biome.Snow;

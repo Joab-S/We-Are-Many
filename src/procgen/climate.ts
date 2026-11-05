@@ -19,6 +19,8 @@ export interface ClimateInput {
   sinA: Float32Array;
   featureScale: number;
   wet: PerlinNoise3;
+  /** Fração de água do planeta: o teto da umidade. */
+  water: number;
 }
 
 export interface ClimateField {
@@ -164,8 +166,18 @@ function rowBuffer(width: number): Float32Array {
   return scratch;
 }
 
+/**
+ * Teto da umidade da terra pela água do planeta: quem tem muita água chega ao topo da faixa, para todos os biomas da
+ * matriz aparecerem; um planeta com 5% de água não passa de 0,06. De 0,6 de água em diante, é o topo inteiro.
+ */
+export function moistureCeiling(water: number): number {
+  if (water >= 0.6) return 0.96;
+  const t = Math.max(0, (water - 0.2) / 0.4);
+  return water * 1.2 + 0.24 * t * t * (3 - 2 * t);
+}
+
 export function climateStage(inp: ClimateInput): ClimateField {
-  const { elevation, width, height, fullWidth, step, cosA, sinA, featureScale, wet } = inp;
+  const { elevation, width, height, fullWidth, step, cosA, sinA, featureScale, wet, water } = inp;
   const n = width * height;
   const climate = new Float32Array(n);
   const moisture = new Float32Array(n);
@@ -199,13 +211,17 @@ export function climateStage(inp: ClimateInput): ClimateField {
       landCount++;
     }
   }
-  // Equalização na terra: a umidade cobre a faixa toda, então todos os biomas da matriz aparecem.
+  // Equalização na terra: a umidade cobre a faixa até o teto do planeta.
   // A posição de cada tile vem de uma busca binária nos valores ordenados (sort nativo de array tipado).
   const sorted = new Float32Array(landCount);
   let k = 0;
   for (let i = 0; i < n; i++) if (elevation[i] >= 0) sorted[k++] = raw[i];
   sorted.sort();
   const last = Math.max(1, landCount - 1);
+  const ceiling = moistureCeiling(water);
+  const floor = Math.min(0.04, ceiling);
+  // O vão de 0,92 é escrito assim para a Terra dar os mesmos valores: 0,96 - 0,04 não é 0,92 em ponto flutuante.
+  const span = ceiling === 0.96 ? 0.92 : ceiling - floor;
   for (let i = 0; i < n; i++) {
     if (elevation[i] < 0) continue;
     const v = Math.fround(raw[i]);
@@ -216,7 +232,7 @@ export function climateStage(inp: ClimateInput): ClimateField {
       if (sorted[mid] < v) lo = mid + 1;
       else hi = mid;
     }
-    moisture[i] = 0.04 + 0.92 * Math.min(1, lo / last);
+    moisture[i] = floor + span * Math.min(1, lo / last);
   }
   return { climate, moisture };
 }
