@@ -204,6 +204,22 @@ async function boot(): Promise<void> {
 
 // `?debug`: atalho para entrar na Terra direto (captura de telas em tools/capture-settlements.mjs).
 if (DEBUG) window.debugEarth = () => current && enterSurface(current, planetParams(SOL_PLANETS[2]));
+if (DEBUG) {
+  window.debugEngineWorker = async (years) => {
+    const [{ seedWorld }, { createEngine }, { RUN_STEP }, { runInWorker }] = await Promise.all([
+      import('../sim/calibrate'),
+      import('../sim/api/engine'),
+      import('../sim/api/runSnapshot'),
+      import('./surface/engineWorker'),
+    ]);
+    const world = seedWorld(77);
+    const engine = createEngine(world.map, { seed: 77, eco: world.eco });
+    let yearsSeen = 0;
+    const result = await runInWorker({ snapshot: engine.snapshot(), years, budgetMs: Infinity }, (y) => (yearsSeen = y));
+    for (let s = 0; s < Math.round((years * engine.view.yearSpan) / RUN_STEP); s++) engine.step(RUN_STEP);
+    return { worker: result.fingerprint, direct: engine.debug.fingerprint(), ms: result.ms, yearsSeen };
+  };
+}
 
 boot().catch((err) => {
   loading.textContent = `Falha ao carregar o universo: ${String(err)}`;

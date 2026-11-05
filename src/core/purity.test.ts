@@ -26,7 +26,7 @@ const SRC = new URL('../', import.meta.url);
 const ROOT_DIRS = ['core', 'nav', 'explore', 'procgen', 'sim', 'ai', 'IAUS'];
 const ROOT_FILES = ['universe/manifest.ts', 'universe/starIndex.ts', 'save/snapshot.ts'];
 /** Adaptadores de plataforma: usam o navegador por definição e o motor nunca os alcança. */
-const PLATFORM = ['universe/loader.ts', 'universe/chunkCache.ts', 'save/store.ts', 'procgen/surface.worker.ts', 'save/game.ts', 'save/manager.ts'];
+const PLATFORM = ['universe/loader.ts', 'universe/chunkCache.ts', 'save/store.ts', 'procgen/surface.worker.ts', 'sim/api/worker.ts', 'save/game.ts', 'save/manager.ts'];
 /** Fora do motor: testes e calibração (rodam no Node, com node:fs). */
 const NOT_ENGINE = /\.(test|calib)\.ts$/;
 const IMPORT = /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/g;

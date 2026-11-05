@@ -1,5 +1,15 @@
 import { espaco, esperarOrbita, expect, MAPA_MS, orbita, superficie, test } from './apoio';
 
+test('o motor roda num Worker e dá o mesmo mundo que rodando direto', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.goto('/?debug');
+  await expect(espaco(page)).toBeVisible();
+  const r = await page.evaluate(() => window.debugEngineWorker!(30));
+  expect(r.worker).toMatch(/^[0-9a-f]+$/);
+  expect(r.worker).toBe(r.direct);
+  expect(r.yearsSeen).toBe(30);
+});
+
 test.describe('?debug', () => {
   test('window.space leva a um planeta a N raios', async ({ page }) => {
     await page.goto('/?debug');
