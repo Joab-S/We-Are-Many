@@ -222,7 +222,7 @@ export class SurfaceMode {
     this.resize();
     this.ready = true;
     // `?debug` deixa a cena acessível no console (testes e calibragem).
-    if (new URLSearchParams(location.search).has('debug')) (window as unknown as { surface: SurfaceMode }).surface = this;
+    if (DEBUG) window.surface = this;
     this.raf = requestAnimationFrame(this.frame);
   }
 
@@ -880,10 +880,15 @@ export class SurfaceMode {
   }
 
   dispose(): void {
+    if (DEBUG) delete window.surface;
     cancelAnimationFrame(this.raf);
     this.abort.abort();
     this.input.dispose();
     if (this.ready) {
+      // A esfera em órbita mostra o mesmo mapa, com as ruas. O raster morre aqui, então não precisa de cópia;
+      // numa visão de depuração do gerador os pixels não são o mapa, e a esfera volta ao terreno pintado.
+      if (this.raster.geoView === 'none') this.state.surfaceArt.set(this.params.id, this.raster.pixels);
+      else this.state.surfaceArt.delete(this.params.id);
       this.engine.setHooks({});
       this.driver.bus.clear();
       this.sprites.dispose();

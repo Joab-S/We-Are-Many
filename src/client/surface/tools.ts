@@ -66,8 +66,7 @@ export const VWIN_HZ = 4;
 /** Segundos reais para passar 1 ano na velocidade 1x. */
 export const REAL_YEAR_SECONDS = 12;
 
-/** Modo de depuração (`?debug` no endereço): mostra as taxas do momento nos painéis (RF-VIDA-310). */
-export const DEBUG = typeof location !== 'undefined' && new URLSearchParams(location.search).has('debug');
+export { DEBUG } from '../debug';
 
 export type FxKind = 'heat' | 'cool' | 'snow' | 'thaw' | 'rain' | 'dry' | 'rise' | 'sink' | 'sea' | 'flatten' | 'sand' | 'grow' | 'clear' | 'demolish' | 'rage' | 'calm';
 

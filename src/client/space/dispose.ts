@@ -16,6 +16,10 @@ export function isShared(resource: THREE.Texture | THREE.Material): boolean {
   return resource.userData.shared === true;
 }
 
+function disposeTexture(v: unknown): void {
+  if (v instanceof THREE.Texture && !isShared(v)) v.dispose();
+}
+
 /** Libera geometrias, materiais e texturas de uma árvore de objetos, menos os compartilhados. */
 export function disposeObject(root: THREE.Object3D): void {
   root.traverse((o) => {
@@ -24,7 +28,15 @@ export function disposeObject(root: THREE.Object3D): void {
     const mats = mesh.material ? (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) : [];
     for (const m of mats) {
       if (isShared(m)) continue;
-      for (const v of Object.values(m)) if (v instanceof THREE.Texture && !isShared(v)) v.dispose();
+      for (const v of Object.values(m)) disposeTexture(v);
+      // Um ShaderMaterial guarda as texturas dentro de `uniforms`, um nível abaixo (às vezes em lista).
+      const uniforms = (m as THREE.ShaderMaterial).uniforms;
+      if (uniforms) {
+        for (const { value } of Object.values(uniforms)) {
+          if (Array.isArray(value)) value.forEach(disposeTexture);
+          else disposeTexture(value);
+        }
+      }
       m.dispose();
     }
   });

@@ -41,6 +41,8 @@ export interface SaveData {
   ship: { pos: [number, number, number]; quat: [number, number, number, number] };
   time: number;
   orbitPlanetId: string | null;
+  /** Nave menos planeta ao descer. Opcional: saves anteriores não têm, e continuam valendo. */
+  orbitOffset?: [number, number, number] | null;
   surfaces: Map<string, SurfaceMap>;
   ecosystems: Map<string, EcosystemSnapshot>;
   knownSpecies: Map<string, Species>;
@@ -80,6 +82,7 @@ export function validateSave(raw: unknown): SaveData {
   if (d.version !== SAVE_VERSION) throw new SaveFormatError(`versão ${String(d.version)} incompatível (esperada ${SAVE_VERSION})`);
   if (!finiteTuple(d.ship?.pos, 3) || !finiteTuple(d.ship?.quat, 4)) throw new SaveFormatError('posição da nave inválida');
   if (!finite(d.time) || d.time < 0) throw new SaveFormatError('tempo de jogo inválido');
+  if (d.orbitOffset != null && !finiteTuple(d.orbitOffset, 3)) throw new SaveFormatError('órbita da nave inválida');
   if (!(d.surfaces instanceof Map) || !(d.ecosystems instanceof Map) || !(d.knownSpecies instanceof Map)) throw new SaveFormatError('mundo ausente');
   if (!d.nav || !d.probes || !d.view || (d.view.mode !== 'space' && d.view.mode !== 'surface')) throw new SaveFormatError('estado incompleto');
   for (const [id, snap] of d.ecosystems) {

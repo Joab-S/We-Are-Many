@@ -19,6 +19,7 @@ import {
 } from '../../nav/systemGen';
 import type { GameState } from '../state';
 import {
+  applyPreview,
   circlePoints,
   compressOrbit,
   createCometBody,
@@ -27,6 +28,8 @@ import {
   createPlanetBody,
   createPoiBody,
   createStarBody,
+  loadPreview,
+  planetParams,
   type Body,
 } from './bodies';
 import { disposeObject } from './dispose';
@@ -91,6 +94,7 @@ export class SystemManager {
     private readonly origin: FloatingOrigin,
     private readonly state: GameState,
     private readonly listener: SystemListener,
+    private readonly anisotropy = 1,
   ) {}
 
   private changed(): void {
@@ -128,7 +132,7 @@ export class SystemManager {
     };
     const planets: Body[] = [];
     for (const p of data.planets) {
-      const body = createPlanetBody(p, this.state.surfaces);
+      const body = createPlanetBody(p, this.state, this.anisotropy);
       planets.push(body);
       group.add(body.object);
       this.origin.anchor(body.object, body.pos);
@@ -151,6 +155,18 @@ export class SystemManager {
     this.changed();
     this.listener.systemEntered(this.system);
     this.swapVisitor(Math.floor(this.state.time / VISITOR_WINDOW_S), true);
+    for (const body of planets) if (body.previewPending) this.requestPreview(body);
+  }
+
+  /** Pede a prévia do planeta ao Worker; se a nave já saiu do sistema, ela só fica no cache. */
+  private requestPreview(body: Body): void {
+    const p = body.planet!;
+    void loadPreview(p.id, planetParams(p)).then(
+      (preview) => {
+        if (this.system?.planets.includes(body)) applyPreview(body, preview, this.anisotropy);
+      },
+      (err) => console.warn(`Falha ao gerar a prévia de ${p.name}`, err),
+    );
   }
 
   private disposeSystem(): void {
@@ -337,6 +353,36 @@ export class SystemManager {
     if (orbit === this.orbitBody) return false;
     this.orbitBody = orbit;
     return true;
+  }
+
+  /** A nave vai descer ao planeta em órbita: guarda onde ela estava em relação a ele. */
+  rememberOrbit(): void {
+    const body = this.orbitBody;
+    if (!body?.planet) return;
+    this.state.orbitPlanetId = body.planet.id;
+    this.state.orbitOffset = this.state.shipPos.clone().sub(body.pos);
+  }
+
+  /**
+   * De volta da superfície: o relógio andou e o planeta está em outro ponto da
+   * órbita, então a nave volta para o mesmo lugar em relação a ele. Chamar depois
+   * de `updateBodies`, com o planeta já na posição certa; o `updateOrbit` do mesmo
+   * quadro reconhece a órbita pela distância. Como isso consome o pedido, um save
+   * posterior não reposiciona a nave de novo. Devolve o corpo se a nave mudou de lugar.
+   */
+  restoreOrbit(): Body | null {
+    const state = this.state;
+    const sys = this.system;
+    // Sem o sistema (a estrela ainda não carregou), o pedido espera os próximos quadros.
+    if (state.orbitPlanetId === null || !sys) return null;
+    const body = sys.planets.find((b) => b.planet!.id === state.orbitPlanetId);
+    const offset = state.orbitOffset;
+    state.orbitPlanetId = null;
+    state.orbitOffset = null;
+    // Saves antigos guardam o planeta sem o deslocamento: a nave fica onde está.
+    if (!body || !offset) return null;
+    state.shipPos.copy(body.pos).add(offset);
+    return body;
   }
 
   /** O Sistema Solar está em volta da nave, mesmo que ainda não desenhado. */

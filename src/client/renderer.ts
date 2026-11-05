@@ -10,6 +10,7 @@ export interface GameRenderer {
   autoClear: boolean;
   readonly info: { memory: { geometries: number; textures: number } };
   readonly renderLists: { dispose(): void };
+  readonly capabilities: { getMaxAnisotropy(): number };
   setSize(width: number, height: number): void;
   setPixelRatio(ratio: number): void;
   getPixelRatio(): number;
@@ -120,6 +121,7 @@ export class SoftRenderer implements GameRenderer {
   autoClear = true;
   readonly info = { memory: { geometries: 0, textures: 0 } };
   readonly renderLists = { dispose(): void {} };
+  readonly capabilities = { getMaxAnisotropy: (): number => 1 };
   private width = 1;
   private height = 1;
   private ratio = 1;
