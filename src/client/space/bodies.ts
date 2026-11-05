@@ -8,6 +8,7 @@ import { mapSizeFor, paintSurface, type PlanetParams, type SurfaceMap } from '..
 import type { GameState } from '../state';
 import { generateSurfaceAsync } from '../surface/generateAsync';
 import { markShared } from './dispose';
+import type { QuadSphere } from './planet/QuadSphere';
 import { ATMOSPHERE_SHELL, atmosphereLook, atmosphereMaterial, flatRelief, reliefPixels, reliefTexture, rockyMaterial, setRockyTextures } from './planet/sphere';
 
 /**
@@ -43,6 +44,8 @@ export interface Body {
   previewPending?: boolean;
   /** Direção da estrela, a partir do planeta, na cena: os shaders lêem este vetor, atualizado a cada quadro. */
   starDir?: THREE.Vector3;
+  /** O planeta de perto, em órbita, quando já há mapa para ele (`SystemManager`). */
+  quad?: QuadSphere;
 }
 
 /** Inclinação mínima do eixo dos planetas com anéis, em radianos (o anel fica no equador). */

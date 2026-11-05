@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { AU_PER_PC } from '../../core/units';
 import { planetOffset } from '../../nav/planets';
+import type { SurfaceMap } from '../../procgen/surface';
 import type { Poi } from '../../nav/poi';
 import {
   COMET_RADIUS,
@@ -35,8 +36,23 @@ import {
   type Body,
 } from './bodies';
 import { disposeObject } from './dispose';
+import type { LodView } from './planet/lod';
 import { requestPregen } from './planet/pregen';
+import { mapHeight, QuadSphere } from './planet/QuadSphere';
 import type { FloatingOrigin } from './FloatingOrigin';
+
+/** Dentro desta distância, em raios do centro, o quadtree toma o lugar da esfera (2 raios de altitude). */
+const QUAD_DISTANCE = 3;
+/** Até aqui a nave conta como em órbita: é o que o quadtree dura na memória. */
+const ORBIT_DISTANCE = 4;
+
+/** De onde a câmera do mundo olha, em cada quadro, para o quadtree escolher o detalhe. */
+export interface CameraView {
+  quaternion: THREE.Quaternion;
+  /** Metade do ângulo de visão da diagonal da tela, em radianos. */
+  halfAngle: number;
+  pixelsPerRadian: number;
+}
 
 /** Distância (pc) em que o sistema de uma estrela passa a ser desenhado. */
 export const SYSTEM_ENTER_PC = 0.05;
@@ -91,6 +107,9 @@ export class SystemManager {
   /** Muda a cada troca de corpos: quem guarda algo derivado deles sabe quando refazer. */
   version = 0;
   private readonly prev = new THREE.Vector3();
+  private readonly forward = new THREE.Vector3();
+  private readonly spin = new THREE.Quaternion();
+  private readonly lodView: LodView = { camera: this.prev, pixelsPerRadian: 1 };
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -180,7 +199,10 @@ export class SystemManager {
     if (!sys) return;
     this.scene.remove(sys.group);
     this.origin.release(sys.star.object);
-    for (const b of sys.planets) this.origin.release(b.object);
+    for (const b of sys.planets) {
+      b.quad?.dispose();
+      this.origin.release(b.object);
+    }
     for (const b of sys.comets) this.origin.release(b.object);
     for (const o of sys.orbits) this.origin.release(o);
     disposeObject(sys.group);
@@ -303,7 +325,7 @@ export class SystemManager {
    * menores que um ponto, caudas dos cometas, pedras dos anéis e a luz da
    * estrela. As posições já foram postas pela origem flutuante.
    */
-  place(ship: THREE.Vector3, time: number): void {
+  place(ship: THREE.Vector3, time: number, camera?: CameraView): void {
     for (const { poi, body } of this.poiBodies.values()) {
       const dist = body.pos.distanceTo(ship);
       const glow = body.glow!;
@@ -325,6 +347,7 @@ export class SystemManager {
       // As pedras dos anéis só aparecem de perto; de longe o anel liso basta.
       if (b.rocks) b.rocks.visible = b.pos.distanceTo(ship) < b.radius * 60;
       b.starDir?.subVectors(star.object.position, b.object.position).normalize();
+      if (camera) this.updateQuad(b, ship, camera);
     }
     const away = this.prev;
     for (const b of comets) {
@@ -342,6 +365,47 @@ export class SystemManager {
     }
     this.starLight.position.copy(star.object.position);
     this.starLight.intensity = 3;
+  }
+
+  /** O mapa em que o chão do planeta se apoia: o da visita ou o adiantado da órbita. */
+  private mapOf(id: string): SurfaceMap | null {
+    const { surfaces, pregen } = this.state;
+    return surfaces.get(id) ?? (pregen?.id === id ? pregen.map : null);
+  }
+
+  /** O quadtree existe enquanto a nave está em órbita e há mapa; sem WebGL, nunca: fica a esfera. */
+  private updateQuad(b: Body, ship: THREE.Vector3, camera: CameraView): void {
+    if (!this.webgl || b.kind !== 'rocky') return;
+    const surface = b.surface as THREE.Mesh;
+    const distance = b.pos.distanceTo(ship);
+    if (distance >= b.radius * ORBIT_DISTANCE) {
+      if (b.quad) {
+        b.quad.dispose();
+        b.quad = undefined;
+        surface.visible = true;
+      }
+      return;
+    }
+    if (!b.quad) {
+      const map = this.mapOf(b.planet!.id);
+      if (!map) return;
+      b.quad = new QuadSphere(b.radius, mapHeight(map), surface.material as THREE.Material);
+      b.object.add(b.quad.group);
+    }
+    const near = distance < b.radius * QUAD_DISTANCE;
+    surface.visible = !near;
+    b.quad.group.visible = near;
+    if (!near) return;
+    b.quad.group.quaternion.copy(surface.quaternion);
+    // A câmera no referencial do planeta, em raios.
+    const toPlanet = this.spin.copy(surface.quaternion).invert();
+    const local = this.prev.subVectors(ship, b.pos).applyQuaternion(toPlanet).divideScalar(b.radius);
+    const forward = this.forward.set(0, 0, -1).applyQuaternion(camera.quaternion).applyQuaternion(toPlanet);
+    this.lodView.camera = local;
+    this.lodView.forward = forward;
+    this.lodView.halfAngle = camera.halfAngle;
+    this.lodView.pixelsPerRadian = camera.pixelsPerRadian;
+    b.quad.update(this.lodView);
   }
 
   /** Posição da estrela local na cena (depois da origem flutuante), ou null no espaço profundo. */

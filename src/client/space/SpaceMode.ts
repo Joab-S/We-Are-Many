@@ -22,7 +22,7 @@ import { ShipController, type FlightKeys, type FlightWorld } from './ShipControl
 import { ShipView } from './ShipView';
 import { SpaceHud } from './SpaceHud';
 import { StarField } from './starField';
-import { SystemManager } from './SystemManager';
+import { SystemManager, type CameraView } from './SystemManager';
 
 /** Passo máximo do laço do espaço, em segundos (ver mode.ts). */
 export const SPACE_MAX_DT = 0.25;
@@ -65,6 +65,7 @@ export class SpaceMode implements GameMode {
   private readonly bindings = new KeyBindings();
   private readonly commands: CommandMap;
   private readonly keys: FlightKeys = { thrust: false, brake: false, left: false, right: false, up: false, down: false, rollLeft: false, rollRight: false, turbo: false };
+  private readonly cameraView: CameraView = { quaternion: new THREE.Quaternion(), halfAngle: 1, pixelsPerRadian: 1 };
   private raf = 0;
   private lastTime = performance.now();
   private lastW = 0;
@@ -207,7 +208,11 @@ export class SpaceMode implements GameMode {
 
     // Origem flutuante: a nave vai para a origem e o mundo para o lugar em volta dela.
     this.origin.update(state.shipPos, state.shipQuat, this.shipView.cameraRoll, this.camera);
-    this.systems.place(state.shipPos, state.time);
+    const tan = Math.tan((this.camera.fov * Math.PI) / 360);
+    this.cameraView.quaternion = state.shipQuat;
+    this.cameraView.halfAngle = Math.atan(tan * Math.hypot(1, this.camera.aspect));
+    this.cameraView.pixelsPerRadian = this.lastH / (2 * tan);
+    this.systems.place(state.shipPos, state.time, this.cameraView);
     const starLocal = this.systems.starLocal();
     if (starLocal) this.shipView.lightFrom(starLocal, state.shipQuat);
     if (this.systems.updateOrbit()) {

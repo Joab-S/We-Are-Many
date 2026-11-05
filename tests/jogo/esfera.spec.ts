@@ -72,6 +72,34 @@ test.describe('a esfera do rochoso', () => {
     expect(await page.evaluate(() => (window.surface!.eco.map as unknown as { marcado?: boolean }).marcado)).toBe(true);
   });
 
+  test('de perto, o quadtree toma o lugar da esfera', async ({ page }, info) => {
+    test.setTimeout(MAPA_MS + 60_000);
+    await page.goto('/?debug');
+    await page.keyboard.press('Digit1');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    await expect.poll(() => page.evaluate(() => !!window.space!.state.pregen?.map), { timeout: MAPA_MS }).toBe(true);
+    await expect.poll(() => page.evaluate(() => !!window.space!.systems.orbitBody!.quad)).toBe(true);
+
+    // Em órbita alta, ainda a esfera; a 1,7 raio, o quadtree. Um tile do mapa na frente, a prumo: é onde uma fresta apareceria.
+    const estado = () =>
+      page.evaluate(() => {
+        const b = window.space!.systems.orbitBody!;
+        return { esfera: b.surface!.visible, quad: b.quad!.group.visible, pedacos: b.quad!.drawn, construidos: b.quad!.built };
+      });
+    await page.evaluate(() => void window.space!.goToPlanet('Terra', 3.5));
+    await expect.poll(estado).toMatchObject({ esfera: true, quad: false });
+    await capturar(page, info, 'esfera-3-5-raios');
+    await page.evaluate(() => void window.space!.goToPlanet('Terra', 1.7));
+    await expect.poll(estado).toMatchObject({ esfera: false, quad: true });
+    await page.waitForTimeout(1000);
+    await esperarImagem(page, 'o quadtree na tela');
+    const perto = await estado();
+    expect(perto.pedacos).toBeGreaterThan(0);
+    expect(perto.pedacos).toBeLessThan(300);
+    await capturar(page, info, 'quadtree-1-7-raios');
+  });
+
   test('a borda azul da Terra e a alaranjada de Marte', async ({ page }, info) => {
     await page.goto('/?debug');
     await page.keyboard.press('Digit1');

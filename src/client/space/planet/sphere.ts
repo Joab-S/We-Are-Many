@@ -95,7 +95,8 @@ const VERTEX = /* glsl */ `
   varying vec3 vView;
   varying mat3 vToView;
   void main() {
-    vLocal = position;
+    // A direção a partir do centro: na esfera e nos pedaços do quadtree, é o normal (ver fillPatch).
+    vLocal = normal;
     vToView = normalMatrix;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     vView = -mv.xyz;
