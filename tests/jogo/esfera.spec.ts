@@ -433,8 +433,8 @@ test.describe('a esfera do rochoso', () => {
     ] as const) {
       await voar(raios, rente);
       await page.waitForTimeout(1500);
-      // Rente, o meio da tela é o céu: só faz sentido medir a prumo. Foto tirada na hora: o tempo corre, e o lugar anoitece.
-      if (!rente) await esperarImagem(page, nome, 0.2);
+      // Rente, o meio da tela é o céu, e o chão fica embaixo, à esquerda da nave.
+      await esperarImagem(page, nome, 0.2, rente ? { x: 320, y: 580, width: 200, height: 90 } : undefined);
       await capturar(page, info, nome);
     }
   });
