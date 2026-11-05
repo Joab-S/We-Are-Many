@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { moistureCeiling } from './climate';
-import { Biome, classify, Decor, decorAt, generateSurface, isForestBiome, mapSizeFor, sowVegetation, type PlanetParams } from './surface';
+import { planetParams, SOL_PLANETS } from '../nav/planets';
+import { Biome, classify, Decor, decorAt, generateSurface, isForestBiome, mapSizeFor, isTree, sowVegetation, vegetationCap, type PlanetParams, type SurfaceMap } from './surface';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 1, temperatureK: 288, water: 0.7, life: 0.8 };
 
@@ -21,7 +22,7 @@ function digest(...arrays: ArrayBufferView[]): string {
 describe('a Terra por valor', () => {
   it('altitude, umidade e biomas', () => {
     const map = generateSurface(earth, 0.25);
-    expect(digest(map.elevation, map.moisture, map.biome)).toBe('a92244ad');
+    expect(digest(map.elevation, map.moisture, map.biome)).toBe('5b7c123a');
   });
 });
 
@@ -92,6 +93,62 @@ describe('um planeta seco', () => {
     // E sobe sem degrau até lá.
     expect(moistureCeiling(0.59)).toBeGreaterThan(moistureCeiling(0.5));
     expect(moistureCeiling(0.5999)).toBeCloseTo(0.96, 2);
+  });
+});
+
+const EARTH_GAME = planetParams(SOL_PLANETS[2]);
+
+describe('o ruído é amostrado na esfera', () => {
+  /** Variância da altitude numa linha do mapa. */
+  function rowVariance(map: SurfaceMap, y: number): number {
+    let sum = 0;
+    for (let x = 0; x < map.width; x++) sum += map.elevation[y * map.width + x];
+    const mean = sum / map.width;
+    let v = 0;
+    for (let x = 0; x < map.width; x++) v += (map.elevation[y * map.width + x] - mean) ** 2;
+    return v / map.width;
+  }
+
+  it('a linha polar tem a mesma altitude em todas as colunas, nos dois polos', () => {
+    for (const params of [earth, { ...earth, id: 'sphere-b', water: 0.3 }, { ...earth, id: 'sphere-c', water: 0.05, radiusEarth: 0.5 }]) {
+      const map = generateSurface(params, 0.5);
+      expect(rowVariance(map, 0), params.id).toBeLessThan(1e-6);
+      expect(rowVariance(map, map.height - 1), params.id).toBeLessThan(1e-6);
+    }
+    // No meio do mapa, a altitude varia.
+    const map = generateSurface(earth, 0.5);
+    expect(rowVariance(map, Math.floor(map.height / 2))).toBeGreaterThan(0.01);
+  });
+
+  it('a coluna da direita encosta na da esquerda', () => {
+    const map = generateSurface(earth, 0.5);
+    let far = 0;
+    for (let y = 0; y < map.height; y++) {
+      const gap = Math.abs(map.elevation[y * map.width] - map.elevation[y * map.width + map.width - 1]);
+      if (gap > 0.2) far++;
+    }
+    // Só as bordas das placas podem saltar.
+    expect(far / map.height).toBeLessThan(0.03);
+  });
+
+  it('a prévia mostra o mesmo planeta que o mapa completo', () => {
+    const full = generateSurface(earth);
+    const small = generateSurface(earth, 0.25);
+    let same = 0;
+    for (let y = 0; y < small.height; y++) {
+      for (let x = 0; x < small.width; x++) {
+        const a = small.elevation[y * small.width + x] >= 0;
+        const b = full.elevation[y * 4 * full.width + x * 4] >= 0;
+        if (a === b) same++;
+      }
+    }
+    expect(same / (small.width * small.height)).toBeGreaterThan(0.93);
+  });
+
+  it('o sorteio das placas é o de sempre: a Terra fica com os mesmos continentes', () => {
+    const map = generateSurface(EARTH_GAME, 0.25);
+    expect(map.plates!.filter((p) => p.continental).length).toBe(5);
+    expect(map.plates!.length).toBe(14);
   });
 });
 
@@ -178,9 +235,20 @@ describe('textura de baixa resolução', () => {
     const n = map.width * map.height;
     map.felled = new Uint8Array(n);
     map.bare = new Uint8Array(n);
+    // Uma floresta onde a muda não vira árvore logo no primeiro punhado (depende do sorteio do tile).
+    const growsSlowly = (i: number) => {
+      const before = [map.vegetation[i], map.biome[i]];
+      map.felled![i] = 1;
+      map.vegetation[i] = 0.34;
+      map.biome[i] = classify(map, i);
+      const slow = !isTree(decorAt({ ...map, felled: undefined }, i));
+      map.felled![i] = 0;
+      [map.vegetation[i], map.biome[i]] = before;
+      return slow;
+    };
     let idx = -1;
     for (let i = 0; i < n; i++) {
-      if (map.biome[i] === Biome.Forest && decorAt(map, i) === Decor.Tree) {
+      if (map.biome[i] === Biome.Forest && decorAt(map, i) === Decor.Tree && vegetationCap(map, i) > 0.4 && growsSlowly(i)) {
         idx = i;
         break;
       }

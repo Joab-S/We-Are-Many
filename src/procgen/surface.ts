@@ -171,6 +171,12 @@ export interface SurfaceMap {
 }
 
 const FEATURE_SCALE = 80;
+/**
+ * Versão do gerador de mapas. A 2 amostra o ruído na esfera, e não mais num cilindro. Os planetas já salvos guardam o
+ * próprio mapa e não mudam. O sorteio das placas continua o da versão 1, de propósito: sorteadas de novo, a Terra perdia
+ * um continente e metade da plataforma rasa (docs/TODO-PLANETAS-E-3D.md, A4).
+ */
+export const GENERATOR_VERSION = 2;
 
 /** Tamanho do mapa proporcional ao planeta (RF-SUP-13): Terra = 1024x512. */
 export function mapSizeFor(radiusEarth: number): { width: number; height: number } {
@@ -192,11 +198,11 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   const n = width * height;
   const elevation = new Float32Array(n);
   const vegetation = new Float32Array(n);
-  const terrain = new PerlinNoise3(seedFor(`${params.id}:terrain`));
-  const wet = new PerlinNoise3(seedFor(`${params.id}:moisture`));
-  const warp = new PerlinNoise3(seedFor(`${params.id}:plates-warp`));
+  const terrain = new PerlinNoise3(seedFor(`${params.id}:terrain`, GENERATOR_VERSION));
+  const wet = new PerlinNoise3(seedFor(`${params.id}:moisture`, GENERATOR_VERSION));
+  const warp = new PerlinNoise3(seedFor(`${params.id}:plates-warp`, GENERATOR_VERSION));
 
-  // Amostrar o ruído num cilindro garante que a borda esquerda encaixa na direita.
+  // Amostrar o ruído na esfera garante que a borda esquerda encaixa na direita e que os polos convergem num ponto.
   // As coordenadas são as do mapa completo, para qualquer resolução mostrar o mesmo planeta.
   // Tamanho dos continentes, em pixels do mapa completo.
   const radius = full.width / (2 * Math.PI) / FEATURE_SCALE;
@@ -210,8 +216,9 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
 
   // Etapas 1 e 2: placas e elevação bruta.
   const plates = makePlates(seedFor(`${params.id}:plates`), full.width, full.height, params.water);
-  const tect = tectonicStage({ plates, fullWidth: full.width, fullHeight: full.height, width, height, step, cosA, sinA, featureScale: FEATURE_SCALE, terrain, warp });
+  const tect = tectonicStage({ plates, fullWidth: full.width, fullHeight: full.height, width, height, step, cosA, sinA, radius, terrain, warp });
   const raw = tect.raw;
+  polarCaps(raw, width, height, step, full.height);
 
   // O nível do mar é o quantil de `water` das altitudes brutas.
   const sorted = Float32Array.from(raw).sort();
@@ -235,7 +242,7 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   if (params.water < DRY_WATER) dryPonds(elevation, width, height);
 
   // Etapa 3: temperatura (frentes) e umidade (costa, interior e sombra de chuva).
-  const { climate, moisture } = climateStage({ elevation, width, height, fullWidth: full.width, step, cosA, sinA, featureScale: FEATURE_SCALE, wet, water: params.water, slowDay: isSlowRotator(params) });
+  const { climate, moisture } = climateStage({ elevation, width, height, fullWidth: full.width, fullHeight: full.height, step, cosA, sinA, radius, wet, water: params.water, slowDay: isSlowRotator(params) });
   for (let i = 0; i < n; i++) vegetation[i] = params.life * Math.min(1, Math.max(0, moisture[i] * 1.4 - 0.2));
 
   const map: SurfaceMap = {
@@ -257,6 +264,29 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   // Etapa 4: bioma pela matriz de Whittaker e pelas regras de costa.
   for (let i = 0; i < n; i++) map.biome[i] = classify(map, i);
   return map;
+}
+
+/**
+ * As placas são sorteadas no mapa, não na esfera: sem isto, a linha do polo teria placas diferentes em cada coluna. Nas
+ * calotas (do último 10% do caminho até o polo) a altitude bruta vai para a média da linha polar, e todas as colunas se
+ * encontram no mesmo ponto.
+ */
+function polarCaps(raw: Float32Array, width: number, height: number, step: number, fullHeight: number): void {
+  const mean = (y: number) => {
+    let sum = 0;
+    for (let x = 0; x < width; x++) sum += raw[y * width + x];
+    return sum / width;
+  };
+  const north = mean(0);
+  const south = mean(height - 1);
+  for (let y = 0; y < height; y++) {
+    const lat = Math.abs((y * step) / (fullHeight - 1) - 0.5) * 2;
+    const t = Math.max(0, Math.min(1, (lat - 0.9) / 0.085));
+    if (t <= 0) continue;
+    const w = t * t * (3 - 2 * t);
+    const cap = y < height / 2 ? north : south;
+    for (let x = 0; x < width; x++) raw[y * width + x] += (cap - raw[y * width + x]) * w;
+  }
 }
 
 /** Abaixo desta fração de água o planeta é seco: sem lagoas soltas, sem neve fora dos polos. */

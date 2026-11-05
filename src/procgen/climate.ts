@@ -1,4 +1,4 @@
-import { CoarseField, type PerlinNoise3 } from './noise';
+import { CoarseField, latitudeOf, type PerlinNoise3 } from './noise';
 
 /**
  * Etapa 3 do gerador: temperatura e umidade. A temperatura do jogo continua
@@ -15,9 +15,10 @@ export interface ClimateInput {
   height: number;
   fullWidth: number;
   step: number;
+  fullHeight: number;
   cosA: Float32Array;
   sinA: Float32Array;
-  featureScale: number;
+  radius: number;
   wet: PerlinNoise3;
   /** Fração de água do planeta: o teto da umidade. */
   water: number;
@@ -187,7 +188,7 @@ export function moistureCeiling(water: number): number {
 }
 
 export function climateStage(inp: ClimateInput): ClimateField {
-  const { elevation, width, height, fullWidth, step, cosA, sinA, featureScale, wet, water, slowDay } = inp;
+  const { elevation, width, height, fullWidth, fullHeight, step, cosA, sinA, radius, wet, water, slowDay } = inp;
   const n = width * height;
   const climate = new Float32Array(n);
   const moisture = new Float32Array(n);
@@ -199,9 +200,10 @@ export function climateStage(inp: ClimateInput): ClimateField {
   let landCount = 0;
   // Os dois ruídos são suaves: grade grossa de ~4 px do mapa completo, interpolada.
   const smooth = new CoarseField(width, height, 4 / step, 2, (x, y, out) => {
-    const cx = cosA[x];
-    const cz = sinA[x];
-    const cy = (y * step) / featureScale;
+    const lat = latitudeOf(y, step, fullHeight);
+    const cx = cosA[x] * Math.cos(lat);
+    const cz = sinA[x] * Math.cos(lat);
+    const cy = radius * Math.sin(lat);
     // Frentes climáticas: ondas largas de ar quente e frio.
     out[0] = FRONTS_K * wet.fbm(cx * 0.6 + 41, cy * 0.6, cz * 0.6 + 29, 2);
     out[1] = 0.5 + 0.6 * wet.fbm(cx * 1.3 + 3, cy * 1.3, cz * 1.3 + 7, 3);
