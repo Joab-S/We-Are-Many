@@ -9,7 +9,7 @@ import type { Species } from '../species';
 import { applyCommand, type ApplyContext, type CommandResult, type EngineCommand } from './commands';
 import type { DebugView } from './debug';
 import { EngineDebug } from './debugView';
-import type { EngineEvent } from './events';
+import type { EngineEvent, LegendEntry } from './events';
 
 /**
  * Fachada do motor (padrão Facade, preparação para separar back-end e
@@ -60,6 +60,10 @@ export interface EngineView {
   // O mundo dos povos.
   readonly villages: readonly Readonly<Village>[];
   readonly chronicle: readonly Readonly<ChronicleEntry>[];
+  /** A história do mundo do ano 0 até agora (modo lendas). */
+  readonly legends: readonly Readonly<LegendEntry>[];
+  /** Quantas lendas antigas já saíram por causa do limite. */
+  readonly legendsLost: number;
   readonly wars: readonly Readonly<War>[];
   readonly boats: readonly Readonly<Boat>[];
   readonly caravans: readonly Readonly<Caravan>[];
@@ -318,6 +322,12 @@ class LiveView implements EngineView {
   }
   get chronicle() {
     return this.eco.chronicle;
+  }
+  get legends() {
+    return this.eco.legends;
+  }
+  get legendsLost() {
+    return this.eco.legendsLost;
   }
   get wars() {
     return this.eco.wars;

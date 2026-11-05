@@ -70,6 +70,26 @@ test.describe('?cena', () => {
     await esperarImagem(page, 'a cidade na tela');
     await capturar(page, info, 'cidade');
 
+    // O modo lendas: a história do reino mais movimentado, do começo até agora, e a exportação.
+    await page.keyboard.press('KeyL');
+    const janela = page.locator('[data-win]');
+    await expect(janela.locator('[data-ltl]')).toBeVisible();
+    // Sem lendas não há reino para escolher: falha logo, em vez de esperar o prazo do teste.
+    await janela.locator('[data-filter^="realm:"]').first().click({ timeout: 15_000 });
+    const linhas = janela.locator('[data-legends] .wb-row');
+    await expect(linhas.first()).toBeVisible();
+    const anos = (await janela.locator('[data-legends] .wb-yr').allInnerTexts()).map(Number);
+    expect(anos.length, 'a história tem mais de uma linha').toBeGreaterThan(1);
+    expect(anos).toEqual([...anos].sort((a, b) => a - b));
+    expect(anos.at(-1)!, 'chega perto do ano de hoje').toBeLessThanOrEqual(aberta.ano);
+    await capturar(page, info, 'lendas');
+    const baixou = page.waitForEvent('download');
+    await janela.locator('[data-legends-json]').click();
+    const arquivo = await baixou;
+    expect(arquivo.suggestedFilename()).toBe(`lendas-sol-3-ano-${aberta.ano}.json`);
+    await page.keyboard.press('KeyL');
+    await expect(janela).toBeHidden();
+
     // Esc: a esfera recebe o mapa pintado pela superfície, com as ruas, e a nave volta à órbita combinada.
     await page.keyboard.press('Escape');
     await expect(superficie(page)).toHaveCount(0);

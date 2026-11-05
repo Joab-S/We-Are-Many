@@ -18,7 +18,7 @@ export type Tab = 'terrain' | 'climate' | 'life' | 'civ' | 'events';
 
 /** Ícone de cada aba da barra de ferramentas e de cada janela de leitura (HUD Pergaminho de Bordo). */
 export const TAB_ICONS: Record<Tab, string> = { terrain: 'terrain', climate: 'cloud', life: 'leaf', civ: 'civ', events: 'comet' };
-export const WINDOW_ICONS: Record<string, string> = { chronicle: 'chron', kingdoms: 'crown', settlements: 'homes', species: 'paw', items: 'hammer', world: 'gear' };
+export const WINDOW_ICONS: Record<string, string> = { chronicle: 'chron', legends: 'chron', kingdoms: 'crown', settlements: 'homes', species: 'paw', items: 'hammer', world: 'gear' };
 /** Ferramenta -> ícone de traço. As que não estão aqui mantêm o sprite ou o emoji de antes. */
 export const TOOL_ICONS: Record<string, string> = {
   raise: 'raise', lower: 'lower', mountain: 'peak', sea: 'wave', flatten: 'flat', sand: 'sand', lake: 'lake', clear: 'broom', demolish: 'demolish',
@@ -38,10 +38,11 @@ export const TABS: [Tab, string][] = [
   ['events', '☄ Eventos'],
 ];
 
-export type Win = 'chronicle' | 'kingdoms' | 'settlements' | 'species' | 'items' | 'world';
+export type Win = 'chronicle' | 'legends' | 'kingdoms' | 'settlements' | 'species' | 'items' | 'world';
 
 export const WINDOWS: [Win, string][] = [
   ['chronicle', '📜 Crônica'],
+  ['legends', '🏺 Lendas'],
   ['kingdoms', '👑 Reinos'],
   ['settlements', '🏘 Assentamentos'],
   ['species', '🐾 Espécies'],

@@ -13,6 +13,7 @@ import { bodyOf, KIND_ICONS, plain, spriteOf, WINDOWS, type Win } from '../tools
 import { keyLabel } from '../keys';
 import { SPEEDS } from '../SimDriver';
 import { HtmlSlot, HudComponent } from './component';
+import { legendsHtml } from './legends';
 import type { IconCache } from './icons';
 
 /** Opções de exibição da superfície (janela Mundo e atalhos). */
@@ -84,7 +85,9 @@ export class Windows extends HudComponent {
     const body =
       this.win === 'chronicle'
         ? this.chronicleHtml(eco)
-        : this.win === 'kingdoms'
+        : this.win === 'legends'
+          ? legendsHtml(eco, this.filter)
+          : this.win === 'kingdoms'
           ? this.kingdomsHtml(eco)
           : this.win === 'settlements'
             ? compareHtml(eco, this.compareKey, this.compareDesc)

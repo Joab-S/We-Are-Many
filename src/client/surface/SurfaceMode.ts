@@ -40,6 +40,7 @@ import { Toast } from './hud/Toast';
 import { bindNotices } from './hud/notices';
 import { Labels } from './hud/Labels';
 import { DebugPanel } from './hud/DebugPanel';
+import { downloadLegends } from './hud/legends';
 import { buildTools, DEBUG, plain, REAL_YEAR_SECONDS, SETTLEMENT_TAB_ICONS, TAB_ICONS, TABS, WINDOW_ICONS, WINDOWS, type FxKind, type Tab, type Tool, type ToolContext, type Win } from './tools';
 
 /** Folga (tiles) do recorte das criaturas pela grade: o desenho interpolado fica a até 3 tiles da posição atual. */
@@ -377,7 +378,7 @@ export class SurfaceMode {
           <span><kbd>Direito</kbd><kbd>WASD</kbd> movem o mapa · <kbd>Roda</kbd> zoom</span>
           <span><kbd>${key('pause')}</kbd> pausa · <kbd>1</kbd>–<kbd>${SPEEDS.length}</kbd> velocidade</span>
           <span><kbd>${key('brushDown')}</kbd><kbd>${key('brushUp')}</kbd> tamanho do pincel · <kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz o último traço de terreno ou clima · <kbd>Esc</kbd> fecha o que abriu por último, guarda a ferramenta ou volta à órbita</span>
-          <span><kbd>${key('chronicle')}</kbd> crônica · <kbd>${key('kingdoms')}</kbd> reinos · <kbd>${key('species')}</kbd> espécies · <kbd>${key('items')}</kbd> itens · <kbd>${key('panel')}</kbd> painel · <kbd>${key('territory')}</kbd> territórios · <kbd>${key('help')}</kbd> esta ajuda</span>
+          <span><kbd>${key('chronicle')}</kbd> crônica · <kbd>${key('legends')}</kbd> lendas · <kbd>${key('kingdoms')}</kbd> reinos · <kbd>${key('species')}</kbd> espécies · <kbd>${key('items')}</kbd> itens · <kbd>${key('panel')}</kbd> painel · <kbd>${key('territory')}</kbd> territórios · <kbd>${key('help')}</kbd> esta ajuda</span>
           <span><kbd>${key('sites')}</kbd> notas dos sítios (depuração de onde assentar): a nota de cada célula e, na ficha, a nota do ponto fator por fator e por que ali não dá para fundar</span>
           ${DEBUG ? `<span><kbd>${key('debug')}</kbd> painel de depuração: indicadores contra as metas, o lugar e a família selecionados, os eventos do motor, o desempenho e o tempo passo a passo</span>` : ''}
           <span>Cada reino tem uma cor: a área dos assentamentos e a faixa do nome mostram de quem é. Borda cheia é a capital; tracejada, os outros assentamentos do reino.</span>
@@ -543,6 +544,7 @@ export class SurfaceMode {
     if (span) this.vwin.setSpan(eco, Number(span.dataset.span) as PeriodSpan);
     const filter = el.closest<HTMLElement>('[data-filter]');
     if (filter) this.windows.setFilter(eco, filter.dataset.filter!);
+    if (el.closest('[data-legends-json]')) downloadLegends(this.engine.view, this.windows.filter, this.params);
     const pick = el.closest<HTMLElement>('[data-pick]');
     if (pick) {
       const t = this.tools.find((it) => it.id === pick.dataset.pick);
@@ -819,7 +821,7 @@ export class SurfaceMode {
     if (this.debug && pressed(input, 'debug')) this.debug.toggle();
     if (pressed(input, 'brushDown')) this.toolbar.stepBrush(-2);
     if (pressed(input, 'brushUp')) this.toolbar.stepBrush(2);
-    for (const win of ['chronicle', 'kingdoms', 'species', 'items'] as const) if (pressed(input, win)) this.openWindow(win);
+    for (const win of ['chronicle', 'legends', 'kingdoms', 'species', 'items'] as const) if (pressed(input, win)) this.openWindow(win);
     const pan = 300 / view.zoom;
     view.center.x += ((input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0)) * pan * dt;
     view.center.y += ((input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0)) * pan * dt;

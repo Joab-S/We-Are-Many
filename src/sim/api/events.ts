@@ -98,6 +98,56 @@ export type EventOf<K extends EngineEventKind> = Extract<EngineEvent, { kind: K 
  */
 export const EVENT_QUEUE_LIMIT = 2048;
 
+/**
+ * Lendas: os eventos que contam a história do mundo, guardados no save (modo lendas). A fila acima é
+ * entregue e esvazia; isto fica. Ficam de fora o miúdo que passa aos milhares (a família que se mudou, o sítio aberto,
+ * o barco de colonos: a fundação conta a parte que importa), a técnica que não é a primeira do mundo e o fogo ou a
+ * seca que não pegou lugar nenhum (três de cada quatro desastres, medido em 250 anos de um planeta do tamanho da Terra).
+ */
+export type LegendEvent = Exclude<EngineEvent, { kind: 'farmstead' | 'migrate' | 'colony' }>;
+
+/** Uma lenda: o evento e o reino (id da capital) que o viveu naquele ano; -1 quando não é de reino nenhum. */
+export type LegendEntry = LegendEvent & { realm: number };
+
+/** Limite de segurança: passando disso, os mais antigos saem (e `eco.legendsLost` conta quantos). */
+export const LEGENDS_LIMIT = 30_000;
+
+export function isLegend(e: EngineEvent): e is LegendEvent {
+  if (e.kind === 'farmstead' || e.kind === 'migrate' || e.kind === 'colony') return false;
+  if (e.kind === 'tech') return e.first && !e.lost;
+  if (e.kind === 'disaster') return e.village >= 0 || e.what === 'comet' || e.what === 'quake' || e.what === 'volcano' || e.what === 'island';
+  return true;
+}
+
+/** O reino de um evento quando ele aconteceu: quem age, ou o dono do lugar onde foi. */
+export function legendRealm(e: LegendEvent, realmOf: (village: number) => number): number {
+  switch (e.kind) {
+    case 'warStart':
+    case 'warEnd':
+      return e.a;
+    case 'conquest':
+      return e.winner;
+    case 'revolt':
+      return e.against;
+    case 'annex':
+      return e.to;
+    case 'fission':
+      return realmOf(e.from);
+    case 'extinction':
+    case 'species':
+      return -1;
+    case 'disaster':
+      return e.village >= 0 ? realmOf(e.village) : -1;
+    default:
+      return realmOf(e.village);
+  }
+}
+
+/** A história de um reino: o que ele viveu, e tudo em que a capital dele aparece (a guerra do outro lado, a própria fundação). */
+export function isOfRealm(e: LegendEntry, realm: number): boolean {
+  return e.realm === realm || eventVillages(e).includes(realm);
+}
+
 /** Ids dos assentamentos envolvidos num evento (para quem acompanha um lugar, como a janela do assentamento). */
 export function eventVillages(e: EngineEvent): number[] {
   switch (e.kind) {

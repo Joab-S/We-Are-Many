@@ -54,7 +54,7 @@ import { caravansPart, type CaravansPart } from './eco/trade/caravans';
 import { disastersPart, type DisastersPart } from './eco/world/disasters';
 import { playerPart, type PlayerPart } from './eco/world/player';
 import { queriesPart, type QueriesPart } from './eco/core/queries';
-import { EVENT_QUEUE_LIMIT, type EngineEvent } from './api/events';
+import { EVENT_QUEUE_LIMIT, isLegend, legendRealm, LEGENDS_LIMIT, type EngineEvent, type LegendEntry } from './api/events';
 import { residentsPart, ResidentIndex, type ResidentsPart } from './eco/core/residents';
 import { clockPart, type ClockPart } from './eco/core/clock';
 import { siteFieldPart, type SiteField, type SiteFieldPart } from './eco/settlements/siteField';
@@ -468,6 +468,10 @@ export class Ecosystem {
    * só empurra (`emit`), quem ouve drena (`drainEvents`). Vai no save, então nada se perde ao carregar.
    */
   readonly events: EngineEvent[] = [];
+  /** A história do mundo (modo lendas): os eventos que contam, do ano 0 até agora. Vai no save. */
+  legends: LegendEntry[] = [];
+  /** Quantas lendas antigas já saíram por causa do limite. */
+  legendsLost = 0;
   /** Ano do último acontecimento importante (para detectar marasmo). */
   lastMajor = 0;
   /** Aviso curto para o jogador (ex.: lugar inválido): a fachada (src/sim/api/engine.ts) o devolve no resultado do comando e limpa. */
@@ -619,6 +623,13 @@ export class Ecosystem {
   emit(e: EngineEvent): void {
     if (this.events.length >= EVENT_QUEUE_LIMIT) this.events.shift();
     this.events.push(e);
+    if (!isLegend(e)) return;
+    // Em bloco: tirar um por vez do começo de um vetor tão grande custaria caro a cada evento.
+    if (this.legends.length >= LEGENDS_LIMIT) {
+      const out = this.legends.splice(0, 1024);
+      this.legendsLost += out.length;
+    }
+    this.legends.push({ ...e, realm: legendRealm(e, (id) => this.villages[id]?.kingdom ?? -1) });
   }
 
   /** Entrega e esvazia a fila de eventos, do mais antigo para o mais novo. */
