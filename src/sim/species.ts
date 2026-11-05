@@ -1,7 +1,7 @@
 import { mulberry32, seedFor } from '../core/rng';
 import type { PlanetParams } from '../procgen/surface';
 import * as B from './balance';
-import { ecologyOf, type Ecology } from './fauna';
+import { ecologyOf, hunts, preyInReach, preysOn, type Ecology, type Relation } from './fauna';
 import type { HerdKind } from './eco/types';
 
 /**
@@ -25,9 +25,11 @@ export interface Species {
   origin: string;
   /** Cor principal do sprite (RGB 0..255). */
   color: [number, number, number];
-  /** Faixa de temperatura tolerada, em K. */
+  /** Faixa de temperatura tolerada, em K (a extrema: fora dela, não vive). */
   tempMin: number;
   tempMax: number;
+  /** Faixa ideal, dentro da extrema; sem isto, vale até 5 K das pontas. */
+  tempIdeal?: readonly [number, number];
   /** Velocidade em tiles por segundo de jogo. */
   speed: number;
   /** Idade máxima em anos de jogo. */
@@ -197,6 +199,20 @@ export function domesticable(sp: Species): boolean {
   return herdFormsOf(sp).length > 0;
 }
 
+/**
+ * A linha da tabela de relações de `a` sobre `b`: o que a IA da fauna e a domesticação leem, para quem quer ver o
+ * mundo como dados. O tamanho aqui é o do adulto; um filhote de bicho grande continua sendo presa na hora da caçada.
+ */
+export function relationOf(a: Species, b: Species): Relation {
+  if (a === b) return 'neutro';
+  if (a.kind === 'sapient') return domesticable(b) ? 'domestica' : 'neutro';
+  const ea = ecologyOf(a);
+  const eb = ecologyOf(b);
+  if (preysOn(ea, eb) && preyInReach(ea, eb)) return 'presa';
+  if (preysOn(eb, ea) && preyInReach(eb, ea)) return 'predador';
+  return hunts(ea) && !hunts(eb) && ea.relations?.[eb.guild] === 'evita' ? 'evita' : 'neutro';
+}
+
 const VARIANTS: [test: (t: number, e: number) => boolean, suffix: string, shift: number][] = [
   [(t) => t < 262, 'das-neves', -12],
   [(t) => t > 305, 'do-deserto', 10],
@@ -218,6 +234,7 @@ export function makeVariant(sp: Species, temp: number, elevation: number, n: num
     color: sp.color.map((c, k) => Math.round(Math.min(255, c * tone + (k === 2 && shift < 0 ? 30 : 0)))) as [number, number, number],
     tempMin: sp.tempMin + shift,
     tempMax: sp.tempMax + shift,
+    tempIdeal: sp.tempIdeal && [sp.tempIdeal[0] + shift, sp.tempIdeal[1] + shift],
     size: (sp.size ?? 1) * (0.9 + rnd() * 0.25),
     parent: sp.id,
   };

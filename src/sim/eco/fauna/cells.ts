@@ -18,7 +18,7 @@ import * as tilesModule from '../tiles';
 import { EcoCells } from '../cells';
 
 // Cópias locais dos valores importados (eco/*, fauna, superfície; o porquê está em ecosystem.ts).
-const { CARCASS_YEARS, CARRION_RATIO, COAST_YIELD, ECO_CELL, ecologyOf, FEAR_DECAY_YEAR, FORAGE_USE, GRAZE_COST, GRAZE_MAX, hunts, INSECT_YIELD, BROWSE_YIELD, isLandAnimal, LAND_BUDGET, METABOLISM_YEAR, ration, PREDATOR_RATIO, REGROW_YEAR } = faunaModule;
+const { CARCASS_YEARS, CARRION_RATIO, COAST_YIELD, ECO_CELL, ecologyOf, moistFit, preyInReach, preysOn, tempFit, FEAR_DECAY_YEAR, FORAGE_USE, GRAZE_COST, GRAZE_MAX, hunts, INSECT_YIELD, BROWSE_YIELD, isLandAnimal, LAND_BUDGET, METABOLISM_YEAR, ration, PREDATOR_RATIO, REGROW_YEAR } = faunaModule;
 const { wrapDx } = settlementModule;
 const { classify, temperatureAt, vegetationCap } = surfaceModule;
 const { browseOf, floraOf, woody } = floraModule;
@@ -227,11 +227,9 @@ export const faunaCellsPart = {
     const sp = this.species[s];
     if (temp < sp.tempMin || temp > sp.tempMax) return 0;
     const m = this.map;
-    const margin = Math.min(temp - sp.tempMin, sp.tempMax - temp);
-    const ft = Math.min(1, 0.35 + margin / 8);
+    const ft = tempFit(sp, temp);
     const fb = e.biomes[m.biome[t] as Biome] ?? e.open;
-    const mo = m.moisture[t];
-    const fm = mo >= e.moist[0] && mo <= e.moist[1] ? 1 : 0.35;
+    const fm = moistFit(e, m.moisture[t]);
     const el = Math.max(0, m.elevation[t]);
     const fa = el >= e.alt[0] && el <= e.alt[1] ? 1 : 0.25;
     return fb * ft * fm * fa;
@@ -362,12 +360,8 @@ export const faunaCellsPart = {
     const clout = eco.map((e) => (e ? Math.sqrt(ration(e)) : 0));
     const preys = eco.map((e, s) => (e && !hunts(e) ? s : -1)).filter((s) => s >= 0);
     const hunters = eco.map((e, s) => (e && hunts(e) ? s : -1)).filter((s) => s >= 0);
-    // Quem cada caçador consegue pegar (pelo tamanho; em bando, presas maiores).
-    const eats = hunters.map((q) => {
-      const e = eco[q]!;
-      const limit = e.maxPrey * (e.pack ? 2 : 1);
-      return preys.map((p) => eco[p]!.mass <= limit && eco[p]!.mass >= e.mass * 0.015);
-    });
+    // Quem cada caçador consegue pegar: a tabela de relações, e pelo tamanho (em bando, presas maiores).
+    const eats = hunters.map((q) => preys.map((p) => preysOn(eco[q]!, eco[p]!) && preyInReach(eco[q]!, eco[p]!)));
     // Ração das presas em cada célula (para o mapa de caça).
     for (let k = 0; k < c.n; k++) {
       let p = 0;
