@@ -93,6 +93,7 @@ Importe `test`, `expect` e as funções de `./apoio`, não do `@playwright/test`
 O que costuma pegar quem escreve um teste novo:
 
 - **Espere o passo anterior aparecer antes da próxima tecla.** Cada modo tem o seu `Input`, então uma tecla apertada durante a troca de modo se perde.
+- **A fusão não é instantânea.** O `F` e o pouso mantêm os dois modos vivos por 0,6 s, depois de a superfície ficar pronta, e as teclas não valem nesse meio tempo: `superficie(page)` em `tests/jogo/apoio.ts` só aparece no fim, e é ela que se espera antes de apertar qualquer tecla. Para fotografar um momento exato, pause as animações (`document.getAnimations()`) e ponha o `currentTime`, como em `esfera.spec.ts`. A nave parada a prumo não pousa; acelerando, sim: um teste que desce com `W` e não quer pousar vai inclinado.
 - **A mesma tecla muda de sentido.** `F` no espaço só funciona em órbita de planeta rochoso, e fora disso não faz nada, sem erro. Na superfície, `F` é seguir e `1` é pausar. Por isso um `F` perdido pode passar despercebido se o teste não conferir que a superfície abriu.
 - **Mande as teclas pelo código:** `Digit1`, `KeyF`, `Escape`, como em `src/client/space/commands.ts` e `surface/keys.ts`.
 - **Use `esperarImagem` antes de medir ou fotografar.** No primeiro segundo de um navegador recém-aberto, sem GPU, o contexto WebGL às vezes cai e volta sozinho. Nesse intervalo a foto sai branca, com um ícone de imagem quebrada no canto. Um tempo fixo de espera não resolve isso.

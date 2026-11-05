@@ -226,6 +226,15 @@ Partes que valem conhecer além dos domínios:
 | `eco/settlements/siteField.ts` | Campo de notas dos sítios (mapa de influência): uma célula de 16×16 tiles, com Double Buffer (`raw`/`rawNext`) e Dirty Flag por fundação, abandono e terreno mudado; `siteRing`, `chooseSite` (melhor de N), `siteFilter` (veto único) e `catchRadius` |
 | `src/IAUS/npc/decisions/move.ts` | Utility AI de ficar, migrar ou fundar, por família, com histerese por `movedAt`, laços, apego e pressão social |
 
+## A troca de modo
+
+O jogo está no espaço (`SpaceMode`) ou na superfície (`SurfaceMode`), vistos pelo `main.ts` só pela interface `GameMode` (`src/client/mode.ts`). Há duas trocas:
+
+- **Simples** (`switchTo`): o modo atual é descartado por completo, sob a cortina `#fade`, antes do próximo existir. Vale para o Esc, para carregar um save e para tudo sem WebGL, onde os dois modos dividem o mesmo canvas.
+- **Fusão** (`land` e `liftOff`): os dois modos ficam vivos por um instante, cada um no seu canvas, e as animações (`FUSION_MS`, 0,6 s) cruzam os dois. O outro modo fica em `fusion`, e `stopFusion` o descarta se a fusão for interrompida (carregar um save no meio dela). Vale para a tecla F, para o pouso sozinho e para afastar além do zoom mínimo.
+
+Na descida, o espaço continua desenhando, parado, até a superfície ficar pronta, o que pode levar segundos com o mapa e o pôr em dia; só então a fusão começa. Na subida, o espaço nasce atrás do mapa, e a fusão começa quando a nave já está no lugar. Nos dois sentidos, enquanto os dois estão vivos, o relógio do universo fica parado, a simulação não dá passos, as teclas não valem e nada começa em segundo plano (`BackgroundWorlds`): o estado do jogo é o mesmo de uma troca simples, e só a imagem muda. As contas entre a altitude e o zoom estão em `src/client/fusion.ts`.
+
 ## Os 19 padrões no código
 
 | Padrão | Onde vive hoje | O que falta |
