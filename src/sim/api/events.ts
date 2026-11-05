@@ -83,7 +83,9 @@ export type EngineEvent =
   /** Desastre num ponto (tile x, linha y); `village` é o lugar atingido, se houver. */
   | { kind: 'disaster'; year: number; what: DisasterKind; x: number; y: number; village: number }
   /** A espécie (índice em `eco.species`) sumiu do planeta. */
-  | { kind: 'extinction'; year: number; species: number };
+  | { kind: 'extinction'; year: number; species: number }
+  /** Espécie nova no planeta (uma variante que surgiu, ou uma que chegou de fora): `species` é o índice em `eco.species`. */
+  | { kind: 'species'; year: number; species: number };
 
 export type EngineEventKind = EngineEvent['kind'];
 
@@ -123,6 +125,7 @@ export function eventVillages(e: EngineEvent): number[] {
     case 'disaster':
       return e.village >= 0 ? [e.village] : [];
     case 'extinction':
+    case 'species':
       return [];
     default:
       return [e.village];

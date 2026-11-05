@@ -198,16 +198,13 @@ export class SurfaceMode {
       this.driver.setSpeed(this.resume.speed);
     }
     this.raster = new MapRaster(map, eco);
-    this.engine.setHooks({
-      // Observer: o motor avisa o tile que mudou e a tela só o marca para repintar (o bioma já vem reclassificado).
-      tileChanged: (i) => this.raster.markDirty(i),
-      // Variantes que surgem entram no catálogo (e nas ferramentas de soltar espécies).
-      species: (sp) => {
-        if (state.knownSpecies.has(sp.id)) return;
-        state.knownSpecies.set(sp.id, sp);
-        this.tools = buildTools(state.knownSpecies.values());
-        if (this.ready) this.toolbar.selectTab(this.toolbar.tab);
-      },
+    // Variantes que surgem entram no catálogo (e nas ferramentas de soltar espécies).
+    this.driver.bus.on('species', (e) => {
+      const sp = this.engine.view.species[e.species];
+      if (state.knownSpecies.has(sp.id)) return;
+      state.knownSpecies.set(sp.id, sp);
+      this.tools = buildTools(state.knownSpecies.values());
+      if (this.ready) this.toolbar.selectTab(this.toolbar.tab);
     });
     this.atlas = new SpriteAtlas();
     this.sprites = new SpriteLayer(this.atlas, 12000);
@@ -228,6 +225,12 @@ export class SurfaceMode {
 
   // Comandos ------------------------------------------------------------------
 
+  /** Traz do motor os tiles que mudaram; a tela só os marca para repintar (o bioma já vem reclassificado). */
+  private pullTiles(): void {
+    const tiles = this.engine.drainTiles();
+    for (let k = 0; k < tiles.length; k++) this.raster.markDirty(tiles[k]);
+  }
+
   /** Aplica um comando no motor (chamado pelo SimDriver na fronteira do passo). */
   private apply(cmd: EngineCommand): void {
     // A vista só muda o nível de detalhe do motor: nada a repintar nem a avisar.
@@ -235,9 +238,11 @@ export class SurfaceMode {
       this.engine.apply(cmd);
       return;
     }
-    // O que o jogador muda vai para a tela no mesmo quadro.
-    this.raster.urgent = true;
+    // O que o jogador muda vai para a tela no mesmo quadro; o que veio dos passos anteriores, não.
+    this.pullTiles();
     const res = this.engine.apply(cmd, { journal: cmd.kind === 'terraform' ? this.history.journal : null });
+    this.raster.urgent = true;
+    this.pullTiles();
     this.raster.urgent = false;
     if (res.hint) this.toast.say(res.hint);
     this.applied++;
@@ -756,6 +761,7 @@ export class SurfaceMode {
       this.weather.step(dt, view);
       this.trails.step(dt);
     }
+    this.pullTiles();
     this.raster.flush(view);
 
     // Parado e sem mudanças, não redesenha.
@@ -889,7 +895,6 @@ export class SurfaceMode {
       // numa visão de depuração do gerador os pixels não são o mapa, e a esfera volta ao terreno pintado.
       if (this.raster.geoView === 'none') this.state.surfaceArt.set(this.params.id, this.raster.pixels);
       else this.state.surfaceArt.delete(this.params.id);
-      this.engine.setHooks({});
       this.driver.bus.clear();
       this.sprites.dispose();
       this.atlas.dispose();

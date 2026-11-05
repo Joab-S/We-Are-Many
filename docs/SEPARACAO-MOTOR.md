@@ -174,7 +174,7 @@ Recomendado: estado autoritativo. É um jogo de deus, sem avatar, então não pr
 1. **Teste-catraca (0,5 dia).** Conta no `src/client` de produção as chamadas a `ecosystemOf(`, os arquivos que importam `Ecosystem` e as linhas com `eco.`, e só deixa os números caírem.
 2. **Pureza ampliada (0,5 dia).** `purity.test.ts` passa a proibir `Math.random`, `Date.now`, `new Date` e `performance.now` nas contas do motor. A medição do painel fica na lista de exceções.
 3. ~~Fechar o vazamento do `pick`~~ **(feito: `withFreshGrid`, teste em `src/sim/api/pick.test.ts`).**
-4. **Ganchos viram dados (1 dia).** A fachada junta os tiles sujos de cada passo (`drainTiles(): Int32Array`), e a espécie nova vira um `EngineEvent`.
+4. **Ganchos viram dados (1 dia; feito).** A fachada junta os tiles sujos de cada passo (`drainTiles(): Int32Array`), e a espécie nova vira um `EngineEvent`.
 5. **Medir os bytes (1 dia).** Um `frame.calib.ts` roda a Terra com raio 1 por 100 anos e mede `count`, os tiles sujos por passo e o tamanho dos lugares, barcos e caravanas. Ele troca as estimativas acima por números e vira teste de orçamento.
 
 Depois de A1, um teste de fumaça com o transporte local: 30 anos, com a impressão digital igual à de um mundo rodado direto.

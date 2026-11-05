@@ -53,7 +53,7 @@ export const entitiesPart = {
     this.species.forEach((o, s) => {
       if (o.kind === sp.kind) this.caps[s] = this.habitatCap(o);
     });
-    this.onSpecies(sp);
+    this.emit({ kind: 'species', year: this.year, species: this.species.length - 1 });
     return this.species.length - 1;
   },
 

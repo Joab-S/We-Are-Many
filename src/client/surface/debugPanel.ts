@@ -508,6 +508,7 @@ export const EVENT_KIND_NAMES: Record<EngineEventKind, string> = {
   annex: 'Anexação',
   disaster: 'Desastre',
   extinction: 'Extinção',
+  species: 'Espécie nova',
 };
 
 const DISASTER_NAMES: Record<DisasterKind, string> = {
@@ -574,6 +575,8 @@ export function eventSummary(e: EngineEvent, view: NamesView): string {
       return `${DISASTER_NAMES[e.what] ?? e.what} ${e.village >= 0 ? `em ${p(e.village)}` : `em (${Math.round(e.x)}, ${Math.round(e.y)})`}`;
     case 'extinction':
       return `Extinção: ${view.species[e.species]?.name ?? `espécie ${e.species}`}`;
+    case 'species':
+      return `Espécie nova: ${view.species[e.species]?.name ?? `espécie ${e.species}`}`;
   }
 }
 
@@ -589,6 +592,7 @@ export function eventPlace(e: EngineEvent): number {
     case 'warEnd':
       return e.target;
     case 'extinction':
+    case 'species':
       return -1;
     default:
       return e.village;

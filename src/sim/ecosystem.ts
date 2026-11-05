@@ -452,7 +452,6 @@ export class Ecosystem {
   readonly habitat: (0 | 1 | 2)[] = [];
   readonly everLived: boolean[] = [];
   /** Chamado quando uma espécie entra no planeta (variantes novas vão para o catálogo). */
-  onSpecies: (sp: Species) => void = () => {};
   /** Anos de calendário desde a chegada (o ano que a tela mostra). */
   year = 0;
   /**

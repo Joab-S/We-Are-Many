@@ -430,6 +430,7 @@ const EVENTS: EngineEvent[] = [
   { kind: 'disaster', year: 109.5, what: 'quake', x: 55.2, y: 33.8, village: -1 },
   { kind: 'disaster', year: 110, what: 'epidemic', x: 40, y: 22, village: 1 },
   { kind: 'extinction', year: 110.5, species: 1 },
+  { kind: 'species', year: 111, species: 1 },
 ];
 
 const entries = (): EventEntry[] => EVENTS.map((e, k) => eventEntry(e, view, k + 1)).reverse();
@@ -475,7 +476,7 @@ describe('aba Eventos', () => {
     const html = eventsHtml(entries(), { kinds: new Set(['disaster']), onlyPlace: false }, 1, view, 1234);
     clean(html);
     expect(html).toContain('class="wb-chip on" data-dkind="disaster">Desastre <b>2</b>');
-    expect(html).toContain('Todos <b>24</b>');
+    expect(html).toContain('Todos <b>25</b>');
     expect(html).toContain('Só Beru');
     expect(count(html, 'wb-devent')).toBe(2);
     expect(html.indexOf('data-dplace="1"')).toBeLessThan(html.indexOf('data-dgo="55.2,33.8"'));
