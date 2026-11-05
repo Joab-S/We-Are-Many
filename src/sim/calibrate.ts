@@ -11,7 +11,7 @@ import { isStreet } from './architecture';
 import { GOODS } from './economy';
 import { welfare } from './needs';
 import { roadBlocks } from './settlement';
-import { EARTH_ID, nativeSpecies } from './species';
+import { EARTH_ID, nativeSpecies, type Species } from './species';
 
 export interface Indicators {
   seed: number;
@@ -155,10 +155,14 @@ export function earthParams(radius = 0.4): PlanetParams {
 
 /** Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, ainda sem rodar (`placed` é quantas couberam). */
 export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: ReturnType<typeof generateSurface>; placed: number } {
-  const params = earthParams(radius);
+  return seedPlanet(earthParams(radius), seed);
+}
+
+/** O mesmo em qualquer planeta com povo inteligente; num planeta seco, sem vegetação boa, vale a terra que houver. */
+export function seedPlanet(params: PlanetParams, seed: number, species = nativeSpecies(params)): { eco: Ecosystem; map: ReturnType<typeof generateSurface>; placed: number } {
   const map = generateSurface(params);
   const eco = new Ecosystem(map, seed);
-  for (const sp of nativeSpecies(params)) eco.addSpecies(sp);
+  for (const sp of species) eco.addSpecies(sp);
   eco.populate();
   const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
   // Aldeias semeadas com um gerador próprio, para não mexer nos sorteios do mundo.
@@ -170,6 +174,14 @@ export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: Re
     const y = Math.floor(map.height * (0.3 + 0.4 * rnd()));
     const i = y * map.width + x;
     if (isLand(map, i) && map.vegetation[i] > 0.3 && eco.canFound(x, y) && eco.introduceOne(s, x + 0.5, y + 0.5) >= 0) {
+      eco.foundVillage(s, x, y, 8);
+      placed++;
+    }
+  }
+  for (let t = 0; t < 4000 && !placed && s >= 0; t++) {
+    const x = Math.floor(rnd() * map.width);
+    const y = Math.floor(map.height * (0.2 + 0.6 * rnd()));
+    if (isLand(map, y * map.width + x) && eco.canFound(x, y) && eco.introduceOne(s, x + 0.5, y + 0.5) >= 0) {
       eco.foundVillage(s, x, y, 8);
       placed++;
     }
@@ -186,8 +198,8 @@ export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: Re
  * (`REAL_YEAR_SECONDS`, 12 s) mede o que o jogador vê: `years` anos exibidos, cada um com dois anos de ação.
  * Nos scripts de calibração, pela variável de ambiente YEAR_SPAN.
  */
-export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = YEAR_SECONDS): { eco: Ecosystem; indicators: Indicators } {
-  const { eco, map, placed } = seedWorld(seed, radius);
+export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = YEAR_SECONDS, planet?: PlanetParams, species?: Species[]): { eco: Ecosystem; indicators: Indicators } {
+  const { eco, map, placed } = planet ? seedPlanet(planet, seed, species) : seedWorld(seed, radius);
   // Como no jogo: o ano da tela é definido depois de povoar o mundo.
   eco.yearSpan = yearSpan;
   let wars = 0;

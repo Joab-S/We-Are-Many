@@ -353,8 +353,11 @@ export function safeWeb(list: Species[]): Species[] {
   return list;
 }
 
-/** Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas. */
-export function nativeSpecies(planet: PlanetParams): Species[] {
+/**
+ * Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas.
+ * `attempt` anda o sorteio das espécies, sem mudar o nível de vida (a tentativa 0 é o sorteio de sempre), e `tier` força um nível (calibração).
+ */
+export function nativeSpecies(planet: PlanetParams, attempt = 0, tier = nativeLifeTier(planet.id, planet.life)): Species[] {
   if (planet.life <= 0) return [];
   const make = (kind: SpeciesKind, name: string, color: [number, number, number]): Species => {
     const model = TEMPLATES[kind];
@@ -363,9 +366,8 @@ export function nativeSpecies(planet: PlanetParams): Species[] {
     return { ...model, tempMin: model.tempMin + shift, tempMax: model.tempMax + shift, id: `${planet.id}:${kind}`, name, origin: planet.id, color };
   };
   if (planet.id === EARTH_ID) return earthCatalog().filter((sp) => EARTH_NATIVE.has(sp.name));
-  const tier = nativeLifeTier(planet.id, planet.life);
   if (tier === 'none' || tier === 'plants') return [];
-  const rnd = mulberry32(seedFor(`${planet.id}:species`));
+  const rnd = mulberry32(seedFor(`${planet.id}:species`, attempt + 1));
   const color = (): [number, number, number] => [60 + rnd() * 190, 60 + rnd() * 190, 60 + rnd() * 190].map(Math.round) as [number, number, number];
   const list = [make('fish', alienName(rnd), color()), ...safeWeb(alienFauna(planet, rnd, color))];
   if (tier === 'sapient') list.push({ ...make('sapient', alienName(rnd), color()), body: ALIEN_BODIES[Math.floor(rnd() * ALIEN_BODIES.length)] });

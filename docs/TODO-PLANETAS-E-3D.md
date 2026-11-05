@@ -85,10 +85,11 @@ Convenções do projeto que valem para tudo aqui:
   - Onde: `src/sim/calibrate.ts`, `src/sim/api/debugView.ts`, `src/sim/tuneGoals.ts`.
   - Pronto quando: `tuneGoals.test.ts` confere que na Terra as metas são as de hoje; o painel num planeta pequeno mostra metas menores.
   - Feito: `habitableTiles` conta a terra com umidade de pelo menos 0,1 e até 31,5 K da temperatura do planeta (a largura da faixa do povo). `scaledTargets` escala só as metas de contagem, arredondando para fora para a faixa não fechar num planeta pequeno; as de proporção ficam. A Terra usa `LONG_TARGETS` como está, em qualquer raio, e o F3 lê `liveTargets`. `EARTH_HABITABLE_TILES` é 138.716, e um teste avisa se o gerador mudar esse número.
-- [ ] **B2. Calibração curta em planetas tipo.** (M)
+- [x] **B2. Calibração curta em planetas tipo.** (M)
   - Estratégia: `src/sim/planetas.calib.ts` (novo) roda 200 anos em três planetas (frio, seco, oceano quente) com um povo alienígena semeado, e imprime a tabela contra as metas de B1. Não é meta a bater; é para achar o que quebra (lenha sem mata, roça sem estação, pesca sem costa).
   - Onde: `src/sim/*.calib.ts`, `vitest.calib.config.ts`, `package.json` (`calibrar:planetas`).
   - Pronto quando: a tabela existe e `docs/CALIBRACAO-LONGA.md` ganha uma seção "Outros planetas" com os primeiros números e a lista do que quebra.
+  - Feito: `npm run calibrar:planetas` (cerca de 30 s) roda 200 anos em três planetas, com duas sementes e um povo alienígena semeado, e reescreve a seção "Outros planetas" de `docs/CALIBRACAO-LONGA.md`, que traz a tabela e a lista do que quebra. O frio fica sem roça e quase morre de fome, o seco não passa de um lugar e termina vazio, e o oceano quente aguenta pequeno. As metas de tamanho (mediana e maior lugar) não escalam com B1. Nada disso foi consertado aqui: a tarefa era achar o que quebra.
 - [ ] **B3. Rejeição de semente com log (Dwarf Fortress).** (P a M)
   - Estratégia: um planeta sorteado "com inteligentes" (`nativeLifeTier`) roda, no Worker da geração, 50 anos sem tela; se a população cair abaixo da inicial, o sorteio da vida anda um passo (`seedFor(id:native-life, tentativa)`) e tenta de novo, até 3 vezes, registrando o motivo (`console.info` com `?debug` e uma linha na crônica). Só para planetas novos.
   - Onde: `src/sim/species.ts` (`nativeLifeTier`), `src/client/surface/generateAsync.ts`, `src/procgen/surface.worker.ts` (o Worker passa a poder rodar a simulação: conferir a pureza).

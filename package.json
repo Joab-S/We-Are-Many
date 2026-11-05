@@ -15,6 +15,7 @@
     "data": "python3 tools/pipeline/build_hyg_chunks.py",
     "calibrar": "vitest run --config vitest.calib.config.ts src/sim/calibrar.calib.ts",
     "calibrar:longa": "vitest run --config vitest.calib.config.ts src/sim/longa.calib.ts",
+    "calibrar:planetas": "vitest run --config vitest.calib.config.ts src/sim/planetas.calib.ts",
     "calibrar:ajustar": "node tools/tune.mjs"
   },
   "dependencies": {
