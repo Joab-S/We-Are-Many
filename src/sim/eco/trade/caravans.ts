@@ -1,5 +1,5 @@
 /**
- * Parte do Ecosystem (classe parcial, ver ecosystem.ts): caravanas, barcos mercantes, venda, pedágio, tributo e rebanhos na estrada.
+ * Parte do Ecosystem (classe parcial, ver ecosystem.ts): caravanas, barcos mercantes, venda, tributo e rebanhos na estrada.
  * Os métodos vão para o protótipo da classe; `this` é o ecossistema inteiro.
  */
 
@@ -7,7 +7,6 @@ import type { Ecosystem } from '../../ecosystem';
 import * as B from '../../balance';
 import { binomial, happens } from '../../stochastic';
 import * as P from '../../progress';
-import { Biome } from '../../../procgen/surface';
 import type { Good } from '../../economy';
 import { CHILD, ROLE } from '../../roles';
 import { pairKey } from '../../community';
@@ -33,6 +32,7 @@ export const caravansPart = {
     for (const i of this.residents(v.id)) {
       if (i === leader || this.role[i] === CHILD) continue;
       if (this.age[i] >= elderAge(this.species[v.species], Math.floor(v.tech))) continue;
+      if (this.trip[i]) continue;
       if (this.role[i] === role) return i;
       if (pick < 0) pick = i;
     }
@@ -46,8 +46,39 @@ export const caravansPart = {
     return crew;
   },
 
+  /**
+   * Quem vai à frente da caravana, do rebanho ou da comitiva: continua no mapa (dá para clicar e seguir)
+   * e anda com ela; a decisão e o movimento próprios param até a volta.
+   */
+  escort(this: Ecosystem, i: number): Crew {
+    this.trip[i] = 1;
+    this.jobKind[i] = 0;
+    this.carry[i] = 0;
+    this.gesture[i] = 0;
+    return { age: this.age[i], role: this.role[i], live: true, who: this.identity(i) };
+  },
+
+  /** Índice de quem vai à frente da caravana (-1 se não está mais vivo ou é de um save antigo). */
+  leaderOfCaravan(this: Ecosystem, c: Caravan): number {
+    if (!c.crew.live || !c.crew.who) return -1;
+    const k = this.uidIndex.get(c.crew.who.uid);
+    return k !== undefined && this.alive[k] ? k : -1;
+  },
+
   /** O viajante volta para casa. */
   disembark(this: Ecosystem, v: Village, crew: Crew, x: number, y: number): void {
+    if (crew.live) {
+      // Já está no mapa: só para de andar com a caravana, onde ela parou.
+      const k = crew.who ? this.uidIndex.get(crew.who.uid) : undefined;
+      if (k === undefined || !this.alive[k]) return;
+      this.trip[k] = 0;
+      this.x[k] = x;
+      this.y[k] = y;
+      this.vx[k] = 0;
+      this.vy[k] = 0;
+      this.think[k] = 0;
+      return;
+    }
     if (v.abandoned) return;
     const c = this.spawn(v.species, x, y, v.id, crew.age);
     if (c < 0) return;
@@ -57,6 +88,16 @@ export const caravansPart = {
 
   /** O viajante morreu no caminho: a saída vira morte, com a causa. */
   lostCrew(this: Ecosystem, v: Village, crew: Crew, cause: DeathCause, x: number, y: number): void {
+    if (crew.live) {
+      const k = crew.who ? this.uidIndex.get(crew.who.uid) : undefined;
+      if (k !== undefined && this.alive[k]) {
+        this.trip[k] = 0;
+        this.x[k] = x;
+        this.y[k] = y;
+        this.kill(k, false, cause);
+      }
+      return;
+    }
     const vital = (v.vitalNow ??= emptyVital());
     vital.left = Math.max(0, vital.left - 1);
     vital.deaths[cause] = (vital.deaths[cause] ?? 0) + 1;
@@ -145,10 +186,9 @@ export const caravansPart = {
       cart: cartOf(era),
       cargo: cargo.filter((c) => c.amount >= 1),
       purse,
-      crew: this.embark(i),
+      crew: this.escort(i),
       speed: B.CARAVAN_SPEED * (animal === 'horse' ? B.HORSE_SPEED : 1),
       wait: 0,
-      tolls: [],
       era,
     });
     return true;
@@ -298,7 +338,7 @@ export const caravansPart = {
     v.stock.gold = Math.min(this.capOf(v, 'gold'), v.stock.gold + purse);
   },
 
-  /** Movimento das caravanas e rebanhos, pedágios, neve e os perigos do caminho. */
+  /** Movimento das caravanas e rebanhos, neve e os perigos do caminho. */
   updateCaravans(this: Ecosystem, dt: number): void {
     const w = this.map.width;
     // A ordem conta: cada caravana tira sorteios de civRnd e a chegada mexe no estoque e no preço do destino,
@@ -306,6 +346,18 @@ export const caravansPart = {
     for (let k = this.caravans.length - 1; k >= 0; k--) {
       const c = this.caravans[k];
       const home = this.villages[c.home];
+      // Quem ia à frente morreu no caminho (fome, frio, predador, guerra, a mão do jogador): a viagem acaba,
+      // a carga se perde e o rebanho volta sozinho para casa.
+      const lead = this.leaderOfCaravan(c);
+      if (c.crew.live && lead < 0) {
+        if (c.kind === 'flock' && home.herd && !home.abandoned) home.herd.away = undefined;
+        this.caravans.splice(k, 1);
+        continue;
+      }
+      if (lead >= 0) {
+        this.vx[lead] = 0;
+        this.vy[lead] = 0;
+      }
       if (c.wait > 0) {
         c.wait -= dt;
         continue;
@@ -340,11 +392,19 @@ export const caravansPart = {
         c.y += (dy / d) * move;
         if (Math.abs(dx) > 0.05) c.facing = dx > 0 ? 1 : -1;
       }
+      // Quem lidera anda junto, à frente dos animais (a tela anima o passo pela velocidade).
+      if (lead >= 0) {
+        this.x[lead] = c.x;
+        this.y[lead] = c.y;
+        if (d > 0.01) {
+          this.vx[lead] = (dx / d) * c.speed;
+          this.vy[lead] = (dy / d) * c.speed;
+        }
+      }
       if (d - move < 0.05) {
         if (this.traffic[t] < 65535) this.traffic[t]++;
         if (this.trafficEra[t] < c.era) this.trafficEra[t] = c.era;
         this.trafficTiles.add(t);
-        if (c.kind === 'trade') this.tollAt(c, t);
         if (this.raided(c, t)) {
           this.caravans.splice(k, 1);
           continue;
@@ -399,46 +459,6 @@ export const caravansPart = {
       return true;
     }
     return false;
-  },
-
-  /**
-   * Pedágio (RF-VIDA-286): no passo de montanha perto de outro reino, a
-   * caravana paga uma vez por viagem, a não ser que os reinos tenham acordo.
-   */
-  tollAt(this: Ecosystem, c: Caravan, t: number): void {
-    const map = this.map;
-    if (!(map.biome[t] === Biome.Mountain || map.elevation[t] > 0.45)) return;
-    const home = this.villages[c.home];
-    const w = map.width;
-    const x = (t % w) + 0.5;
-    const y = Math.floor(t / w) + 0.5;
-    let owner: Village | null = null;
-    let bd: number = B.TOLL_RANGE;
-    for (const o of this.villages) {
-      if (o.abandoned || o.kingdom === home.kingdom || o.tech < 1) continue;
-      const d = this.distance(o, x, y);
-      if (d < bd) {
-        bd = d;
-        owner = o;
-      }
-    }
-    if (!owner || c.tolls.includes(owner.kingdom) || this.agreedKingdoms(home.kingdom, owner.kingdom)) return;
-    c.tolls.push(owner.kingdom);
-    const due = B.TOLL_GOLD * (1 + Math.floor(owner.tech) * 0.5);
-    const paid = Math.min(c.purse, due);
-    c.purse -= paid;
-    if (paid < due && c.cargo.length) c.cargo[0].amount = Math.max(0, c.cargo[0].amount - 1);
-    owner.stock.gold = Math.min(this.capOf(owner, 'gold'), owner.stock.gold + paid);
-    const key = this.key(home.kingdom, owner.kingdom);
-    this.relations.set(key, Math.max(-100, this.relation(home.kingdom, owner.kingdom) - B.TOLL_TENSION));
-    let post = false;
-    for (const [p, by] of this.tolls) {
-      if (by === owner.id && Math.hypot(wrapDx((p % w) + 0.5 - x, w), Math.floor(p / w) + 0.5 - y) < 6) post = true;
-    }
-    if (!post) {
-      this.tolls.set(t, owner.id);
-      this.note(`${owner.name} passou a cobrar pedágio no passo da montanha`, 'economia', { x, y }, { key: `toll-${owner.id}` });
-    }
   },
 
   /**
@@ -516,7 +536,6 @@ export const caravansPart = {
       c.back = true;
       c.path.reverse();
       c.step = 0;
-      c.tolls = [];
       // Um tempo no mercado (mais na feira).
       c.wait = o.fair === Math.floor(this.year) ? 3 : 1;
       return false;
@@ -590,10 +609,9 @@ export const caravansPart = {
       cart: 0,
       cargo: [],
       purse: 0,
-      crew: this.embark(i),
+      crew: this.escort(i),
       speed: B.FLOCK_SPEED,
       wait: 0,
-      tolls: [],
       era: Math.floor(v.tech),
     });
   },

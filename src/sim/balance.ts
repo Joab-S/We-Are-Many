@@ -413,11 +413,6 @@ export const LUXURY_STABILITY = 0.05;
 export const SPOIL_SALTED = 0.2;
 export const SALT_USE = 0.02;
 
-/** Pedágio (RF-VIDA-286): ouro por passagem num passo de montanha de outro reino, alcance do dono e a tensão que causa. */
-export const TOLL_GOLD = 1;
-export const TOLL_RANGE = 25;
-export const TOLL_TENSION = 0.5;
-
 /** Pedidos da capital (RF-VIDA-289): chance por ano, prazo, carga e efeito de atender ou recusar. */
 export const REQUEST_RATE = 0.5;
 export const REQUEST_YEARS = 3;

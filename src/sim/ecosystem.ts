@@ -200,6 +200,8 @@ export class Ecosystem {
   dayLeg = new Uint8Array(0);
   dayTime = new Float32Array(0);
   carry = new Uint8Array(0);
+  /** 1 = viaja à frente de uma caravana, rebanho ou comitiva: continua no mapa, mas quem anda é a caravana. */
+  trip = new Uint8Array(0);
   carryAmt = new Float32Array(0);
   needRest = new Float32Array(0);
   needSocial = new Float32Array(0);
@@ -304,8 +306,6 @@ export class Ecosystem {
   readonly trafficTiles = new Set<number>();
   /** Tiles de estrada que nasceram do uso. */
   routeTiles = 0;
-  /** Postos de pedágio: tile do passo e o assentamento que cobra (RF-VIDA-286). */
-  readonly tolls = new Map<number, number>();
   /** Jazidas de minério do planeta, e o índice delas por tile. */
   readonly deposits: Deposit[];
   readonly depositAt: Int32Array;
@@ -673,6 +673,11 @@ export class Ecosystem {
     const legacy = this.actionScale();
     for (let i = 0; i < this.count; i++) {
       if (!this.alive[i]) continue;
+      // Quem lidera uma caravana anda com ela (updateCaravans põe a posição); aqui só envelhece.
+      if (this.trip[i]) {
+        this.age[i] += dt / this.yearSpan;
+        continue;
+      }
       const sk = this.species[this.kind[i]].kind;
       const aquatic = sk === 'fish' || sk === 'shark';
       const mdt = aquatic ? dt * legacy : dt;

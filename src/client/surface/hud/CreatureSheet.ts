@@ -7,6 +7,7 @@ import { installPixelArt } from '../../ui/pixelArt';
 import { pixelIcon, pixelize } from '../../ui/pixelIcons';
 import { ROLE_ICONS } from '../settlementWindow';
 import { bodyOf, spriteOf } from '../tools';
+import { humanPortrait } from '../SpriteCollector';
 import {
   animalOf,
   diaryOf,
@@ -250,6 +251,11 @@ export class CreatureSheet extends HudComponent {
     const sp = eco.species[eco.kind[i]];
     if (!isPerson(eco, i)) return this.icons.icon(spriteOf(sp), sp.color);
     const v = homeOf(eco, i);
+    // Humanos: o mesmo quadro, gênero, pele e cabelo de quem anda no mapa.
+    if (bodyOf(sp) === 'human') {
+      const { name, person } = humanPortrait(eco, i);
+      return this.icons.icon(name, v ? v.color : sp.color, person.skin, person.hair);
+    }
     const life = lifeOf(eco, i);
     const look = life.stage === 'child' ? 'child' : life.stage === 'elder' && (!life.role || ROLES.indexOf(life.role) < ROLES.indexOf('leader')) ? 'elder' : (life.role ?? 'gatherer');
     return this.icons.icon(`${bodyOf(sp)}:${look}`, v ? v.color : sp.color, sp.color);

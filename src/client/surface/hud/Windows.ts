@@ -155,14 +155,13 @@ export class Windows extends HudComponent {
           .filter((g) => ids.has(g.a) || ids.has(g.b))
           .map((g) => `${eco.villages[g.a].name} ↔ ${eco.villages[g.b].name}: ${eco.goodName(g.goods[0])} por ${eco.goodName(g.goods[1])}`)
           .join(' · ');
-        const tolls = [...eco.tolls.values()].filter((o) => ids.has(o)).length;
         return `
           <div class="wb-card">
             <button class="wb-card-head" data-village="${k.id}">${this.icons.crest(k)}<b>${members.length > 1 ? eco.polityName(k) : k.name}</b><em>📍</em></button>
             <div>Povo ${c.name} · ${eco.species[k.species].name} · valoriza ${c.value} · crê em ${c.belief}${wonder}</div>
             <div>${members.length} assentamento${members.length > 1 ? 's' : ''} · ${pop} habitantes · ${ERAS[Math.floor(Math.max(...members.map((v) => v.tech)))]}</div>
             ${stock ? `<div class="wb-dim">${stock}</div>` : ''}
-            <div class="wb-dim">Moeda: ${CURRENCY_NAMES[eco.currencyName(k)]}${tolls ? ` · ${tolls} posto${tolls > 1 ? 's' : ''} de pedágio` : ''}</div>
+            <div class="wb-dim">Moeda: ${CURRENCY_NAMES[eco.currencyName(k)]}</div>
             ${deals ? `<div class="wb-dim">🤝 Acordos: ${deals}</div>` : ''}
             ${rels ? `<div class="wb-rels">${rels}</div>` : ''}
           </div>`;
