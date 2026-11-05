@@ -162,6 +162,13 @@ export const MOVE_WAR = 0.4;
  * pesa 1 perto de 160 moradores; uma cidade com templo, escrita e reino, perto de 380.
  */
 export const DUNBAR = 150;
+/**
+ * Teto de gente de um reino por lugar vivo dele (Dwarf Fortress: o teto sobe com os sítios). Acima do teto, o que passa
+ * (em múltiplos do teto, `realmCrowding`), vezes CROWD_PRESSURE, soma à pressão de sair: um reino cheio quer fundar mais,
+ * sem esperar a fome. Com 45 a mediana dos lugares fica perto do teto; com 80 ou 120, quase nenhum reino passa dele.
+ */
+export const CAP_PER_SITE = 45;
+export const CROWD_PRESSURE = 1;
 export const INST_ORG = 1;
 export const INST_TIER = 1;
 export const INST_TEMPLE = 0.5;

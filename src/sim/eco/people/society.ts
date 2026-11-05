@@ -129,6 +129,15 @@ export const societyPart = {
   },
 
   /**
+   * Lotação do reino: a gente dele contra `CAP_PER_SITE` por lugar vivo. Abaixo do teto vale 1. Mais lugares sobem o
+   * teto, e é isso que faz fundar valer a pena antes da fome.
+   */
+  realmCrowding(this: Ecosystem, v: Village): number {
+    const capital = this.capitalOf(v);
+    return Math.max(1, this.kingdomPopulation(capital) / (B.CAP_PER_SITE * Math.max(1, this.kingdomSize(capital))));
+  },
+
+  /**
    * Pressão da terra (agente 3B): gente com fome num lugar sem terra para mais roça ao alcance (Malthus e
    * Boserup). Soma à pressão social na vontade de fundar e na circunscrição, não na estabilidade: é o aperto
    * de quem cresceu até o limite da terra, diferente da fome de um ano ruim, que manda migrar.
