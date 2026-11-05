@@ -181,6 +181,7 @@ function fakeDebug(): DebugView {
     place: (id) => (id === 0 ? PLACE : null),
     decisions: (f = {}) => DECISIONS.filter((d) => (f.village === undefined || d.village === f.village) && (f.family === undefined || d.family === f.family)).slice(0, f.limit ?? DEBUG_DECISION_LIMIT),
     profile: () => (on ? PROFILE : null),
+    fingerprint: () => 'abcd1234',
   };
 }
 
@@ -523,7 +524,7 @@ describe('aba Desempenho', () => {
 // Tempo e caso ----------------------------------------------------------------
 
 describe('aba Tempo e o caso copiado', () => {
-  const base = { speed: 0, seed: 42, year: 120.04, tick: 5762, log: 37, logLimit: LOG_LIMIT, pending: 1, stepsPerYear: 48, fresh: true, last: null, copied: '' };
+  const base = { speed: 0, seed: 42, year: 120.04, tick: 5762, log: 37, logLimit: LOG_LIMIT, pending: 1, stepsPerYear: 48, fresh: true, last: null, hash: null, copied: '' };
 
   it('pausa e velocidades, avançar 1 passo e 1 ano, o relógio e o log', () => {
     const html = timeHtml(base);
@@ -544,12 +545,20 @@ describe('aba Tempo e o caso copiado', () => {
     expect(after).toContain('chegou ao limite');
   });
 
+  it('mostra a impressão digital e o passo em que ela foi tirada', () => {
+    expect(timeHtml(base)).not.toContain('Impressão digital</span>');
+    const html = timeHtml({ ...base, hash: { tick: 5760, value: 'abcd1234' } });
+    clean(html);
+    expect(html).toContain('abcd1234');
+    expect(html).toContain('no passo 5760');
+  });
+
   it('o JSON do caso volta inteiro, e diz se o log está completo', () => {
     const log = [
       { tick: 0, cmd: viewCommand(100, 50, 30, -1) },
       { tick: 12, cmd: { kind: 'feed', x: 3, y: 4, r: 5 } as EngineCommand },
     ];
-    const c = debugCase({ seed: 42, year: 120.04, tick: 5762, step: 0.25, yearSpan: 12, planet: earthParams(0.4), fresh: true, log, logLimit: LOG_LIMIT });
+    const c = debugCase({ seed: 42, year: 120.04, tick: 5762, step: 0.25, yearSpan: 12, planet: earthParams(0.4), fresh: true, fingerprint: 'abcd1234', log, logLimit: LOG_LIMIT });
     const json = caseJson(c);
     expect(JSON.parse(json)).toEqual(c);
     expect(c.complete).toBe(true);
@@ -574,7 +583,7 @@ describe('aba Tempo e o caso copiado', () => {
     for (let f = 0; f < 6; f++) d.update(1 / 30);
     d.enqueue({ kind: 'cull', x: v.x + 3, y: v.y, r: 4 });
     d.stepBy(12);
-    const c: DebugCase = JSON.parse(caseJson(debugCase({ seed: engine.seed, year: engine.view.year, tick: d.tick, step: d.h, yearSpan: engine.view.yearSpan, planet: engine.view.map.params, fresh: true, log: d.log, logLimit: LOG_LIMIT })));
+    const c: DebugCase = JSON.parse(caseJson(debugCase({ fingerprint: engine.debug.fingerprint(), seed: engine.seed, year: engine.view.year, tick: d.tick, step: d.h, yearSpan: engine.view.yearSpan, planet: engine.view.map.params, fresh: true, log: d.log, logLimit: LOG_LIMIT })));
     expect(c.log.length).toBe(3);
     // Refaz: os comandos de cada passo entram antes dele (os do último passo, depois dele).
     const again = createEngine(generateSurface(c.planet), { seed: c.seed, species: nativeSpecies(c.planet), yearSpan: c.yearSpan });
@@ -591,5 +600,7 @@ describe('aba Tempo e o caso copiado', () => {
     expect([...b.population]).toEqual([...a.population]);
     expect(b.villages.map((it) => [it.name, it.population, it.x, it.y])).toEqual(a.villages.map((it) => [it.name, it.population, it.x, it.y]));
     expect(Array.from(b.x.subarray(0, b.count))).toEqual(Array.from(a.x.subarray(0, a.count)));
+    // A impressão digital do caso é a do mundo refeito, e é ela que o painel mostra.
+    expect(again.debug.fingerprint()).toBe(c.fingerprint);
   });
 });

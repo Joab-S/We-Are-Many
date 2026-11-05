@@ -80,6 +80,8 @@ export class DebugPanel extends HudComponent {
   /** O último Avançar e o último caso copiado. */
   private lastAdvance: { steps: number; ms: number } | null = null;
   private copied = '';
+  /** A impressão digital mostrada na aba Tempo, com o passo e o tamanho do log de quando foi tirada. */
+  private hash: { tick: number; log: number; value: string } | null = null;
 
   constructor(
     root: HTMLElement,
@@ -104,6 +106,11 @@ export class DebugPanel extends HudComponent {
     host.driver.bus.onAny((e) => this.events.push(eventEntry(e, host.engine.view, this.events.total + 1)));
     // Com `?debug`, a série dos indicadores e as decisões juntam dados desde que a superfície abre, antes do painel.
     host.engine.debug.setRecording(true);
+    // No passo exato de cada ano, e não no quadro em que o painel se refaz: assim, mundos iguais mostram o mesmo valor
+    // no mesmo passo em qualquer velocidade. Custa dezenas de ms na Terra, então só com a aba Tempo aberta.
+    host.driver.afterStep = (tick) => {
+      if (this.open && this.tab === 'time' && tick % this.stepsPerYear() === 0) this.takeHash();
+    };
   }
 
   /** Abre ou fecha (F3, o botão, o Esc). */
@@ -167,6 +174,8 @@ export class DebugPanel extends HudComponent {
       case 'perf':
         return perfHtml(this.frames.toArray(), this.host.stats(), debug.profile(), debug.recording);
       case 'time':
+        // Rodando, vale a do último ano. Parado, o mundo só muda por um Avançar ou por um comando: refaz nesses casos.
+        if (!this.hash || (driver.paused && (this.hash.tick !== driver.tick || this.hash.log !== driver.log.length))) this.takeHash();
         return timeHtml({
           speed: driver.speed,
           seed: engine.seed,
@@ -178,9 +187,15 @@ export class DebugPanel extends HudComponent {
           stepsPerYear: this.stepsPerYear(),
           fresh: this.host.fresh,
           last: this.lastAdvance,
+          hash: this.hash,
           copied: this.copied,
         });
     }
+  }
+
+  private takeHash(): void {
+    const { engine, driver } = this.host;
+    this.hash = { tick: driver.tick, log: driver.log.length, value: engine.debug.fingerprint() };
   }
 
   private stepsPerYear(): number {
@@ -243,6 +258,7 @@ export class DebugPanel extends HudComponent {
       yearSpan: view.yearSpan,
       planet: view.map.params,
       fresh: this.host.fresh,
+      fingerprint: engine.debug.fingerprint(),
       log: driver.log,
       logLimit: driver.opts.logLimit ?? LOG_LIMIT,
     });
@@ -250,7 +266,7 @@ export class DebugPanel extends HudComponent {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('sem área de transferência');
       await navigator.clipboard.writeText(json);
-      this.copied = `Caso copiado: semente ${c.seed}, ${yearText(c.year)}, passo ${c.tick}, ${c.log.length} comandos`;
+      this.copied = `Caso copiado: semente ${c.seed}, ${yearText(c.year)}, passo ${c.tick}, ${c.log.length} comandos, impressão ${c.fingerprint}`;
       this.hideCase();
     } catch {
       this.copied = '';

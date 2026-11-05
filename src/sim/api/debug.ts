@@ -124,6 +124,11 @@ export interface DebugView {
   decisions(filter?: { village?: number; family?: number; limit?: number }): FamilyDecision[];
   /** Medição do passo desde que a gravação ligou; null com ela desligada. */
   profile(): ProfileDebug | null;
+  /**
+   * Impressão digital do mundo agora (`worldFingerprint`): a mesma semente e o mesmo log, no mesmo passo, dão o mesmo
+   * valor. Varre o mundo inteiro (dezenas de ms na Terra), então não é para chamar a cada quadro.
+   */
+  fingerprint(): string;
 }
 
 /** Amostras da série dos indicadores guardadas (uma por ano de jogo). */
@@ -139,4 +144,5 @@ export const EMPTY_DEBUG: DebugView = {
   place: () => null,
   decisions: () => [],
   profile: () => null,
+  fingerprint: () => '',
 };

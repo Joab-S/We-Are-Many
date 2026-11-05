@@ -31,6 +31,7 @@ function readAll(engine: Engine): void {
   for (const v of engine.view.villages) d.place(v.id);
   d.decisions();
   d.profile();
+  d.fingerprint();
 }
 
 describe('vista de depuração do motor (engine.debug)', () => {
@@ -175,6 +176,34 @@ describe('vista de depuração do motor (engine.debug)', () => {
     expect(eco.probe).not.toBeNull();
     run(engine, 2);
     expect(d.world().series.length).toBe(Math.floor(eco.year) - Math.floor(at));
+  });
+});
+
+describe('impressão digital pela vista de depuração', () => {
+  it('é a do mundo, igual em dois mundos iguais, muda com o tempo e não mexe em nada', () => {
+    const a = engineFor();
+    const b = engineFor();
+    expect(a.debug.fingerprint()).toBe(worldFingerprint(ecosystemOf(a)));
+    const start = a.debug.fingerprint();
+    expect(a.debug.fingerprint()).toBe(start);
+    run(a, 3);
+    run(b, 3);
+    expect(a.debug.fingerprint()).not.toBe(start);
+    expect(a.debug.fingerprint()).toBe(b.debug.fingerprint());
+    // Outra semente, outro mundo.
+    const c = engineFor(SEED + 1);
+    run(c, 3);
+    expect(c.debug.fingerprint()).not.toBe(a.debug.fingerprint());
+  });
+
+  it('depois do restore, é a do mundo novo', () => {
+    const a = engineFor();
+    run(a, 2);
+    const snap = a.snapshot();
+    const hash = a.debug.fingerprint();
+    run(a, 2);
+    a.restore(snap);
+    expect(a.debug.fingerprint()).toBe(hash);
   });
 });
 

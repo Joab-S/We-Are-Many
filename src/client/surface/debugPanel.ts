@@ -741,6 +741,8 @@ export function timeHtml(args: {
   stepsPerYear: number;
   fresh: boolean;
   last: { steps: number; ms: number } | null;
+  /** A última impressão digital tirada e o passo dela. */
+  hash: { tick: number; value: string } | null;
   copied: string;
 }): string {
   const a = args;
@@ -759,6 +761,8 @@ export function timeHtml(args: {
     ${kv('Ano', yearText(a.year).slice(4))}
     ${kv('Passo', String(a.tick), `${num(a.stepsPerYear)} por ano`)}
     ${kv('Log de comandos', String(a.log), `limite ${a.logLimit}${a.pending ? ` · ${a.pending} na fila` : ''}`)}
+    ${a.hash ? kv('Impressão digital', a.hash.value, `no passo ${a.hash.tick}`) : ''}
+    <div class="wb-dim wb-dnote">A impressão digital é tirada a cada ano de jogo e, na pausa, a cada mudança. Com a mesma semente e o mesmo log, o mesmo passo dá o mesmo valor.</div>
     <div class="wb-section">Caso para reproduzir</div>
     <div class="wb-dim wb-dnote">${
       a.fresh
@@ -781,6 +785,8 @@ export interface DebugCase {
   planet: PlanetParams;
   /** Mundo novo nesta visita (a semente e o log o refazem) ou adotado (save, visita anterior). */
   fresh: boolean;
+  /** Impressão digital do mundo neste passo: quem refaz o caso compara com ela. */
+  fingerprint: string;
   /** O log tem todos os comandos desde o passo 0 (não passou do limite). */
   complete: boolean;
   log: LoggedCommand<EngineCommand>[];
@@ -796,6 +802,7 @@ export function debugCase(a: Omit<DebugCase, 'version' | 'complete' | 'log'> & {
     yearSpan: a.yearSpan,
     planet: { ...a.planet },
     fresh: a.fresh,
+    fingerprint: a.fingerprint,
     complete: a.log.length < a.logLimit,
     log: a.log.map((e) => ({ tick: e.tick, cmd: e.cmd })),
   };

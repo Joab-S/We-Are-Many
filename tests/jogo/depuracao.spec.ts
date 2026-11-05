@@ -39,6 +39,31 @@ test.describe('?debug', () => {
     expect(await page.evaluate(() => [!!window.space, !!window.surface])).toEqual([true, false]);
   });
 
+  test('a aba Tempo do painel mostra a impressão digital e a refaz a cada avanço', async ({ page }) => {
+    await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
+    await page.evaluate(() => window.debugEarth!());
+    await expect(superficie(page)).toBeVisible({ timeout: MAPA_MS });
+
+    const painel = page.locator('.wb-debugp');
+    await page.keyboard.press('F3');
+    await painel.locator('[data-dtab="time"]').click();
+    const pausa = painel.locator('[data-dspeed="0"]');
+    await pausa.click();
+    // O botão aceso e a linha saem no mesmo HTML: com ele aceso, a impressão digital já é a do passo em que o jogo parou.
+    await expect(pausa).toHaveClass(/\bon\b/);
+    const linha = painel.locator('.wb-kv', { hasText: 'Impressão digital' });
+    const ler = async () => {
+      const texto = await linha.innerText();
+      return { valor: texto.match(/[0-9a-f]{8}/)![0], passo: Number(texto.match(/no passo (\d+)/)![1]) };
+    };
+    const antes = await ler();
+
+    await painel.locator('[data-dstep="1"]').click();
+    await expect(linha).toContainText(`no passo ${antes.passo + 1}`);
+    expect((await ler()).valor).not.toBe(antes.valor);
+  });
+
   test('sem ?debug não há alça nenhuma', async ({ page }) => {
     await page.goto('/');
     await expect(espaco(page)).toBeVisible();

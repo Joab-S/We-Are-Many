@@ -83,6 +83,8 @@ export class SimDriver<C, E extends { kind: string } = never> {
   readonly stats = { steps: 0, stepMs: 0, dropped: 0, totalSteps: 0, totalMs: 0, events: 0, totalEvents: 0 };
   /** Despachante dos eventos do motor (drenados a cada quadro, depois dos passos). */
   readonly bus = new EventBus<E>();
+  /** Chamado depois de cada passo, com o número dele: o único lugar em que dá para olhar o mundo num passo exato. */
+  afterStep: ((tick: number) => void) | null = null;
 
   constructor(
     private readonly target: SimTarget<E>,
@@ -179,6 +181,7 @@ export class SimDriver<C, E extends { kind: string } = never> {
     this.stats.stepMs += now() - t0;
     this.stamp = this.target.view.year;
     this.tick++;
+    this.afterStep?.(this.tick);
   }
 
   /** Fim do quadro com `n` passos: os comandos de um quadro sem passo, as medidas e a entrega dos eventos. */

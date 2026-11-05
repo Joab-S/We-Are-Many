@@ -1,6 +1,7 @@
 import * as B from '../balance';
 import { indicatorsOf, LONG_TARGETS, type IndicatorBase, type Indicators, type RunSamples } from '../calibrate';
 import { ERAS, type Ecosystem, type Village } from '../ecosystem';
+import { worldFingerprint } from '../fingerprint';
 import { fullNeeds, NEEDS, NEED_NAMES } from '../needs';
 import { wrapDx } from '../settlement';
 import { STEP_PARTS, type EcoProbe, type ProbeSite } from '../eco/core/probe';
@@ -309,6 +310,10 @@ export class EngineDebug implements DebugView {
       out.push(structuredClone(d));
     }
     return out;
+  }
+
+  fingerprint(): string {
+    return worldFingerprint(this.eco);
   }
 
   profile(): ProfileDebug | null {
