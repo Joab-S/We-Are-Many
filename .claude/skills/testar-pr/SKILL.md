@@ -20,11 +20,22 @@ npm run test:jogo
 | Comando | O que faz | Tempo aproximado |
 |---|---|---|
 | `npm run build` | Tipos (`tsc`) e build | 15 s |
-| `npm test` | A suíte inteira do Vitest | 2 a 3 min |
+| `npm test` | A suíte inteira do Vitest | cerca de 3 min |
 | `npm run test:jogo` | Compila, serve o `dist` e joga num Chromium sem GPU, no WebGL e no `?soft` | 2 min |
 | `npm run test:rapido` | A suíte sem os mundos simulados (lista em `vitest.rapido.config.ts`). Serve para usar enquanto trabalha, não substitui o `npm test` | 20 s |
 
 Na primeira vez, o `test:jogo` precisa do navegador: `npx playwright install chromium`.
+
+## Gastar pouco tempo e poucos tokens
+
+Vale para qualquer IA de código (Claude Code, Codex, Cursor e as outras): cada rodada custa minutos e cada linha de saída custa tokens.
+
+- **Enquanto trabalha, rode só o que a mudança toca:** o arquivo de teste dela (`npx vitest run src/sim/war`) e o `npm run test:rapido`. A suíte inteira não é para cada passo.
+- **A suíte inteira, o build e o `test:jogo` rodam uma vez, antes de abrir o PR.** Nos pushes seguintes do mesmo PR, rode só o que o novo commit toca: o CI roda tudo de novo de qualquer jeito.
+- **Rode a suíte inteira em segundo plano** quando a ferramenta deixar, e continue o trabalho enquanto ela roda.
+- **Não rode de novo para reler a saída.** Quando detecta uma IA, o Vitest já usa o relator curto (`minimal`): mostra só o resumo e o que falhou. Para ver uma falha de perto, rode só o arquivo dela. Não passe `--reporter=verbose` nem `--reporter=default` sem precisar: a saída inteira tem umas 300 linhas.
+- **Um comando por vez:** o build, a suíte e o `test:jogo` disputam a CPU e deixam tudo mais lento, e os testes de mundo simulado podem estourar o tempo.
+- **Só documentação, ou só a prancha de arte fora de `src`:** não rode nada.
 
 ## O que mais rodar, conforme a mudança
 
@@ -100,6 +111,8 @@ O que costuma pegar quem escreve um teste novo:
 **Prove que o teste falha.** Quebre o jogo de propósito (apague a linha que o teste deveria vigiar), rode só esse teste, confira que ele falha com a mensagem certa e desfaça. Um teste escrito sem isso pode não vigiar nada: `a Terra na tela` já passou aqui com a cena desligada, porque aceitava a tela branca.
 
 Um teste novo de mundo simulado no Vitest deve entrar em `SIMULATED_WORLDS`, em `vitest.rapido.config.ts`, para o `test:rapido` continuar rápido.
+
+**Mundo longo: divida a rodada.** Rodar um mundo de 200 ou 300 anos custa de 30 a 50 s. Os testes de mundo longo das sementes 42 e 7 ficam em `src/sim/mundo42.test.ts` e `src/sim/mundo7.test.ts`, que rodam o mundo uma vez só (`sharedWorld`, em `src/sim/sharedWorld.ts`) e o fotografam nos anos pedidos. Um teste novo com uma dessas sementes entra no arquivo dela e pega a sua cópia com `world.at(ano)`. Se o ano ainda não está na lista do `sharedWorld`, acrescente-o, em vez de chamar `runWorld` de novo.
 
 ## Quando falha
 

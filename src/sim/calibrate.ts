@@ -183,8 +183,17 @@ export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: Re
  * (`YEAR_SECONDS`), em que os dois relógios coincidem e toda a calibração foi feita; com o ano do jogo
  * (`REAL_YEAR_SECONDS`, 12 s) mede o que o jogador vê: `years` anos exibidos, cada um com dois anos de ação.
  * Nos scripts de calibração, pela variável de ambiente YEAR_SPAN.
+ *
+ * `onYear`, se vier, é chamado no fim de cada ano (1, 2, ...) com o mundo vivo: serve para fotografar o mesmo mundo
+ * em vários anos sem rodar de novo (src/sim/sharedWorld.ts).
  */
-export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = YEAR_SECONDS): { eco: Ecosystem; indicators: Indicators } {
+export function runWorld(
+  seed: number,
+  years: number,
+  radius = 0.4,
+  yearSpan = YEAR_SECONDS,
+  onYear?: (year: number, eco: Ecosystem) => void,
+): { eco: Ecosystem; indicators: Indicators } {
   const { eco, map, placed } = seedWorld(seed, radius);
   // Como no jogo: o ano da tela é definido depois de povoar o mundo.
   eco.yearSpan = yearSpan;
@@ -213,6 +222,7 @@ export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = Y
     const moving = eco.caravans.filter((c) => c.kind === 'trade' || c.kind === 'tribute').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
     caravans += moving;
     caravansMax = Math.max(caravansMax, moving);
+    onYear?.(y + 1, eco);
   }
   return { eco, indicators: indicatorsOf(eco, seed, { years, villages: placed }, { wars, cavalry, caravans, caravansMax, mid, trees0, trees: countTrees() }) };
 }

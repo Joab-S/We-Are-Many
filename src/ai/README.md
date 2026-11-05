@@ -28,7 +28,6 @@ sorteios do mundo (fluxo `mente`), então a mesma semente dá a mesma história.
 | `decisions/social.ts` | Um ano de vida social: encontros, amizade, rivalidade, casamento, brigas |
 | `decisions/leader.ts` | Escolha do líder, herdeiro do rei e temperamento do rei para a guerra |
 | `decisions/move.ts` | Quando sair: a família compara ficar, migrar para um lugar conhecido e fundar num sítio (pressão social, laços, apego e histerese) |
-| `lab/` | O laboratório: testes que olham uma pessoa, um casal, um grupo e um povo inteiro |
 
 ## Onde a simulação chama a IA (métodos do `Ecosystem`, em `src/sim/eco/core/`, `people/` e `settlements/`)
 
@@ -45,11 +44,7 @@ sorteios do mundo (fluxo `mente`), então a mesma semente dá a mesma história.
 ## Como testar e ajustar
 
 1. Mude um peso em `tuning.ts`.
-2. Rode o laboratório: `npx vitest run src/ai/lab`. Ele vai do pequeno ao grande:
-   - `pessoa.test.ts`: uma pessoa sozinha. O corajoso caça? A falta fala mais alto que o gosto?
-   - `casal.test.ts`: duas pessoas e um grupo de 40. Quem combina casa? Quem é agressivo briga?
-   - `aldeia.test.ts`: um povo de verdade por 150 anos. Os ofícios juntam gente com o jeito deles? Os líderes são carismáticos?
-   - `mudanca.test.ts`: uma família diante de ficar, migrar e fundar. A fome manda migrar? A pressão manda fundar? Quem acabou de chegar fica?
+2. O laboratório saiu daqui: as cópias dos testes rodavam a simulação de hoje, que decide com o IAUS, e repetiam os de `src/IAUS/npc/lab` (`npx vitest run src/IAUS/npc/lab`).
 3. Veja o mundo inteiro: `npm run calibrar:longa` (3 mundos × 1000 anos).
 4. No jogo, clique numa pessoa: a ficha mostra os traços marcantes, o cônjuge, os amigos, os rivais e as
    últimas decisões com o porquê. "Seguir" mantém a câmera nela.

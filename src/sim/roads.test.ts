@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { runWorld } from './calibrate';
 import { roadBlocks, streetOrder, streetPlan } from './settlement';
 
 describe('ruas e estradas (RF-VIDA-190 a 196)', () => {
@@ -66,13 +65,4 @@ describe('ruas e estradas (RF-VIDA-190 a 196)', () => {
     road[0] = road[1] = road[4] = road[5] = 1;
     expect(roadBlocks(road, 4, 4)).toBe(1);
   });
-
-  for (const seed of [42, 7]) {
-    it(`em 200 anos (semente ${seed}) nenhuma rua dupla e toda casa na beira da rua`, () => {
-      const { indicators } = runWorld(seed, 200);
-      expect(indicators.settlements).toBeGreaterThan(5);
-      expect(indicators.roadBlocks).toBe(0);
-      expect(indicators.housesOffStreet).toBe(0);
-    }, 120000);
-  }
 });
