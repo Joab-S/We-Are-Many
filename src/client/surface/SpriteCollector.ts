@@ -1,11 +1,16 @@
 import { BOATS, CARRIED, elderAge, GESTURE, type Ecosystem, type Village } from '../../sim/ecosystem';
 import { ORE_COLORS } from '../../sim/economy';
 import { CHILD } from '../../sim/roles';
+import type { Death } from '../../sim/eco/types';
+import { HUMAN_FRAMES, lookKey, personOf, type HumanFrames, type Person } from './humanArt';
 import { houseStyle } from '../../sim/architecture';
 import { ROLES, SPRITES } from './art';
 import { economicState } from './settlementWindow';
 import type { SpriteLayer, SpriteName } from './sprites';
 import { bodyOf, HERD_SPRITES, HERD_TINT, HORSE_COAT, spriteOf, STALL_TINTS } from './tools';
+import { ANIMAL_FRAMES, type AnimalFrames } from './animalArt';
+import { ACT } from '../../sim/eco/constants';
+import { EARTH_ID } from '../../sim/species';
 import type { Viewport } from './Viewport';
 import { AVENUE } from '../../sim/architecture';
 
@@ -30,11 +35,67 @@ const BOAT_ROWS: Record<string, number> = { wreck: 4, canoe: 7, rowboat: 8, sail
 const LOAD_ART: Record<string, string> = { food: 'load:food', wood: 'load:wood', stone: 'load:stone', clay: 'load:stone', water: 'load:water' };
 const ELDER = 'elder';
 const LEADER = ROLES.indexOf('leader');
+/** Altura do sprite humano (16x18) em tiles: o corpo fica um pouco acima de 1 tile. */
+const HUMAN_H = 1.5;
+/** Gestos de trabalho que tocam a animação da ferramenta. */
+const WORKING = new Set<number>([GESTURE.dig, GESTURE.reap, GESTURE.chop, GESTURE.hammer, GESTURE.pick, GESTURE.row]);
+/** Tempos da morte na tela (ms): normal, vermelho, preto em pé e deitado até sumir. */
+const DEATH_MS = { hit: 150, red: 450, dark: 800, end: 1800 };
+/** Um pixel dos desenhos de gente e de bicho: a pessoa tem 18 linhas em `HUMAN_H` tiles. */
+const PX = HUMAN_H / 18;
+/** Quadros do cavalo da cavalaria. */
+const HORSE = ANIMAL_FRAMES.horse[0];
+/** Linhas do casco até o lombo do cavalo, onde o soldado senta. */
+const SADDLE = 9;
+/** Escala dos bichos dentro do cercado (o desenho do cercado tem 2 tiles). */
+const PEN_SCALE = 0.55;
+
+/** Quadros de um bicho no estilo novo: o da Terra, ou o alienígena com a cor da espécie. */
+function animalFrames(name: string, earth = true): AnimalFrames | undefined {
+  const set = ANIMAL_FRAMES[name];
+  return set && set[earth ? 0 : 1];
+}
+
+/** Quadro do bicho andando, `k` passos depois do início (cada passo dura 150 ms). */
+function walkFrame(f: AnimalFrames, now: number, seed: number): string {
+  return f.walk[Math.floor(now / 150 + seed) % f.walk.length];
+}
+
+/** Profissão (ou idade) que define a aparência de um humano. */
+export function humanKey(eco: Ecosystem, kind: number, village: number, role: number, age: number): string {
+  if (village < 0 || !eco.villages[village]) return 'free';
+  if (role === CHILD) return 'child';
+  const era = Math.floor(eco.villages[village].tech);
+  if (role < LEADER && age >= elderAge(eco.species[kind], era)) return ELDER;
+  return lookKey(ROLES[role]);
+}
+
+/** Sprite parado, pele e cabelo do humano `i` (o retrato da ficha usa o mesmo que anda no mapa). */
+export function humanPortrait(eco: Ecosystem, i: number): { name: string; person: Person } {
+  const key = humanKey(eco, eco.kind[i], eco.village[i], eco.role[i], eco.age[i]);
+  const person = personOf(eco.uid[i], key === ELDER);
+  return { name: HUMAN_FRAMES[key][person.female ? 1 : 0].idle[0], person };
+}
+
+/** Pessoa morrendo na tela: o lugar, os quadros e as cores de quem caiu. */
+interface Dying {
+  x: number;
+  y: number;
+  /** Quadros: parado, vermelho, preto em pé e deitado. */
+  frames: Pick<HumanFrames, 'idle' | 'hit' | 'dead' | 'fallen'>;
+  /** Linhas do desenho (18 nos humanos; nos bichos, a altura de cada um). */
+  rows: number;
+  tint: readonly number[];
+  skin: readonly number[];
+  hair: readonly number[];
+  t0: number;
+}
+
 const STALLS: [number, number][] = [[-2.6, -0.2], [2.6, -0.2], [-0.9, -2.3], [1.4, 2.4]];
 
 /**
  * Monta a camada de sprites da superfície a partir do ecossistema e da
- * câmera: casas, jazidas, ruínas, pedágios, barcos, caravanas, carcaças,
+ * câmera: casas, jazidas, ruínas, barcos, caravanas, carcaças,
  * criaturas e efeitos. Só lê o mundo; os nomes de sprite compostos
  * (`corpo:profissão`, `nome:l`) ficam em tabelas para não criar texto a cada
  * quadro, e a posição na tela sai em números soltos, sem tuplas.
@@ -53,6 +114,10 @@ export class SpriteCollector {
   private readonly roleCache = new Map<string, Map<string, string>>();
   private readonly houseCache = new Map<string, Map<string, string[]>>();
   private readonly flagCache = new Map<string, string>();
+  private readonly dying: Dying[] = [];
+  /** Última morte já vista (as novas entram no começo de `eco.deaths`). */
+  private lastDeath: Death | undefined;
+  private deathEco: Ecosystem | undefined;
 
   /** Versão virada para a esquerda do sprite, se existir. */
   left(name: string): string {
@@ -121,7 +186,6 @@ export class SpriteCollector {
   collect(eco: Ecosystem, view: Viewport, layer: SpriteLayer, z: number, now: number, pos: CreaturePositions, visible?: VisibleCreatures): void {
     const w = view.width;
     const h = view.height;
-    const mw = eco.map.width;
     layer.begin(w, h);
     const small = z < 3.5;
     const off = (sx: number, sy: number, m: number) => sx < -m || sx > w + m || sy < -m || sy > h + m;
@@ -171,6 +235,7 @@ export class SpriteCollector {
       // Cercados de pasto e o rebanho pastando dentro deles (RF-VIDA-215 e 216).
       if (!small && v.pens) {
         const animal = v.herd ? HERD_SPRITES[v.herd.kind] : '';
+        const herd = animalFrames(animal);
         // Parte do rebanho pode estar no pasto alto (RF-VIDA-293).
         let left = (v.herd?.head ?? 0) - (v.herd?.away ?? 0);
         for (const pen of v.pens) {
@@ -184,8 +249,12 @@ export class SpriteCollector {
             const seed = (pen.x * 7 + pen.y * 13 + k * 31) % 17;
             const ox = 0.45 + 1.1 * (0.5 + 0.5 * Math.sin(secs * 0.25 + seed));
             const oy = 0.55 + 0.35 * k + 0.1 * Math.sin(secs * 0.4 + seed * 2);
-            const facing = Math.cos(secs * 0.25 + seed) < 0 ? this.left(animal) : animal;
-            this.building(facing, X(pen.x + ox), Y(pen.y + oy + 0.5), z * 0.62, HERD_TINT[v.herd!.kind]);
+            const left = Math.cos(secs * 0.25 + seed) < 0;
+            if (herd) {
+              const name = herd.walk[Math.floor(secs * 6 + seed) % herd.walk.length];
+              // No cercado, menores que na estrada: três bichos na escala da pessoa não cabem no desenho do cercado.
+              this.building(left ? this.left(name) : name, X(pen.x + ox), Y(pen.y + oy + 0.5), z * PX * PEN_SCALE * herd.rows, HERD_TINT[v.herd!.kind]);
+            } else this.building(left ? this.left(animal) : animal, X(pen.x + ox), Y(pen.y + oy + 0.5), z * 0.62, HERD_TINT[v.herd!.kind]);
           }
           left -= shown;
         }
@@ -226,15 +295,6 @@ export class SpriteCollector {
         if (off(sx, sy, MARGIN)) continue;
         this.building('ruin', sx, sy, z * 1.25, RUIN_TINT);
       }
-      // Postos de pedágio nos passos de montanha (RF-VIDA-286).
-      for (const [t, owner] of eco.tolls) {
-        const o = eco.villages[owner];
-        if (!o || o.abandoned) continue;
-        const sx = X((t % mw) + 0.5);
-        const sy = Y(Math.floor(t / mw) + 1);
-        if (off(sx, sy, MARGIN)) continue;
-        this.building('toll', sx, sy, z * 0.9, eco.villages[o.kingdom].color);
-      }
     }
     // De cima para baixo, para as construções da frente cobrirem as de trás (na ordem de chegada quando empatam).
     const order = this.order;
@@ -265,7 +325,7 @@ export class SpriteCollector {
         layer.push(this.flag(king.vocation), sx + z * 0.1, sy - z * 0.4 + bob + rows * px, z * 0.55, king.color);
       }
     }
-    this.caravans(eco, view, layer, z, small);
+    this.caravans(eco, view, layer, z, small, now);
     // Carcaças: o que sobrou de uma caçada ou de uma morte no mato, até apodrecer (necrófagos vêm comer).
     if (!small) {
       for (const cc of eco.carcasses) {
@@ -288,6 +348,7 @@ export class SpriteCollector {
       const row = view.toRow(view.center.y);
       visible(view.center.x - halfW, view.center.x + halfW, row - halfH, row + halfH, creature);
     } else for (let i = 0; i < eco.count; i++) creature(i);
+    this.deaths(eco, view, layer, z, small, now);
     this.effects(eco, view, layer, z);
     layer.end();
   }
@@ -303,6 +364,10 @@ export class SpriteCollector {
     if (sp.kind === 'sapient') {
       // Aparência pela profissão e pela idade; a pele de espécies alienígenas é a cor da espécie.
       const body = bodyOf(sp);
+      if (body === 'human') {
+        this.human(eco, layer, i, sx, sy, z, now, tint);
+        return;
+      }
       const role = vi >= 0 ? eco.role[i] : 0;
       const era = vi >= 0 ? Math.floor(eco.villages[vi].tech) : 0;
       if (role === CHILD) {
@@ -312,8 +377,8 @@ export class SpriteCollector {
       const elder = eco.age[i] >= elderAge(sp, era) && role < LEADER;
       // Soldado montado (RF-VIDA-223): o cavalo embaixo e o soldado em cima.
       if (eco.mounted(i)) {
-        layer.push(eco.vx[i] < 0 ? this.left('horse') : 'horse', sx, sy - z * 0.45, z * 0.9, HORSE_COAT);
-        layer.push(this.role(body, 'soldier'), sx, sy - z * 1.15, z * 0.95 * (11 / 9), tint, sp.color);
+        const base = this.horse(eco, layer, i, sx, sy, z, now);
+        layer.push(this.role(body, 'soldier'), sx, base + z * PX * (SADDLE - 4), z * 0.95 * (11 / 9), tint, sp.color);
         return;
       }
       // Gesto no lugar da tarefa (RF-AS-27): quem trabalha balança no ritmo do gesto, com a ferramenta ao lado.
@@ -330,9 +395,139 @@ export class SpriteCollector {
       return;
     }
     const name: SpriteName = spriteOf(sp);
+    const f = animalFrames(name, sp.origin === EARTH_ID);
+    if (f) {
+      // Desenho novo, na escala da pessoa (o tamanho já está no desenho): anda, come ou respira, olhando para onde vai.
+      const seed = (i * 37) % 1000;
+      const moving = eco.vx[i] * eco.vx[i] + eco.vy[i] * eco.vy[i] > 1e-4;
+      const frame = moving ? walkFrame(f, now, seed) : eco.act[i] === ACT.eat ? f.eat[Math.floor(now / 400 + seed) % f.eat.length] : f.idle[Math.floor(now / 700 + seed) % f.idle.length];
+      layer.push(eco.vx[i] < 0 ? this.left(frame) : frame, sx, sy - z * 0.5 - z * PX, z * PX * f.rows, tint);
+      return;
+    }
     // Altura pelo tamanho da espécie; os bichos olham para onde andam.
     const height = (name === 'fish' ? 0.5 : name === 'shark' ? 0.55 : name === 'whale' ? 0.7 : 0.85) * (sp.size ?? 1);
     layer.push(eco.vx[i] < 0 ? this.left(name) : name, sx, sy - z * 0.5, z * height, tint);
+  }
+
+  /** Cavalo da cavalaria andando ou parado; devolve a base do desenho (para o soldado sentar no lombo). */
+  private horse(eco: Ecosystem, layer: SpriteLayer, i: number, sx: number, sy: number, z: number, now: number): number {
+    const moving = eco.vx[i] * eco.vx[i] + eco.vy[i] * eco.vy[i] > 1e-4;
+    const frame = moving ? walkFrame(HORSE, now, i) : HORSE.idle[Math.floor(now / 700 + i) % 2];
+    const base = sy - z * 0.5 - z * PX;
+    layer.push(eco.vx[i] < 0 ? this.left(frame) : frame, sx, base, z * PX * HORSE.rows, HORSE_COAT);
+    return base;
+  }
+
+  private humanKey(eco: Ecosystem, i: number): string {
+    return humanKey(eco, eco.kind[i], eco.village[i], eco.role[i], eco.age[i]);
+  }
+
+  /**
+   * Humano no sprite de 16x18: parado (respira), andando (4 quadros) ou
+   * trabalhando (o gesto da ferramenta). Gênero, pele e cabelo saem do uid;
+   * a faixa da cintura e a farda de soldados e guardas levam a cor do reino.
+   */
+  private human(eco: Ecosystem, layer: SpriteLayer, i: number, sx: number, sy: number, z: number, now: number, tint: readonly number[]): void {
+    let key = this.humanKey(eco, i);
+    // O mercador na estrada, à frente da caravana, é o comerciante viajante (mochila e cajado).
+    if (key === 'merchant' && eco.trip[i]) key = 'trader';
+    const person = personOf(eco.uid[i], key === ELDER);
+    const frames = HUMAN_FRAMES[key][person.female ? 1 : 0];
+    const hgt = z * HUMAN_H;
+    const foot = sy - z * 0.5 - hgt / 18;
+    // Soldado montado (RF-VIDA-223): o cavalo embaixo e o soldado em cima.
+    if (eco.mounted(i)) {
+      const base = this.horse(eco, layer, i, sx, sy, z, now);
+      layer.push(HUMAN_FRAMES.soldier[person.female ? 1 : 0].idle[0], sx, base + z * PX * (SADDLE - 4), hgt, tint, person.skin, person.hair);
+      return;
+    }
+    const phase = (i * 37) % 1000;
+    const moving = eco.vx[i] * eco.vx[i] + eco.vy[i] * eco.vy[i] > 1e-4;
+    let name: string;
+    if (!moving && WORKING.has(eco.gesture[i])) {
+      const ticks = frames.workTicks;
+      let total = 0;
+      for (const t of ticks) total += t;
+      let t = Math.floor(now / 90 + phase) % total;
+      let k = 0;
+      while (t >= ticks[k]) t -= ticks[k++];
+      name = frames.work[k];
+    } else if (moving) name = frames.walk[Math.floor(now / 150 + phase) % 4];
+    else name = frames.idle[Math.floor(now / 700 + phase) % 2];
+    // Sem o ícone de 4x4 da carga ao lado: pequeno demais para ler no sprite novo e um sprite a menos por pessoa.
+    layer.push(name, sx, foot, hgt, tint, person.skin, person.hair);
+  }
+
+  /** Humano andando numa caravana ou comitiva (sem índice de criatura: a semente dá gênero, pele e cabelo). */
+  private walker(layer: SpriteLayer, body: string, role: string, seed: number, x: number, y: number, z: number, now: number, tint: readonly number[], skin: readonly number[]): void {
+    if (body !== 'human') {
+      const small = role === 'child';
+      layer.push(this.role(body, role), x, y - z * 0.5, z * 1.05 * (small ? 6 / 9 : 11 / 9), tint, skin);
+      return;
+    }
+    const person = personOf(seed);
+    const frames = HUMAN_FRAMES[lookKey(role)][person.female ? 1 : 0];
+    const hgt = z * HUMAN_H;
+    layer.push(frames.walk[Math.floor(now / 150 + (seed % 7)) % 4], x, y - z * 0.5 - hgt / 18, hgt, tint, person.skin, person.hair);
+  }
+
+  /**
+   * Mortes de humanos na tela: quem cai pisca em vermelho,
+   * fica preto em pé, cai deitado e some. As mortes novas entram no começo
+   * de `eco.deaths`; o corpo ainda está no índice (só `alive` foi zerado).
+   */
+  private deaths(eco: Ecosystem, view: Viewport, layer: SpriteLayer, z: number, small: boolean, now: number): void {
+    const list = eco.deaths;
+    if (this.deathEco !== eco) {
+      // Mundo novo (ou carregado): as mortes que já estavam lá não animam.
+      this.deathEco = eco;
+      this.dying.length = 0;
+    } else if (!small) {
+      for (let k = 0; k < list.length && list[k] !== this.lastDeath; k++) {
+        const d = list[k];
+        // Quem morreu vem descrito na própria morte: o índice pode já ter sido reaproveitado por um nascimento.
+        if (d.kind === undefined || d.village === undefined || d.role === undefined) continue;
+        const sp = eco.species[d.kind];
+        if (sp && sp.kind !== 'sapient') {
+          // Bicho: pisca em vermelho, fica preto e vira uma elipse deitada (a carcaça não morre).
+          const f = animalFrames(spriteOf(sp), sp.origin === EARTH_ID);
+          if (f && f.hit !== f.idle[0]) this.dying.push({ x: d.x, y: d.y, frames: f, rows: f.rows, tint: sp.color, skin: sp.color, hair: sp.color, t0: now });
+          if (this.dying.length > 64) this.dying.shift();
+          continue;
+        }
+        if (sp?.kind !== 'sapient' || bodyOf(sp) !== 'human') continue;
+        const vi = d.village;
+        const key = humanKey(eco, d.kind, vi, d.role, d.age);
+        const person = personOf(d.uid, key === ELDER);
+        this.dying.push({
+          x: d.x,
+          y: d.y,
+          frames: HUMAN_FRAMES[key][person.female ? 1 : 0],
+          rows: 18,
+          tint: vi >= 0 ? eco.villages[vi].color : sp.color,
+          skin: person.skin,
+          hair: person.hair,
+          t0: now,
+        });
+        if (this.dying.length > 64) this.dying.shift();
+      }
+    }
+    this.lastDeath = list[0];
+    let n = 0;
+    for (const d of this.dying) {
+      const t = now - d.t0;
+      if (t > DEATH_MS.end) continue;
+      this.dying[n++] = d;
+      if (small) continue;
+      const sx = view.screenX(d.x, z);
+      const sy = view.glY(d.y, z);
+      if (sx < -MARGIN || sx > view.width + MARGIN || sy < -MARGIN || sy > view.height + MARGIN) continue;
+      const f = d.frames;
+      const name = t < DEATH_MS.hit ? f.idle[0] : t < DEATH_MS.red ? f.hit : t < DEATH_MS.dark ? f.dead : f.fallen;
+      // O quadro deitado tem a mesma altura do de pé: a escala não muda.
+      layer.push(name, sx, sy - z * 0.5 - z * PX, z * PX * d.rows, d.tint, d.skin, d.hair);
+    }
+    this.dying.length = n;
   }
 
   /**
@@ -340,12 +535,11 @@ export class SpriteCollector {
    * atrás, com fardos no lombo na Idade da Pedra, carroça do Bronze ao Ferro
    * e carroção coberto depois. Na transumância, o pastor e o rebanho.
    */
-  private caravans(eco: Ecosystem, view: Viewport, layer: SpriteLayer, z: number, small: boolean): void {
+  private caravans(eco: Ecosystem, view: Viewport, layer: SpriteLayer, z: number, small: boolean, now: number): void {
     const w = view.width;
     const h = view.height;
     const X = (x: number) => view.screenX(x, z);
     const Y = (row: number) => view.glY(row, z);
-    const tall = z * 1.05 * (11 / 9);
     for (const c of eco.caravans) {
       const home = eco.villages[c.home];
       const sx = X(c.x);
@@ -362,26 +556,25 @@ export class SpriteCollector {
       const body = bodyOf(sp);
       if (c.kind === 'flock') {
         const name = HERD_SPRITES[c.animal] ?? 'sheep';
+        const flock = animalFrames(name);
         const shown = Math.min(5, c.animals);
         for (let k = shown; k >= 1; k--) {
           const ax = X(c.x - c.facing * (0.7 + 0.55 * k));
           const ay = Y(c.y + 0.35 * (((k * 7) % 3) - 1));
-          layer.push(left ? this.left(name) : name, ax, ay - z * 0.5, z * 0.62, HERD_TINT[c.animal] ?? FLOCK_TINT);
+          if (flock) {
+            const frame = walkFrame(flock, now, k * 3);
+            layer.push(left ? this.left(frame) : frame, ax, ay - z * 0.5 - z * PX, z * PX * flock.rows, FLOCK_TINT);
+          } else layer.push(left ? this.left(name) : name, ax, ay - z * 0.5, z * 0.62, HERD_TINT[c.animal] ?? FLOCK_TINT);
         }
-        layer.push(this.role(body, 'shepherd'), sx, sy - z * 0.5, tall, home.color, sp.color);
+        // O pastor é uma pessoa do mapa (desenhada com as criaturas); só os saves antigos guardam ele na caravana.
+        if (!c.crew.live) this.walker(layer, body, 'shepherd', c.id * 31 + 1, sx, sy, z, now, home.color, sp.color);
         continue;
       }
-      // Visita (RF-AS-42): viajantes a pé, sem animal; colonos (RF-AS-03): famílias andando atrás do enxoval.
+      // Visita (RF-AS-42): quem viaja vai a pé, sem animal. Toda pessoa na tela é de verdade (dá para clicar):
+      // quem lidera anda no mapa com as criaturas, e a caravana só desenha os animais e a carroça.
       if (c.kind === 'visit') {
-        layer.push(this.role(body, 'gatherer'), bx(0.7), by(0.7) - z * 0.5, tall, home.color, sp.color);
-        layer.push(this.role(body, 'merchant'), sx, sy - z * 0.5, tall, home.color, sp.color);
+        if (!c.crew.live) this.walker(layer, body, 'trader', c.id * 31 + 3, sx, sy, z, now, home.color, sp.color);
         continue;
-      }
-      if (c.kind === 'settlers') {
-        for (let k = 3; k >= 1; k--) {
-          const d = 1.6 + k * 0.6;
-          layer.push(this.role(body, k === 3 ? 'child' : 'farmer'), bx(d), by(d) - z * 0.5, z * 1.05 * (k === 3 ? 6 / 9 : 11 / 9), home.color, sp.color);
-        }
       }
       const animal = c.animal === 'donkey' ? 'donkey' : c.animal;
       const tint = c.animal === 'donkey' ? DONKEY_TINT : (HERD_TINT[c.animal] ?? CARGO_TINT);
@@ -390,16 +583,24 @@ export class SpriteCollector {
       if (c.cart > 0) {
         const cart = c.cart >= 2 ? 'wagon' : 'cart';
         const d = 0.8 + n * 0.85;
-        layer.push(left ? this.left(cart) : cart, bx(d), by(d) - z * 0.5, z * (c.cart >= 2 ? 0.95 : 0.7), home.color);
+        layer.push(left ? this.left(cart) : cart, bx(d), by(d) - z * 0.5, z * (c.cart >= 2 ? 1.05 : 0.8), home.color);
       }
       for (let k = n; k >= 1; k--) {
         const d = 0.15 + k * 0.85;
         const ax = bx(d);
         const ay = by(d);
-        layer.push(left ? this.left(animal) : animal, ax, ay - z * 0.5, z * 0.72, tint);
-        if (c.cart === 0) layer.push(left ? 'packs:l' : 'packs', ax - c.facing * z * 0.05, ay - z * 0.5 + z * 0.42, z * 0.32, tint);
+        const f = animalFrames(animal);
+        if (f) {
+          const frame = walkFrame(f, now, k * 2);
+          layer.push(left ? this.left(frame) : frame, ax, ay - z * 0.5 - z * PX, z * PX * f.rows, tint);
+          // Fardos no lombo: um pouco abaixo do topo do desenho.
+          if (c.cart === 0) layer.push(left ? 'packs:l' : 'packs', ax - c.facing * z * 0.05, ay - z * 0.5 + z * PX * (f.rows * 0.5), z * 0.32, tint);
+        } else {
+          layer.push(left ? this.left(animal) : animal, ax, ay - z * 0.5, z * 0.72, tint);
+          if (c.cart === 0) layer.push(left ? 'packs:l' : 'packs', ax - c.facing * z * 0.05, ay - z * 0.5 + z * 0.42, z * 0.32, tint);
+        }
       }
-      layer.push(this.role(body, 'merchant'), sx, sy - z * 0.5, tall, home.color, sp.color);
+      if (!c.crew.live) this.walker(layer, body, 'trader', c.id * 31 + 9, sx, sy, z, now, home.color, sp.color);
     }
   }
 

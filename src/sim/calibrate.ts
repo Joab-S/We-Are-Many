@@ -64,8 +64,6 @@ export interface Indicators {
   routeTiles: number;
   /** Assentamentos que produzem algum luxo (RF-VIDA-282). */
   luxuries: number;
-  /** Postos de pedágio (RF-VIDA-286). */
-  tolls: number;
   /** Seção 19.19: moradores no fim e a razão entre o fim e 60% da rodada (boom acima de 1, declínio abaixo). */
   people: number;
   peopleTrend: number;
@@ -197,8 +195,18 @@ export function seedPlanet(params: PlanetParams, seed: number, species = nativeS
  * (`YEAR_SECONDS`), em que os dois relógios coincidem e toda a calibração foi feita; com o ano do jogo
  * (`REAL_YEAR_SECONDS`, 12 s) mede o que o jogador vê: `years` anos exibidos, cada um com dois anos de ação.
  * Nos scripts de calibração, pela variável de ambiente YEAR_SPAN.
+ *
+ * `onYear`, se vier, é chamado no fim de cada ano (1, 2, ...) com o mundo vivo: serve para fotografar o mesmo mundo
+ * em vários anos sem rodar de novo (src/sim/sharedWorld.ts).
  */
-export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = YEAR_SECONDS, planet?: PlanetParams, species?: Species[]): { eco: Ecosystem; indicators: Indicators } {
+export function runWorld(
+  seed: number,
+  years: number,
+  radius = 0.4,
+  yearSpan = YEAR_SECONDS,
+  options: { planet?: PlanetParams; species?: Species[]; onYear?: (year: number, eco: Ecosystem) => void } = {},
+): { eco: Ecosystem; indicators: Indicators } {
+  const { planet, species, onYear } = options;
   const { eco, map, placed } = planet ? seedPlanet(planet, seed, species) : seedWorld(seed, radius);
   // Como no jogo: o ano da tela é definido depois de povoar o mundo.
   eco.yearSpan = yearSpan;
@@ -227,6 +235,7 @@ export function runWorld(seed: number, years: number, radius = 0.4, yearSpan = Y
     const moving = eco.caravans.filter((c) => c.kind === 'trade' || c.kind === 'tribute').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
     caravans += moving;
     caravansMax = Math.max(caravansMax, moving);
+    onYear?.(y + 1, eco);
   }
   return { eco, indicators: indicatorsOf(eco, seed, { years, villages: placed }, { wars, cavalry, caravans, caravansMax, mid, trees0, trees: countTrees() }) };
 }
@@ -377,7 +386,6 @@ export function indicatorsOf(eco: Ecosystem, seed: number, base: IndicatorBase, 
     agreements: eco.agreements.length,
     routeTiles: eco.routeTiles,
     luxuries: live.filter((v) => v.luxury && Math.floor(v.tech) >= 0).filter((v) => (v.ledger?.[v.luxury!]?.[0] ?? 0) > 0).length,
-    tolls: eco.tolls.size,
     people,
     peopleTrend: run.mid ? people / run.mid : 0,
     foodNeed: live.reduce((n, v) => n + (v.needs?.food ?? 1), 0) / Math.max(1, live.length),
@@ -609,7 +617,6 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   agreements: 'Acordos comerciais no fim',
   routeTiles: 'Tiles de estrada nascidos do uso',
   luxuries: 'Assentamentos que produzem luxo',
-  tolls: 'Postos de pedágio',
   people: 'Moradores no fim',
   peopleTrend: 'Moradores: fim ÷ 60% da rodada',
   foodNeed: 'Atendimento médio de comida',

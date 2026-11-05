@@ -18,6 +18,9 @@ export const savePart = {
     this.uidIndex.clear();
     for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidIndex.set(this.uid[k], k);
     delete (this as { uidYear?: number }).uidYear;
+    // Saves de antes da remoção do pedágio ainda trazem os postos.
+    delete (this as { tolls?: unknown }).tolls;
+    for (const c of this.caravans) delete (c as { tolls?: unknown }).tolls;
     // Saves de antes do modo de vida (bioma e sociedade): todo lugar era sedentário (todos plantavam).
     for (const v of this.villages) (v as { lifeway?: Village['lifeway'] }).lifeway ??= 'sedentario';
     // Saves de antes do handle do líder: o uid do líder guardado sai do índice (se ele ainda vive ali).
@@ -38,7 +41,13 @@ export const savePart = {
       this.origin.set(old);
     }
     // Saves de antes das jornadas: todo mundo sem jornada, sem carga e descansado.
-    for (const k of ['day', 'dayLeg', 'carry', 'gesture'] as const) if (this[k].length < n) this[k] = new Uint8Array(n);
+    for (const k of ['day', 'dayLeg', 'carry', 'gesture', 'trip'] as const) if (this[k].length < n) this[k] = new Uint8Array(n);
+    // Quem lidera uma caravana viaja com ela (o vetor é refeito das caravanas, para não depender do save).
+    this.trip.fill(0);
+    for (const c of this.caravans) {
+      const k = c.crew.live && c.crew.who ? this.uidIndex.get(c.crew.who.uid) : undefined;
+      if (k !== undefined && this.alive[k]) this.trip[k] = 1;
+    }
     if (this.dayAt.length < n) this.dayAt = new Int32Array(n);
     for (const k of ['dayTime', 'carryAmt', 'needRest', 'needSocial', 'needFaith'] as const) if (this[k].length < n) this[k] = new Float32Array(n);
     // Saves de antes do plano novo dos assentamentos: sem muralha e com os contadores novos zerados.

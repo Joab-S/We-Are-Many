@@ -65,6 +65,8 @@ Para uma cena nova, acrescente uma função em `src/client/cenas.ts`.
 
 **CI.** Cada PR para a `development` roda, em `.github/workflows/ci.yml`, os tipos, o build, a suíte inteira e o `test:jogo`. As capturas ficam como artefato (`capturas`) na página da rodada.
 
+**Mundos longos.** Os testes que rodam um mundo de 200 ou 300 anos dividem a rodada por semente, em `src/sim/mundo42.test.ts` e `src/sim/mundo7.test.ts`: o mundo roda uma vez e cada teste recebe uma cópia dele no ano que precisa (`src/sim/sharedWorld.ts`).
+
 **Antes de um PR.** A skill [`testar-pr`](.claude/skills/testar-pr/SKILL.md) reúne o que rodar para cada tipo de mudança, o que olhar nas capturas e o que fazer quando algo falha. O Claude Code a usa sozinho, e ela também serve de roteiro para ler.
 
 ## Controles

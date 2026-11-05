@@ -35,7 +35,7 @@ it('calibração nos planetas tipo', async () => {
     const parts: ReturnType<typeof partsOf>[] = [];
     let ever = 0;
     for (let k = 0; k < seeds; k++) {
-      const { eco, indicators } = runWorld(1000 + k * 37, years, params.radiusEarth, YEAR_SECONDS, params, species());
+      const { eco, indicators } = runWorld(1000 + k * 37, years, params.radiusEarth, YEAR_SECONDS, { planet: params, species: species() });
       runs.push(indicators);
       parts.push(partsOf(eco));
       ever += eco.villages.length / seeds;
