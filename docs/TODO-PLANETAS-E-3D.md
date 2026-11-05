@@ -11,10 +11,10 @@ Convenções do projeto que valem para tudo aqui:
 
 ## 0. Decisões antes de começar
 
-- [ ] **Rever os três requisitos que proíbem o pouso 3D.** `docs/REQUISITOS.md:79` (pilar "a única troca de modo é a entrada na superfície 2D"), `:532` (pouso 3D na lista *Won't*) e RF-SUP-02 (`:287`, descartar o 3D inteiro ao entrar no 2D). Estratégia: trocar o pilar por "o 3D e o 2D mostram o mesmo mapa; a troca é por altitude, com fusão", mover o pouso 3D de *Won't* para *Could* com as etapas 2 e 3 abaixo, e reescrever o RF-SUP-02 como "o 3D é descartado depois da fusão". Registrar a mudança na seção 0 do documento, como manda a regra do projeto.
-- [ ] **O tempo passa nos planetas que não estão sendo olhados?** Opções: congelar (hoje) ou pôr em dia ao voltar. A escolha define a tarefa C2. Recomendação: pôr em dia, com teto de anos e de tempo de máquina.
-- [ ] **Raio dos planetas: 100× o real (`PLANET_SCALE`) ou real?** Na descida, o exagero fica visível (um tile da Terra parece ter 3.900 km). Trocar muda a escala do voo, das órbitas comprimidas e da colisão, tudo calibrado. Recomendação: manter 100× e esconder com o exagero vertical do relevo e com a velocidade pela altitude; rever só se a Etapa 2 mostrar que incomoda.
-- [ ] **Espécies viajam entre planetas de graça ou com custo?** Hoje é de graça e sem limite (até alienígenas na Terra). Define C1.
+- [x] **Rever os três requisitos que proíbem o pouso 3D.** Decidido em 05/11/2026: liberar e fazer as etapas 2 e 3. `docs/REQUISITOS.md:79` (pilar "a única troca de modo é a entrada na superfície 2D"), `:532` (pouso 3D na lista *Won't*) e RF-SUP-02 (`:287`, descartar o 3D inteiro ao entrar no 2D). Estratégia: trocar o pilar por "o 3D e o 2D mostram o mesmo mapa; a troca é por altitude, com fusão", mover o pouso 3D de *Won't* para *Could* com as etapas 2 e 3 abaixo, e reescrever o RF-SUP-02 como "o 3D é descartado depois da fusão". Registrar a mudança na seção 0 do documento, como manda a regra do projeto.
+- [x] **O tempo passa nos planetas que não estão sendo olhados?** Decidido em 05/11/2026: pôr em dia, com teto de 200 anos e 5 s de máquina. Opções: congelar (hoje) ou pôr em dia ao voltar. A escolha define a tarefa C2. Recomendação: pôr em dia, com teto de anos e de tempo de máquina.
+- [x] **Raio dos planetas: 100× o real (`PLANET_SCALE`) ou real?** Decidido em 05/11/2026: manter 100×. Na descida, o exagero fica visível (um tile da Terra parece ter 3.900 km). Trocar muda a escala do voo, das órbitas comprimidas e da colisão, tudo calibrado. Recomendação: manter 100× e esconder com o exagero vertical do relevo e com a velocidade pela altitude; rever só se a Etapa 2 mostrar que incomoda.
+- [x] **Espécies viajam entre planetas de graça ou com custo?** Decidido em 05/11/2026: com custo. Hoje é de graça e sem limite (até alienígenas na Terra). Define C1.
 
 ## 1. Correções baratas (Etapa 0 do 3D e os bugs achados)
 

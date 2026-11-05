@@ -76,7 +76,7 @@ O livro serve de **inspiração temática**. Termos comuns e genéricos podem se
 | Pilar | O que significa na prática |
 |---|---|
 | **Universo real** | Estrelas e exoplanetas conhecidos estão onde a astronomia diz que estão. O que a ciência ainda não catalogou é preenchido proceduralmente, de forma determinística e coerente. |
-| **Escala contínua** | Sem telas de carregamento entre galáxia, sistema e órbita. A transição é um zoom contínuo. A única troca de "modo" é a entrada na superfície 2D. |
+| **Escala contínua** | Sem telas de carregamento entre galáxia, sistema e órbita. A transição é um zoom contínuo. O 3D e o 2D mostram o mesmo mapa; a troca entre eles é por altitude, com fusão. (Antes: "a única troca de modo é a entrada na superfície 2D".) |
 | **Nunca longe de algo interessante** | O jogador voa rápido e livre. A escala de tempo e velocidade é ajustada para que o próximo ponto de interesse esteja sempre a poucos minutos, nunca horas. |
 | **Simples e belo** | Arte 3D limpa e leve, sem exageros. Arte 2D em pixel art no estilo WorldBox. |
 | **Leve no navegador** | Só o que está perto é carregado. Tudo é transmitido em chunks e descartado quando sai do alcance. |
@@ -284,7 +284,7 @@ Situação em 20/10/2026: RF-RES-02, 03 e 05 implementados em parte pelas sondas
 | ID | Requisito | Situação |
 |---|---|---|
 | RF-SUP-01 | No menu de ações orbital, a opção **Observar** abre a superfície do planeta numa visão 2D de cima **praticamente igual ao WorldBox**: mesmo tipo de enquadramento, mapa em grade onde **cada pixel do mapa representa um elemento** (um tile de terreno, água, árvore, rocha), unidades e construções pequenas em pixel art, barra de ferramentas (poderes) na parte de baixo, câmera com zoom e arrastar. | Feito: mapa de um pixel por tile, sprites em pixel art no zoom, barra de ferramentas embaixo com abas, zoom e arrastar (detalhes no REQUISITOS-VIDA.md, seção 14) |
-| RF-SUP-02 | Ao entrar na visão 2D, toda a cena 3D é descarregada da memória (geometrias, texturas, chunks), mantendo só o estado lógico necessário para voltar. Ao sair, a cena 3D é recarregada na mesma posição. | Feito: a cena 3D é descartada ao entrar e reconstruída na mesma posição ao sair; a superfície desenha num canvas 2D próprio |
+| RF-SUP-02 | Ao entrar na visão 2D, a cena 3D é descartada da memória (geometrias, texturas, chunks) **depois da fusão**, mantendo só o estado lógico necessário para voltar. Ao sair, a cena 3D é recarregada na mesma posição. (Antes: toda a cena 3D era descarregada na entrada, sem os dois modos vivos ao mesmo tempo.) | Feito: a cena 3D é descartada ao entrar e reconstruída na mesma posição ao sair; a superfície desenha num canvas 2D próprio |
 | RF-SUP-03 | O mapa 2D é gerado deterministicamente a partir dos parâmetros do planeta (temperatura, água, gravidade, atmosfera, tipo da estrela). Ele "dá a volta" horizontalmente (mundo cilíndrico). | Feito: gerado num Web Worker por ruído determinístico, mundo cilíndrico |
 | RF-SUP-13 | O tamanho do mapa é proporcional ao tamanho do planeta: largura = 1024 × raio em raios terrestres, arredondada, entre 192 e 2048 tiles, e altura = metade. Terra = 1024×512, Marte ≈ 544×272, super-Terra (2 raios terrestres) = teto de 2048×1024. Luas pequenas e asteroides grandes podem ter mapas menores. (Antes: Marte ≈ 256×128, Terra ≈ 512×256, super-Terra ≈ 1024×512; os mapas dobraram a pedido do Joab em 19/10/2026, para caber mais coisa e ver as espécies.) | Feito |
 | RF-SUP-14 | Gigantes gasosos não têm superfície terraformável; "Observar" mostra apenas a atmosfera em camadas (faixas, tempestades) e recursos coletáveis da atmosfera. | A fazer (Fase 4): hoje o menu de órbita diz "Sem superfície sólida" e só os anéis rendem sondas |
@@ -528,8 +528,8 @@ tools/
 |---|---|
 | **Must** (MVP jogável) | RF-NAV-01 a 07, 09, 10, RF-SYS-01 a 05, 07, RF-RES-01 a 05, RF-FAB-01, 02, 07, RF-SUP-01 a 06, 13, RF-ART-01 a 03, RF-UI-01, 02, 04, RNF-01 a 07, 11, 12 |
 | **Should** (primeira versão completa, solo) | RF-NAV-08, 11, RF-SYS-06, RF-RES-06, RF-FAB-03 a 06, 08, RF-PES-01 a 03, RF-COM-01 a 04, RF-SUP-07 a 12, 14, RF-BAS-01 a 08, RF-ART-04, 05, RF-AME-01, 03, 04, RF-UI-03, 05, 06 |
-| **Could** (coop e expansão) | RF-AME-02, 05, RF-ONL-01 a 06, 08, RNF-08 a 10, Gaia completo |
-| **Won't** (por enquanto) | Monetização, universo público (RF-ONL-07), PvP, pouso em planetas em 3D, combate em tempo real detalhado, criação de espécies do zero (decisão de design), WebGPU obrigatório, mobile |
+| **Could** (coop e expansão) | RF-AME-02, 05, RF-ONL-01 a 06, 08, RNF-08 a 10, Gaia completo, pouso em planetas em 3D (descida com quadtree e fusão até o mapa 2D; etapas 2 e 3 de [TODO-PLANETAS-E-3D.md](TODO-PLANETAS-E-3D.md)) |
+| **Won't** (por enquanto) | Monetização, universo público (RF-ONL-07), PvP, combate em tempo real detalhado, criação de espécies do zero (decisão de design), WebGPU obrigatório, mobile |
 
 Requisitos que nasceram depois desta tabela (RF-NAV-12 a 17, RF-SYS-08 e 09, RF-GUI, RF-SON, RNF-14 a 16 e quase todo o REQUISITOS-VIDA.md) já foram feitos ou estão priorizados no backlog da seção 8.1. Muitos itens **Should** e **Could** foram adiantados a pedido do Joab, principalmente a vida nos planetas e as sondas.
 
@@ -794,6 +794,9 @@ O que foi implementado gerou requisitos novos e mudou a ordem do que falta. A li
 | 24/10/2026 | Progressão tecnológica reformulada (Opção 1): sem temporizador artificial de séculos nem trava rígida de pontos; o avanço é orgânico e segue a sequência física dos materiais (ferramentas iniciais de pedra e madeira → cerâmica e fornos → fundição de cobre, estanho ou bronze → siderurgia do ferro → aço com carvão e alvenaria → vapor), a divisão do trabalho pelas necessidades e a experimentação individual de moradores no ofício (cada NPC tem aptidão/curiosidade própria, descobre uma técnica trabalhando com o recurso e a ensina aos poucos para a aldeia; se morrer antes de ensinar, a descoberta se perde). |
 | 24/10/2026 | A ferramenta "📜 Ensinar" na aba Civilização foi retirada da interface por enquanto a pedido do Joab, por ser vaga demais, ficando para ser repensada no futuro. |
 | 27/10/2026 | Continuação da progressão orgânica (RF-VIDA-419 a 421): a ficha mostra quem está ensinando uma técnica; a morte ou partida do sábio abala a aldeia e, com o ensino adiantado, um aprendiz guarda parte; quem tem mais jeito para o ofício que falta muda primeiro; caravanas levam amostras que inspiram os artesãos do destino. Limites (60%, 30%, 2,5×, 10 anos) são padrão proposto, não decisão do Joab. |
+| 05/11/2026 | Pouso em 3D liberado: o pilar "Escala contínua" passa a dizer que o 3D e o 2D mostram o mesmo mapa e trocam por altitude, com fusão; o RF-SUP-02 descarta o 3D depois da fusão; o pouso 3D sai de *Won't* e vai para *Could*. Os planetas continuam com 100× o raio real (`PLANET_SCALE`). |
+| 05/11/2026 | O tempo passa nos planetas que não estão sendo olhados: ao voltar, o motor põe em dia os anos perdidos, com teto de 200 anos e 5 s de máquina; o que passar disso vira uma nota na crônica. |
+| 05/11/2026 | Levar uma espécie a outro planeta custa carga, coletada na superfície de origem e levada no porão. Fora da faixa de temperatura ela morre, e a ficha diz por quê. A Terra inicial continua de graça. |
 
 ## 13. Registro de remoções
 
