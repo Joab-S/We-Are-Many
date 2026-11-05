@@ -269,7 +269,7 @@ export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces
     if (pixels) {
       map = surfaceTexture(pixels, anisotropy);
       if (webgl) {
-        const bytes = pixels.relief ?? reliefPixels(visited!.elevation, pixels.width, pixels.height);
+        const bytes = pixels.relief ?? reliefPixels(visited!.elevation, pixels.width, pixels.height, pixels.pixels);
         relief = reliefTexture(bytes, pixels.width, pixels.height);
       }
     } else {
@@ -282,7 +282,7 @@ export function createPlanetBody(p: PlanetData, world: Pick<GameState, 'surfaces
   const tilt = axialTilt(p);
   const group = new THREE.Group();
   const starDir = new THREE.Vector3(1, 0, 0);
-  const material = webgl && p.kind === 'rocky' ? rockyMaterial(map, relief ?? flatRelief(), starDir) : new THREE.MeshLambertMaterial({ map });
+  const material = webgl && p.kind === 'rocky' ? rockyMaterial(map, relief ?? flatRelief(), starDir, p.atmosphere ? 1 : 0) : new THREE.MeshLambertMaterial({ map });
   const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 64, 32), material);
   orientPlanet(sphere, tilt);
   sphere.name = 'surface';

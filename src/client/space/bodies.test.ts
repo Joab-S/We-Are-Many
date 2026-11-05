@@ -275,6 +275,31 @@ describe('textura de relevo', () => {
     expect(at(out, 0, 1)[0]).toBe(255);
   });
 
+  it('as luzes da noite vêm do retrato: casas acendem, avenidas menos, e enfeite nenhum', () => {
+    const e = grid(() => 0.2);
+    const art = new Uint8Array(W * H * 4);
+    const code = (x: number, kind: number) => (art[(W + x) * 4 + 3] = kind * 16 + 15);
+    code(1, 15);
+    code(2, 9);
+    code(3, 1);
+    const out = reliefPixels(e, W, H, art);
+    expect(at(out, 1, 1)[2]).toBeGreaterThanOrEqual(90);
+    expect(at(out, 2, 1)[2]).toBeGreaterThan(0);
+    expect(at(out, 2, 1)[2]).toBeLessThan(90);
+    expect(at(out, 3, 1)[2]).toBe(0);
+    expect(at(reliefPixels(e, W, H), 1, 1)[2]).toBe(0);
+  });
+
+  it('num planeta visitado, a casa pintada no retrato chega ao shader', () => {
+    const map = smallMap(earth);
+    const art = new Uint8Array(map.width * map.height * 4);
+    art[3] = 15 * 16 + 15;
+    const world = { surfaces: new Map([[earth.id, map]]), surfaceArt: new Map([[earth.id, art]]) };
+    const body = createPlanetBody(earth, world, 1, true);
+    const relief = ((body.surface as THREE.Mesh).material as THREE.ShaderMaterial).uniforms.uRelief.value as THREE.DataTexture;
+    expect(relief.image.data![2]).toBeGreaterThanOrEqual(90);
+  });
+
   it('a costa não vira penhasco: o fundo do mar conta como nível zero', () => {
     const deep = reliefPixels(grid((x) => (x >= 4 ? 0.1 : -0.9)), W, H);
     const shallow = reliefPixels(grid((x) => (x >= 4 ? 0.1 : -0.01)), W, H);

@@ -283,7 +283,8 @@ export class SpaceMode implements GameMode {
 
   private jumpToEarth(): void {
     const pos = planetOffset(SOL_PLANETS[2], this.state.time, new THREE.Vector3());
-    this.state.shipPos.copy(pos).add(new THREE.Vector3(0.01, 0.005, 0.003));
+    // Do lado do dia: do outro, a Terra é um disco escuro.
+    this.state.shipPos.copy(pos).addScaledVector(litSide(pos, new THREE.Vector3()), 0.0116);
     this.lookAt(pos);
   }
 

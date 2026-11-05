@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { tileHash } from '../../../procgen/surface';
 
 /**
  * A esfera do planeta rochoso no WebGL: um shader que acha o ponto do mapa pela direção a partir do centro, e não pelo uv
@@ -8,6 +9,11 @@ import * as THREE from 'three';
 
 /** Maior inclinação guardada na textura de relevo, em altura de 0 a 1 por radiano. */
 export const RELIEF_SLOPE_RANGE = 16;
+/** Quanto a inclinação pesa na normal: exagero do relevo na luz, em fração do raio por unidade de elevação. */
+const RELIEF_EXAGGERATION = 0.04;
+/** Códigos do alfa do retrato do mapa (`MapRaster`, `alpha >> 4`) que acendem de noite: casas e muralhas; avenidas e praças, menos. */
+const LIT_BUILDING = 15;
+const LIT_STREETS = [9, 10];
 
 /**
  * Inverso de `tileDirection` (sem o giro): de uma direção local e unitária, a fração do mapa em que ela cai. A mesma conta
@@ -23,10 +29,11 @@ export function dirToUv(dir: { x: number; y: number; z: number }): { u: number; 
  * - R e G: inclinação para o leste e para o norte, em altura por radiano (128 é plano), para não depender da resolução do
  *   mapa. Calcular aqui, e não por diferença finita no fragmento, deixa os mipmaps filtrarem a inclinação: de longe o
  *   relevo fica mais liso em vez de cintilar, e não é preciso textura de ponto flutuante, que nem toda GPU filtra.
- * - B: reservado (a Etapa 1 guarda as luzes da noite aqui).
+ * - B: luzes da noite, das casas do retrato `art` (só um planeta visitado tem). Elas ficam aqui porque o alfa da textura de
+ *   cor guarda códigos, que o filtro da GPU embaralha; neste canal, de longe, uma cidade vira um brilho fraco, sem sumir.
  * - A: 255 em terra, 0 em água.
  */
-export function reliefPixels(elevation: Float32Array, width: number, height: number): Uint8Array {
+export function reliefPixels(elevation: Float32Array, width: number, height: number, art?: Uint8Array): Uint8Array {
   const out = new Uint8Array(width * height * 4);
   const perRadianX = width / (Math.PI * 2);
   const perRadianY = height / Math.PI;
@@ -53,7 +60,9 @@ export function reliefPixels(elevation: Float32Array, width: number, height: num
       }
       out[o] = encode(east);
       out[o + 1] = encode(north);
-      out[o + 2] = 0;
+      const code = art ? art[o + 3] >> 4 : 0;
+      // Cada casa com a sua luz, ou a cidade vira um bloco liso; o hash do tile não muda de uma visita para outra.
+      out[o + 2] = code === LIT_BUILDING ? 90 + tileHash(i) * 165 : LIT_STREETS.includes(code) ? 70 : 0;
       out[o + 3] = land ? 255 : 0;
     }
   }
@@ -79,16 +88,18 @@ export function flatRelief(): THREE.Texture {
   return tex;
 }
 
-/** Luz da estrela e luz de fundo, nas contas do `MeshLambertMaterial` com a luz de intensidade 3 e o ambiente 0,08 da cena. */
 const VERTEX = /* glsl */ `
   #include <common>
   #include <logdepthbuf_pars_vertex>
   varying vec3 vLocal;
+  varying vec3 vView;
   varying mat3 vToView;
   void main() {
     vLocal = position;
     vToView = normalMatrix;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vView = -mv.xyz;
+    gl_Position = projectionMatrix * mv;
     #include <logdepthbuf_vertex>
   }`;
 
@@ -98,7 +109,10 @@ const FRAGMENT = /* glsl */ `
   uniform sampler2D uMap;
   uniform sampler2D uRelief;
   uniform vec3 uStarDir;
+  uniform vec3 uTwilight;
+  uniform float uExaggeration;
   varying vec3 vLocal;
+  varying vec3 vView;
   varying mat3 vToView;
   void main() {
     #include <logdepthbuf_fragment>
@@ -117,18 +131,42 @@ const FRAGMENT = /* glsl */ `
     vec2 gradX = vec2(dot(dirX, east) / column, dot(dirX, north) / PI);
     vec2 gradY = vec2(dot(dirY, east) / column, dot(dirY, north) / PI);
     vec3 albedo = textureGrad(uMap, uv, gradX, gradY).rgb;
-    vec3 normal = normalize(vToView * dir);
+    vec4 relief = textureGrad(uRelief, uv, gradX, gradY);
+
+    vec2 slope = (relief.rg - 128.0 / 255.0) * (255.0 / 127.0) * ${RELIEF_SLOPE_RANGE.toFixed(1)};
+    vec3 normal = normalize(vToView * normalize(dir - uExaggeration * (slope.x * east + slope.y * north)));
+    vec3 up = normalize(vToView * dir);
     vec3 toStar = normalize(mat3(viewMatrix) * uStarDir);
-    vec3 color = albedo * (0.025 + 0.955 * max(dot(normal, toStar), 0.0));
+    // O dia e a noite saem da esfera lisa: uma montanha não acende do outro lado do terminador.
+    float sun = dot(up, toStar);
+    float day = smoothstep(-0.06, 0.14, sun);
+    // 0,955 é o que a luz de intensidade 3 dá num material comum (3/π).
+    vec3 color = albedo * (0.012 + 0.955 * max(dot(normal, toStar), 0.0) * day);
+    // O reflexo da estrela, só na água.
+    vec3 halfway = normalize(toStar + normalize(vView));
+    color += vec3(1.0, 0.95, 0.85) * (1.0 - relief.a) * day * 0.45 * pow(max(dot(up, halfway), 0.0), 90.0);
+    // O crepúsculo: uma faixa de cor na volta do terminador, se há ar para espalhar a luz.
+    color += uTwilight * smoothstep(-0.1, 0.0, sun) * (1.0 - smoothstep(0.0, 0.14, sun));
+    // As luzes da noite. A raiz segura o brilho de longe, onde o mipmap já misturou as casas com o escuro em volta.
+    color += vec3(1.0, 0.72, 0.38) * 0.6 * sqrt(relief.b) * (1.0 - smoothstep(-0.04, 0.12, sun));
     // O alfa da textura de cor guarda o código do enfeite, não transparência.
     gl_FragColor = vec4(color, 1.0);
     #include <colorspace_fragment>
   }`;
 
-/** Material da esfera. `starDir` é um vetor de quem chama, atualizado a cada quadro. */
-export function rockyMaterial(map: THREE.Texture, relief: THREE.Texture, starDir: THREE.Vector3): THREE.ShaderMaterial {
+/** Cor do crepúsculo, na força de uma atmosfera como a da Terra. */
+const TWILIGHT = new THREE.Color(0.07, 0.022, 0.007);
+
+/** Material da esfera. `starDir` é um vetor de quem chama, atualizado a cada quadro; `twilight` é a força do crepúsculo (0 sem ar). */
+export function rockyMaterial(map: THREE.Texture, relief: THREE.Texture, starDir: THREE.Vector3, twilight = 0): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uMap: { value: map }, uRelief: { value: relief }, uStarDir: { value: starDir } },
+    uniforms: {
+      uMap: { value: map },
+      uRelief: { value: relief },
+      uStarDir: { value: starDir },
+      uTwilight: { value: TWILIGHT.clone().multiplyScalar(twilight) },
+      uExaggeration: { value: RELIEF_EXAGGERATION },
+    },
     vertexShader: VERTEX,
     fragmentShader: FRAGMENT,
   });

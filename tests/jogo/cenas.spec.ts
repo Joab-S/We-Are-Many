@@ -102,6 +102,25 @@ test.describe('?cena', () => {
     await page.waitForTimeout(1000);
     await esperarImagem(page, 'a cidade na esfera');
     await capturar(page, info, 'cidade-na-esfera');
+
+    // A mesma cidade ao anoitecer: o relógio anda até o terminador passar por ela, e as casas acendem.
+    const sol = await page.evaluate(({ x, y }) => {
+      const space = window.space!;
+      const { state, systems } = space;
+      const corpo = systems.orbitBody!;
+      const estrela = systems.system!.star;
+      const altura = () => {
+        systems.updateBodies(state.time, null);
+        space.goToPlanet('Terra', 1.7, { x, y });
+        const lado = state.shipPos.clone().sub(corpo.pos).normalize();
+        return lado.dot(estrela.pos.clone().sub(corpo.pos).normalize());
+      };
+      for (let i = 0; i < 300 && !(altura() > -0.12 && altura() < -0.02); i++) state.time += 0.5;
+      return altura();
+    }, cidade);
+    expect(sol, 'a cidade no crepúsculo').toBeLessThan(0.1);
+    await page.waitForTimeout(1000);
+    await capturar(page, info, 'cidade-ao-anoitecer');
   });
 
   test('não mexe no save de verdade', async ({ page }) => {
