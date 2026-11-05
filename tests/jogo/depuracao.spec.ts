@@ -198,6 +198,20 @@ test.describe('?debug', () => {
     await expect(page.locator('.wb-sp', { hasNotText: 'no porão' }).first().locator('[data-pick]')).toBeDisabled();
     // Escolher a ferramenta já fecha a janela (o Esc largaria a ferramenta).
     await noPorao.locator('[data-pick]').click();
+    // O mapa abre sob a nave, que pode estar sobre o gelo: o clique vai em terra firme.
+    await page.evaluate(() => {
+      const { eco, view } = window.surface as unknown as { eco: { map: { width: number; height: number; elevation: Float32Array } }; view: { center: { x: number; y: number } } };
+      const { width, height, elevation } = eco.map;
+      const linha = height >> 1;
+      for (let x = 0; x < width; x++) {
+        if (elevation[linha * width + x] < 0.1) continue;
+        view.center.x = x + 0.5;
+        view.center.y = height - linha - 0.5;
+        return;
+      }
+      throw new Error('o equador sem terra');
+    });
+    await page.waitForTimeout(100);
     await page.mouse.click(640, 400);
     const estado = () =>
       page.evaluate(() => {
