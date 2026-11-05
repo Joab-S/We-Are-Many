@@ -163,6 +163,69 @@ test.describe('a esfera do rochoso', () => {
     expect(pedacos).toBeLessThan(300);
   });
 
+  test('rente à montanha mais alta, sem frestas entre os pedaços', async ({ page }, info) => {
+    test.setTimeout(MAPA_MS + 60_000);
+    await page.goto('/?debug');
+    await page.keyboard.press('Digit1');
+    await esperarOrbita(page, 'Terra');
+    await esperarSemCortina(page);
+    await expect.poll(() => page.evaluate(() => !!window.space!.systems.orbitBody!.quad), { timeout: MAPA_MS }).toBe(true);
+    // O tile mais alto fora dos polos.
+    const alvo = await page.evaluate(() => {
+      const space = window.space!;
+      const map = space.state.pregen!.map!;
+      let melhor = 0;
+      for (let i = 0; i < map.width * map.height; i++) {
+        const fora = Math.abs(i / map.width / map.height - 0.5) < 0.3;
+        if (fora && map.elevation[i] > map.elevation[melhor]) melhor = i;
+      }
+      return { u: (melhor % map.width) / map.width, v: Math.floor(melhor / map.width) / map.height };
+    });
+    const voar = (raios: number, rente: boolean) =>
+      page.evaluate(
+        ({ u, v, raios, rente }) => {
+          const space = window.space!;
+          const b = space.systems.orbitBody!;
+          const estrela = space.systems.system!.star;
+          const phi = u * Math.PI * 2;
+          const theta = v * Math.PI;
+          const direcao = () => b.pos.clone().set(-Math.cos(phi) * Math.sin(theta), Math.cos(theta), Math.sin(phi) * Math.sin(theta)).applyEuler(b.surface!.rotation);
+          // O planeta gira e o tempo corre entre as fotos: cada uma pega o meio-dia do lugar, ou a última sai à noite.
+          let melhor = space.state.time;
+          let maior = -2;
+          const inicio = space.state.time;
+          for (let i = 0; i < 300; i++) {
+            space.state.time = inicio + i * 0.5;
+            space.systems.updateBodies(space.state.time, null);
+            const sol = direcao().dot(estrela.pos.clone().sub(b.pos).normalize());
+            if (sol > maior) {
+              maior = sol;
+              melhor = space.state.time;
+            }
+          }
+          space.state.time = melhor;
+          space.systems.updateBodies(melhor, null);
+          const d = direcao();
+          space.state.shipPos.copy(b.pos).addScaledVector(d, raios * b.radius);
+          const lado = b.pos.clone().set(0, 0, 1).cross(d).normalize();
+          const mira = rente ? space.state.shipPos.clone().addScaledVector(lado, 0.2 * b.radius).addScaledVector(d, -0.015 * b.radius) : b.pos;
+          (space as unknown as { lookAt(t: unknown): void }).lookAt(mira);
+        },
+        { ...alvo, raios, rente },
+      );
+    for (const [nome, raios, rente] of [
+      ['a-prumo-0-15-raio', 1.15, false],
+      ['a-prumo-0-05-raio', 1.05, false],
+      ['rente-0-05-raio', 1.05, true],
+      ['rente-no-piso', 1.022, true],
+    ] as const) {
+      await voar(raios, rente);
+      await page.waitForTimeout(1500);
+      await esperarImagem(page, nome, 0.2);
+      await capturar(page, info, nome);
+    }
+  });
+
   test('a borda azul da Terra e a alaranjada de Marte', async ({ page }, info) => {
     await page.goto('/?debug');
     await page.keyboard.press('Digit1');
