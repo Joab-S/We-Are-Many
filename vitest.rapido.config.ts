@@ -10,6 +10,7 @@ const SIMULATED_WORLDS = [
   'src/sim/lifeTrial.test.ts',
   'src/client/surface/replay.test.ts',
   'src/client/surface/catchUp.test.ts',
+  'src/client/space/BackgroundWorlds.test.ts',
   'src/client/surface/hud/legends.test.ts',
   'src/ai/lab/aldeia.test.ts',
   'src/ai/lab/jornada.test.ts',

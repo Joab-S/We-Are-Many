@@ -50,6 +50,45 @@ export interface NavState {
   log: LogEntry[];
   /** O GUIA já se apresentou. */
   greeted: boolean;
+  /** Avisos de planetas já visitados, que entram nas sugestões até o jogador voltar lá. */
+  signals: PlanetSignal[];
+  /** Como chegar a cada planeta com mundo em andamento: um sinal pode vir de outro sistema. */
+  worlds: Record<string, NavTarget>;
+}
+
+/** Um planeta já visitado que tem um motivo para o jogador voltar. */
+export interface PlanetSignal {
+  planet: string;
+  name: string;
+  reason: string;
+  interest: number;
+  /** Tempo de jogo, em s. */
+  time: number;
+}
+
+/** Mais que qualquer sistema desconhecido: alguém está chamando. Um planeta em apuros vem antes de uma boa notícia. */
+export const SIGNAL_INTEREST = { era: 6.5, indicator: 7 };
+
+/** Guarda o sinal: um por planeta, o mais urgente. Falso quando não há novidade para contar. */
+export function addSignal(nav: NavState, s: PlanetSignal): boolean {
+  const at = nav.signals.findIndex((o) => o.planet === s.planet);
+  if (at < 0) {
+    nav.signals.push(s);
+    return true;
+  }
+  if (s.interest <= nav.signals[at].interest) return false;
+  nav.signals[at] = s;
+  return true;
+}
+
+/** O jogador voltou lá. */
+export function clearSignals(nav: NavState, planet: string): void {
+  nav.signals = nav.signals.filter((s) => s.planet !== planet);
+}
+
+/** O sinal como candidato às sugestões, igual aos outros. */
+export function signalCandidate(s: PlanetSignal, target: NavTarget, distAu: number, arriveAu: number): Candidate {
+  return { target, distAu, arriveAu, interest: s.interest, reason: `${s.reason} (${s.name})` };
 }
 
 export function createNavState(): NavState {
@@ -57,6 +96,8 @@ export function createNavState(): NavState {
     target: null,
     autopilot: false,
     cruise: false,
+    signals: [],
+    worlds: {},
     visitedStars: new Set([0]),
     scannedStars: new Set([0]),
     visitedBodies: new Set(['sol-3']),

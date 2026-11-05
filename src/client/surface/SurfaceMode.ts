@@ -41,6 +41,7 @@ import { bindNotices } from './hud/notices';
 import { Labels } from './hud/Labels';
 import { DebugPanel } from './hud/DebugPanel';
 import { catchUpPlanet, yearsToCatchUp } from './catchUp';
+import { clearSignals } from '../../nav/guide';
 import { downloadLegends } from './hud/legends';
 import { SPECIMEN_HOLD, specimensAboard, storeSpecimen, takeSpecimen } from '../../explore/probes';
 import { EARTH_ID } from '../../sim/species';
@@ -181,17 +182,31 @@ export class SurfaceMode {
       this.openWorld(map);
       return;
     }
-    const label = this.root.querySelector<HTMLElement>('.wb-loading');
-    const say = (year: number) => label && (label.textContent = `Pondo em dia ${this.params.name}: ano ${Math.floor(year)}…`);
-    say(state.ecosystems.get(this.params.id)!.year);
-    void catchUpPlanet(state, this.params.id, { onYear: say }).then(() => {
+    void this.bringUpToDate().then(() => {
       if (!this.abort.signal.aborted) this.openWorld(state.surfaces.get(this.params.id)!);
     });
+  }
+
+  /** Mostra o ano enquanto roda. Se pegou um pedaço em segundo plano no meio, depois dele roda o resto. */
+  private async bringUpToDate(): Promise<void> {
+    const state = this.state;
+    const id = this.params.id;
+    const label = this.root.querySelector<HTMLElement>('.wb-loading');
+    const say = (year: number) => {
+      if (label) label.textContent = `Pondo em dia ${this.params.name}: ano ${Math.floor(year)}…`;
+    };
+    say(state.ecosystems.get(id)!.year);
+    while (!this.abort.signal.aborted && yearsToCatchUp(state, id) >= 1) {
+      const done = await catchUpPlanet(state, id, { onYear: say });
+      if (!done) return;
+    }
   }
 
   private openWorld(map: SurfaceMap): void {
     const state = this.state;
     this.map = map;
+    // Pousou: o que o planeta tinha a pedir, o jogador já está vendo.
+    clearSignals(state.nav, this.params.id);
 
     // O motor: o mundo salvo (ou já visitado) ou um novo, com as espécies nativas, que passam a ser
     // conhecidas (podem ser levadas a outros planetas). O ano na tela dura REAL_YEAR_SECONDS.

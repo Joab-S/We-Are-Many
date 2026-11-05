@@ -489,6 +489,7 @@ export function familyTabHtml(args: {
 
 /** Nome de cada tipo de evento, para os chips do filtro. */
 export const EVENT_KIND_NAMES: Record<EngineEventKind, string> = {
+  indicator: 'Aperto',
   found: 'Fundação',
   colony: 'Colônia',
   farmstead: 'Sítio rural',
@@ -536,6 +537,8 @@ export function eventSummary(e: EngineEvent, view: NamesView): string {
   switch (e.kind) {
     case 'found':
       return `Fundação de ${p(e.village)}${e.from >= 0 ? ` por gente de ${p(e.from)}` : ''} (${e.how})`;
+    case 'indicator':
+      return `O planeta passou do limite: ${e.what} (${e.value.toFixed(2)})`;
     case 'colony':
       if (e.phase === 'depart') return `Colonos de ${p(e.from)} partem ${e.by === 'sea' ? 'pelo mar' : `por terra para ${p(e.to)}`} (${people(e.people)})`;
       return e.to >= 0 ? `Colonos de ${p(e.from)} chegam a ${p(e.to)} (${people(e.people)})` : `Colonos de ${p(e.from)} se perderam (${people(e.people)})`;
@@ -596,6 +599,7 @@ export function eventPlace(e: EngineEvent): number {
       return e.target;
     case 'extinction':
     case 'species':
+    case 'indicator':
       return -1;
     default:
       return e.village;

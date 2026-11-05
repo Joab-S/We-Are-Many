@@ -54,7 +54,7 @@ import { caravansPart, type CaravansPart } from './eco/trade/caravans';
 import { disastersPart, type DisastersPart } from './eco/world/disasters';
 import { playerPart, type PlayerPart } from './eco/world/player';
 import { queriesPart, type QueriesPart } from './eco/core/queries';
-import { EVENT_QUEUE_LIMIT, isLegend, legendRealm, LEGENDS_LIMIT, type EngineEvent, type LegendEntry } from './api/events';
+import { EVENT_QUEUE_LIMIT, isLegend, legendRealm, LEGENDS_LIMIT, type EngineEvent, type IndicatorKind, type LegendEntry } from './api/events';
 import { residentsPart, ResidentIndex, type ResidentsPart } from './eco/core/residents';
 import { clockPart, type ClockPart } from './eco/core/clock';
 import { siteFieldPart, type SiteField, type SiteFieldPart } from './eco/settlements/siteField';
@@ -474,6 +474,10 @@ export class Ecosystem {
   fates: Record<string, string> = {};
   /** O ano da última coleta (o tempo que capturar custa). */
   lastCollect = -1e9;
+  /** Os apertos que já foram avisados (`indicator`), e a conta da fome no último ano olhado. */
+  indicatorsOn: Partial<Record<IndicatorKind, boolean>> = {};
+  indicatorYear = 0;
+  indicatorHunger = 0;
   /** Anos rodados sem ninguém olhando, ao voltar ao planeta (`sim/api/catchUp.ts`). */
   caughtUpYears = 0;
   /** Anos que passaram sem rodar: acima do teto do pôr em dia. */
@@ -666,6 +670,7 @@ export class Ecosystem {
     const yr = dt / this.yearSpan;
     this.year += yr;
     if (this.exposures.length) this.settleExposures();
+    if (Math.floor(this.year) !== this.indicatorYear) this.checkIndicators();
     // Nível de detalhe (RF-AS-31): com a tela aberta, os lugares a até JOURNEY_MARGIN tiles da vista (e o da pessoa
     // seguida) rodam as jornadas; os demais, o modo agregado. Revisto a cada meio segundo de jogo.
     if (this.focus && (this.watchClock -= dt) <= 0) {

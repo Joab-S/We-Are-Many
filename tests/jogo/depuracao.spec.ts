@@ -251,6 +251,44 @@ test.describe('?debug', () => {
     expect(replayCase(caso)).toMatchObject({ tick: caso.tick, fingerprint: caso.fingerprint, same: true });
   });
 
+  test('um planeta visitado anda enquanto a nave voa, e o que acontece nele chega ao GUIA', async ({ page }) => {
+    test.setTimeout(240_000);
+    await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
+    await page.evaluate(() => window.debugEarth!());
+    await expect(superficie(page)).toBeVisible({ timeout: MAPA_MS });
+    await superficie(page).click();
+    await expect(espaco(page)).toBeVisible();
+
+    // Em órbita de um planeta longe, com a Terra atrasada: um povo dela chegou a uma era nova nesse tempo.
+    const andou = await page.evaluate(() => {
+      const { state } = window.space as unknown as { state: { time: number; ecosystems: Map<string, { year: number; emit(e: unknown): void }> } };
+      const eco = state.ecosystems.get('sol-3')!;
+      eco.emit({ kind: 'era', year: eco.year, village: 0, era: 1, first: true });
+      state.time += 7 * 12;
+      return eco.year;
+    });
+    await page.evaluate(() => void window.space!.goToPlanet('Netuno', 3));
+    await esperarOrbita(page, 'Netuno');
+
+    const sinais = () =>
+      page.evaluate(() => {
+        const { state } = window.space as unknown as { state: { nav: { signals: { planet: string; reason: string }[] }; ecosystems: Map<string, { year: number }> } };
+        return { sinais: state.nav.signals.map((s) => s.planet), ano: state.ecosystems.get('sol-3')!.year };
+      });
+    await expect.poll(async () => (await sinais()).sinais, { timeout: 60_000 }).toEqual(['sol-3']);
+    expect((await sinais()).ano).toBeGreaterThan(andou);
+
+    // É uma sugestão como as outras, no painel do GUIA.
+    await page.keyboard.press('KeyG');
+    await expect(page.locator('.guide-row', { hasText: 'Um povo chegou à' })).toContainText('Terra');
+
+    // Pousar lá apaga o aviso.
+    await page.evaluate(() => window.debugEarth!());
+    await expect(superficie(page)).toBeVisible({ timeout: MAPA_MS });
+    expect(await page.evaluate(() => (window.surface as unknown as { state: { nav: { signals: unknown[] } } }).state.nav.signals.length)).toBe(0);
+  });
+
   test('sem ?debug não há alça nenhuma', async ({ page }) => {
     await page.goto('/');
     await expect(espaco(page)).toBeVisible();

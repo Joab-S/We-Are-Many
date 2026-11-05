@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { classify, generateSurface, temperatureAt, type PlanetParams } from '../../procgen/surface';
 import { createProbeState, specimensAboard, storeSpecimen, takeSpecimen } from '../../explore/probes';
 import { restoreEcosystem, snapshotEcosystem } from '../../save/snapshot';
+import { worldFingerprint } from '../fingerprint';
 import { B } from '../live';
 import { Ecosystem, isLand } from '../ecosystem';
 import { habitatOf, nativeSpecies, type Species } from '../species';
@@ -336,6 +337,57 @@ describe('levar e trazer custa (C1)', () => {
     expect(back.exposures).toEqual(eco.exposures);
     expect(back.lastCollect).toBe(3);
     expect(back.fates).toEqual({ outro: 'morreu de frio' });
+  });
+});
+
+describe('o planeta pede ajuda (C3)', () => {
+  const kinds = (eco: Ecosystem) => eco.drainEvents().filter((e) => e.kind === 'indicator');
+
+  it('avisa uma vez por travessia, e só de novo depois de melhorar bem', () => {
+    const { eco } = world();
+    eco.drainEvents();
+    const people = eco.villages.reduce((n, v) => n + (v.abandoned ? 0 : v.population), 0);
+    expect(people).toBeGreaterThan(0);
+    const year = (hungry: number) => {
+      eco.tally.hunger += hungry;
+      eco.year += 1;
+      eco.checkIndicators();
+      return kinds(eco);
+    };
+    expect(year(0)).toEqual([]);
+    expect(year(Math.ceil(people * B.INDICATOR_HUNGER))).toMatchObject([{ kind: 'indicator', what: 'fome' }]);
+    // Continua ruim: não repete.
+    expect(year(Math.ceil(people * B.INDICATOR_HUNGER))).toEqual([]);
+    // Melhorou pouco: ainda não rearma.
+    expect(year(Math.ceil(people * B.INDICATOR_HUNGER * 0.6))).toEqual([]);
+    expect(year(Math.ceil(people * B.INDICATOR_HUNGER))).toEqual([]);
+    // Melhorou bem: o próximo aperto avisa.
+    expect(year(0)).toEqual([]);
+    expect(year(Math.ceil(people * B.INDICATOR_HUNGER))).toMatchObject([{ what: 'fome' }]);
+  });
+
+  it('o clima contra o povo também pede ajuda, e não entra nas lendas', () => {
+    const { eco } = world();
+    eco.drainEvents();
+    const before = eco.legends.length;
+    for (const sp of eco.species) sp.tempMax = 100;
+    eco.year += 1;
+    eco.checkIndicators();
+    expect(kinds(eco)).toMatchObject([{ what: 'calor', value: 1 }]);
+    expect(eco.legends.length).toBe(before);
+  });
+
+  it('um mundo sem povo não pede nada, e a impressão digital não enxerga o aviso', () => {
+    const { eco } = world();
+    const print = worldFingerprint(eco);
+    eco.emit({ kind: 'indicator', year: 1, what: 'fome', value: 1 });
+    expect(worldFingerprint(eco)).toBe(print);
+    for (const v of eco.villages) v.abandoned = true;
+    eco.drainEvents();
+    eco.tally.hunger += 1000;
+    eco.year += 1;
+    eco.checkIndicators();
+    expect(kinds(eco)).toEqual([]);
   });
 });
 

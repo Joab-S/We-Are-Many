@@ -12,6 +12,8 @@ export interface CatchUpOptions {
   seed?: number;
   /** Ano do planeta enquanto roda (para a tela mostrar). */
   onYear?: (year: number) => void;
+  /** Em segundo plano: roda só até tantos anos, nada é pulado e o relógio do planeta anda só o que rodou. */
+  slice?: number;
 }
 
 /** Um planeta por vez: quem voltar a ele enquanto o Worker ainda roda espera o mesmo resultado, sem contar os anos duas vezes. */
@@ -39,11 +41,11 @@ export function catchUpPlanet(state: CatchUpState, id: string, opts: CatchUpOpti
   // A vista "sem ninguém olhando" entra no log no passo de agora, e os passos dados no Worker entram na conta dele.
   record?.log.push({ tick: record.tick, cmd: UNWATCHED });
   const startYear = world.year;
-  const job = catchUpWorld(world, map, opts.seed ?? seedFor(`${id}:life`), lost, opts.run ?? runInWorker, (years) => opts.onYear?.(startYear + years))
+  const job = catchUpWorld(world, map, opts.seed ?? seedFor(`${id}:life`), lost, opts.run ?? runInWorker, (years) => opts.onYear?.(startYear + years), opts.slice)
     .then((r) => {
       state.ecosystems.set(id, r.eco);
       state.surfaces.set(id, r.map);
-      state.leftAt.set(id, startedAt);
+      state.leftAt.set(id, opts.slice ? (state.leftAt.get(id) ?? startedAt) + r.yearsRun * REAL_YEAR_SECONDS : startedAt);
       if (record) {
         record.tick += r.steps;
         record.log.push({ tick: record.tick, cmd: r.note });

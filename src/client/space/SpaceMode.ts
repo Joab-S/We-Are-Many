@@ -10,6 +10,7 @@ import type { AdaptiveResolution } from '../quality';
 import type { GameRenderer } from '../renderer';
 import { DEBUG } from '../debug';
 import type { GameState } from '../state';
+import { BackgroundWorlds } from './BackgroundWorlds';
 import { disposeGlowTexture, litSide, planetRadius, tileDirection } from './bodies';
 import { CommandMap, KeyBindings, MANEUVERS } from './commands';
 import { disposeObject } from './dispose';
@@ -58,6 +59,7 @@ export class SpaceMode implements GameMode {
   private readonly hud: SpaceHud;
   private readonly guide: GuideHud;
   private readonly probes: ProbeControl;
+  private readonly background: BackgroundWorlds;
   private readonly director: NavDirector;
   private readonly world: FlightWorld;
   private readonly bindings = new KeyBindings();
@@ -108,6 +110,11 @@ export class SpaceMode implements GameMode {
       keyOf: (action) => this.bindings.label(action),
     });
     this.probes = new ProbeControl(this.hud.root, state.probes, this.scene, (text, tone) => this.guide.say(text, tone), (text) => this.director.addLog(text), (id) => state.knownSpecies.get(id)?.name ?? id);
+    this.background = new BackgroundWorlds(state, (s) => {
+      if (this.disposed) return;
+      this.guide.say(`${s.name}: ${s.reason}. Veja em Sugestões.`, 'info', 10);
+      this.director.addLog(`Sinal de ${s.name}: ${s.reason}.`);
+    });
     this.director = new NavDirector(state, this.stars, this.systems, this.guide, this.probes);
     this.world = { bodies: () => this.systems.bodies(), nearbyStars: () => this.director.nearbyStars };
     this.hud.connect({
@@ -193,6 +200,7 @@ export class SpaceMode implements GameMode {
     this.shipView.animate(dt, this.ship, state.shipQuat, this.camera);
 
     this.probes.frame(dt, state.shipPos, this.director.source, state.time);
+    this.background.frame(now);
     this.stars.update(state.shipPos, now, this.resolution.pixelRatio);
     this.director.tick(now);
 

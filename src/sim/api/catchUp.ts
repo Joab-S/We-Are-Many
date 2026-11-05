@@ -42,20 +42,30 @@ export interface CatchUpResult {
  * porque ninguém sabe o que houve neles: viram uma nota, e `skippedYears` os conta (painel F3). Quem chama guarda no log
  * também a nota (`note`), para o replay chegar ao mesmo mundo.
  */
-export async function catchUpWorld(eco: Ecosystem, map: SurfaceMap, seed: number, lost: number, run: Runner, onYear?: (yearsRun: number) => void): Promise<CatchUpResult> {
+export async function catchUpWorld(
+  eco: Ecosystem,
+  map: SurfaceMap,
+  seed: number,
+  lost: number,
+  run: Runner,
+  onYear?: (yearsRun: number) => void,
+  /** Um pedaço só, em segundo plano: roda até tantos anos, nada é pulado e o resto fica para depois. */
+  slice?: number,
+): Promise<CatchUpResult> {
   applyCommand(eco, map, UNWATCHED);
-  const result = await run({ snapshot: { map, eco: snapshotEcosystem(eco, seed) }, years: Math.min(lost, CATCH_UP_YEARS), budgetMs: CATCH_UP_MS }, onYear);
+  const years = slice ? Math.min(lost, slice) : Math.min(lost, CATCH_UP_YEARS);
+  const result = await run({ snapshot: { map, eco: snapshotEcosystem(eco, seed) }, years, budgetMs: CATCH_UP_MS }, onYear);
   const newMap = result.snapshot.map;
   const fresh = restoreEcosystem(result.snapshot.eco, newMap);
   const ran = Math.round(result.yearsRun);
-  const note: EngineCommand = { kind: 'caughtUp', lost, ran };
+  const note: EngineCommand = slice ? { kind: 'caughtUp', lost: ran, ran, quiet: true } : { kind: 'caughtUp', lost, ran };
   applyCommand(fresh, newMap, note);
   return {
     eco: fresh,
     map: newMap,
     lost,
     yearsRun: result.yearsRun,
-    skipped: lost - ran,
+    skipped: slice ? 0 : lost - ran,
     note,
     steps: Math.round((result.yearsRun * fresh.yearSpan) / RUN_STEP),
     events: fresh.drainEvents(),

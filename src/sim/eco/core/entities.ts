@@ -3,6 +3,7 @@
  * Os métodos vão para o protótipo da classe; `this` é o ecossistema inteiro.
  */
 
+import type { IndicatorKind } from '../../api/events';
 import type { Ecosystem } from '../../ecosystem';
 import { B } from '../../live';
 import * as surfaceModule from '../../../procgen/surface';
@@ -198,6 +199,41 @@ export const entitiesPart = {
     if (!this.canStand(s, i)) return false;
     const t = temperatureAt(this.map, i);
     return t >= sp.tempMin - 5 && t <= sp.tempMax + 5;
+  },
+
+  /**
+   * Uma vez por ano, vê se o planeta passou de um aperto: fome, ou clima contra o povo nos lugares onde ele vive. Avisa
+   * uma vez por travessia (`indicator`) e só volta a avisar depois de melhorar bem. Só lê, não sorteia.
+   */
+  checkIndicators(this: Ecosystem): void {
+    this.indicatorYear = Math.floor(this.year);
+    const hungry = this.tally.hunger - this.indicatorHunger;
+    this.indicatorHunger = this.tally.hunger;
+    let people = 0;
+    let places = 0;
+    let hot = 0;
+    let cold = 0;
+    for (const v of this.villages) {
+      if (v.abandoned || v.population <= 0) continue;
+      people += v.population;
+      places++;
+      const sp = this.species[v.species];
+      const temp = temperatureAt(this.map, this.tileAt(v.x, Math.floor(v.y)));
+      if (temp > sp.tempMax) hot++;
+      else if (temp < sp.tempMin) cold++;
+    }
+    if (places === 0) return;
+    const check = (what: IndicatorKind, value: number, limit: number) => {
+      if (value >= limit && !this.indicatorsOn[what]) {
+        this.indicatorsOn[what] = true;
+        this.emit({ kind: 'indicator', year: this.year, what, value });
+      } else if (value < limit / 2) {
+        this.indicatorsOn[what] = false;
+      }
+    };
+    check('fome', hungry / people, B.INDICATOR_HUNGER);
+    check('calor', hot / places, B.INDICATOR_CLIMATE);
+    check('frio', cold / places, B.INDICATOR_CLIMATE);
   },
 
   /**
