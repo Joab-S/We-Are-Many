@@ -52,8 +52,8 @@ export const SPEEDS = [0, 1, 2, 5];
  * o passo não aumenta.
  */
 export const MAX_STEPS_PER_FRAME = 3;
-/** Comandos guardados no log (os mais antigos saem). */
-export const LOG_LIMIT = 4096;
+/** Comandos guardados no log (os mais antigos saem): o log vai no save, e dá horas de jogo com a câmera andando. */
+export const LOG_LIMIT = 65536;
 /** Acima disso (tiles num passo) a criatura saltou (barco, mudança): desenha onde está, sem deslizar. */
 const JUMP = 3;
 
@@ -62,16 +62,24 @@ export interface LoggedCommand<C> {
   cmd: C;
 }
 
+/**
+ * O relógio e o log de um mundo: passam de uma visita para a outra e vão no save, porque um relógio novo a cada visita não
+ * refaria o mundo. `fromStart` diz se o log vem do passo 0 (falso num mundo de um save de antes deste registro).
+ */
+export interface CommandRecord<C> {
+  tick: number;
+  log: LoggedCommand<C>[];
+  fromStart: boolean;
+}
+
 export class SimDriver<C, E extends { kind: string } = never> {
   /** Índice em SPEEDS. */
   speed = 1;
-  /** Passos dados desde o começo (o relógio do log). */
-  tick = 0;
+  /** O relógio e o log (de `opts.record`, ou novos). */
+  readonly record: CommandRecord<C>;
   /** Tempo de jogo acumulado que ainda não virou passo (sempre menor que um passo, salvo no teto). */
   private acc = 0;
   private readonly queue: C[] = [];
-  /** Log dos comandos aplicados, com o passo em que entraram (no máximo `logLimit`). */
-  readonly log: LoggedCommand<C>[] = [];
   // Posições do passo anterior, para interpolar.
   private prevX = new Float32Array(0);
   private prevY = new Float32Array(0);
@@ -89,8 +97,20 @@ export class SimDriver<C, E extends { kind: string } = never> {
   constructor(
     private readonly target: SimTarget<E>,
     private readonly apply: (cmd: C) => void,
-    readonly opts: { step?: number; maxSteps?: number; logLimit?: number; wrapWidth?: number; now?: () => number } = {},
-  ) {}
+    readonly opts: { step?: number; maxSteps?: number; logLimit?: number; wrapWidth?: number; now?: () => number; record?: CommandRecord<C> } = {},
+  ) {
+    this.record = opts.record ?? { tick: 0, log: [], fromStart: true };
+  }
+
+  /** Passos dados desde o começo do mundo (o relógio do log). */
+  get tick(): number {
+    return this.record.tick;
+  }
+
+  /** Log dos comandos aplicados, com o passo em que entraram (no máximo `logLimit`). */
+  get log(): LoggedCommand<C>[] {
+    return this.record.log;
+  }
 
   get h(): number {
     return this.opts.step ?? SIM_STEP;
@@ -180,8 +200,8 @@ export class SimDriver<C, E extends { kind: string } = never> {
     this.target.step(this.h);
     this.stats.stepMs += now() - t0;
     this.stamp = this.target.view.year;
-    this.tick++;
-    this.afterStep?.(this.tick);
+    this.record.tick++;
+    this.afterStep?.(this.record.tick);
   }
 
   /** Fim do quadro com `n` passos: os comandos de um quadro sem passo, as medidas e a entrega dos eventos. */

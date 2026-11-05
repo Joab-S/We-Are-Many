@@ -774,8 +774,8 @@ export function timeHtml(args: {
     <div class="wb-dim wb-dnote">${
       a.fresh
         ? 'Semente, ano, passo, o planeta e o log de comandos: com eles o mundo é refeito do começo até aqui.'
-        : 'Mundo que já existia (save ou visita anterior): a semente e o log só refazem o que aconteceu desde que a superfície abriu; para o resto, use o save.'
-    }${a.log >= a.logLimit ? ' <span class="bad">O log chegou ao limite: os comandos mais antigos já saíram.</span>' : ''}</div>
+        : 'Mundo de um save anterior a este registro: a semente e o log só refazem o que aconteceu desde então; para o resto, use o save.'
+    } Refaça sem tela com <code>npm run replay -- caso.json</code>.${a.log >= a.logLimit ? ' <span class="bad">O log chegou ao limite: os comandos mais antigos já saíram.</span>' : ''}</div>
     <div class="wb-dbtns"><button class="wb-btn" data-dcopy>Copiar caso</button>${a.copied ? `<span class="good">${esc(a.copied)}</span>` : ''}</div>`;
 }
 
@@ -802,7 +802,7 @@ export function tuneHtml(constants: readonly LiveConstant[]): string {
 
 /** O caso que o botão Copiar caso leva: o bastante para refazer o mundo até este passo. */
 export interface DebugCase {
-  version: 1;
+  version: 2;
   seed: number;
   year: number;
   tick: number;
@@ -811,7 +811,11 @@ export interface DebugCase {
   yearSpan: number;
   /** O planeta (o mapa sai dele por `generateSurface`). */
   planet: PlanetParams;
-  /** Mundo novo nesta visita (a semente e o log o refazem) ou adotado (save, visita anterior). */
+  /** O sorteio da vida que ficou (B3), as linhas que ele pôs na crônica e a versão do gerador do mapa. */
+  attempt: number;
+  notes: string[];
+  generator: number;
+  /** O log vem do começo do mundo (a semente e o log o refazem), ou o mundo é de um save antigo. */
   fresh: boolean;
   /** Impressão digital do mundo neste passo: quem refaz o caso compara com ela. */
   fingerprint: string;
@@ -822,13 +826,16 @@ export interface DebugCase {
 
 export function debugCase(a: Omit<DebugCase, 'version' | 'complete' | 'log'> & { log: readonly LoggedCommand<EngineCommand>[]; logLimit: number }): DebugCase {
   return {
-    version: 1,
+    version: 2,
     seed: a.seed,
     year: a.year,
     tick: a.tick,
     step: a.step,
     yearSpan: a.yearSpan,
     planet: { ...a.planet },
+    attempt: a.attempt,
+    notes: [...a.notes],
+    generator: a.generator,
     fresh: a.fresh,
     fingerprint: a.fingerprint,
     complete: a.log.length < a.logLimit,

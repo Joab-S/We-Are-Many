@@ -5,6 +5,7 @@ import type { Ecosystem } from '../sim/ecosystem';
 import type { Species } from '../sim/species';
 import type { NavState } from '../nav/guide';
 import type { ProbeState } from '../explore/probes';
+import type { WorldRecord } from '../save/snapshot';
 
 /**
  * Estado lógico que sobrevive às trocas de modo 3D/2D. As cenas são
@@ -33,6 +34,8 @@ export interface GameState {
   orbitOffset: THREE.Vector3 | null;
   /** Ecossistemas em andamento, por id do planeta. */
   ecosystems: Map<string, Ecosystem>;
+  /** O relógio e o log de comandos de cada mundo: com a semente, refazem o mundo (`npm run replay`). */
+  replays: Map<string, WorldRecord>;
   /** Espécies que o jogador já conheceu e pode levar a outros planetas. */
   knownSpecies: Map<string, Species>;
   /** Alvo, marcadores, descobertas e diário de bordo do GUIA. */

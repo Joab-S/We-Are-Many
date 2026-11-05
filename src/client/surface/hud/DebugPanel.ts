@@ -1,3 +1,4 @@
+import { GENERATOR_VERSION } from '../../../procgen/surface';
 import type { EngineCommand } from '../../../sim/api/commands';
 import type { Engine } from '../../../sim/api/engine';
 import type { EngineEvent, EngineEventKind } from '../../../sim/api/events';
@@ -39,7 +40,7 @@ const FRAME_GAP_MS = 1000;
 export interface DebugHost {
   readonly engine: Engine;
   readonly driver: SimDriver<EngineCommand, EngineEvent>;
-  /** Mundo novo nesta visita (a semente e o log o refazem) ou adotado (save, visita anterior). */
+  /** O log vem do começo do mundo (a semente e o log o refazem), ou o mundo é de um save antigo. */
   readonly fresh: boolean;
   /** Lugar selecionado no mapa (janela do assentamento, pessoa ou lugar fixado na ficha), ou -1. */
   place(): number;
@@ -304,6 +305,9 @@ export class DebugPanel extends HudComponent {
       step: driver.h,
       yearSpan: view.yearSpan,
       planet: view.map.params,
+      attempt: view.map.life?.attempt ?? 0,
+      notes: view.map.life?.notes ?? [],
+      generator: GENERATOR_VERSION,
       fresh: this.host.fresh,
       fingerprint: engine.debug.fingerprint(),
       log: driver.log,

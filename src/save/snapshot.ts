@@ -1,6 +1,7 @@
 import { Ecosystem } from '../sim/ecosystem';
 import type { StatefulRng } from '../core/rng';
 import { withPhysics, type PlanetParams, type SurfaceMap } from '../procgen/surface';
+import type { EngineCommand } from '../sim/api/commands';
 import type { Species } from '../sim/species';
 import type { NavState } from '../nav/guide';
 import type { ProbeState } from '../explore/probes';
@@ -36,6 +37,13 @@ export interface EcosystemSnapshot {
   fields: Record<string, unknown>;
 }
 
+/** O relógio e o log de comandos de um mundo (`SimDriver`). */
+export interface WorldRecord {
+  tick: number;
+  log: { tick: number; cmd: EngineCommand }[];
+  fromStart: boolean;
+}
+
 export interface SaveData {
   version: number;
   savedAt: number;
@@ -46,6 +54,8 @@ export interface SaveData {
   orbitOffset?: [number, number, number] | null;
   surfaces: Map<string, SurfaceMap>;
   ecosystems: Map<string, EcosystemSnapshot>;
+  /** Opcional: saves anteriores não têm, e os mundos deles passam a registrar dali em diante. */
+  replays?: Map<string, WorldRecord>;
   knownSpecies: Map<string, Species>;
   nav: NavState;
   probes: ProbeState;
@@ -97,6 +107,7 @@ export function validateSave(raw: unknown): SaveData {
   if (!finite(d.time) || d.time < 0) throw new SaveFormatError('tempo de jogo inválido');
   if (d.orbitOffset != null && !finiteTuple(d.orbitOffset, 3)) throw new SaveFormatError('órbita da nave inválida');
   if (!(d.surfaces instanceof Map) || !(d.ecosystems instanceof Map) || !(d.knownSpecies instanceof Map)) throw new SaveFormatError('mundo ausente');
+  if (d.replays !== undefined && !(d.replays instanceof Map)) throw new SaveFormatError('registro dos mundos inválido');
   if (!d.nav || !d.probes || !d.view || (d.view.mode !== 'space' && d.view.mode !== 'surface')) throw new SaveFormatError('estado incompleto');
   for (const [id, snap] of d.ecosystems) {
     const map = d.surfaces.get(id);

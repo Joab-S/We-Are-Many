@@ -8,6 +8,7 @@ import base from './vite.config.ts';
  */
 const SIMULATED_WORLDS = [
   'src/sim/lifeTrial.test.ts',
+  'src/client/surface/replay.test.ts',
   'src/ai/lab/aldeia.test.ts',
   'src/ai/lab/jornada.test.ts',
   'src/IAUS/npc/lab/aldeia.test.ts',

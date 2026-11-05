@@ -43,6 +43,7 @@ function game(): GameState {
     orbitPlanetId: earth.id,
     orbitOffset: new THREE.Vector3(1e-3, -2e-3, 3e-3),
     ecosystems: new Map([[earth.id, eco]]),
+    replays: new Map(),
     knownSpecies: known,
     nav,
     probes,
@@ -57,6 +58,17 @@ const run = (eco: Ecosystem, seconds: number) => {
 };
 
 describe('save: ida e volta', () => {
+  it('guarda o relógio e o log de cada mundo, e um save sem eles continua valendo', () => {
+    const s = game();
+    const record = { tick: 480, log: [{ tick: 3, cmd: { kind: 'surprise' as const } }], fromStart: true };
+    s.replays.set('sol-3', record);
+    expect(roundTrip(s).state.replays.get('sol-3')).toEqual(record);
+    const old = structuredClone(snapshotGame(s, space, () => 1));
+    delete old.replays;
+    expect(restoreGame(old, s).state.replays.size).toBe(0);
+    expect(() => restoreGame({ ...structuredClone(snapshotGame(s, space, () => 1)), replays: [] }, s)).toThrow(/registro/);
+  });
+
   it('guarda nave, relógio, GUIA e sondas', () => {
     const s = game();
     const { state } = roundTrip(s);

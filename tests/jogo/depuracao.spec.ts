@@ -1,3 +1,4 @@
+import { replayCase, type ReplayCase } from '../../src/sim/api/replay';
 import { espaco, esperarOrbita, expect, MAPA_MS, orbita, superficie, test } from './apoio';
 
 test('o motor roda num Worker e dá o mesmo mundo que rodando direto', async ({ page }) => {
@@ -84,7 +85,12 @@ test.describe('?debug', () => {
     await page.keyboard.press('F3');
     await painel.locator('[data-dtab="time"]').click();
     await painel.locator('[data-dspeed="0"]').click();
-    const log = async () => Number((await painel.locator('.wb-kv', { hasText: 'Log de comandos' }).innerText()).match(/d+/)![0]);
+    // A câmera também entra no log (`view`), e abrir o painel muda o que ela vê: conta só o que veio da aba.
+    const log = () =>
+      page.evaluate(() => {
+        const { driver } = window.surface as unknown as { driver: { log: { cmd: { kind: string } }[] } };
+        return driver.log.map((e) => e.cmd.kind).filter((k) => k !== 'view');
+      });
     const antes = await log();
 
     await painel.locator('[data-dtab="tune"]').click();
@@ -110,7 +116,46 @@ test.describe('?debug', () => {
 
     await painel.locator('[data-dsurprise]').click();
     await painel.locator('[data-dtab="time"]').click();
-    await expect.poll(log).toBe(antes + 2);
+    await expect.poll(log).toEqual([...antes, 'tune', 'surprise']);
+  });
+
+  test('o caso copiado depois de sair e voltar refaz o mesmo mundo fora do navegador', async ({ page, context }, info) => {
+    test.setTimeout(240_000);
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/?debug');
+    await expect(espaco(page)).toBeVisible();
+    await page.evaluate(() => window.debugEarth!());
+    await expect(superficie(page)).toBeVisible({ timeout: MAPA_MS });
+
+    const painel = page.locator('.wb-debugp');
+    const avancar = async () => {
+      await page.keyboard.press('F3');
+      await painel.locator('[data-dtab="time"]').click();
+      await painel.locator('[data-dspeed="0"]').click();
+      // Um ano inteiro de cada vez: com poucos passos, quase nada do motor rodou e a comparação não prova muito.
+      await painel.locator('[data-dstep]').last().click();
+    };
+    await avancar();
+    const passo = async () => Number((await painel.locator('.wb-kv', { hasText: /^Passo/ }).innerText()).match(/\d+/)![0]);
+    await expect.poll(passo).toBeGreaterThan(0);
+    const antes = await passo();
+
+    await page.keyboard.press('F3');
+    await superficie(page).click();
+    await expect(espaco(page)).toBeVisible();
+    await page.evaluate(() => window.debugEarth!());
+    await expect(superficie(page)).toBeVisible({ timeout: MAPA_MS });
+    await avancar();
+    await expect.poll(passo).toBeGreaterThan(antes);
+
+    await painel.locator('[data-dcopy]').click();
+    await expect(painel.locator('.good')).toBeVisible();
+    const json = await page.evaluate(() => navigator.clipboard.readText());
+    await info.attach('caso.json', { body: json, contentType: 'application/json' });
+    const caso = JSON.parse(json) as ReplayCase;
+    expect(caso.fresh).toBe(true);
+    expect(caso.log.length).toBeGreaterThan(0);
+    expect(replayCase(caso)).toMatchObject({ tick: caso.tick, fingerprint: caso.fingerprint, same: true });
   });
 
   test('sem ?debug não há alça nenhuma', async ({ page }) => {

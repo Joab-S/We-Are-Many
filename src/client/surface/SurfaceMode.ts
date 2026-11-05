@@ -191,7 +191,10 @@ export class SurfaceMode {
 
     this.view = new Viewport(map.width, map.height);
     this.view.zoom = Math.max(1, window.innerHeight / map.height);
-    this.driver = new SimDriver<EngineCommand, EngineEvent>(this.engine, (cmd) => this.apply(cmd), { wrapWidth: map.width });
+    // O relógio e o log continuam de onde a última visita parou; num mundo de um save antigo, não há log desde o começo.
+    let record = state.replays.get(this.params.id);
+    if (!record) state.replays.set(this.params.id, (record = { tick: 0, log: [], fromStart: !saved }));
+    this.driver = new SimDriver<EngineCommand, EngineEvent>(this.engine, (cmd) => this.apply(cmd), { wrapWidth: map.width, record });
     if (this.resume) {
       this.view.center.x = this.resume.center[0];
       this.view.center.y = this.resume.center[1];
@@ -216,7 +219,7 @@ export class SurfaceMode {
     this.tools = buildTools(state.knownSpecies.values());
 
     this.buildUi();
-    if (DEBUG) this.debug = this.buildDebug(!saved);
+    if (DEBUG) this.debug = this.buildDebug(record.fromStart);
     this.resize();
     this.ready = true;
     // `?debug` deixa a cena acessível no console (testes e calibragem).

@@ -131,6 +131,7 @@ function newState(manifest: GameState['manifest'], names: GameState['names']): G
     orbitPlanetId: null,
     orbitOffset: null,
     ecosystems: new Map(),
+    replays: new Map(),
     // A nave saiu da Terra: as espécies terrestres já estão a bordo para levar a outros planetas.
     knownSpecies: new Map(nativeSpecies(planetParams(SOL_PLANETS[2])).map((sp) => [sp.id, sp])),
     nav: createNavState(),

@@ -562,7 +562,7 @@ describe('aba Tempo e o caso copiado', () => {
       { tick: 0, cmd: viewCommand(100, 50, 30, -1) },
       { tick: 12, cmd: { kind: 'feed', x: 3, y: 4, r: 5 } as EngineCommand },
     ];
-    const c = debugCase({ seed: 42, year: 120.04, tick: 5762, step: 0.25, yearSpan: 12, planet: earthParams(0.4), fresh: true, fingerprint: 'abcd1234', log, logLimit: LOG_LIMIT });
+    const c = debugCase({ seed: 42, year: 120.04, tick: 5762, step: 0.25, yearSpan: 12, planet: earthParams(0.4), attempt: 0, notes: [], generator: 2, fresh: true, fingerprint: 'abcd1234', log, logLimit: LOG_LIMIT });
     const json = caseJson(c);
     expect(JSON.parse(json)).toEqual(c);
     expect(c.complete).toBe(true);
@@ -587,7 +587,7 @@ describe('aba Tempo e o caso copiado', () => {
     for (let f = 0; f < 6; f++) d.update(1 / 30);
     d.enqueue({ kind: 'cull', x: v.x + 3, y: v.y, r: 4 });
     d.stepBy(12);
-    const c: DebugCase = JSON.parse(caseJson(debugCase({ fingerprint: engine.debug.fingerprint(), seed: engine.seed, year: engine.view.year, tick: d.tick, step: d.h, yearSpan: engine.view.yearSpan, planet: engine.view.map.params, fresh: true, log: d.log, logLimit: LOG_LIMIT })));
+    const c: DebugCase = JSON.parse(caseJson(debugCase({ fingerprint: engine.debug.fingerprint(), seed: engine.seed, year: engine.view.year, tick: d.tick, step: d.h, yearSpan: engine.view.yearSpan, planet: engine.view.map.params, attempt: 0, notes: [], generator: 2, fresh: true, log: d.log, logLimit: LOG_LIMIT })));
     expect(c.log.length).toBe(3);
     // Refaz: os comandos de cada passo entram antes dele (os do último passo, depois dele).
     const again = createEngine(generateSurface(c.planet), { seed: c.seed, species: nativeSpecies(c.planet), yearSpan: c.yearSpan });
@@ -617,7 +617,7 @@ describe('aba Tempo e o caso copiado', () => {
     d.enqueue({ kind: 'tune', name: 'SITE_MIN_VALUE', value: 2.5 });
     for (let s = 0; s < 4; s++) d.enqueue({ kind: 'tune', name: `SEASON_HARVEST[${s}]`, value: 0 });
     d.stepBy(240);
-    const c: DebugCase = JSON.parse(caseJson(debugCase({ fingerprint: engine.debug.fingerprint(), seed: engine.seed, year: engine.view.year, tick: d.tick, step: d.h, yearSpan: engine.view.yearSpan, planet: engine.view.map.params, fresh: true, log: d.log, logLimit: LOG_LIMIT })));
+    const c: DebugCase = JSON.parse(caseJson(debugCase({ fingerprint: engine.debug.fingerprint(), seed: engine.seed, year: engine.view.year, tick: d.tick, step: d.h, yearSpan: engine.view.yearSpan, planet: engine.view.map.params, attempt: 0, notes: [], generator: 2, fresh: true, log: d.log, logLimit: LOG_LIMIT })));
     expect(c.log.map((e) => e.cmd.kind)).toEqual(Array(5).fill('tune'));
     // Sem o ajuste, o mesmo tempo dá outro mundo; com ele, o mesmo.
     const plain = createEngine(generateSurface(c.planet), { seed: c.seed, species: nativeSpecies(c.planet), yearSpan: c.yearSpan });
