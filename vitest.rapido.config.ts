@@ -16,6 +16,7 @@ const SIMULATED_WORLDS = [
   'src/sim/api/debug.test.ts',
   'src/sim/api/engine.test.ts',
   'src/sim/api/events.test.ts',
+  'src/sim/api/frame.test.ts',
   'src/sim/api/pick.test.ts',
   'src/sim/architecture.test.ts',
   'src/sim/clutter.test.ts',
