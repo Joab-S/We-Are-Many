@@ -9,6 +9,7 @@ import { economicState } from './settlementWindow';
 import type { SpriteLayer, SpriteName } from './sprites';
 import { bodyOf, HERD_SPRITES, HERD_TINT, HORSE_COAT, spriteOf, STALL_TINTS } from './tools';
 import { ANIMAL_FRAMES, type AnimalFrames } from './animalArt';
+import { NatureCache, NATURE_NEAR_Z, NATURE_PX_PER_TILE, NATURE_SPRITES, TALL } from './natureArt';
 import { ACT } from '../../sim/eco/constants';
 import { EARTH_ID } from '../../sim/species';
 import type { Viewport } from './Viewport';
@@ -21,6 +22,19 @@ export interface CreaturePositions {
 }
 
 /** Visitante dos índices de criaturas que podem estar na tela (recorte por célula da grade). */
+/** O que a camada precisa para desenhar a natureza de perto: o enfeite de cada tile e quem a câmera segue. */
+export interface NatureView {
+  /** Pixels do mapa pintado (o enfeite do tile está no alfa, `>> 4`). */
+  pixels: Uint8Array;
+  /** O desenho de cada tile, guardado. */
+  cache: NatureCache;
+  /** Criatura que a câmera segue (-1 se nenhuma): a árvore na frente dela fica meio transparente de perto. */
+  focus: number;
+}
+
+/** Zoom a partir do qual a árvore na frente de quem a câmera segue fica meio transparente. */
+const GHOST_Z = 14;
+
 export type VisibleCreatures = (x0: number, x1: number, r0: number, r1: number, out: (i: number) => void) => void;
 
 const WHITE = [255, 255, 255];
@@ -30,7 +44,8 @@ const CARGO_TINT = [140, 100, 70];
 const FLOCK_TINT = [220, 220, 220];
 const CARCASS_TINT = [150, 110, 80];
 const MARGIN = 40;
-const DEPOSIT_ROWS: Record<string, number> = { mine: 11, cave: 8, vein: 6 };
+const DEPOSIT_ROWS: Record<string, number> = { mine: 11, cave: 8 };
+const ORE_ROWS = NATURE_SPRITES['nat:ore'].length;
 const BOAT_ROWS: Record<string, number> = { wreck: 4, canoe: 7, rowboat: 8, sailboat: 15, caravel: 17, steamship: 14 };
 const LOAD_ART: Record<string, string> = { food: 'load:food', wood: 'load:wood', stone: 'load:stone', clay: 'load:stone', water: 'load:water' };
 const ELDER = 'elder';
@@ -183,10 +198,11 @@ export class SpriteCollector {
    * do buffer, `now` o relógio da animação (ms) e `pos` a posição de cada
    * criatura; `visible`, se dado, recorta as criaturas pela grade espacial.
    */
-  collect(eco: Ecosystem, view: Viewport, layer: SpriteLayer, z: number, now: number, pos: CreaturePositions, visible?: VisibleCreatures): void {
+  collect(eco: Ecosystem, view: Viewport, layer: SpriteLayer, z: number, now: number, pos: CreaturePositions, visible?: VisibleCreatures, nature?: NatureView): void {
     const w = view.width;
     const h = view.height;
     layer.begin(w, h);
+    layer.depth = 0;
     const small = z < 3.5;
     const off = (sx: number, sy: number, m: number) => sx < -m || sx > w + m || sy < -m || sy > h + m;
     const X = (x: number) => view.screenX(x, z);
@@ -286,7 +302,9 @@ export class SpriteCollector {
         const sy = Y(d.y + 1);
         if (off(sx, sy, MARGIN)) continue;
         const sprite = d.mine >= 0 ? 'mine' : d.cave ? 'cave' : 'vein';
-        this.building(sprite, sx, sy, (DEPOSIT_ROWS[sprite] * z) / 8, ORE_COLORS[d.ore]);
+        // O veio a céu aberto é a pedra nova com os pontos na cor do minério.
+        if (sprite === 'vein') this.building('nat:ore', sx, sy, (ORE_ROWS * z) / NATURE_PX_PER_TILE, ORE_COLORS[d.ore]);
+        else this.building(sprite, sx, sy, (DEPOSIT_ROWS[sprite] * z) / 8, ORE_COLORS[d.ore]);
       }
       // Ruínas de construções destruídas por desastres.
       for (const r of eco.ruins) {
@@ -325,6 +343,8 @@ export class SpriteCollector {
         layer.push(this.flag(king.vocation), sx + z * 0.1, sy - z * 0.4 + bob + rows * px, z * 0.55, king.color);
       }
     }
+    // Daqui em diante (caravanas, carcaças, criaturas, mortes e natureza), quem está mais ao fundo fica coberto.
+    const sorted = layer.count;
     this.caravans(eco, view, layer, z, small, now);
     // Carcaças: o que sobrou de uma caçada ou de uma morte no mato, até apodrecer (necrófagos vêm comer).
     if (!small) {
@@ -332,6 +352,7 @@ export class SpriteCollector {
         const sx = X(cc.x);
         const sy = Y(cc.y);
         if (off(sx, sy, MARGIN)) continue;
+        layer.depth = sy;
         layer.push('carcass', sx, sy - z * 0.2, z * 0.45 * Math.min(1.3, 0.6 + Math.cbrt(cc.kg) / 8), eco.species[cc.sp]?.color ?? CARCASS_TINT);
       }
     }
@@ -340,6 +361,8 @@ export class SpriteCollector {
       const sx = X(pos.x(i));
       const sy = Y(pos.y(i));
       if (off(sx, sy, MARGIN)) return;
+      // Profundidade pelos pés (o desenho fica com a base meio tile abaixo do centro).
+      layer.depth = sy - z * 0.5;
       this.creature(eco, layer, i, sx, sy, z, small, now);
     };
     if (visible) {
@@ -349,8 +372,63 @@ export class SpriteCollector {
       visible(view.center.x - halfW, view.center.x + halfW, row - halfH, row + halfH, creature);
     } else for (let i = 0; i < eco.count; i++) creature(i);
     this.deaths(eco, view, layer, z, small, now);
+    const ghost = nature && z >= NATURE_NEAR_Z ? this.nature(eco, view, layer, z, pos, nature) : false;
+    layer.sortFrom(sorted);
+    // Quem a câmera segue, escondido atrás de árvores: as árvores ficaram em xadrez e ele aparece por cima.
+    if (ghost && nature) this.creature(eco, layer, nature.focus, X(pos.x(nature.focus)), Y(pos.y(nature.focus)), z, false, now);
     this.effects(eco, view, layer, z);
     layer.end();
+  }
+
+  /**
+   * Árvores, arbustos e pedras de perto, como sprites com a profundidade da
+   * base: a árvore da frente cobre a de trás e quem passa atrás dela. Se a
+   * câmera segue alguém escondido atrás de uma árvore, bem de perto, essa
+   * árvore fica meio transparente (em xadrez).
+   */
+  private nature(eco: Ecosystem, view: Viewport, layer: SpriteLayer, z: number, pos: CreaturePositions, nv: NatureView): boolean {
+    const mw = eco.map.width;
+    const mh = eco.map.height;
+    const px = z / NATURE_PX_PER_TILE;
+    const w = view.width;
+    const h = view.height;
+    const season = eco.season();
+    // As árvores sobem até 3 tiles acima da base: as de baixo da tela ainda aparecem.
+    const cx = view.center.x;
+    const row = view.toRow(view.center.y);
+    const c0 = Math.floor(cx - w / 2 / z) - 2;
+    const c1 = Math.ceil(cx + w / 2 / z) + 2;
+    const r0 = Math.max(0, Math.floor(row - h / 2 / z) - 1);
+    const r1 = Math.min(mh - 1, Math.ceil(row + h / 2 / z) + 3);
+    // Quem a câmera segue: o retângulo do corpo, para achar a árvore que o esconde.
+    const f = nv.focus >= 0 && z >= GHOST_Z && eco.alive[nv.focus] ? nv.focus : -1;
+    const fx = f >= 0 ? view.screenX(pos.x(f), z) : 0;
+    const fy = f >= 0 ? view.glY(pos.y(f), z) - z * 0.5 : 0;
+    const pixels = nv.pixels;
+    const cache = nv.cache;
+    const frames = layer.atlas.frames;
+    let ghost = false;
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const i = r * mw + (((c % mw) + mw) % mw);
+        const name = cache.at(i, pixels[i * 4 + 3] >> 4, season);
+        if (!name) continue;
+        const sx = view.screenX(c + 0.5 + cache.jx, z);
+        const sy = view.glY(r + 1 + cache.jy, z) + z * 0.1;
+        const fr = frames[name];
+        const hh = fr.h * px;
+        const hw = (fr.w * px) / 2;
+        if (sx + hw < 0 || sx - hw > w || sy > h || sy + hh < 0) continue;
+        let sprite = name;
+        if (f >= 0 && TALL.has(name) && fy > sy && fy < sy + hh * 0.85 && Math.abs(fx - sx) < hw + z * 0.3) {
+          sprite = `${name}:g`;
+          ghost = true;
+        }
+        layer.depth = sy;
+        layer.push(sprite, sx, sy, hh, WHITE);
+      }
+    }
+    return ghost;
   }
 
   private creature(eco: Ecosystem, layer: SpriteLayer, i: number, sx: number, sy: number, z: number, small: boolean, now: number): void {
@@ -523,6 +601,7 @@ export class SpriteCollector {
       const sy = view.glY(d.y, z);
       if (sx < -MARGIN || sx > view.width + MARGIN || sy < -MARGIN || sy > view.height + MARGIN) continue;
       const f = d.frames;
+      layer.depth = sy;
       const name = t < DEATH_MS.hit ? f.idle[0] : t < DEATH_MS.red ? f.hit : t < DEATH_MS.dark ? f.dead : f.fallen;
       // O quadro deitado tem a mesma altura do de pé: a escala não muda.
       layer.push(name, sx, sy - z * 0.5 - z * PX, z * PX * d.rows, d.tint, d.skin, d.hair);
@@ -545,6 +624,7 @@ export class SpriteCollector {
       const sx = X(c.x);
       const sy = Y(c.y);
       if (sx < -MARGIN || sx > w + MARGIN || sy < -MARGIN || sy > h + MARGIN) continue;
+      layer.depth = sy;
       if (small) {
         layer.push('dot', sx, sy, Math.max(2, z), home.color);
         continue;

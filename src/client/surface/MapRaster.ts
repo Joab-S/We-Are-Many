@@ -2,7 +2,8 @@ import { paintSurface, paintTile, tileHash, type SurfaceMap } from '../../procge
 import { isLand, type Ecosystem } from '../../sim/ecosystem';
 import { AVENUE, GRAVEL, TRAIL, WALL } from '../../sim/architecture';
 import { paintGeoTile, paintGeoView, type GeoView } from '../../procgen/debugViews';
-import { makeDecorCanvas } from './art';
+import { makeDecorCanvas, SPRITES, SPRITE_PALETTES } from './art';
+import { NatureCache, NATURE_NEAR_Z, NATURE_PX_PER_TILE } from './natureArt';
 import { DirtyBlocks } from './dirty';
 import { SoftArt } from './softArt';
 import type { Viewport } from './Viewport';
@@ -42,6 +43,16 @@ export class MapRaster {
   /** Medidas do último `flush`: tiles repintados, os que mudaram de cor, blocos e pixels enviados. */
   readonly stats = { tiles: 0, changed: 0, blocks: 0, pixels: 0, totalPixels: 0 };
   private readonly decorCanvas = makeDecorCanvas();
+  /** Natureza no desenho novo, numa tira só (de longe ela é pintada no chão, reduzida). */
+  private natureCanvas: HTMLCanvasElement | null = null;
+  private readonly natureRect = new Map<string, [number, number, number, number]>();
+  /** O desenho de natureza de cada tile, guardado (a camada de sprites usa o mesmo). */
+  get nature(): NatureCache {
+    return (this.natureCache ??= new NatureCache(this.map));
+  }
+  private natureCache: NatureCache | null = null;
+  /** Estação (0 primavera a 3 inverno): muda as árvores do outono e os pinheiros com neve. */
+  season = 0;
   private softCanvas: HTMLCanvasElement | null = null;
   private softCtx: CanvasRenderingContext2D | null = null;
   private softImage: ImageData | null = null;
@@ -291,23 +302,73 @@ export class MapRaster {
       if (!this.softArt.draw(ctx, level, z, x0, x1, r0, r1, top, cx, w)) complete = false;
     }
     if (z >= 5) {
-      // Enfeites (árvores, pedras, trigo) por cima do chão, sempre com a arte original de 16 pixels.
+      // Enfeites por cima do chão. A roça é a arte original de 16 pixels; árvores e pedras, o desenho novo:
+      // de longe pintado aqui, reduzido; de perto (NATURE_NEAR_Z) vira sprite, na frente e atrás das criaturas.
+      const far = z < NATURE_NEAR_Z;
       const r0 = Math.max(0, Math.floor(mh - cy - h / 2 / z));
-      const r1 = Math.min(mh - 1, Math.ceil(mh - cy + h / 2 / z));
-      const c0 = Math.floor(x0);
-      const c1 = Math.ceil(x1);
+      const r1 = Math.min(mh - 1, Math.ceil(mh - cy + h / 2 / z) + (far ? 3 : 0));
+      const c0 = Math.floor(x0) - 1;
+      const c1 = Math.ceil(x1) + 1;
       const size = Math.ceil(z);
       const px = this.pixels;
+      const art = far ? this.natureArt() : null;
+      const cache = this.nature;
+      const k = z / NATURE_PX_PER_TILE;
       for (let row = r0; row <= r1; row++) {
         const sy = top + row * z;
         for (let col = c0; col <= c1; col++) {
           const i = row * mw + (((col % mw) + mw) % mw);
           const kind = px[i * 4 + 3] >> 4;
-          if (kind < 1 || (kind > 7 && kind !== 11 && kind !== 12)) continue;
-          ctx.drawImage(this.decorCanvas, (kind - 1) * 16, 0, 16, 16, Math.floor((col - cx) * z + w / 2), Math.floor(sy), size, size);
+          if (kind === 7) {
+            ctx.drawImage(this.decorCanvas, (kind - 1) * 16, 0, 16, 16, Math.floor((col - cx) * z + w / 2), Math.floor(sy), size, size);
+            continue;
+          }
+          if (!art || kind < 1 || (kind > 7 && kind !== 11 && kind !== 12)) continue;
+          const name = cache.at(i, kind, this.season);
+          if (!name) continue;
+          const rect = this.natureRect.get(name)!;
+          const ax = rect[0];
+          const aw = rect[2];
+          const ah = rect[3];
+          const jx = cache.jx;
+          const jy = cache.jy;
+          const dw = aw * k;
+          const dh = ah * k;
+          ctx.drawImage(art, ax, 0, aw, ah, Math.round((col + 0.5 + jx - cx) * z + w / 2 - dw / 2), Math.round(sy + (1 + jy) * z - dh), Math.round(dw), Math.round(dh));
         }
       }
     }
     return complete;
+  }
+
+  /** Tira com os desenhos de natureza (sem as versões meio transparentes), feita na primeira vez. */
+  private natureArt(): HTMLCanvasElement {
+    if (this.natureCanvas) return this.natureCanvas;
+    const names = Object.keys(SPRITES).filter((n) => n.startsWith('nat:') && !n.endsWith(':g'));
+    let x = 0;
+    let height = 0;
+    for (const n of names) {
+      const rows = SPRITES[n];
+      this.natureRect.set(n, [x, 0, rows[0].length, rows.length]);
+      x += rows[0].length + 1;
+      height = Math.max(height, rows.length);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = x;
+    canvas.height = height;
+    const g = canvas.getContext('2d')!;
+    for (const n of names) {
+      const [ox] = this.natureRect.get(n)!;
+      const pal = SPRITE_PALETTES[n];
+      SPRITES[n].forEach((row, y) => {
+        for (let c = 0; c < row.length; c++) {
+          const col = pal[row[c]];
+          if (!col) continue;
+          g.fillStyle = col;
+          g.fillRect(ox + c, y, 1, 1);
+        }
+      });
+    }
+    return (this.natureCanvas = canvas);
   }
 }
