@@ -37,17 +37,34 @@ export class SpriteAtlas {
 
   constructor() {
     const names = Object.keys(SPRITES);
-    const cols = 32;
-    const rows = Math.ceil(names.length / cols);
+    // Prateleiras: lado a lado numa faixa de 32 células de largura; a faixa tem a altura do mais alto
+    // (quase tudo cabe em 24x24; as árvores são mais altas).
+    const width = 32 * CELL;
+    const spots: [number, number][] = [];
+    let sx = 0;
+    let sy = 0;
+    let shelf = CELL;
+    for (const name of names) {
+      const art = SPRITES[name];
+      const w = Math.max(CELL, art[0].length);
+      const h = Math.max(CELL, art.length);
+      if (sx + w > width) {
+        sx = 0;
+        sy += shelf;
+        shelf = CELL;
+      }
+      spots.push([sx, sy]);
+      sx += w;
+      shelf = Math.max(shelf, h);
+    }
     const canvas = document.createElement('canvas');
-    canvas.width = cols * CELL;
-    canvas.height = rows * CELL;
+    canvas.width = width;
+    canvas.height = sy + shelf;
     const g = canvas.getContext('2d')!;
     names.forEach((name, k) => {
       const art = SPRITES[name];
       const palette = SPRITE_PALETTES[name] ?? COLORS;
-      const ox = (k % cols) * CELL;
-      const oy = Math.floor(k / cols) * CELL;
+      const [ox, oy] = spots[k];
       art.forEach((row, y) => {
         [...row].forEach((ch, x) => {
           const c = palette[ch];
@@ -189,6 +206,10 @@ export class SpriteLayer {
   private readonly tintKey: Int32Array;
   private readonly skinKey: Int32Array;
   private readonly hairKey: Int32Array;
+  /** Profundidade de cada instância (maior = mais ao fundo), para `sortFrom`. */
+  private readonly key: Float32Array;
+  /** Profundidade das próximas instâncias (`push` guarda esta). */
+  depth = 0;
   private readonly dotIndex: number;
   private readonly dotFill = new Map<number, string>();
 
@@ -212,6 +233,7 @@ export class SpriteLayer {
     this.tintKey = new Int32Array(max);
     this.skinKey = new Int32Array(max);
     this.hairKey = new Int32Array(max);
+    this.key = new Float32Array(max);
     this.dotIndex = atlas.frames.dot?.index ?? -1;
     const attr = (name: string, arr: Float32Array, k: number) => {
       const a = new THREE.InstancedBufferAttribute(arr, k);
@@ -239,6 +261,7 @@ export class SpriteLayer {
 
   begin(width: number, height: number): void {
     this.n = 0;
+    this.depth = 0;
     ((this.mesh.material as THREE.ShaderMaterial).uniforms.uResolution.value as THREE.Vector2).set(width, height);
   }
 
@@ -252,6 +275,7 @@ export class SpriteLayer {
     const f = this.atlas.frames[name];
     const k = this.n++;
     this.frame[k] = f.index;
+    this.key[k] = this.depth;
     this.tintKey[k] = packRgb(tint);
     this.skinKey[k] = skin === tint ? this.tintKey[k] : packRgb(skin);
     this.hairKey[k] = hair === skin ? this.skinKey[k] : packRgb(hair);
@@ -271,6 +295,45 @@ export class SpriteLayer {
     this.hair[k * 3 + 1] = hair[1] / 255;
     this.hair[k * 3 + 2] = hair[2] / 255;
   }
+
+  /**
+   * Ordena as instâncias de `start` até o fim pela profundidade, do fundo
+   * para a frente: quem está mais atrás é desenhado antes e fica coberto.
+   * Empates mantêm a ordem de chegada (o soldado continua por cima do cavalo).
+   */
+  sortFrom(start: number): void {
+    const n = this.n - start;
+    if (n < 2) return;
+    const key = this.key;
+    const order = this.sortOrder.length >= n ? this.sortOrder : (this.sortOrder = new Int32Array(n * 2));
+    for (let k = 0; k < n; k++) order[k] = start + k;
+    const idx = order.subarray(0, n);
+    idx.sort((a, b) => key[b] - key[a] || a - b);
+    let sorted = true;
+    for (let k = 0; k < n && sorted; k++) sorted = idx[k] === start + k;
+    if (sorted) return;
+    const move = (arr: Float32Array | Int32Array, size: number) => {
+      const copy = arr.slice(start * size, this.n * size);
+      for (let k = 0; k < n; k++) {
+        const from = (idx[k] - start) * size;
+        const to = (start + k) * size;
+        for (let c = 0; c < size; c++) arr[to + c] = copy[from + c];
+      }
+    };
+    move(this.offset, 2);
+    move(this.size, 2);
+    move(this.uv, 4);
+    move(this.tint, 3);
+    move(this.skin, 3);
+    move(this.hair, 3);
+    move(this.frame, 1);
+    move(this.tintKey, 1);
+    move(this.skinKey, 1);
+    move(this.hairKey, 1);
+    move(this.key, 1);
+  }
+
+  private sortOrder = new Int32Array(0);
 
   end(): void {
     this.geometry.instanceCount = this.n;
