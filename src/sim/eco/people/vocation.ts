@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { Biome, isForestBiome, temperatureAt } from '../../../procgen/surface';
 import { pickVocation, VOCATION_LEAVE, VOCATION_TAKE, vocationWeights, type SiteSample } from '../../needs';
 import type { Village } from '../types';

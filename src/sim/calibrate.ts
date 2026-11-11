@@ -4,14 +4,14 @@
  * Usado pelos testes (poucas sementes) e por `npm run calibrar` (muitas).
  */
 
-import { generateSurface, type PlanetParams } from '../procgen/surface';
-import * as B from './balance';
+import { generateSurface, temperatureAt, type PlanetParams, type SurfaceMap } from '../procgen/surface';
+import { B } from './live';
 import { Ecosystem, isLand, YEAR_SECONDS, type Village } from './ecosystem';
 import { isStreet } from './architecture';
 import { GOODS } from './economy';
 import { welfare } from './needs';
 import { roadBlocks } from './settlement';
-import { nativeSpecies } from './species';
+import { EARTH_ID, nativeSpecies, type Species } from './species';
 
 export interface Indicators {
   seed: number;
@@ -153,10 +153,14 @@ export function earthParams(radius = 0.4): PlanetParams {
 
 /** Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, ainda sem rodar (`placed` é quantas couberam). */
 export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: ReturnType<typeof generateSurface>; placed: number } {
-  const params = earthParams(radius);
+  return seedPlanet(earthParams(radius), seed);
+}
+
+/** O mesmo em qualquer planeta com povo inteligente; num planeta seco, sem vegetação boa, vale a terra que houver. */
+export function seedPlanet(params: PlanetParams, seed: number, species = nativeSpecies(params)): { eco: Ecosystem; map: ReturnType<typeof generateSurface>; placed: number } {
   const map = generateSurface(params);
   const eco = new Ecosystem(map, seed);
-  for (const sp of nativeSpecies(params)) eco.addSpecies(sp);
+  for (const sp of species) eco.addSpecies(sp);
   eco.populate();
   const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
   // Aldeias semeadas com um gerador próprio, para não mexer nos sorteios do mundo.
@@ -168,6 +172,14 @@ export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: Re
     const y = Math.floor(map.height * (0.3 + 0.4 * rnd()));
     const i = y * map.width + x;
     if (isLand(map, i) && map.vegetation[i] > 0.3 && eco.canFound(x, y) && eco.introduceOne(s, x + 0.5, y + 0.5) >= 0) {
+      eco.foundVillage(s, x, y, 8);
+      placed++;
+    }
+  }
+  for (let t = 0; t < 4000 && !placed && s >= 0; t++) {
+    const x = Math.floor(rnd() * map.width);
+    const y = Math.floor(map.height * (0.2 + 0.6 * rnd()));
+    if (isLand(map, y * map.width + x) && eco.canFound(x, y) && eco.introduceOne(s, x + 0.5, y + 0.5) >= 0) {
       eco.foundVillage(s, x, y, 8);
       placed++;
     }
@@ -192,9 +204,10 @@ export function runWorld(
   years: number,
   radius = 0.4,
   yearSpan = YEAR_SECONDS,
-  onYear?: (year: number, eco: Ecosystem) => void,
+  options: { planet?: PlanetParams; species?: Species[]; onYear?: (year: number, eco: Ecosystem) => void } = {},
 ): { eco: Ecosystem; indicators: Indicators } {
-  const { eco, map, placed } = seedWorld(seed, radius);
+  const { planet, species, onYear } = options;
+  const { eco, map, placed } = planet ? seedPlanet(planet, seed, species) : seedWorld(seed, radius);
   // Como no jogo: o ano da tela é definido depois de povoar o mundo.
   eco.yearSpan = yearSpan;
   let wars = 0;
@@ -547,6 +560,39 @@ export const LONG_TARGETS: { key: keyof Indicators; label: string; min: number; 
   { key: 'annexations', label: 'Anexações pacíficas na rodada', min: 5, max: 9999 },
   { key: 'newPeoples', label: 'Povos novos por deriva cultural', min: 1, max: 9999 },
 ];
+
+/** As metas que são contagens: crescem com a terra onde dá para viver. As de proporção, como a fome, valem em todo planeta. */
+const COUNT_TARGETS: ReadonlySet<keyof Indicators> = new Set<keyof Indicators>(['founded', 'settlements', 'metropoles', 'realms', 'annexations', 'newPeoples']);
+/** Umidade mínima para uma terra contar como habitável. */
+const HABITABLE_MOISTURE = 0.1;
+/** Largura da faixa de temperatura de um povo (`TEMPLATES` em species.ts), de cada lado da temperatura do planeta. */
+const HABITABLE_SPREAD_K = 31.5;
+/** `habitableTiles` na Terra do jogo. Quem muda o gerador atualiza: um teste compara. */
+export const EARTH_HABITABLE_TILES = 138716;
+
+/** Tiles onde um povo do planeta consegue viver: terra, na faixa de temperatura dele e com um mínimo de umidade. */
+export function habitableTiles(map: SurfaceMap): number {
+  const mid = map.params.temperatureK;
+  let n = 0;
+  for (let i = 0; i < map.width * map.height; i++) {
+    if (map.elevation[i] < 0 || map.moisture[i] < HABITABLE_MOISTURE) continue;
+    if (Math.abs(temperatureAt(map, i) - mid) <= HABITABLE_SPREAD_K) n++;
+  }
+  return n;
+}
+
+/**
+ * Metas do planeta: as contagens de `LONG_TARGETS` vêm da Terra do jogo e escalam com a terra habitável, arredondando
+ * para fora, para a faixa não fechar num planeta pequeno. Na Terra (qualquer raio, como nas rodadas da calibração) são as
+ * de sempre. Num planeta sem terra habitável, ninguém precisa fundar nada.
+ */
+export function scaledTargets(map: SurfaceMap): typeof LONG_TARGETS {
+  if (map.params.id === EARTH_ID) return LONG_TARGETS;
+  const k = habitableTiles(map) / EARTH_HABITABLE_TILES;
+  return LONG_TARGETS.map((t) =>
+    COUNT_TARGETS.has(t.key) ? { ...t, min: Math.floor(t.min * k), max: t.max >= 9999 ? t.max : Math.ceil(t.max * k) } : t,
+  );
+}
 
 /** Nome de cada indicador no relatório. */
 export const LABELS: Partial<Record<keyof Indicators, string>> = {

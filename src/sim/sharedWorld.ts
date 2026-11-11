@@ -12,8 +12,10 @@ type Shot = { map: Ecosystem['map']; eco: EcosystemSnapshot };
 export function sharedWorld(seed: number, years: number[]): { at(year: number): Ecosystem } {
   const shots = new Map<number, Shot>();
   const last = Math.max(...years);
-  runWorld(seed, last, 0.4, YEAR_SECONDS, (y, eco) => {
-    if (years.includes(y)) shots.set(y, structuredClone({ map: eco.map, eco: snapshotEcosystem(eco, seed) }));
+  runWorld(seed, last, 0.4, YEAR_SECONDS, {
+    onYear: (y, eco) => {
+      if (years.includes(y)) shots.set(y, structuredClone({ map: eco.map, eco: snapshotEcosystem(eco, seed) }));
+    },
   });
   return {
     at(year) {

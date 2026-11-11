@@ -3,11 +3,46 @@ import balanceSource from './balance.ts?raw';
 import tuningSource from '../IAUS/npc/tuning.ts?raw';
 import * as B from './balance';
 import { MOVE_W } from '../IAUS/npc/tuning';
-import { LONG_TARGETS, type Indicators } from './calibrate';
+import { generateSurface } from '../procgen/surface';
+import { planetParams, SOL_PLANETS } from '../nav/planets';
+import { EARTH_HABITABLE_TILES, earthParams, habitableTiles, LONG_TARGETS, scaledTargets, type Indicators } from './calibrate';
 import { goalLoss, goalMiss, goalsFrom } from './tuneGoals';
 import { formatNumber, readConstant, writeConstant } from '../../tools/tune/constants.mjs';
 import shortPlan from '../../tools/tune/assentamentos.json';
 import longPlan from '../../tools/tune/assentamentos-longo.json';
+
+describe('metas por terra habitável', () => {
+  const small = { id: 'pequeno', name: 'Pequeno', radiusEarth: 0.3, temperatureK: 288, water: 0.6, life: 0.5 };
+
+  it('na Terra, de qualquer tamanho, as metas são as de hoje', () => {
+    const game = generateSurface(planetParams(SOL_PLANETS[2]));
+    expect(scaledTargets(game)).toBe(LONG_TARGETS);
+    expect(scaledTargets(generateSurface(earthParams(0.4)))).toBe(LONG_TARGETS);
+    expect(goalsFrom(scaledTargets(game))).toEqual(goalsFrom(LONG_TARGETS));
+    expect(habitableTiles(game)).toBe(EARTH_HABITABLE_TILES);
+  });
+
+  it('num planeta pequeno, as contagens encolhem e as proporções ficam', () => {
+    const map = generateSurface(small);
+    const k = habitableTiles(map) / EARTH_HABITABLE_TILES;
+    expect(k).toBeGreaterThan(0);
+    expect(k).toBeLessThan(0.5);
+    const at = (key: string) => scaledTargets(map).find((t) => t.key === key)!;
+    const earth = (key: string) => LONG_TARGETS.find((t) => t.key === key)!;
+    expect(at('settlements').max).toBeLessThan(earth('settlements').max);
+    expect(at('settlements').min).toBeLessThan(earth('settlements').min);
+    expect(at('settlements').max).toBeGreaterThan(at('settlements').min);
+    expect(at('hunger')).toEqual(earth('hunger'));
+    expect(at('medianPop')).toEqual(earth('medianPop'));
+  });
+
+  it('terra seca ou fora da faixa não conta', () => {
+    const map = generateSurface(small);
+    expect(habitableTiles(map)).toBeGreaterThan(0);
+    expect(habitableTiles({ ...map, heat: new Float32Array(map.heat.length).fill(200) })).toBe(0);
+    expect(habitableTiles({ ...map, moisture: new Float32Array(map.moisture.length) })).toBe(0);
+  });
+});
 
 describe('ajuste automático: metas', () => {
   it('dentro da faixa não custa; fora, a distância na escala da borda', () => {

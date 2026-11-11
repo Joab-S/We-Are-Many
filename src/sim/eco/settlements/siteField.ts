@@ -7,7 +7,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { ECO_CELL } from '../../fauna';
 import { isRockyBiome, type Biome } from '../../../procgen/surface';
 import { lensArea, siteDecay, siteValue, waterGrade, type ColonyMotive, type SiteLook } from '../../community';

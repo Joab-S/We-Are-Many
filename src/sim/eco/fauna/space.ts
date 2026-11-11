@@ -247,6 +247,7 @@ export const faunaSpacePart = {
         const shift = (this.map.params.temperatureK + 10 - (sp.tempMin + sp.tempMax) / 2) * 0.5;
         sp.tempMin = Math.round(sp.tempMin + shift - 8);
         sp.tempMax = Math.round(sp.tempMax + shift + 8);
+        sp.tempIdeal = undefined;
         if (sp.eco) sp.eco = { ...sp.eco, biomes: {}, open: 1, moist: [0, 1], alt: [0, 0.85] };
         refreshEcology(sp);
         changed = true;

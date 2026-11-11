@@ -4,6 +4,7 @@ import { earthParams } from '../../sim/calibrate';
 import { viewCommand, type EngineCommand } from '../../sim/api/commands';
 import { DEBUG_DECISION_LIMIT, EMPTY_DEBUG, type DebugOption, type DebugView, type FamilyDecision, type PlaceDebug, type ProfileDebug } from '../../sim/api/debug';
 import { createEngine, type EngineView } from '../../sim/api/engine';
+import { resetConstants } from '../../sim/live';
 import type { EngineEvent, EngineEventKind } from '../../sim/api/events';
 import { CHILD } from '../../sim/roles';
 import { nativeSpecies } from '../../sim/species';
@@ -32,6 +33,7 @@ import {
   sparkSvg,
   targetTone,
   timeHtml,
+  tuneHtml,
   worldHtml,
   type DebugCase,
   type EventEntry,
@@ -181,6 +183,8 @@ function fakeDebug(): DebugView {
     place: (id) => (id === 0 ? PLACE : null),
     decisions: (f = {}) => DECISIONS.filter((d) => (f.village === undefined || d.village === f.village) && (f.family === undefined || d.family === f.family)).slice(0, f.limit ?? DEBUG_DECISION_LIMIT),
     profile: () => (on ? PROFILE : null),
+    fingerprint: () => 'abcd1234',
+    constants: () => [],
   };
 }
 
@@ -429,6 +433,8 @@ const EVENTS: EngineEvent[] = [
   { kind: 'disaster', year: 109.5, what: 'quake', x: 55.2, y: 33.8, village: -1 },
   { kind: 'disaster', year: 110, what: 'epidemic', x: 40, y: 22, village: 1 },
   { kind: 'extinction', year: 110.5, species: 1 },
+  { kind: 'species', year: 111, species: 1 },
+  { kind: 'indicator', year: 112, what: 'fome', value: 0.2 },
 ];
 
 const entries = (): EventEntry[] => EVENTS.map((e, k) => eventEntry(e, view, k + 1)).reverse();
@@ -474,7 +480,7 @@ describe('aba Eventos', () => {
     const html = eventsHtml(entries(), { kinds: new Set(['disaster']), onlyPlace: false }, 1, view, 1234);
     clean(html);
     expect(html).toContain('class="wb-chip on" data-dkind="disaster">Desastre <b>2</b>');
-    expect(html).toContain('Todos <b>24</b>');
+    expect(html).toContain('Todos <b>26</b>');
     expect(html).toContain('Só Beru');
     expect(count(html, 'wb-devent')).toBe(2);
     expect(html.indexOf('data-dplace="1"')).toBeLessThan(html.indexOf('data-dgo="55.2,33.8"'));
@@ -523,7 +529,7 @@ describe('aba Desempenho', () => {
 // Tempo e caso ----------------------------------------------------------------
 
 describe('aba Tempo e o caso copiado', () => {
-  const base = { speed: 0, seed: 42, year: 120.04, tick: 5762, log: 37, logLimit: LOG_LIMIT, pending: 1, stepsPerYear: 48, fresh: true, last: null, copied: '' };
+  const base = { speed: 0, seed: 42, year: 120.04, tick: 5762, log: 37, logLimit: LOG_LIMIT, pending: 1, stepsPerYear: 48, fresh: true, last: null, hash: null, copied: '' };
 
   it('pausa e velocidades, avançar 1 passo e 1 ano, o relógio e o log', () => {
     const html = timeHtml(base);
@@ -544,12 +550,23 @@ describe('aba Tempo e o caso copiado', () => {
     expect(after).toContain('chegou ao limite');
   });
 
+  it('mostra a impressão digital e o passo em que ela foi tirada', () => {
+    expect(timeHtml(base)).not.toContain('Pôr em dia');
+    expect(timeHtml({ ...base, caughtUp: 40, skipped: 0 })).toContain('nenhum ano pulado');
+    expect(timeHtml({ ...base, caughtUp: 200, skipped: 310 })).toContain('310 anos pulados');
+    expect(timeHtml(base)).not.toContain('Impressão digital</span>');
+    const html = timeHtml({ ...base, hash: { tick: 5760, value: 'abcd1234' } });
+    clean(html);
+    expect(html).toContain('abcd1234');
+    expect(html).toContain('no passo 5760');
+  });
+
   it('o JSON do caso volta inteiro, e diz se o log está completo', () => {
     const log = [
       { tick: 0, cmd: viewCommand(100, 50, 30, -1) },
       { tick: 12, cmd: { kind: 'feed', x: 3, y: 4, r: 5 } as EngineCommand },
     ];
-    const c = debugCase({ seed: 42, year: 120.04, tick: 5762, step: 0.25, yearSpan: 12, planet: earthParams(0.4), fresh: true, log, logLimit: LOG_LIMIT });
+    const c = debugCase({ seed: 42, year: 120.04, tick: 5762, step: 0.25, yearSpan: 12, planet: earthParams(0.4), attempt: 0, notes: [], generator: 2, fresh: true, fingerprint: 'abcd1234', log, logLimit: LOG_LIMIT });
     const json = caseJson(c);
     expect(JSON.parse(json)).toEqual(c);
     expect(c.complete).toBe(true);
@@ -574,7 +591,7 @@ describe('aba Tempo e o caso copiado', () => {
     for (let f = 0; f < 6; f++) d.update(1 / 30);
     d.enqueue({ kind: 'cull', x: v.x + 3, y: v.y, r: 4 });
     d.stepBy(12);
-    const c: DebugCase = JSON.parse(caseJson(debugCase({ seed: engine.seed, year: engine.view.year, tick: d.tick, step: d.h, yearSpan: engine.view.yearSpan, planet: engine.view.map.params, fresh: true, log: d.log, logLimit: LOG_LIMIT })));
+    const c: DebugCase = JSON.parse(caseJson(debugCase({ fingerprint: engine.debug.fingerprint(), seed: engine.seed, year: engine.view.year, tick: d.tick, step: d.h, yearSpan: engine.view.yearSpan, planet: engine.view.map.params, attempt: 0, notes: [], generator: 2, fresh: true, log: d.log, logLimit: LOG_LIMIT })));
     expect(c.log.length).toBe(3);
     // Refaz: os comandos de cada passo entram antes dele (os do último passo, depois dele).
     const again = createEngine(generateSurface(c.planet), { seed: c.seed, species: nativeSpecies(c.planet), yearSpan: c.yearSpan });
@@ -591,5 +608,46 @@ describe('aba Tempo e o caso copiado', () => {
     expect([...b.population]).toEqual([...a.population]);
     expect(b.villages.map((it) => [it.name, it.population, it.x, it.y])).toEqual(a.villages.map((it) => [it.name, it.population, it.x, it.y]));
     expect(Array.from(b.x.subarray(0, b.count))).toEqual(Array.from(a.x.subarray(0, a.count)));
+    // A impressão digital do caso é a do mundo refeito, e é ela que o painel mostra.
+    expect(again.debug.fingerprint()).toBe(c.fingerprint);
+  });
+
+  it('o caso reproduz com uma constante mudada no meio', () => {
+    const planet = earthParams(0.2);
+    const engine = createEngine(generateSurface(planet), { seed: 7, species: nativeSpecies(planet), yearSpan: 12 });
+    const d = new SimDriver<EngineCommand, EngineEvent>(engine, (cmd) => engine.apply(cmd), { wrapWidth: engine.view.map.width });
+    d.setSpeed(0);
+    d.stepBy(8);
+    d.enqueue({ kind: 'tune', name: 'SITE_MIN_VALUE', value: 2.5 });
+    for (let s = 0; s < 4; s++) d.enqueue({ kind: 'tune', name: `SEASON_HARVEST[${s}]`, value: 0 });
+    d.stepBy(240);
+    const c: DebugCase = JSON.parse(caseJson(debugCase({ fingerprint: engine.debug.fingerprint(), seed: engine.seed, year: engine.view.year, tick: d.tick, step: d.h, yearSpan: engine.view.yearSpan, planet: engine.view.map.params, attempt: 0, notes: [], generator: 2, fresh: true, log: d.log, logLimit: LOG_LIMIT })));
+    expect(c.log.map((e) => e.cmd.kind)).toEqual(Array(5).fill('tune'));
+    // Sem o ajuste, o mesmo tempo dá outro mundo; com ele, o mesmo.
+    const plain = createEngine(generateSurface(c.planet), { seed: c.seed, species: nativeSpecies(c.planet), yearSpan: c.yearSpan });
+    for (let t = 0; t < c.tick; t++) plain.step(c.step);
+    expect(plain.debug.fingerprint()).not.toBe(c.fingerprint);
+    const again = createEngine(generateSurface(c.planet), { seed: c.seed, species: nativeSpecies(c.planet), yearSpan: c.yearSpan });
+    let k = 0;
+    for (let t = 0; t <= c.tick; t++) {
+      while (k < c.log.length && c.log[k].tick === t) again.apply(c.log[k++].cmd);
+      if (t < c.tick) again.step(c.step);
+    }
+    expect(again.debug.fingerprint()).toBe(c.fingerprint);
+    resetConstants();
+  });
+
+  it('a aba Ajustes lista as constantes, marca a mudada e tem os botões de evento', () => {
+    const html = tuneHtml([
+      { name: 'SITE_MIN_VALUE', value: 2.5, factory: 4.2 },
+      { name: 'DUNBAR', value: 150 },
+    ]);
+    expect(html).toContain('data-dtune="SITE_MIN_VALUE"');
+    expect(html).toContain('value="2.5"');
+    expect(html).toContain('era 4.2');
+    expect(html).toContain('(1 mudada)');
+    expect(html).toContain('data-dname="dunbar"');
+    expect(html).toContain('data-dsurprise');
+    expect(html).toContain('data-devent="comet"');
   });
 });

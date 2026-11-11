@@ -7,9 +7,11 @@ import { sameView, viewCommand, type EngineCommand, type ViewCommand } from '../
 import { createEngine, ecosystemOf, type Engine } from '../../sim/api/engine';
 import type { EngineEvent } from '../../sim/api/events';
 import { earthCatalog, nativeSpecies } from '../../sim/species';
+import { altitudeAtZoom, type Landing } from '../fusion';
 import { Input } from '../input';
 import { SoftRenderer, type GameRenderer } from '../renderer';
 import type { GameState } from '../state';
+import { takePregen } from '../space/planet/pregen';
 import { generateSurfaceAsync } from './generateAsync';
 import { SETTLEMENT_TABS, type CompareKey, type PeriodSpan, type SettlementTab } from './settlementWindow';
 import { SpriteAtlas, SpriteLayer } from './sprites';
@@ -40,6 +42,11 @@ import { Toast } from './hud/Toast';
 import { bindNotices } from './hud/notices';
 import { Labels } from './hud/Labels';
 import { DebugPanel } from './hud/DebugPanel';
+import { catchUpPlanet, yearsToCatchUp } from './catchUp';
+import { clearSignals } from '../../nav/guide';
+import { downloadLegends } from './hud/legends';
+import { SPECIMEN_HOLD, specimensAboard, storeSpecimen, takeSpecimen } from '../../explore/probes';
+import { EARTH_ID } from '../../sim/species';
 import { buildTools, DEBUG, plain, REAL_YEAR_SECONDS, SETTLEMENT_TAB_ICONS, TAB_ICONS, TABS, WINDOW_ICONS, WINDOWS, type FxKind, type Tab, type Tool, type ToolContext, type Win } from './tools';
 
 /** Folga (tiles) do recorte das criaturas pela grade: o desenho interpolado fica a até 3 tiles da posição atual. */
@@ -47,7 +54,8 @@ const GRID_SLACK = 4;
 
 /**
  * Visão da superfície no estilo WorldBox (REQUISITOS.md, seção 4.7). Enquanto
- * este modo está ativo, nada do 3D fica carregado.
+ * este modo está ativo, nada do 3D fica carregado, a não ser nos 0,6 s de uma
+ * fusão com ele (`main.ts`).
  *
  * Esta classe só orquestra (padrão Component): a câmera (`Viewport`), o
  * relógio da simulação e a fila de comandos (`SimDriver`), o chão do mapa
@@ -125,15 +133,20 @@ export class SurfaceMode {
    * em qualquer computador.
    */
   private readonly renderer: SoftRenderer;
+  /** Chamado uma vez, depois do primeiro quadro desenhado. */
+  onOpen: (() => void) | null = null;
 
   constructor(
     private readonly shared: GameRenderer,
     private readonly state: GameState,
     private readonly params: PlanetParams,
     hud: HTMLElement,
-    private readonly onExit: () => void,
-    /** Câmera e velocidade de um save carregado. */
+    /** Com `lift`, o jogador afastou além do zoom mínimo: a nave volta sobre esse ponto. */
+    private readonly onExit: (lift?: Landing) => void,
+    /** Câmera e velocidade de um save carregado, ou da nave que está pousando. */
     private readonly resume?: { center: [number, number]; zoom: number; speed: number },
+    /** Numa fusão, o mapa nasce invisível por cima do 3D, e parado até ela acabar: nem relógio, nem simulação, nem teclas. */
+    private fusing = false,
   ) {
     if (shared instanceof SoftRenderer) {
       this.renderer = shared;
@@ -142,11 +155,15 @@ export class SurfaceMode {
       this.renderer = new SoftRenderer();
       this.renderer.setPixelRatio(1);
       shared.domElement.after(this.renderer.domElement);
-      shared.domElement.style.display = 'none';
+      if (fusing) {
+        this.renderer.domElement.classList.add('fusion-layer');
+        this.renderer.domElement.style.opacity = '0';
+      } else shared.domElement.style.display = 'none';
     }
     this.input = new Input(this.renderer.domElement, false);
     this.root = document.createElement('div');
     this.root.className = 'surface-hud';
+    this.root.classList.toggle('fusing', fusing);
     this.root.innerHTML = `<div class="wb-loading">Observando a superfície de ${params.name}…</div>`;
     hud.appendChild(this.root);
     window.addEventListener('resize', this.resize, { signal: this.abort.signal });
@@ -165,22 +182,52 @@ export class SurfaceMode {
 
     const existing = state.surfaces.get(params.id);
     if (existing) this.init(existing);
-    else void generateSurfaceAsync(params).then((map) => this.init(map));
+    else void (takePregen(state, params.id) ?? generateSurfaceAsync(params)).then((map) => this.init(map));
   }
 
+  /** O mapa está pronto: antes de abrir, põe em dia os anos em que o planeta ficou sem ser olhado (C2). */
   private init(map: SurfaceMap): void {
     if (this.abort.signal.aborted) return;
     const state = this.state;
-    this.map = map;
     state.surfaces.set(this.params.id, map);
+    if (yearsToCatchUp(state, this.params.id) < 1) {
+      this.openWorld(map);
+      return;
+    }
+    void this.bringUpToDate().then(() => {
+      if (!this.abort.signal.aborted) this.openWorld(state.surfaces.get(this.params.id)!);
+    });
+  }
+
+  /** Mostra o ano enquanto roda. Se pegou um pedaço em segundo plano no meio, depois dele roda o resto. */
+  private async bringUpToDate(): Promise<void> {
+    const state = this.state;
+    const id = this.params.id;
+    const label = this.root.querySelector<HTMLElement>('.wb-loading');
+    const say = (year: number) => {
+      if (label) label.textContent = `Pondo em dia ${this.params.name}: ano ${Math.floor(year)}…`;
+    };
+    say(state.ecosystems.get(id)!.year);
+    while (!this.abort.signal.aborted && yearsToCatchUp(state, id) >= 1) {
+      const done = await catchUpPlanet(state, id, { onYear: say });
+      if (!done) return;
+    }
+  }
+
+  private openWorld(map: SurfaceMap): void {
+    const state = this.state;
+    this.map = map;
+    // Pousou: o que o planeta tinha a pedir, o jogador já está vendo.
+    clearSignals(state.nav, this.params.id);
 
     // O motor: o mundo salvo (ou já visitado) ou um novo, com as espécies nativas, que passam a ser
     // conhecidas (podem ser levadas a outros planetas). O ano na tela dura REAL_YEAR_SECONDS.
     const seed = seedFor(`${this.params.id}:life`);
     const saved = state.ecosystems.get(this.params.id);
-    const natives = saved ? [] : nativeSpecies(this.params);
+    const natives = saved ? [] : nativeSpecies(this.params, map.life?.attempt ?? 0);
+    if (DEBUG && !saved) for (const line of map.life?.notes ?? []) console.info(line);
     for (const sp of natives) state.knownSpecies.set(sp.id, sp);
-    this.engine = createEngine(map, saved ? { seed, eco: saved, yearSpan: REAL_YEAR_SECONDS } : { seed, species: natives, yearSpan: REAL_YEAR_SECONDS });
+    this.engine = createEngine(map, saved ? { seed, eco: saved, yearSpan: REAL_YEAR_SECONDS } : { seed, species: natives, yearSpan: REAL_YEAR_SECONDS, notes: map.life?.notes });
     const eco = ecosystemOf(this.engine);
     if (!saved) state.ecosystems.set(this.params.id, eco);
     this.eco = eco;
@@ -190,7 +237,10 @@ export class SurfaceMode {
 
     this.view = new Viewport(map.width, map.height);
     this.view.zoom = Math.max(1, window.innerHeight / map.height);
-    this.driver = new SimDriver<EngineCommand, EngineEvent>(this.engine, (cmd) => this.apply(cmd), { wrapWidth: map.width });
+    // O relógio e o log continuam de onde a última visita parou; num mundo de um save antigo, não há log desde o começo.
+    let record = state.replays.get(this.params.id);
+    if (!record) state.replays.set(this.params.id, (record = { tick: 0, log: [], fromStart: !saved }));
+    this.driver = new SimDriver<EngineCommand, EngineEvent>(this.engine, (cmd) => this.apply(cmd), { wrapWidth: map.width, record });
     if (this.resume) {
       this.view.center.x = this.resume.center[0];
       this.view.center.y = this.resume.center[1];
@@ -198,16 +248,13 @@ export class SurfaceMode {
       this.driver.setSpeed(this.resume.speed);
     }
     this.raster = new MapRaster(map, eco);
-    this.engine.setHooks({
-      // Observer: o motor avisa o tile que mudou e a tela só o marca para repintar (o bioma já vem reclassificado).
-      tileChanged: (i) => this.raster.markDirty(i),
-      // Variantes que surgem entram no catálogo (e nas ferramentas de soltar espécies).
-      species: (sp) => {
-        if (state.knownSpecies.has(sp.id)) return;
-        state.knownSpecies.set(sp.id, sp);
-        this.tools = buildTools(state.knownSpecies.values());
-        if (this.ready) this.toolbar.selectTab(this.toolbar.tab);
-      },
+    // Variantes que surgem entram no catálogo (e nas ferramentas de soltar espécies).
+    this.driver.bus.on('species', (e) => {
+      const sp = this.engine.view.species[e.species];
+      if (state.knownSpecies.has(sp.id)) return;
+      state.knownSpecies.set(sp.id, sp);
+      this.tools = buildTools(state.knownSpecies.values());
+      if (this.ready) this.toolbar.selectTab(this.toolbar.tab);
     });
     this.atlas = new SpriteAtlas();
     this.sprites = new SpriteLayer(this.atlas, 30000);
@@ -218,7 +265,8 @@ export class SurfaceMode {
     this.tools = buildTools(state.knownSpecies.values());
 
     this.buildUi();
-    if (DEBUG) this.debug = this.buildDebug(!saved);
+    if (this.fusing) this.root.style.opacity = '0';
+    if (DEBUG) this.debug = this.buildDebug(record.fromStart);
     this.resize();
     this.ready = true;
     // `?debug` deixa a cena acessível no console (testes e calibragem).
@@ -228,6 +276,12 @@ export class SurfaceMode {
 
   // Comandos ------------------------------------------------------------------
 
+  /** Traz do motor os tiles que mudaram; a tela só os marca para repintar (o bioma já vem reclassificado). */
+  private pullTiles(): void {
+    const tiles = this.engine.drainTiles();
+    for (let k = 0; k < tiles.length; k++) this.raster.markDirty(tiles[k]);
+  }
+
   /** Aplica um comando no motor (chamado pelo SimDriver na fronteira do passo). */
   private apply(cmd: EngineCommand): void {
     // A vista só muda o nível de detalhe do motor: nada a repintar nem a avisar.
@@ -235,11 +289,15 @@ export class SurfaceMode {
       this.engine.apply(cmd);
       return;
     }
-    // O que o jogador muda vai para a tela no mesmo quadro.
-    this.raster.urgent = true;
+    // O que o jogador muda vai para a tela no mesmo quadro; o que veio dos passos anteriores, não.
+    this.pullTiles();
+    this.fillHold(cmd);
     const res = this.engine.apply(cmd, { journal: cmd.kind === 'terraform' ? this.history.journal : null });
+    this.raster.urgent = true;
+    this.pullTiles();
     this.raster.urgent = false;
     if (res.hint) this.toast.say(res.hint);
+    this.settleHold(cmd, res);
     this.applied++;
     this.dirty = true;
     if (cmd.kind === 'surprise' && res.at) this.goTo(res.at.x, res.at.y);
@@ -250,6 +308,23 @@ export class SurfaceMode {
       if (fx && a) this.fx.burst(fx, a.x, this.map.height - a.y);
     }
     if (cmd.kind === 'events') this.windows.refresh(this.eco);
+  }
+
+  /** O porão é da nave: entra no comando antes de aplicar (o log refaz o mesmo mundo sem ela). */
+  private fillHold(cmd: EngineCommand): void {
+    const probes = this.state.probes;
+    if (cmd.kind === 'introduce') cmd.cargo = probes.specimens[cmd.species.id] ?? 0;
+    if (cmd.kind === 'collect') cmd.room = SPECIMEN_HOLD - specimensAboard(probes);
+  }
+
+  /** E o que o motor fez volta para ele: quem foi solto sai, quem foi capturado entra. Na Terra, soltar é de graça. */
+  private settleHold(cmd: EngineCommand, res: { ok: boolean; collected?: string }): void {
+    const probes = this.state.probes;
+    if (cmd.kind === 'introduce' && res.ok && this.params.id !== EARTH_ID) takeSpecimen(probes, cmd.species.id);
+    if (res.collected) {
+      storeSpecimen(probes, res.collected);
+      this.toast.say(`${this.state.knownSpecies.get(res.collected)?.name ?? 'Criatura'} no porão: ${specimensAboard(probes)} de ${SPECIMEN_HOLD}`);
+    }
   }
 
   /** Ctrl+Z: desfaz o último traço do pincel de terreno ou clima. */
@@ -368,7 +443,7 @@ export class SurfaceMode {
           <span><kbd>Direito</kbd><kbd>WASD</kbd> movem o mapa · <kbd>Roda</kbd> zoom</span>
           <span><kbd>${key('pause')}</kbd> pausa · <kbd>1</kbd>–<kbd>${SPEEDS.length}</kbd> velocidade</span>
           <span><kbd>${key('brushDown')}</kbd><kbd>${key('brushUp')}</kbd> tamanho do pincel · <kbd>Ctrl</kbd>+<kbd>Z</kbd> desfaz o último traço de terreno ou clima · <kbd>Esc</kbd> fecha o que abriu por último, guarda a ferramenta ou volta à órbita</span>
-          <span><kbd>${key('chronicle')}</kbd> crônica · <kbd>${key('kingdoms')}</kbd> reinos · <kbd>${key('species')}</kbd> espécies · <kbd>${key('items')}</kbd> itens · <kbd>${key('panel')}</kbd> painel · <kbd>${key('territory')}</kbd> territórios · <kbd>${key('help')}</kbd> esta ajuda</span>
+          <span><kbd>${key('chronicle')}</kbd> crônica · <kbd>${key('legends')}</kbd> lendas · <kbd>${key('kingdoms')}</kbd> reinos · <kbd>${key('species')}</kbd> espécies · <kbd>${key('items')}</kbd> itens · <kbd>${key('panel')}</kbd> painel · <kbd>${key('territory')}</kbd> territórios · <kbd>${key('help')}</kbd> esta ajuda</span>
           <span><kbd>${key('sites')}</kbd> notas dos sítios (depuração de onde assentar): a nota de cada célula e, na ficha, a nota do ponto fator por fator e por que ali não dá para fundar</span>
           ${DEBUG ? `<span><kbd>${key('debug')}</kbd> painel de depuração: indicadores contra as metas, o lugar e a família selecionados, os eventos do motor, o desempenho e o tempo passo a passo</span>` : ''}
           <span>Cada reino tem uma cor: a área dos assentamentos e a faixa do nome mostram de quem é. Borda cheia é a capital; tracejada, os outros assentamentos do reino.</span>
@@ -382,7 +457,7 @@ export class SurfaceMode {
     const view = this.view;
     const redraw = () => (this.dirty = true);
     this.toast = new Toast(q('[data-toast]'));
-    this.windows = new Windows(root, this.icons, this.settings, this.state.knownSpecies, this.params.id);
+    this.windows = new Windows(root, this.icons, this.settings, this.state.knownSpecies, this.params.id, this.state.probes);
     this.vwin = new SettlementView(root, this.icons);
     // Consumidores da fila de eventos do motor (Observer): avisos dos acontecimentos, a janela do assentamento e as
     // setas das colônias e das famílias que se mudam.
@@ -534,6 +609,7 @@ export class SurfaceMode {
     if (span) this.vwin.setSpan(eco, Number(span.dataset.span) as PeriodSpan);
     const filter = el.closest<HTMLElement>('[data-filter]');
     if (filter) this.windows.setFilter(eco, filter.dataset.filter!);
+    if (el.closest('[data-legends-json]')) downloadLegends(this.engine.view, this.windows.filter, this.params);
     const pick = el.closest<HTMLElement>('[data-pick]');
     if (pick) {
       const t = this.tools.find((it) => it.id === pick.dataset.pick);
@@ -631,6 +707,10 @@ export class SurfaceMode {
           this.openSettlement(id);
         },
         goTo: (x, row) => this.goTo(x, row),
+        spot: () => {
+          const v = this.engine.view.villages[this.selectedPlace()];
+          return v ? { x: v.x, y: v.y } : { x: Math.floor(this.view.center.x), y: this.view.toRow(this.view.center.y) };
+        },
         advance: (n) => {
           const steps = this.driver.stepBy(n);
           this.vwin.onSteps(steps);
@@ -725,8 +805,9 @@ export class SurfaceMode {
     // Relógio do universo (órbitas e sondas, `state.time`): anda no tempo real enquanto a superfície roda e
     // para na pausa dela. A pausa congela o jogo inteiro, não só o planeta; a velocidade (2x, 5x) vale só
     // para a simulação da superfície, porque o ano do planeta já é outra escala (12 s por ano).
-    if (!this.driver.paused) this.state.time += dt;
-    if (!this.keys(dt)) return;
+    if (!this.driver.paused && !this.fusing) this.state.time += dt;
+    this.state.leftAt.set(this.params.id, this.state.time);
+    if (!this.fusing && !this.keys(dt)) return;
     const eco = this.eco;
     const view = this.view;
     view.clampCenter();
@@ -749,13 +830,14 @@ export class SurfaceMode {
       this.driver.enqueue(look);
       this.lastLook = look;
     }
-    const steps = this.driver.update(dt);
+    const steps = this.fusing ? 0 : this.driver.update(dt);
     this.debug?.frame(now);
     this.vwin.onSteps(steps);
     if (!this.driver.paused) {
       this.weather.step(dt, view);
       this.trails.step(dt);
     }
+    this.pullTiles();
     this.raster.flush(view);
 
     // Parado e sem mudanças, não redesenha.
@@ -779,7 +861,66 @@ export class SurfaceMode {
     this.debug?.tick(eco, now);
     this.toolbar.updateCursor();
     this.input.endFrame();
+    if (this.onOpen) {
+      const open = this.onOpen;
+      this.onOpen = null;
+      open();
+    }
   };
+
+  // Fusão com o 3D ---------------------------------------------------------------
+
+  /**
+   * O mapa aparece. Ele nasce como o 3D mostra aquele ponto (no centro da tela e no tamanho da altitude) e vai para o lugar
+   * dele enquanto aparece: o zoom tem teto (`MAX_ZOOM`) e a vista não passa dos polos, e os dois sumiriam num salto.
+   */
+  fadeIn(ms: number): Animation[] {
+    const view = this.view;
+    view.clampCenter();
+    const want = this.resume!;
+    const scale = Math.min(4, Math.max(0.25, want.zoom / view.zoom));
+    const start = `scale(${scale}) translateY(${(want.center[1] - view.center.y) * view.zoom}px)`;
+    const options = { duration: ms, fill: 'both', easing: 'ease-in-out' } as const;
+    const canvas = this.renderer.domElement;
+    const fades = [canvas.animate([{ opacity: 0, transform: start }, { opacity: 1, transform: 'none' }], options), this.root.animate([{ opacity: 0 }, { opacity: 1 }], options)];
+    const areas = this.root.querySelector('[data-terr]');
+    if (areas) fades.push(areas.animate([{ transform: start }, { transform: 'none' }], options));
+    return fades;
+  }
+
+  /** A fusão de descida acabou: o mapa é a tela, e o 3D (que o chamador descarta) sai dela. */
+  fusionDone(): void {
+    const canvas = this.renderer.domElement;
+    canvas.classList.remove('fusion-layer');
+    canvas.style.opacity = '';
+    this.root.style.opacity = '';
+    this.root.classList.remove('fusing');
+    this.shared.domElement.style.display = 'none';
+    this.fusing = false;
+    this.lastTime = performance.now();
+  }
+
+  /** Começa a subir: o mapa para e fica por cima do 3D, que volta à tela atrás dele. */
+  beginLeaving(): void {
+    this.fusing = true;
+    this.publishArt();
+    this.root.classList.add('fusing');
+    this.renderer.domElement.classList.add('fusion-layer');
+    this.shared.domElement.style.display = '';
+  }
+
+  /** O mapa some, com o 3D já pronto atrás dele. */
+  fadeOut(ms: number): Animation[] {
+    const options = { duration: ms, fill: 'both', easing: 'ease-in-out' } as const;
+    return [this.renderer.domElement, this.root].map((el) => el.animate([{ opacity: 1 }, { opacity: 0 }], options));
+  }
+
+  /** A esfera em órbita mostra o mesmo mapa, com as ruas; numa visão de depuração do gerador os pixels não são o mapa, e ela volta ao terreno pintado. */
+  private publishArt(): void {
+    if (!this.ready) return;
+    if (this.raster.geoView === 'none') this.state.surfaceArt.set(this.params.id, this.raster.pixels);
+    else this.state.surfaceArt.delete(this.params.id);
+  }
 
   /** Teclado do quadro. Devolve falso se o modo foi encerrado (Esc na mão vazia sem nada aberto). */
   private keys(dt: number): boolean {
@@ -805,11 +946,17 @@ export class SurfaceMode {
     if (this.debug && pressed(input, 'debug')) this.debug.toggle();
     if (pressed(input, 'brushDown')) this.toolbar.stepBrush(-2);
     if (pressed(input, 'brushUp')) this.toolbar.stepBrush(2);
-    for (const win of ['chronicle', 'kingdoms', 'species', 'items'] as const) if (pressed(input, win)) this.openWindow(win);
+    for (const win of ['chronicle', 'legends', 'kingdoms', 'species', 'items'] as const) if (pressed(input, win)) this.openWindow(win);
     const pan = 300 / view.zoom;
     view.center.x += ((input.down('KeyD') ? 1 : 0) - (input.down('KeyA') ? 1 : 0)) * pan * dt;
     view.center.y += ((input.down('KeyW') ? 1 : 0) - (input.down('KeyS') ? 1 : 0)) * pan * dt;
-    if (input.wheel) view.setZoom(view.zoom * (input.wheel < 0 ? 1.25 : 0.8));
+    if (input.wheel) {
+      if (view.wantsOut(input.wheel, performance.now())) {
+        this.onExit({ u: view.center.x / view.mapWidth, v: view.toRow(view.center.y) / view.mapHeight, altitude: altitudeAtZoom(view.zoom, view.height, view.mapHeight) });
+        return false;
+      }
+      view.setZoom(view.zoom * (input.wheel < 0 ? 1.25 : 0.8));
+    }
     return true;
   }
 
@@ -886,11 +1033,8 @@ export class SurfaceMode {
     this.abort.abort();
     this.input.dispose();
     if (this.ready) {
-      // A esfera em órbita mostra o mesmo mapa, com as ruas. O raster morre aqui, então não precisa de cópia;
-      // numa visão de depuração do gerador os pixels não são o mapa, e a esfera volta ao terreno pintado.
-      if (this.raster.geoView === 'none') this.state.surfaceArt.set(this.params.id, this.raster.pixels);
-      else this.state.surfaceArt.delete(this.params.id);
-      this.engine.setHooks({});
+      // O raster morre aqui, então a esfera fica com os pixels dele sem cópia.
+      this.publishArt();
       this.driver.bus.clear();
       this.sprites.dispose();
       this.atlas.dispose();

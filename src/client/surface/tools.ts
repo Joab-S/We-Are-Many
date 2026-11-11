@@ -2,7 +2,7 @@ import type { Ecosystem } from '../../sim/ecosystem';
 import { ORE_NAMES, ORES, type Ore } from '../../sim/economy';
 import { WORLD_EVENT_NAMES, type WorldEvent } from '../../sim/events';
 import { EARTH_ID, habitatOf, type Species } from '../../sim/species';
-import { LONER_GROUP_MIN } from '../../sim/balance';
+import { B } from '../../sim/live';
 import type { ChronicleKind } from '../../sim/ecosystem';
 import { POLITICS_LABELS, POLITICS_PAIR, type EngineCommand, type PoliticsAction, type TerraformTool } from '../../sim/api/commands';
 import { BODY_NAMES, SPRITES } from './art';
@@ -18,7 +18,7 @@ export type Tab = 'terrain' | 'climate' | 'life' | 'civ' | 'events';
 
 /** Ícone de cada aba da barra de ferramentas e de cada janela de leitura (HUD Pergaminho de Bordo). */
 export const TAB_ICONS: Record<Tab, string> = { terrain: 'terrain', climate: 'cloud', life: 'leaf', civ: 'civ', events: 'comet' };
-export const WINDOW_ICONS: Record<string, string> = { chronicle: 'chron', kingdoms: 'crown', settlements: 'homes', species: 'paw', items: 'hammer', world: 'gear' };
+export const WINDOW_ICONS: Record<string, string> = { chronicle: 'chron', legends: 'chron', kingdoms: 'crown', settlements: 'homes', species: 'paw', items: 'hammer', world: 'gear' };
 /** Ferramenta -> ícone de traço. As que não estão aqui mantêm o sprite ou o emoji de antes. */
 export const TOOL_ICONS: Record<string, string> = {
   raise: 'raise', lower: 'lower', mountain: 'peak', sea: 'wave', flatten: 'flat', sand: 'sand', lake: 'lake', clear: 'broom', demolish: 'demolish',
@@ -38,10 +38,11 @@ export const TABS: [Tab, string][] = [
   ['events', '☄ Eventos'],
 ];
 
-export type Win = 'chronicle' | 'kingdoms' | 'settlements' | 'species' | 'items' | 'world';
+export type Win = 'chronicle' | 'legends' | 'kingdoms' | 'settlements' | 'species' | 'items' | 'world';
 
 export const WINDOWS: [Win, string][] = [
   ['chronicle', '📜 Crônica'],
+  ['legends', '🏺 Lendas'],
   ['kingdoms', '👑 Reinos'],
   ['settlements', '🏘 Assentamentos'],
   ['species', '🐾 Espécies'],
@@ -301,6 +302,16 @@ export function buildTools(knownSpecies: Iterable<Species>): Tool[] {
       act: introduce(sp),
     }));
   life.push(
+    {
+      id: 'collect',
+      tab: 'life',
+      group: 'Levar',
+      label: 'Coletar',
+      icon: '🧺',
+      tip: 'Captura a criatura mais perto do clique e a guarda no porão da nave, para soltar em outro planeta. Custa uma vida daqui e um ano de trabalho da equipe; fora da Terra, só se solta o que veio no porão.',
+      mode: 'click',
+      act: (ctx, x, y) => ctx.enqueue({ kind: 'collect', x, y: ctx.toRow(y), r: Math.max(3, ctx.brush), room: 0 }),
+    },
     { id: 'feed', tab: 'life', group: 'Cuidar', label: 'Alimentar', icon: '🍎', tip: 'Enche a energia das criaturas no pincel.', mode: 'brush', act: (ctx, x, y) => ctx.enqueue({ kind: 'feed', x, y: ctx.toRow(y), r: ctx.brush }) },
     { id: 'cull', tab: 'life', group: 'Cuidar', label: 'Reduzir', icon: '✖', tip: 'Remove as criaturas dentro do pincel (controle de população).', mode: 'click', act: (ctx, x, y) => ctx.enqueue({ kind: 'cull', x, y: ctx.toRow(y), r: ctx.brush }) },
   );
@@ -314,7 +325,7 @@ export function buildTools(knownSpecies: Iterable<Species>): Tool[] {
       icon: `sprite:${bodyOf(sp)}:gatherer`,
       tint: [200, 160, 90],
       skin: sp.color,
-      tip: `Solta um(a) ${sp.name.toLowerCase()} por clique. Sozinho, ele procura um assentamento do seu povo ou outros como ele: só funda um novo com ${LONER_GROUP_MIN} juntos. Para nascerem filhos, precisa de pelo menos dois.`,
+      tip: `Solta um(a) ${sp.name.toLowerCase()} por clique. Sozinho, ele procura um assentamento do seu povo ou outros como ele: só funda um novo com ${B.LONER_GROUP_MIN} juntos. Para nascerem filhos, precisa de pelo menos dois.`,
       mode: 'click' as const,
       act: introduce(sp),
     }));

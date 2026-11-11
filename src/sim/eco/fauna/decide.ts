@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import * as stochasticModule from '../../stochastic';
 import * as surfaceModule from '../../../procgen/surface';
 import type { DeathCause } from '../../people';

@@ -1,6 +1,6 @@
 import { seedFor } from '../core/rng';
 import { Biome, PALETTE, temperatureNorm, whittaker } from './biomes';
-import { climateStage } from './climate';
+import { climateStage, isSlowRotator } from './climate';
 import { PerlinNoise3 } from './noise';
 import { makePlates, tectonicStage, type Plate } from './tectonics';
 
@@ -16,6 +16,22 @@ import { makePlates, tectonicStage, type Plate } from './tectonics';
  * 4. Atribuição de bioma (biomes.ts + `classify`): matriz de Whittaker e transições de costa.
  */
 
+/** A luz da estrela de um planeta. */
+export interface StarLight {
+  /** Luminosidade, em sóis. */
+  luminosity: number;
+  /** Temperatura da superfície da estrela, em Kelvin. */
+  kelvin: number;
+}
+
+/** A atmosfera de um planeta. */
+export interface Atmosphere {
+  /** Pressão na superfície, em bar. Nos gigantes, que não têm superfície, 1: o nível de referência. */
+  pressure: number;
+  /** Quanto o efeito estufa aquece a superfície, em Kelvin. */
+  greenhouse: number;
+}
+
 export interface PlanetParams {
   id: string;
   name: string;
@@ -27,13 +43,112 @@ export interface PlanetParams {
   water: number;
   /** Quantidade de vida vegetal inicial (0..1). */
   life: number;
+  // A física do planeta. Opcional, e ausente vale o da Terra (`withPhysics`). Por enquanto, não entra no mapa nem no clima.
+  star?: StarLight;
+  /** Inclinação do eixo em relação à órbita, em radianos. Acima de π/2, o planeta gira ao contrário. */
+  axialTilt?: number;
+  /** Duração do dia, em horas. Num planeta travado por maré, é o período da órbita. */
+  dayHours?: number;
+  /** Período da órbita, em anos terrestres. */
+  periodYears?: number;
+  atmosphere?: Atmosphere;
+  /** Gravidade na superfície, em g: a altitude esfria mais onde ela é maior. */
+  gravity?: number;
+}
+
+type PlanetPhysics = Required<Pick<PlanetParams, 'star' | 'axialTilt' | 'dayHours' | 'periodYears' | 'atmosphere' | 'gravity'>>;
+
+/** A física da Terra: vale para quem não tem a sua (save antigo, planeta de teste). */
+export const EARTH_PHYSICS: Readonly<PlanetPhysics> = {
+  star: { luminosity: 1, kelvin: 5772 },
+  axialTilt: 0.41,
+  dayHours: 24,
+  periodYears: 1,
+  atmosphere: { pressure: 1, greenhouse: 33 },
+  gravity: 1,
+};
+
+/** Os parâmetros com a física completa: o que faltar vem da Terra. */
+export function withPhysics(p: PlanetParams): PlanetParams & PlanetPhysics {
+  return {
+    ...p,
+    star: p.star ?? { ...EARTH_PHYSICS.star },
+    axialTilt: p.axialTilt ?? EARTH_PHYSICS.axialTilt,
+    dayHours: p.dayHours ?? EARTH_PHYSICS.dayHours,
+    periodYears: p.periodYears ?? EARTH_PHYSICS.periodYears,
+    atmosphere: p.atmosphere ?? { ...EARTH_PHYSICS.atmosphere },
+    gravity: p.gravity ?? EARTH_PHYSICS.gravity,
+  };
+}
+
+/**
+ * As contas da temperatura local (K): `T + a - b·lat² - c·alt`, mais `lock` no lado que olha a estrela, num mundo
+ * travado por maré. Calculadas uma vez e guardadas no mapa: `temperatureAt` é chamada por tile o tempo todo.
+ */
+export interface Thermal {
+  a: number;
+  b: number;
+  c: number;
+  lock: number;
+}
+
+/** Os valores da Terra, e de um mapa sem `thermal` (um save da versão 1 continua com as contas com que foi feito). */
+export const EARTH_THERMAL: Readonly<Thermal> = { a: 22, b: 55, c: 30, lock: 0 };
+
+const EARTH_EQUILIBRIUM_K = 255;
+const HOURS_PER_YEAR = 8766;
+
+/** Luz recebida em relação à Terra: a temperatura sem o efeito estufa, à quarta potência. */
+function received(p: PlanetParams & PlanetPhysics): number {
+  const eq = Math.max(1, p.temperatureK - p.atmosphere.greenhouse);
+  return Math.min(3, Math.max(0.02, (eq / EARTH_EQUILIBRIUM_K) ** 4));
+}
+
+/** O ar leva calor do equador aos polos: Vênus é uniforme; sem ar, a diferença é o dobro da da Terra. */
+function airSpread(p: PlanetParams & PlanetPhysics): number {
+  return p.atmosphere.pressure <= 0 ? 2 : Math.min(2, p.atmosphere.pressure ** -0.66);
+}
+
+/** O dia é tão longo quanto o ano: o planeta mostra sempre a mesma face à estrela. */
+export function isTidallyLocked(params: PlanetParams): boolean {
+  const p = withPhysics(params);
+  return p.dayHours >= p.periodYears * HOURS_PER_YEAR;
+}
+
+export function thermalOf(params: PlanetParams): Thermal {
+  const p = withPhysics(params);
+  const light = received(p);
+  const air = airSpread(p);
+  const locked = isTidallyLocked(p);
+  // Num mundo travado, o que manda é o lado da estrela, e não a latitude.
+  const b = Math.min(160, EARTH_THERMAL.b * light * air * (locked ? 0.25 : 1));
+  return {
+    a: (EARTH_THERMAL.a * b) / EARTH_THERMAL.b,
+    b,
+    c: EARTH_THERMAL.c * p.gravity,
+    lock: locked ? Math.min(150, 70 * light ** 0.25 * air) : 0,
+  };
+}
+
+/** Força das estações, com 1 na Terra: o eixo (virado ou não) e a luz recebida. Sem inclinação, não há estação. */
+export function seasonStrength(params: PlanetParams): number {
+  const p = withPhysics(params);
+  return (Math.min(p.axialTilt, Math.PI - p.axialTilt) / EARTH_PHYSICS.axialTilt) * received(p);
 }
 
 export { Biome, BIOME_NAMES, isForestBiome, isRockyBiome } from './biomes';
 export { Boundary, BOUNDARY_NAMES, type Plate } from './tectonics';
 
+/** O sorteio da vida que ficou (sim/lifeTrial.ts), com o motivo de cada rejeição. */
+export interface LifeChoice {
+  attempt: number;
+  notes: string[];
+}
+
 export interface SurfaceMap {
   params: PlanetParams;
+  /** Só no mapa completo de um planeta novo, gerado no Worker; sem isto, vale o primeiro sorteio. */
+  life?: LifeChoice;
   width: number;
   height: number;
   /** Altitude relativa ao nível do mar (-1..1). */
@@ -54,6 +169,8 @@ export interface SurfaceMap {
   felled?: Uint8Array;
   /** Desvio de temperatura das frentes climáticas (K); ausente em saves antigos. */
   climate?: Float32Array;
+  /** As contas da temperatura do planeta; ausente em saves antigos, que ficam com as da Terra. */
+  thermal?: Thermal;
   /** Placas tectônicas, a placa de cada tile, o tipo de limite próximo e a tensão sísmica (0..255). */
   plates?: Plate[];
   plate?: Uint8Array;
@@ -62,6 +179,12 @@ export interface SurfaceMap {
 }
 
 const FEATURE_SCALE = 80;
+/**
+ * Versão do gerador de mapas. A 2 amostra o ruído na esfera, e não mais num cilindro. Os planetas já salvos guardam o
+ * próprio mapa e não mudam. O sorteio das placas continua o da versão 1, de propósito: sorteadas de novo, a Terra perdia
+ * um continente e metade da plataforma rasa (docs/TODO-PLANETAS-E-3D.md, A4).
+ */
+export const GENERATOR_VERSION = 2;
 
 /** Tamanho do mapa proporcional ao planeta (RF-SUP-13): Terra = 1024x512. */
 export function mapSizeFor(radiusEarth: number): { width: number; height: number } {
@@ -83,11 +206,11 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   const n = width * height;
   const elevation = new Float32Array(n);
   const vegetation = new Float32Array(n);
-  const terrain = new PerlinNoise3(seedFor(`${params.id}:terrain`));
-  const wet = new PerlinNoise3(seedFor(`${params.id}:moisture`));
-  const warp = new PerlinNoise3(seedFor(`${params.id}:plates-warp`));
+  const terrain = new PerlinNoise3(seedFor(`${params.id}:terrain`, GENERATOR_VERSION));
+  const wet = new PerlinNoise3(seedFor(`${params.id}:moisture`, GENERATOR_VERSION));
+  const warp = new PerlinNoise3(seedFor(`${params.id}:plates-warp`, GENERATOR_VERSION));
 
-  // Amostrar o ruído num cilindro garante que a borda esquerda encaixa na direita.
+  // Amostrar o ruído na esfera garante que a borda esquerda encaixa na direita e que os polos convergem num ponto.
   // As coordenadas são as do mapa completo, para qualquer resolução mostrar o mesmo planeta.
   // Tamanho dos continentes, em pixels do mapa completo.
   const radius = full.width / (2 * Math.PI) / FEATURE_SCALE;
@@ -101,8 +224,9 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
 
   // Etapas 1 e 2: placas e elevação bruta.
   const plates = makePlates(seedFor(`${params.id}:plates`), full.width, full.height, params.water);
-  const tect = tectonicStage({ plates, fullWidth: full.width, fullHeight: full.height, width, height, step, cosA, sinA, featureScale: FEATURE_SCALE, terrain, warp });
+  const tect = tectonicStage({ plates, fullWidth: full.width, fullHeight: full.height, width, height, step, cosA, sinA, radius, terrain, warp });
   const raw = tect.raw;
+  polarCaps(raw, width, height, step, full.height);
 
   // O nível do mar é o quantil de `water` das altitudes brutas.
   const sorted = Float32Array.from(raw).sort();
@@ -123,8 +247,10 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
     }
   }
 
+  if (params.water < DRY_WATER) dryPonds(elevation, width, height);
+
   // Etapa 3: temperatura (frentes) e umidade (costa, interior e sombra de chuva).
-  const { climate, moisture } = climateStage({ elevation, width, height, fullWidth: full.width, step, cosA, sinA, featureScale: FEATURE_SCALE, wet });
+  const { climate, moisture } = climateStage({ elevation, width, height, fullWidth: full.width, fullHeight: full.height, step, cosA, sinA, radius, wet, water: params.water, slowDay: isSlowRotator(params) });
   for (let i = 0; i < n; i++) vegetation[i] = params.life * Math.min(1, Math.max(0, moisture[i] * 1.4 - 0.2));
 
   const map: SurfaceMap = {
@@ -137,6 +263,7 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
     vegetation,
     biome: new Uint8Array(n),
     climate,
+    thermal: thermalOf(params),
     plates,
     plate: tect.plate,
     boundary: tect.boundary,
@@ -147,13 +274,71 @@ export function generateSurface(params: PlanetParams, scale = 1): SurfaceMap {
   return map;
 }
 
+/**
+ * As placas são sorteadas no mapa, não na esfera: sem isto, a linha do polo teria placas diferentes em cada coluna. Nas
+ * calotas (do último 10% do caminho até o polo) a altitude bruta vai para a média da linha polar, e todas as colunas se
+ * encontram no mesmo ponto.
+ */
+function polarCaps(raw: Float32Array, width: number, height: number, step: number, fullHeight: number): void {
+  const mean = (y: number) => {
+    let sum = 0;
+    for (let x = 0; x < width; x++) sum += raw[y * width + x];
+    return sum / width;
+  };
+  const north = mean(0);
+  const south = mean(height - 1);
+  for (let y = 0; y < height; y++) {
+    const lat = Math.abs((y * step) / (fullHeight - 1) - 0.5) * 2;
+    const t = Math.max(0, Math.min(1, (lat - 0.9) / 0.085));
+    if (t <= 0) continue;
+    const w = t * t * (3 - 2 * t);
+    const cap = y < height / 2 ? north : south;
+    for (let x = 0; x < width; x++) raw[y * width + x] += (cap - raw[y * width + x]) * w;
+  }
+}
+
+/** Abaixo desta fração de água o planeta é seco: sem lagoas soltas, sem neve fora dos polos. */
+const DRY_WATER = 0.2;
+/** Corpo d'água menor que esta fração do mapa, num planeta seco, é uma lagoa solta. */
+const POND_AREA = 0.001;
+
+/** Num planeta seco, a água fica nas bacias grandes: as lagoas soltas viram baixada seca. */
+function dryPonds(elevation: Float32Array, width: number, height: number): void {
+  const n = width * height;
+  const seen = new Uint8Array(n);
+  const body: number[] = [];
+  for (let s = 0; s < n; s++) {
+    if (seen[s] || elevation[s] >= 0) continue;
+    body.length = 0;
+    body.push(s);
+    seen[s] = 1;
+    for (let k = 0; k < body.length; k++) {
+      const i = body[k];
+      const x = i % width;
+      const y = (i - x) / width;
+      const near = [y * width + ((x + 1) % width), y * width + ((x - 1 + width) % width), y > 0 ? i - width : -1, y + 1 < height ? i + width : -1];
+      for (const j of near) {
+        if (j >= 0 && !seen[j] && elevation[j] < 0) {
+          seen[j] = 1;
+          body.push(j);
+        }
+      }
+    }
+    if (body.length < n * POND_AREA) for (const i of body) elevation[i] = 0;
+  }
+}
+
 /** Temperatura local (K): base do planeta, latitude, altitude e ajuste do jogador. */
 export function temperatureAt(map: SurfaceMap, i: number): number {
   const y = Math.floor(i / map.width);
   const lat = Math.abs(y / (map.height - 1) - 0.5) * 2;
   const alt = Math.max(0, map.elevation[i]);
   const fronts = map.climate ? map.climate[i] : 0;
-  return map.params.temperatureK + 22 - lat * lat * 55 - alt * 30 + fronts + map.heat[i];
+  const th = map.thermal ?? EARTH_THERMAL;
+  const t = map.params.temperatureK + th.a - lat * lat * th.b - alt * th.c + fronts + map.heat[i];
+  if (!th.lock) return t;
+  // A estrela fica sempre sobre a coluna 0: quente nela, gelado do outro lado, frio nos polos.
+  return t + th.lock * Math.cos((2 * Math.PI * (i % map.width)) / map.width) * Math.cos((lat * Math.PI) / 2);
 }
 
 /** O terreno sobe rápido logo atrás do tile (2 tiles para dentro há uma encosta alta): costa de penhasco. */
@@ -184,6 +369,12 @@ function nearWater(map: SurfaceMap, i: number, r: number): boolean {
   return false;
 }
 
+/** O tile está na calota polar (o último oitavo do caminho do equador ao polo). */
+function nearPole(map: SurfaceMap, i: number): boolean {
+  const y = Math.floor(i / map.width);
+  return Math.abs(y / (map.height - 1) - 0.5) * 2 > 0.875;
+}
+
 /**
  * Bioma de um tile (etapa 4). O clima (T, H) dá o bioma clímax pela matriz
  * de Whittaker; a vegetação decide se a mata está de pé (cortada vira
@@ -201,6 +392,8 @@ export function classify(map: SurfaceMap, i: number): Biome {
     if (t < 262) return Biome.Ice;
     return e < -0.35 ? Biome.DeepOcean : Biome.Ocean;
   }
+  // Planeta seco e frio: não há água para nevar, e o gelo fica nos polos.
+  if (t < 265 && map.params.water < DRY_WATER && !nearPole(map, i)) return e > 0.72 ? Biome.Mountain : e > 0.55 ? Biome.Rock : Biome.Barren;
   if (e > 0.72) return t < 265 ? Biome.Snow : Biome.Mountain;
   if (e > 0.55) return t < 260 ? Biome.Snow : Biome.Rock;
   if (t < 255) return Biome.Snow;

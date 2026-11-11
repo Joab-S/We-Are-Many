@@ -8,6 +8,9 @@ import type { Species, SpeciesKind } from './species';
  * quem não tem nenhum dos dois usa os padrões do tipo.
  */
 
+/** O que uma espécie é para outra: a tabela de relações, lida pela IA da fauna (`preysOn`, `relationOf` em species.ts). */
+export type Relation = 'presa' | 'predador' | 'domestica' | 'evita' | 'neutro';
+
 /** Papel no ecossistema. */
 export type Guild =
   | 'pastador'
@@ -52,6 +55,10 @@ export interface Ecology {
   /** Faixas de umidade e de altitude (0 a 1) onde vive bem. */
   moist: [number, number];
   alt: [number, number];
+  /** Umidade extrema: fora dela, não vive (sem isto, a umidade errada só atrapalha). */
+  moistExtreme?: readonly [number, number];
+  /** O que um caçador faz com cada guilda; a guilda ausente vale a regra geral (quem não caça é presa, se couber). */
+  relations?: Partial<Record<Guild, Relation>>;
   /** Afinidade por bioma (0 a 1); bioma ausente vale `open`. */
   biomes: Partial<Record<Biome, number>>;
   open: number;
@@ -188,6 +195,29 @@ export function isLandAnimal(sp: Species): boolean {
 /** Come carne viva (caça). */
 export function hunts(e: Ecology): boolean {
   return e.meat > 0 && e.maxPrey > 0;
+}
+
+/** O caçador `h` considera `p` comida: a tabela, sem contar o tamanho. */
+export function preysOn(h: Ecology, p: Ecology): boolean {
+  return hunts(h) && !hunts(p) && h.relations?.[p.guild] !== 'evita';
+}
+
+/** `p` adulto cabe no que `h` caça: nem grande demais (em bando, o dobro) nem pequeno demais para valer a caçada. */
+export function preyInReach(h: Ecology, p: Ecology): boolean {
+  return p.mass <= h.maxPrey * (h.pack ? 2 : 1) && p.mass >= h.mass * 0.015;
+}
+
+/** Quanto a temperatura serve à espécie, já dentro da faixa extrema: sobe a partir dela até 1 na faixa ideal. */
+export function tempFit(sp: Species, temp: number): number {
+  const ideal = sp.tempIdeal;
+  if (!ideal) return Math.min(1, 0.35 + Math.min(temp - sp.tempMin, sp.tempMax - temp) / 8);
+  return 0.35 + 0.65 * Math.min(1, (temp - sp.tempMin) / (ideal[0] - sp.tempMin), (sp.tempMax - temp) / (sp.tempMax - ideal[1]));
+}
+
+/** Quanto a umidade serve: 1 na faixa boa, 0 fora da extrema, e pouco no resto. */
+export function moistFit(e: Ecology, moisture: number): number {
+  if (moisture >= e.moist[0] && moisture <= e.moist[1]) return 1;
+  return e.moistExtreme && (moisture < e.moistExtreme[0] || moisture > e.moistExtreme[1]) ? 0 : 0.35;
 }
 
 /** Peso metabólico (massa^0,75, regra de Kleiber): quantos kg de carne enchem o tanque do bicho. */

@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { Decor, decorAt, isTree } from '../../../procgen/surface';
 import { ROLE } from '../../roles';
 import { belowTier, tierAllowed } from '../../community';

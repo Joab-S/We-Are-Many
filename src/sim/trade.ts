@@ -5,7 +5,7 @@
  * o Ecosystem aplica.
  */
 
-import * as B from './balance';
+import { B } from './live';
 import type { Good } from './economy';
 import type { Need, Needs } from './needs';
 

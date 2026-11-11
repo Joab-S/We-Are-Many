@@ -4,6 +4,7 @@ import { LABELS } from '../../sim/calibrate';
 import { POLITY_NAMES, TIER_NAMES_NEW } from '../../sim/community';
 import { ERAS, WAR_MOTIVES } from '../../sim/ecosystem';
 import { familyName, personName } from '../../sim/people';
+import { WORLD_EVENT_NAMES, WORLD_EVENTS } from '../../sim/events';
 import { TECH_BY_ID } from '../../sim/progress';
 import { CHILD } from '../../sim/roles';
 import type { EngineCommand } from '../../sim/api/commands';
@@ -11,6 +12,7 @@ import type { DebugFactor, DebugOption, DebugTarget, FamilyDecision, IndicatorSa
 import type { EngineView } from '../../sim/api/engine';
 import { eventVillages, type DisasterKind, type EngineEvent, type EngineEventKind, type MigrateCause } from '../../sim/api/events';
 import { noticeText } from './hud/notices';
+import type { LiveConstant } from '../../sim/live';
 import { SPEEDS, type LoggedCommand } from './SimDriver';
 
 /**
@@ -24,7 +26,7 @@ import { SPEEDS, type LoggedCommand } from './SimDriver';
  * dizem o porquê; Eventos, Desempenho e Tempo não dependem dela.
  */
 
-export type DebugTab = 'world' | 'place' | 'family' | 'events' | 'perf' | 'time';
+export type DebugTab = 'world' | 'place' | 'family' | 'events' | 'perf' | 'time' | 'tune';
 
 export const DEBUG_TABS: [DebugTab, string][] = [
   ['world', 'Mundo'],
@@ -33,6 +35,7 @@ export const DEBUG_TABS: [DebugTab, string][] = [
   ['events', 'Eventos'],
   ['perf', 'Desempenho'],
   ['time', 'Tempo'],
+  ['tune', 'Ajustes'],
 ];
 
 /** Eventos guardados no anel da aba Eventos e quantos dele a aba mostra de uma vez. */
@@ -486,6 +489,7 @@ export function familyTabHtml(args: {
 
 /** Nome de cada tipo de evento, para os chips do filtro. */
 export const EVENT_KIND_NAMES: Record<EngineEventKind, string> = {
+  indicator: 'Aperto',
   found: 'Fundação',
   colony: 'Colônia',
   farmstead: 'Sítio rural',
@@ -508,6 +512,7 @@ export const EVENT_KIND_NAMES: Record<EngineEventKind, string> = {
   annex: 'Anexação',
   disaster: 'Desastre',
   extinction: 'Extinção',
+  species: 'Espécie nova',
 };
 
 const DISASTER_NAMES: Record<DisasterKind, string> = {
@@ -532,6 +537,8 @@ export function eventSummary(e: EngineEvent, view: NamesView): string {
   switch (e.kind) {
     case 'found':
       return `Fundação de ${p(e.village)}${e.from >= 0 ? ` por gente de ${p(e.from)}` : ''} (${e.how})`;
+    case 'indicator':
+      return `O planeta passou do limite: ${e.what} (${e.value.toFixed(2)})`;
     case 'colony':
       if (e.phase === 'depart') return `Colonos de ${p(e.from)} partem ${e.by === 'sea' ? 'pelo mar' : `por terra para ${p(e.to)}`} (${people(e.people)})`;
       return e.to >= 0 ? `Colonos de ${p(e.from)} chegam a ${p(e.to)} (${people(e.people)})` : `Colonos de ${p(e.from)} se perderam (${people(e.people)})`;
@@ -574,6 +581,8 @@ export function eventSummary(e: EngineEvent, view: NamesView): string {
       return `${DISASTER_NAMES[e.what] ?? e.what} ${e.village >= 0 ? `em ${p(e.village)}` : `em (${Math.round(e.x)}, ${Math.round(e.y)})`}`;
     case 'extinction':
       return `Extinção: ${view.species[e.species]?.name ?? `espécie ${e.species}`}`;
+    case 'species':
+      return `Espécie nova: ${view.species[e.species]?.name ?? `espécie ${e.species}`}`;
   }
 }
 
@@ -589,6 +598,8 @@ export function eventPlace(e: EngineEvent): number {
     case 'warEnd':
       return e.target;
     case 'extinction':
+    case 'species':
+    case 'indicator':
       return -1;
     default:
       return e.village;
@@ -741,7 +752,12 @@ export function timeHtml(args: {
   stepsPerYear: number;
   fresh: boolean;
   last: { steps: number; ms: number } | null;
+  /** A última impressão digital tirada e o passo dela. */
+  hash: { tick: number; value: string } | null;
   copied: string;
+  /** Anos rodados ao voltar ao planeta, e anos que passaram sem rodar (acima do teto). */
+  caughtUp?: number;
+  skipped?: number;
 }): string {
   const a = args;
   const speeds = SPEEDS.map((v, k) => `<button class="${k === a.speed ? 'on' : ''}" data-dspeed="${k}" title="${v === 0 ? 'Pausa (Espaço)' : `Velocidade ${v}x (${k + 1})`}">${v === 0 ? 'Pausa' : `${v}x`}</button>`).join('');
@@ -759,18 +775,42 @@ export function timeHtml(args: {
     ${kv('Ano', yearText(a.year).slice(4))}
     ${kv('Passo', String(a.tick), `${num(a.stepsPerYear)} por ano`)}
     ${kv('Log de comandos', String(a.log), `limite ${a.logLimit}${a.pending ? ` · ${a.pending} na fila` : ''}`)}
+    ${a.caughtUp || a.skipped ? kv('Pôr em dia', `${num(Math.round(a.caughtUp ?? 0))} anos rodados`, a.skipped ? `${num(a.skipped)} anos pulados, sem registro` : 'nenhum ano pulado') : ''}
+    ${a.hash ? kv('Impressão digital', a.hash.value, `no passo ${a.hash.tick}`) : ''}
+    <div class="wb-dim wb-dnote">A impressão digital é tirada a cada ano de jogo e, na pausa, a cada mudança. Com a mesma semente e o mesmo log, o mesmo passo dá o mesmo valor.</div>
     <div class="wb-section">Caso para reproduzir</div>
     <div class="wb-dim wb-dnote">${
       a.fresh
         ? 'Semente, ano, passo, o planeta e o log de comandos: com eles o mundo é refeito do começo até aqui.'
-        : 'Mundo que já existia (save ou visita anterior): a semente e o log só refazem o que aconteceu desde que a superfície abriu; para o resto, use o save.'
-    }${a.log >= a.logLimit ? ' <span class="bad">O log chegou ao limite: os comandos mais antigos já saíram.</span>' : ''}</div>
+        : 'Mundo de um save anterior a este registro: a semente e o log só refazem o que aconteceu desde então; para o resto, use o save.'
+    } Refaça sem tela com <code>npm run replay -- caso.json</code>.${a.log >= a.logLimit ? ' <span class="bad">O log chegou ao limite: os comandos mais antigos já saíram.</span>' : ''}</div>
     <div class="wb-dbtns"><button class="wb-btn" data-dcopy>Copiar caso</button>${a.copied ? `<span class="good">${esc(a.copied)}</span>` : ''}</div>`;
+}
+
+// Ajustes -----------------------------------------------------------------
+
+/** A aba Ajustes: provocar um evento e mudar as constantes do motor com o mundo rodando. */
+export function tuneHtml(constants: readonly LiveConstant[]): string {
+  const events = WORLD_EVENTS.map((ev) => `<button class="wb-btn" data-devent="${ev}">${esc(WORLD_EVENT_NAMES[ev])}</button>`).join('');
+  const changed = constants.filter((c) => c.factory !== undefined).length;
+  const rows = constants
+    .map(
+      (c) => `<label class="wb-dtune${c.factory !== undefined ? ' on' : ''}" data-dname="${esc(c.name.toLowerCase())}"><span>${esc(c.name)}</span><input type="number" step="any" value="${c.value}" data-dtune="${esc(c.name)}">${c.factory !== undefined ? `<em>era ${c.factory}</em>` : ''}</label>`,
+    )
+    .join('');
+  return `
+    <div class="wb-section">Provocar evento</div>
+    <div class="wb-dbtns"><button class="wb-btn" data-dsurprise>Surpresa</button>${events}</div>
+    <div class="wb-dim wb-dnote">O evento cai no lugar selecionado ou, sem lugar, no meio da tela.</div>
+    <div class="wb-section">Constantes${changed ? ` (${changed} ${changed === 1 ? 'mudada' : 'mudadas'})` : ''}</div>
+    <input class="wb-dfilter" type="search" placeholder="Filtrar pelo nome" data-dfilter>
+    <div class="wb-dim wb-dnote">Mudou, vale na hora e entra no log de comandos: o caso copiado reproduz com ela. Vale só para este mundo, e vai no save. Uma constante feita de outra não acompanha a de base.</div>
+    <div data-dtunes>${rows}</div>`;
 }
 
 /** O caso que o botão Copiar caso leva: o bastante para refazer o mundo até este passo. */
 export interface DebugCase {
-  version: 1;
+  version: 2;
   seed: number;
   year: number;
   tick: number;
@@ -779,8 +819,14 @@ export interface DebugCase {
   yearSpan: number;
   /** O planeta (o mapa sai dele por `generateSurface`). */
   planet: PlanetParams;
-  /** Mundo novo nesta visita (a semente e o log o refazem) ou adotado (save, visita anterior). */
+  /** O sorteio da vida que ficou (B3), as linhas que ele pôs na crônica e a versão do gerador do mapa. */
+  attempt: number;
+  notes: string[];
+  generator: number;
+  /** O log vem do começo do mundo (a semente e o log o refazem), ou o mundo é de um save antigo. */
   fresh: boolean;
+  /** Impressão digital do mundo neste passo: quem refaz o caso compara com ela. */
+  fingerprint: string;
   /** O log tem todos os comandos desde o passo 0 (não passou do limite). */
   complete: boolean;
   log: LoggedCommand<EngineCommand>[];
@@ -788,14 +834,18 @@ export interface DebugCase {
 
 export function debugCase(a: Omit<DebugCase, 'version' | 'complete' | 'log'> & { log: readonly LoggedCommand<EngineCommand>[]; logLimit: number }): DebugCase {
   return {
-    version: 1,
+    version: 2,
     seed: a.seed,
     year: a.year,
     tick: a.tick,
     step: a.step,
     yearSpan: a.yearSpan,
     planet: { ...a.planet },
+    attempt: a.attempt,
+    notes: [...a.notes],
+    generator: a.generator,
     fresh: a.fresh,
+    fingerprint: a.fingerprint,
     complete: a.log.length < a.logLimit,
     log: a.log.map((e) => ({ tick: e.tick, cmd: e.cmd })),
   };

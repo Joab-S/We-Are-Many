@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { Biome, classify, Decor, decorAt, isRockyBiome, isTree } from '../../../procgen/surface';
 import { ORE_NAMES, type Deposit, type Ore, type Stock } from '../../economy';
 import { pickItem, pickPrimitive, TIER_MATERIAL, type Category, type Material } from '../../items';

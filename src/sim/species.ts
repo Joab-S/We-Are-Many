@@ -1,7 +1,7 @@
 import { mulberry32, seedFor } from '../core/rng';
 import type { PlanetParams } from '../procgen/surface';
-import * as B from './balance';
-import { ecologyOf, type Ecology } from './fauna';
+import { B } from './live';
+import { ecologyOf, hunts, preyInReach, preysOn, type Ecology, type Relation } from './fauna';
 import type { HerdKind } from './eco/types';
 
 /**
@@ -25,9 +25,11 @@ export interface Species {
   origin: string;
   /** Cor principal do sprite (RGB 0..255). */
   color: [number, number, number];
-  /** Faixa de temperatura tolerada, em K. */
+  /** Faixa de temperatura tolerada, em K (a extrema: fora dela, não vive). */
   tempMin: number;
   tempMax: number;
+  /** Faixa ideal, dentro da extrema; sem isto, vale até 5 K das pontas. */
+  tempIdeal?: readonly [number, number];
   /** Velocidade em tiles por segundo de jogo. */
   speed: number;
   /** Idade máxima em anos de jogo. */
@@ -197,6 +199,20 @@ export function domesticable(sp: Species): boolean {
   return herdFormsOf(sp).length > 0;
 }
 
+/**
+ * A linha da tabela de relações de `a` sobre `b`: o que a IA da fauna e a domesticação leem, para quem quer ver o
+ * mundo como dados. O tamanho aqui é o do adulto; um filhote de bicho grande continua sendo presa na hora da caçada.
+ */
+export function relationOf(a: Species, b: Species): Relation {
+  if (a === b) return 'neutro';
+  if (a.kind === 'sapient') return domesticable(b) ? 'domestica' : 'neutro';
+  const ea = ecologyOf(a);
+  const eb = ecologyOf(b);
+  if (preysOn(ea, eb) && preyInReach(ea, eb)) return 'presa';
+  if (preysOn(eb, ea) && preyInReach(eb, ea)) return 'predador';
+  return hunts(ea) && !hunts(eb) && ea.relations?.[eb.guild] === 'evita' ? 'evita' : 'neutro';
+}
+
 const VARIANTS: [test: (t: number, e: number) => boolean, suffix: string, shift: number][] = [
   [(t) => t < 262, 'das-neves', -12],
   [(t) => t > 305, 'do-deserto', 10],
@@ -218,6 +234,7 @@ export function makeVariant(sp: Species, temp: number, elevation: number, n: num
     color: sp.color.map((c, k) => Math.round(Math.min(255, c * tone + (k === 2 && shift < 0 ? 30 : 0)))) as [number, number, number],
     tempMin: sp.tempMin + shift,
     tempMax: sp.tempMax + shift,
+    tempIdeal: sp.tempIdeal && [sp.tempIdeal[0] + shift, sp.tempIdeal[1] + shift],
     size: (sp.size ?? 1) * (0.9 + rnd() * 0.25),
     parent: sp.id,
   };
@@ -308,6 +325,10 @@ function alienFauna(planet: PlanetParams, rnd: () => number, color: () => [numbe
     };
     const spread = 45 + rnd() * 15;
     const mid = planet.temperatureK + (rnd() - 0.5) * 10;
+    const tempMin = Math.round(mid - spread * 0.55);
+    const tempMax = Math.round(mid + spread * 0.45);
+    // A faixa ideal varia por espécie: uma tolera bem as pontas, outra sofre mais perto delas.
+    const edge = 4 + rnd() * 8;
     out.push({
       ...TEMPLATES[kind],
       id: `${planet.id}:${eco.guild}-${out.length}`,
@@ -315,8 +336,9 @@ function alienFauna(planet: PlanetParams, rnd: () => number, color: () => [numbe
       origin: planet.id,
       color: color(),
       sprite,
-      tempMin: Math.round(mid - spread * 0.55),
-      tempMax: Math.round(mid + spread * 0.45),
+      tempMin,
+      tempMax,
+      tempIdeal: [tempMin + edge, tempMax - edge],
       maxAge: Math.round(TEMPLATES[kind].maxAge * (0.8 + big)),
       speed: TEMPLATES[kind].speed / Math.sqrt(g),
       size: Math.max(0.5, Math.min(1.5, 0.6 + Math.log10(mass + 1) * 0.25)),
@@ -353,22 +375,51 @@ export function safeWeb(list: Species[]): Species[] {
   return list;
 }
 
-/** Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas. */
-export function nativeSpecies(planet: PlanetParams): Species[] {
+/** Chance de um caçador alienígena evitar uma guilda (presa venenosa, de gosto ruim) e de um pastador não se deixar domesticar. */
+const AVOID_CHANCE = 0.3;
+const UNTAMED_CHANCE = 0.3;
+
+/**
+ * Relações sorteadas por guilda (Rain World), com um gerador próprio para não mexer nas outras contas do planeta: cada
+ * caçador pode evitar guildas, desde que fique com duas presas de tamanho possível (a regra da teia segura), e parte dos
+ * pastadores não se domestica.
+ */
+export function alienRelations(list: Species[], rnd: () => number): Species[] {
+  const prey = list.filter((sp) => sp.kind === 'herbivore');
+  const guilds = [...new Set(prey.map((sp) => sp.eco!.guild!))];
+  for (const sp of prey) if (sp.eco!.guild === 'pastador' && rnd() < UNTAMED_CHANCE) sp.eco!.untamed = true;
+  for (const sp of list) {
+    const e = sp.eco;
+    if (sp.kind !== 'predator' || !e || !(e.meat! > 0) || !(e.maxPrey! > 0)) continue;
+    const relations: NonNullable<Ecology['relations']> = {};
+    const fits = (mass: number) => mass <= e.maxPrey! * (e.pack ? 2 : 1) && mass >= e.mass! * 0.015;
+    for (const guild of guilds) {
+      const roll = rnd();
+      const left = prey.filter((p) => p.eco!.guild !== guild && relations[p.eco!.guild!] !== 'evita' && fits(p.eco!.mass!));
+      relations[guild] = roll < AVOID_CHANCE && left.length >= 2 ? 'evita' : 'presa';
+    }
+    e.relations = relations;
+  }
+  return list;
+}
+
+/**
+ * Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas.
+ * `attempt` anda o sorteio das espécies, sem mudar o nível de vida (a tentativa 0 é o sorteio de sempre), e `tier` força um nível (calibração).
+ */
+export function nativeSpecies(planet: PlanetParams, attempt = 0, tier = nativeLifeTier(planet.id, planet.life)): Species[] {
   if (planet.life <= 0) return [];
-  const make = (kind: SpeciesKind, name: string, color: [number, number, number]): Species => ({
-    ...TEMPLATES[kind],
-    id: `${planet.id}:${kind}`,
-    name,
-    origin: planet.id,
-    color,
-  });
+  const make = (kind: SpeciesKind, name: string, color: [number, number, number]): Species => {
+    const model = TEMPLATES[kind];
+    // A faixa do modelo é a da Terra: aqui ela fica centrada na temperatura do planeta, como a da fauna alienígena.
+    const shift = Math.round(planet.temperatureK - (model.tempMin + model.tempMax) / 2);
+    return { ...model, tempMin: model.tempMin + shift, tempMax: model.tempMax + shift, id: `${planet.id}:${kind}`, name, origin: planet.id, color };
+  };
   if (planet.id === EARTH_ID) return earthCatalog().filter((sp) => EARTH_NATIVE.has(sp.name));
-  const tier = nativeLifeTier(planet.id, planet.life);
   if (tier === 'none' || tier === 'plants') return [];
-  const rnd = mulberry32(seedFor(`${planet.id}:species`));
+  const rnd = mulberry32(seedFor(`${planet.id}:species`, attempt + 1));
   const color = (): [number, number, number] => [60 + rnd() * 190, 60 + rnd() * 190, 60 + rnd() * 190].map(Math.round) as [number, number, number];
-  const list = [make('fish', alienName(rnd), color()), ...safeWeb(alienFauna(planet, rnd, color))];
+  const list = [make('fish', alienName(rnd), color()), ...alienRelations(safeWeb(alienFauna(planet, rnd, color)), mulberry32(seedFor(`${planet.id}:relations`, attempt + 1)))];
   if (tier === 'sapient') list.push({ ...make('sapient', alienName(rnd), color()), body: ALIEN_BODIES[Math.floor(rnd() * ALIEN_BODIES.length)] });
   if (planet.life > 0.4) list.push(make('shark', alienName(rnd), color()));
   return list;

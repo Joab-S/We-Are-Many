@@ -127,6 +127,32 @@ function rockyColor(rnd: () => number, temperatureK: number, water: number): num
   return pick(rnd, ROCKY_COLORS);
 }
 
+/** Mais perto da estrela do que isto, em UA para uma estrela de 1 massa solar, o planeta fica travado por maré. */
+const TIDAL_LOCK_AU = 0.4;
+const HOURS_PER_YEAR = 8766;
+
+/**
+ * Eixo, dia e atmosfera de um planeta fora do Sistema Solar. Sorteio próprio, por planeta: tirar números do fluxo de
+ * `build` deslocaria tudo o que vem depois dele, e os mesmos ids deixariam de dar os mesmos planetas.
+ */
+function planetPhysics(p: PlanetData, lum: number, mass: number, kelvin: number): Pick<PlanetData, 'star' | 'axialTilt' | 'dayHours' | 'air'> {
+  const rnd = mulberry32(seedFor(`${p.id}:physics`));
+  const locked = p.aAu < TIDAL_LOCK_AU * Math.cbrt(mass);
+  const giant = p.kind !== 'rocky';
+  // Quem tem halo no desenho tem atmosfera de verdade.
+  const thick = p.atmosphere !== undefined;
+  // Um em dez planetas tem o eixo bem deitado ou virado, como Urano e Vênus.
+  const tilt = rnd() < 0.1 ? 0.8 + rnd() * (Math.PI - 0.8) : rnd() ** 2 * 0.8;
+  const day = giant ? 8 + rnd() * 10 : 10 * 2 ** (rnd() * 3);
+  const pressure = giant ? 1 : !thick ? rnd() * 0.02 : p.temperatureK > 500 ? 20 + rnd() * 80 : 0.3 + rnd() * 2.7;
+  return {
+    star: { luminosity: lum, kelvin },
+    axialTilt: locked ? 0 : tilt,
+    dayHours: locked ? p.periodYears * HOURS_PER_YEAR : day,
+    air: { pressure, greenhouse: thick ? Math.max(0, Math.round(p.temperatureK - equilibriumTemperature(lum, p.aAu))) : 0 },
+  };
+}
+
 /**
  * Sistemas já gerados. A varredura gera até 400 de uma vez e o GUIA consulta
  * as 30 estrelas mais próximas 4 vezes por segundo; 1024 cobre os dois com
@@ -216,6 +242,9 @@ function build(star: StarInfo): SystemData {
       a *= 1.45 + rnd() * 0.9;
     }
   }
+
+  const kelvin = Math.round(bvToTemperature(star.ci));
+  for (const p of planets) Object.assign(p, planetPhysics(p, lum, mass, kelvin));
 
   const comets: CometData[] = [];
   const cometCount = rnd() < 0.55 ? 1 + Math.floor(rnd() * 2) : 0;

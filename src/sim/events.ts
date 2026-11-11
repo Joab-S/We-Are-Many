@@ -1,5 +1,5 @@
 import { Boundary, BOUNDARY_NAMES, temperatureAt, type SurfaceMap } from '../procgen/surface';
-import * as B from './balance';
+import { B } from './live';
 import { makeCulture, type Ore } from './economy';
 import { isLand, isWater, type Ecosystem, type Village } from './ecosystem';
 import { CHILD } from './roles';

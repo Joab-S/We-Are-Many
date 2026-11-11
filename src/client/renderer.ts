@@ -8,7 +8,7 @@ import { AU_PER_PC } from '../core/units';
 export interface GameRenderer {
   readonly domElement: HTMLCanvasElement;
   autoClear: boolean;
-  readonly info: { memory: { geometries: number; textures: number } };
+  readonly info: { memory: { geometries: number; textures: number }; render?: { calls: number } };
   readonly renderLists: { dispose(): void };
   readonly capabilities: { getMaxAnisotropy(): number };
   setSize(width: number, height: number): void;

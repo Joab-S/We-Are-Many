@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { binomial, happens } from '../../stochastic';
 import { Biome, classify } from '../../../procgen/surface';
 import { CHILD, ROLE, ROLES } from '../../roles';

@@ -70,6 +70,26 @@ test.describe('?cena', () => {
     await esperarImagem(page, 'a cidade na tela');
     await capturar(page, info, 'cidade');
 
+    // O modo lendas: a história do reino mais movimentado, do começo até agora, e a exportação.
+    await page.keyboard.press('KeyL');
+    const janela = page.locator('[data-win]');
+    await expect(janela.locator('[data-ltl]')).toBeVisible();
+    // Sem lendas não há reino para escolher: falha logo, em vez de esperar o prazo do teste.
+    await janela.locator('[data-filter^="realm:"]').first().click({ timeout: 15_000 });
+    const linhas = janela.locator('[data-legends] .wb-row');
+    await expect(linhas.first()).toBeVisible();
+    const anos = (await janela.locator('[data-legends] .wb-yr').allInnerTexts()).map(Number);
+    expect(anos.length, 'a história tem mais de uma linha').toBeGreaterThan(1);
+    expect(anos).toEqual([...anos].sort((a, b) => a - b));
+    expect(anos.at(-1)!, 'chega perto do ano de hoje').toBeLessThanOrEqual(aberta.ano);
+    await capturar(page, info, 'lendas');
+    const baixou = page.waitForEvent('download');
+    await janela.locator('[data-legends-json]').click();
+    const arquivo = await baixou;
+    expect(arquivo.suggestedFilename()).toBe(`lendas-sol-3-ano-${aberta.ano}.json`);
+    await page.keyboard.press('KeyL');
+    await expect(janela).toBeHidden();
+
     // Esc: a esfera recebe o mapa pintado pela superfície, com as ruas, e a nave volta à órbita combinada.
     await page.keyboard.press('Escape');
     await expect(superficie(page)).toHaveCount(0);
@@ -77,11 +97,30 @@ test.describe('?cena', () => {
     await esperarSemCortina(page);
     expect(await page.evaluate(() => window.space!.state.surfaceArt.has('sol-3'))).toBe(true);
 
-    // A cidade de frente, o mais perto que a colisão deixa.
+    // A cidade de frente, bem perto.
     await page.evaluate(({ x, y }) => void window.space!.goToPlanet('Terra', 1.7, { x, y }), cidade);
     await page.waitForTimeout(1000);
     await esperarImagem(page, 'a cidade na esfera');
     await capturar(page, info, 'cidade-na-esfera');
+
+    // A mesma cidade ao anoitecer: o relógio anda até o terminador passar por ela, e as casas acendem.
+    const sol = await page.evaluate(({ x, y }) => {
+      const space = window.space!;
+      const { state, systems } = space;
+      const corpo = systems.orbitBody!;
+      const estrela = systems.system!.star;
+      const altura = () => {
+        systems.updateBodies(state.time, null);
+        space.goToPlanet('Terra', 1.7, { x, y });
+        const lado = state.shipPos.clone().sub(corpo.pos).normalize();
+        return lado.dot(estrela.pos.clone().sub(corpo.pos).normalize());
+      };
+      for (let i = 0; i < 300 && !(altura() > -0.12 && altura() < -0.02); i++) state.time += 0.5;
+      return altura();
+    }, cidade);
+    expect(sol, 'a cidade no crepúsculo').toBeLessThan(0.1);
+    await page.waitForTimeout(1000);
+    await capturar(page, info, 'cidade-ao-anoitecer');
   });
 
   test('não mexe no save de verdade', async ({ page }) => {

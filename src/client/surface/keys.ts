@@ -7,7 +7,7 @@ import { keyName } from '../space/commands';
  * trocar a tabela, sem procurar `input.hit('KeyX')` pelo código. Ficam de fora o Esc (fecha o que abriu por
  * último), os dígitos das velocidades, o WASD da câmera e o Ctrl+Z.
  */
-export type SurfaceAction = 'pause' | 'help' | 'territory' | 'sites' | 'panel' | 'follow' | 'brushDown' | 'brushUp' | 'chronicle' | 'kingdoms' | 'species' | 'items' | 'debug';
+export type SurfaceAction = 'pause' | 'help' | 'territory' | 'sites' | 'panel' | 'follow' | 'brushDown' | 'brushUp' | 'chronicle' | 'legends' | 'kingdoms' | 'species' | 'items' | 'debug';
 
 export const SURFACE_KEYS: Readonly<Record<SurfaceAction, readonly string[]>> = {
   pause: ['Space'],
@@ -20,6 +20,7 @@ export const SURFACE_KEYS: Readonly<Record<SurfaceAction, readonly string[]>> = 
   brushDown: ['BracketLeft'],
   brushUp: ['BracketRight'],
   chronicle: ['KeyC'],
+  legends: ['KeyL'],
   kingdoms: ['KeyR'],
   species: ['KeyE'],
   items: ['KeyI'],

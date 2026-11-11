@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import * as surfaceModule from '../../../procgen/surface';
 import * as rolesModule from '../../roles';
 import type { Village } from '../types';

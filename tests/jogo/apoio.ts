@@ -35,7 +35,7 @@ export const MAPA_MS = 120_000;
 export const espaco = (page: Page) => page.locator('.space-hud .hud-help');
 export const orbita = (page: Page) => page.locator('.space-hud .hud-orbit');
 /** O botão de voltar à órbita só existe depois que o mapa da superfície ficou pronto e o laço começou. */
-export const superficie = (page: Page) => page.locator('.surface-hud [data-a="back"]');
+export const superficie = (page: Page) => page.locator('.surface-hud:not(.fusing) [data-a="back"]');
 
 /** Espera o menu de órbita do planeta. Pelo texto visível: o CSS põe em maiúsculas, e no `hidden` ele fica vazio. */
 export async function esperarOrbita(page: Page, planeta: string): Promise<void> {
@@ -65,8 +65,8 @@ const MEIO = { x: 540, y: 280, width: 200, height: 120 };
  * com o console limpo: o WebGL que desenha nada não registra erro. O branco também não conta: no primeiro segundo de um
  * navegador recém-aberto, sem GPU, o contexto WebGL às vezes cai e volta sozinho, e nesse meio tempo a foto sai branca.
  */
-export async function parteDesenhada(page: Page): Promise<number> {
-  const png = await page.screenshot({ clip: MEIO });
+export async function parteDesenhada(page: Page, clip: typeof MEIO = MEIO): Promise<number> {
+  const png = await page.screenshot({ clip });
   return page.evaluate(async (base64) => {
     const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
     const ctx = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d')!;
@@ -82,6 +82,6 @@ export async function parteDesenhada(page: Page): Promise<number> {
 }
 
 /** Espera a imagem aparecer no meio da tela. Vem antes da foto, para ela não sair branca nem preta. */
-export async function esperarImagem(page: Page, oQue: string, minimo = 0.5): Promise<void> {
-  await expect.poll(() => parteDesenhada(page), { message: oQue }).toBeGreaterThan(minimo);
+export async function esperarImagem(page: Page, oQue: string, minimo = 0.5, clip: typeof MEIO = MEIO): Promise<void> {
+  await expect.poll(() => parteDesenhada(page, clip), { message: oQue }).toBeGreaterThan(minimo);
 }

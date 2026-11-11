@@ -13,5 +13,7 @@ declare global {
     space?: SpaceMode;
     surface?: SurfaceMode;
     debugEarth?: () => void;
+    /** Roda `years` anos num mundo pequeno, no Worker e direto, e devolve as duas impressões digitais. */
+    debugEngineWorker?: (years: number) => Promise<{ worker: string; direct: string; ms: number; yearsSeen: number }>;
   }
 }

@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { Biome, temperatureAt } from '../../../procgen/surface';
 import { planItems, type PlanItem } from '../../plan';
 import { spacingFor, waterGrade } from '../../community';

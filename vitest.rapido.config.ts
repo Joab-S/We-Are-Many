@@ -7,6 +7,11 @@ import base from './vite.config.ts';
  * deixa este comando mais lento; nada deixa de rodar no `npm test`.
  */
 const SIMULATED_WORLDS = [
+  'src/sim/lifeTrial.test.ts',
+  'src/client/surface/replay.test.ts',
+  'src/client/surface/catchUp.test.ts',
+  'src/client/space/BackgroundWorlds.test.ts',
+  'src/client/surface/hud/legends.test.ts',
   'src/IAUS/npc/lab/aldeia.test.ts',
   'src/IAUS/npc/lab/jornada.test.ts',
   'src/save/save.test.ts',
@@ -14,7 +19,9 @@ const SIMULATED_WORLDS = [
   'src/sim/api/debug.test.ts',
   'src/sim/api/engine.test.ts',
   'src/sim/api/events.test.ts',
+  'src/sim/api/frame.test.ts',
   'src/sim/api/pick.test.ts',
+  'src/sim/api/runSnapshot.test.ts',
   'src/sim/caravanLeader.test.ts',
   'src/sim/determinism.test.ts',
   'src/sim/economy.test.ts',

@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { CHILD } from '../../roles';
 import { TIER_RADIUS, wrapDx } from '../../settlement';
 import type { Boat, Village } from '../types';

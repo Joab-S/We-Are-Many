@@ -47,18 +47,16 @@ describe('fachada do motor (src/sim/api/engine.ts)', () => {
     expect(worldFingerprint(ecosystemOf(b))).toBe(worldFingerprint(ecosystemOf(a)));
   }, 30000);
 
-  it('comandos entram por `apply`: o tile mudado vai ao gancho e o aviso sai no resultado', () => {
+  it('comandos entram por `apply`: o tile mudado sai em `drainTiles` e o aviso sai no resultado', () => {
     const e = engine();
     const eco = ecosystemOf(e);
-    const changed = new Set<number>();
-    e.setHooks({ tileChanged: (i) => changed.add(i) });
     const map = e.view.map;
     let land = -1;
     for (let i = map.width * Math.floor(map.height / 2); i < map.width * map.height && land < 0; i++) if (isLand(map, i) && !eco.road[i] && !eco.built[i]) land = i;
     const x = (land % map.width) + 0.5;
     const y = Math.floor(land / map.width) + 0.5;
     expect(e.apply({ kind: 'terraform', tool: 'raise', x, y, r: 2, power: 1, target: 288, limit: true }).ok).toBe(true);
-    expect(changed.has(land)).toBe(true);
+    expect(e.drainTiles()).toContain(land);
     // Influência fora de um assentamento: o aviso vem no resultado e não fica no mundo.
     const res = e.apply({ kind: 'politics', action: 'soothe', a: 999, b: 999 });
     expect(res.ok).toBe(false);
@@ -103,18 +101,55 @@ describe('fachada do motor (src/sim/api/engine.ts)', () => {
     expect(structuredClone(snap).eco.seed).toBe(3);
   }, 60000);
 
-  it('restore religa os ganchos no mundo novo', () => {
+  it('restore continua anotando os tiles, agora os do mundo novo', () => {
     const a = engine(4);
     const snap = a.snapshot();
     const b = engine(4);
-    let n = 0;
-    b.setHooks({ tileChanged: () => n++ });
     b.restore(snap);
     const map = b.view.map;
     let land = -1;
     for (let i = map.width * Math.floor(map.height / 2); i < map.width * map.height && land < 0; i++) if (isLand(map, i)) land = i;
     b.apply({ kind: 'terraform', tool: 'lower', x: (land % map.width) + 0.5, y: Math.floor(land / map.width) + 0.5, r: 1, power: 1, target: 288, limit: true });
-    expect(n).toBeGreaterThan(0);
+    expect(b.drainTiles().length).toBeGreaterThan(0);
+  });
+
+  it('drainTiles entrega o mesmo conjunto que o aviso direto do mundo, cada tile uma vez', () => {
+    const e = engine();
+    const eco = ecosystemOf(e);
+    const sink = eco.onTileChanged;
+    const heard = new Set<number>();
+    eco.onTileChanged = (i) => {
+      heard.add(i);
+      sink(i);
+    };
+    let total = 0;
+    for (let steps = 1; steps <= 240; steps++) {
+      e.step(0.25);
+      if (steps % 16 === 0) {
+        const tiles = [...e.drainTiles()];
+        total += tiles.length;
+        expect(new Set(tiles).size).toBe(tiles.length);
+        expect(new Set(tiles)).toEqual(heard);
+        heard.clear();
+      }
+    }
+    // A mata cresce: a amostra não está vazia.
+    expect(total).toBeGreaterThan(0);
+    expect(e.drainTiles().length).toBe(0);
+  });
+
+  it('a espécie nova vira um evento, com o índice na lista da vista', () => {
+    const e = engine();
+    e.drainEvents();
+    const before = e.view.species.length;
+    const sp = { ...e.view.species[0], id: 'recem-chegada' };
+    ecosystemOf(e).addSpecies(sp);
+    const event = e.drainEvents().find((x) => x.kind === 'species');
+    expect(event).toMatchObject({ kind: 'species', species: before });
+    expect(e.view.species[before].id).toBe('recem-chegada');
+    // A que já existe não é nova.
+    ecosystemOf(e).addSpecies(sp);
+    expect(e.drainEvents().some((x) => x.kind === 'species')).toBe(false);
   });
 
   it('campo de sítios pela vista: dado puro, com a versão subindo só quando alguma nota muda', () => {

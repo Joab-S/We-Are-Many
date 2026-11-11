@@ -1,6 +1,6 @@
 import type { SurfaceMap } from '../../procgen/surface';
 import { restoreEcosystem, snapshotEcosystem, type EcosystemSnapshot } from '../../save/snapshot';
-import * as B from '../balance';
+import { applyTuned, B } from '../live';
 import { siteValue, type ColonyMotive, type SiteLook } from '../community';
 import { ECO_CELL } from '../fauna';
 import type { Caravan } from '../trade';
@@ -9,7 +9,7 @@ import type { Species } from '../species';
 import { applyCommand, type ApplyContext, type CommandResult, type EngineCommand } from './commands';
 import type { DebugView } from './debug';
 import { EngineDebug } from './debugView';
-import type { EngineEvent } from './events';
+import type { EngineEvent, LegendEntry } from './events';
 
 /**
  * Fachada do motor (padrão Facade, preparação para separar back-end e
@@ -60,6 +60,13 @@ export interface EngineView {
   // O mundo dos povos.
   readonly villages: readonly Readonly<Village>[];
   readonly chronicle: readonly Readonly<ChronicleEntry>[];
+  /** Anos rodados ao voltar ao planeta e anos que passaram sem rodar (painel F3). */
+  readonly caughtUpYears: number;
+  readonly skippedYears: number;
+  /** A história do mundo do ano 0 até agora (modo lendas). */
+  readonly legends: readonly Readonly<LegendEntry>[];
+  /** Quantas lendas antigas já saíram por causa do limite. */
+  readonly legendsLost: number;
   readonly wars: readonly Readonly<War>[];
   readonly boats: readonly Readonly<Boat>[];
   readonly caravans: readonly Readonly<Caravan>[];
@@ -154,13 +161,36 @@ export function siteParts(look: SiteLook): Record<SitePart, number> {
 }
 
 /**
- * Avisos síncronos do motor que não passam pela fila, por serem quentes ou pedirem resposta na hora: o
- * tile que mudou (dezenas de milhares por passo quando a mata cresce; a tela só marca o que repintar) e a
- * espécie nova (variante) que entrou no planeta (o catálogo do cliente).
+ * Os tiles que mudaram desde a última drenagem, cada um uma vez. Quem muda um tile só o anota aqui
+ * (dezenas de milhares por passo quando a mata cresce), e a tela pega a lista inteira quando vai repintar.
+ * É dado puro: a lista passaria por `postMessage` com o motor num Worker.
  */
-export interface EngineHooks {
-  tileChanged?: (i: number) => void;
-  species?: (sp: Species) => void;
+class TileSink {
+  private readonly seen: Uint8Array;
+  private list = new Int32Array(1024);
+  private n = 0;
+
+  constructor(size: number) {
+    this.seen = new Uint8Array(size);
+  }
+
+  add = (i: number): void => {
+    if (this.seen[i]) return;
+    this.seen[i] = 1;
+    if (this.n >= this.list.length) {
+      const grown = new Int32Array(this.list.length * 2);
+      grown.set(this.list);
+      this.list = grown;
+    }
+    this.list[this.n++] = i;
+  };
+
+  drain(): Int32Array {
+    const out = this.list.slice(0, this.n);
+    for (let k = 0; k < out.length; k++) this.seen[out[k]] = 0;
+    this.n = 0;
+    return out;
+  }
 }
 
 /** O mundo inteiro num objeto que o `structuredClone` (e o `postMessage`) entende: terreno e ecossistema. */
@@ -178,12 +208,12 @@ export interface Engine {
   apply(cmd: EngineCommand, ctx?: ApplyContext): CommandResult;
   /** Os eventos desde a última drenagem, do mais antigo para o mais novo. */
   drainEvents(): EngineEvent[];
+  /** Os tiles que mudaram desde a última drenagem, cada um uma vez e sem ordem definida. */
+  drainTiles(): Int32Array;
   /** Retrato independente do mundo (cópia funda: mexer no mundo depois não muda o retrato). */
   snapshot(): EngineSnapshot;
   /** Troca o mundo pelo do retrato (que continua intacto); `view` passa a ser o mundo novo. */
   restore(snap: EngineSnapshot): void;
-  /** Liga os avisos síncronos (substitui os anteriores). */
-  setHooks(hooks: EngineHooks): void;
   /** Vista de depuração (painel do `?debug`): indicadores vivos, estado dos lugares, decisões e medição do passo. */
   readonly debug: DebugView;
 }
@@ -199,6 +229,8 @@ export interface EngineOptions {
   populate?: boolean;
   /** Segundos de jogo por ano (padrão YEAR_SECONDS, o da calibração). */
   yearSpan?: number;
+  /** Linhas para a crônica de um mundo novo (o que aconteceu antes de ele existir). */
+  notes?: readonly string[];
 }
 
 /** O Ecosystem por trás de cada motor (ver `ecosystemOf`). */
@@ -293,6 +325,18 @@ class LiveView implements EngineView {
   }
   get chronicle() {
     return this.eco.chronicle;
+  }
+  get caughtUpYears() {
+    return this.eco.caughtUpYears;
+  }
+  get skippedYears() {
+    return this.eco.skippedYears;
+  }
+  get legends() {
+    return this.eco.legends;
+  }
+  get legendsLost() {
+    return this.eco.legendsLost;
   }
   get wars() {
     return this.eco.wars;
@@ -433,13 +477,13 @@ export function createEngine(map: SurfaceMap, opts: EngineOptions): Engine {
     for (const sp of opts.species ?? []) eco.addSpecies(sp);
     if (opts.populate ?? !!opts.species?.length) eco.populate();
     eco.drainEvents();
+    for (const text of opts.notes ?? []) eco.note(text, 'natureza');
   }
   if (opts.yearSpan !== undefined) eco.yearSpan = opts.yearSpan;
-  let hooks: EngineHooks = {};
-  const attach = () => {
-    eco.onTileChanged = hooks.tileChanged ?? (() => {});
-    eco.onSpecies = hooks.species ?? (() => {});
-  };
+  // As constantes valem por mundo: as de fábrica mais o ajuste guardado nele.
+  applyTuned(eco.tuned);
+  let tiles = new TileSink(map.width * map.height);
+  eco.onTileChanged = tiles.add;
   // A vista lê o mundo vivo; no `restore` ela passa a ler o mundo novo (a de depuração também).
   const view = new LiveView(eco);
   const debug = new EngineDebug(eco, view, opts.seed);
@@ -459,17 +503,17 @@ export function createEngine(map: SurfaceMap, opts: EngineOptions): Engine {
       return res;
     },
     drainEvents: () => eco.drainEvents(),
+    drainTiles: () => tiles.drain(),
     snapshot: () => structuredClone({ map: eco.map, eco: snapshotEcosystem(eco, opts.seed) }),
     restore(snap) {
       const copy = structuredClone(snap);
       eco = restoreEcosystem(copy.eco, copy.map);
+      applyTuned(eco.tuned);
       view.eco = eco;
       debug.adopt(eco);
-      attach();
-    },
-    setHooks(h) {
-      hooks = h;
-      attach();
+      // Os tiles anotados eram do mundo que saiu: quem restaura repinta o mapa inteiro.
+      tiles = new TileSink(copy.map.width * copy.map.height);
+      eco.onTileChanged = tiles.add;
     },
     debug,
   };

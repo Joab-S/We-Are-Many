@@ -4,7 +4,7 @@
  */
 
 import type { Ecosystem } from '../../ecosystem';
-import * as B from '../../balance';
+import { B } from '../../live';
 import { binomial, happens } from '../../stochastic';
 import * as P from '../../progress';
 import { CHILD, pickRole, ROLE, ROLE_NAMES, ROLES, roleWeights, type Role } from '../../roles';
@@ -126,6 +126,15 @@ export const societyPart = {
   socialPressure(this: Ecosystem, v: Village, population = v.population): number {
     const d = population / B.DUNBAR;
     return (d * d) / (1 + this.institutions(v));
+  },
+
+  /**
+   * Lotação do reino: a gente dele contra `CAP_PER_SITE` por lugar vivo. Abaixo do teto vale 1. Mais lugares sobem o
+   * teto, e é isso que faz fundar valer a pena antes da fome.
+   */
+  realmCrowding(this: Ecosystem, v: Village): number {
+    const capital = this.capitalOf(v);
+    return Math.max(1, this.kingdomPopulation(capital) / (B.CAP_PER_SITE * Math.max(1, this.kingdomSize(capital))));
   },
 
   /**

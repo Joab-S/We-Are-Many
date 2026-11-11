@@ -1,4 +1,4 @@
-import * as B from './balance';
+import { B } from './live';
 import { GOOD_GROUP, type Good } from './economy';
 import type { Role } from './roles';
 import type { HerdKind } from './eco/types';
