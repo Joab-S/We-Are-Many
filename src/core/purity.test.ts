@@ -23,7 +23,7 @@ interface Fs {
 /** Pasta src/ (este arquivo fica em src/core). */
 const SRC = new URL('../', import.meta.url);
 /** Pastas do motor puro, com as subpastas (sim/eco/**, sim/api...). */
-const ROOT_DIRS = ['core', 'nav', 'explore', 'procgen', 'sim', 'ai', 'IAUS'];
+const ROOT_DIRS = ['core', 'nav', 'explore', 'procgen', 'sim', 'IAUS'];
 const ROOT_FILES = ['universe/manifest.ts', 'universe/starIndex.ts', 'save/snapshot.ts'];
 /** Adaptadores de plataforma: usam o navegador por definição e o motor nunca os alcança. */
 const PLATFORM = ['universe/loader.ts', 'universe/chunkCache.ts', 'save/store.ts', 'procgen/surface.worker.ts', 'sim/api/worker.ts', 'save/game.ts', 'save/manager.ts'];
@@ -81,7 +81,7 @@ describe('motor puro sem three.js, DOM ou cliente', () => {
     expect(files.has('core/shipControl.ts')).toBe(true);
     expect(files.has('core/lru.ts')).toBe(true);
     // O motor da superfície e a fronteira dele com o cliente.
-    for (const f of ['sim/ecosystem.ts', 'sim/eco/war/war.ts', 'sim/api/commands.ts', 'sim/api/events.ts', 'sim/api/engine.ts', 'save/snapshot.ts', 'IAUS/brain.ts', 'IAUS/npc/mind.ts', 'procgen/surface.ts']) {
+    for (const f of ['sim/ecosystem.ts', 'sim/eco/war/war.ts', 'sim/api/commands.ts', 'sim/api/events.ts', 'sim/api/engine.ts', 'save/snapshot.ts', 'IAUS/brain.ts', 'IAUS/npc/mundo/decisor.ts', 'procgen/surface.ts']) {
       expect(files.has(f), f).toBe(true);
     }
   });

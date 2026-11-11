@@ -69,6 +69,11 @@ export interface BrainOptions {
   thinkInterval?: number;
   /** Variação aleatória do intervalo (s), para espalhar os agentes pelos frames. */
   thinkJitter?: number;
+  /**
+   * Intervalo quando o agente fica sem nada em andamento depois de pensar (escolheu uma decisão Instant, ou
+   * nenhuma). Padrão: o próprio `thinkInterval`. Menor deixa quem pensa devagar encadear ações rápidas.
+   */
+  idleThinkInterval?: number;
   /** Raio da lista de vizinhos. */
   maxNeighborDistance?: number;
   /** Compensação pelo número de considerations (recomendado: true). */
@@ -80,6 +85,11 @@ export interface BrainOptions {
   imap?: ImapManager | null;
   /** Guardar as decisões pontuadas para depuração. */
   debug?: boolean;
+  /**
+   * Percepção: quem o agente enxerga neste ciclo. Sem ela, o cérebro varre `world.entities()` pela
+   * distância. Mundos grandes passam a própria (grade espacial, conhecidos, lugares lembrados).
+   */
+  perceive?: ((brain: Brain, now: number) => Iterable<AiEntity>) | null;
 }
 
 interface ActiveDecision {
@@ -108,8 +118,11 @@ export class Brain {
   imap: ImapManager | null;
 
   private current: ActiveDecision | null = null;
+  private readonly perceiveFn: BrainOptions['perceive'];
+  /** Nota da última pontuação de cada Behavior (a melhor entre os alvos), para o grafo do cérebro. */
+  readonly lastBehaviorScore = new Map<number, number>();
   private nextThinkTime = 0;
-  private readonly opt: Required<Omit<BrainOptions, 'rng' | 'imap' | 'selection'>> & {
+  private readonly opt: Required<Omit<BrainOptions, 'rng' | 'imap' | 'selection' | 'perceive'>> & {
     selection: SelectionConfig;
   };
 
@@ -121,9 +134,11 @@ export class Brain {
     this.world = world;
     this.rng = options.rng ?? defaultRng;
     this.imap = options.imap ?? null;
+    this.perceiveFn = options.perceive ?? null;
     this.opt = {
       thinkInterval: options.thinkInterval ?? 0.25,
       thinkJitter: options.thinkJitter ?? 0.05,
+      idleThinkInterval: options.idleThinkInterval ?? options.thinkInterval ?? 0.25,
       maxNeighborDistance: options.maxNeighborDistance ?? 30,
       useCompensation: options.useCompensation ?? true,
       minScore: options.minScore ?? 0.0001,
@@ -215,6 +230,7 @@ export class Brain {
 
   think(now: number): void {
     this.owner.tags.purge(now);
+    this.owner.beliefs.purge(now);
     this.history.process(now);
     this.rebuildNeighborList(now);
     this.rebuildDecisionList();
@@ -225,7 +241,8 @@ export class Brain {
       this.finishCurrent(now);
     }
     const jitter = this.opt.thinkJitter > 0 ? (this.rng.next() * 2 - 1) * this.opt.thinkJitter : 0;
-    this.nextThinkTime = now + Math.max(0.01, this.opt.thinkInterval + jitter);
+    const interval = this.current ? this.opt.thinkInterval : Math.min(this.opt.thinkInterval, this.opt.idleThinkInterval);
+    this.nextThinkTime = now + Math.max(0.01, interval + jitter * (interval / this.opt.thinkInterval));
   }
 
   // ---- Passo 3: vizinhos ----
@@ -233,6 +250,10 @@ export class Brain {
   rebuildNeighborList(now: number): void {
     this.neighbors = [];
     const o = this.owner;
+    if (this.perceiveFn) {
+      for (const e of this.perceiveFn(this, now)) if (e !== o) this.neighbors.push(e);
+      return;
+    }
     for (const e of this.world.entities()) {
       if (e === o) continue;
       if (e.tags.has(Tags.Landmark, now) || distance(o.position, e.position) < this.opt.maxNeighborDistance) {
@@ -288,8 +309,14 @@ export class Brain {
     if (this.opt.debug) d.breakdown.length = 0;
     // Corte antecipado: considerations só podem baixar o score.
     // (Desligado em debug, para ver o score completo de tudo.)
-    const earlyOut = this.opt.selection.mode === SelectionMode.Best && !this.opt.debug;
-    if (earlyOut && score <= bestSoFar) return 0;
+    // No sorteio entre as melhores, quem já ficou abaixo da fração do melhor até aqui não entra no sorteio
+    // (o melhor final só pode ser maior): dá para cortar do mesmo jeito.
+    const sel = this.opt.selection;
+    const cut = sel.mode === SelectionMode.Best ? 1 : sel.withinFractionOfBest ?? 0;
+    const earlyOut = cut > 0 && !this.opt.debug;
+    const floor = bestSoFar * cut;
+    const below = (x: number) => (cut === 1 ? x <= floor : x < floor);
+    if (earlyOut && below(score)) return 0;
 
     const n = b.considerations.length;
     for (const c of b.considerations) {
@@ -297,7 +324,7 @@ export class Brain {
       if (this.opt.debug) d.breakdown.push({ name: c.name, score: s });
       score *= s;
       if (score <= 0) return 0;
-      if (earlyOut && score <= bestSoFar) return 0;
+      if (earlyOut && below(score)) return 0;
     }
     return score;
   }
@@ -306,9 +333,12 @@ export class Brain {
 
   selectDecision(): Decision | null {
     let best = 0;
+    this.lastBehaviorScore.clear();
     for (const d of this.decisions) {
       d.score = this.scoreDecision(d, best);
       if (d.score > best) best = d.score;
+      const id = d.context.behavior.id;
+      if (d.score > (this.lastBehaviorScore.get(id) ?? -1)) this.lastBehaviorScore.set(id, d.score);
     }
     const valid = this.decisions.filter((d) => d.score >= this.opt.minScore);
     if (this.opt.debug) this.lastScored = [...valid].sort((a, b) => b.score - a.score);
@@ -342,6 +372,34 @@ export class Brain {
       if (r < 0) return d;
     }
     return pool[pool.length - 1];
+  }
+
+  /**
+   * Pensa sem agir: monta as decisões (com `neighbors` como os alvos, se vier), pontua e escolhe, mas não
+   * executa nem mexe no histórico. Para simulações que aplicam a escolha elas mesmas (decisões anuais,
+   * o mundo agregado) e para o "e se" da ficha. Com `debug`, `lastScored` guarda todas as notas.
+   */
+  decide(neighbors?: AiEntity[]): Decision | null {
+    const now = this.world.now();
+    this.owner.tags.purge(now);
+    this.owner.beliefs.purge(now);
+    if (neighbors) this.neighbors = neighbors;
+    else this.rebuildNeighborList(now);
+    this.rebuildDecisionList();
+    return this.selectDecision();
+  }
+
+  /** Executa uma decisão escolhida por fora (a mesma porta do ciclo de pensamento). */
+  commit(d: Decision): void {
+    this.setDecision(d, this.world.now());
+  }
+
+  /** Todos os Behaviors deste cérebro, sem repetir (para o grafo e a ficha). */
+  behaviors(): Behavior[] {
+    const out = new Map<number, Behavior>();
+    for (const p of this.behaviorPacks) for (const b of p.behaviors) out.set(b.id, b);
+    for (const p of this.abilityPacks) for (const pair of p.pairs) out.set(pair.behavior.id, pair.behavior);
+    return [...out.values()];
   }
 
   // ---- Execução ----

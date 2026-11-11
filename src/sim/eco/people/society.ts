@@ -8,12 +8,12 @@ import { B } from '../../live';
 import { binomial, happens } from '../../stochastic';
 import * as P from '../../progress';
 import { CHILD, pickRole, ROLE, ROLE_NAMES, ROLES, roleWeights, type Role } from '../../roles';
-import { TRAIT, TRAIT_COUNT } from '../../../IAUS/npc/traits';
-import { chooseProfession, needDemand, professionReason, switchWill, type ProfessionContext } from '../../../IAUS/npc/decisions/work';
-import { remember, type ThoughtKind } from '../../../IAUS/npc/trace';
-import { BOND, forget } from '../../../IAUS/npc/relations';
-import { socialYear, type Resident } from '../../../IAUS/npc/decisions/social';
-import { SOCIAL } from '../../../IAUS/npc/tuning';
+import { TRAIT, TRAIT_COUNT } from '../../../IAUS/npc/pessoa/traits';
+import { chooseProfession, needDemand, professionReason, switchWill, type ProfessionContext } from '../../../IAUS/npc/mundo/oficio';
+import { remember, type ThoughtKind } from '../../../IAUS/npc/pessoa/trace';
+import { BOND, forget } from '../../../IAUS/npc/pessoa/relations';
+import { socialYear, type Resident } from '../../../IAUS/npc/mundo/vidaSocial';
+import { SOCIAL } from '../../../IAUS/npc/mundo/ajustes';
 import { personName } from '../../people';
 import { fullNeeds, NEED_NAMES, ROLE_NEED, roleFor, VOCATION_NEED, VOCATION_ROLE, welfare, worstNeed } from '../../needs';
 import type { Village } from '../types';
@@ -241,7 +241,7 @@ export const societyPart = {
   },
 
   /**
-   * Profissão de quem vira adulto, escolhida pela IA da pessoa (src/IAUS/npc/decisions/work.ts): a falta no lugar,
+   * Profissão de quem vira adulto, escolhida pela IA da pessoa (src/IAUS/npc/mundo/oficio.ts): a falta no lugar,
    * o que já está cheio, os traços, o jeito, o ofício dos pais e a vocação do lugar. Soldados e guardas
    * continuam sendo chamados pelo líder, na mesma proporção do sorteio antigo.
    */
@@ -317,7 +317,7 @@ export const societyPart = {
   },
 
   /**
-   * Um ano de vida social no lugar (IA local, src/IAUS/npc/decisions/social.ts): encontros, amizades, rivalidades,
+   * Um ano de vida social no lugar (IA local, src/IAUS/npc/mundo/vidaSocial.ts): encontros, amizades, rivalidades,
    * casamentos e brigas, anotados no diário de cada um. Crianças fazem amigos mas não casam.
    */
   socialize(this: Ecosystem, v: Village, here: number[]): void {

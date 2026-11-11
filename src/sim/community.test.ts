@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import * as B from './balance';
 import { belowTier, lensArea, loyaltyScore, missingFunctions, polityOf, siteValue, spacingFor, tierAllowed, waterGrade, type LoyaltyLook, type SiteLook, type TierCheck } from './community';
 import type { BuildingKind } from './ecosystem';
-import { chooseDay, DAY, type BoardTask, type DayContext } from '../IAUS/npc/decisions/day';
-import { TRAIT_COUNT } from '../IAUS/npc/traits';
+import { chooseDay, DAY, type BoardTask, type DayContext } from '../IAUS/npc/mundo/jornada';
+import { TRAIT_COUNT } from '../IAUS/npc/pessoa/traits';
 
 /** Regras puras do plano novo dos assentamentos (REQUISITOS-VIDA.md, seção 20, RF-AS). */
 describe('nascimento e degraus (RF-AS fases 1 e 2)', () => {

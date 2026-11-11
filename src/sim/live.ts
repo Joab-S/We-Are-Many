@@ -1,4 +1,4 @@
-import * as tuning from '../IAUS/npc/tuning';
+import * as tuning from '../IAUS/npc/mundo/ajustes';
 import * as balance from './balance';
 
 /**

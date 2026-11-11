@@ -1,7 +1,7 @@
 import type { Ecosystem } from '../../../sim/ecosystem';
 import { ROLE_NAMES, ROLES } from '../../../sim/roles';
 import { aptitudeOf, bestCraft, TECH_BY_ID } from '../../../sim/progress';
-import { notable, TRAIT, TRAIT_INFO, TRAITS, TRAIT_COUNT, type Trait } from '../../../IAUS/npc/traits';
+import { notable, TRAIT, TRAIT_INFO, TRAITS, TRAIT_COUNT, type Trait } from '../../../IAUS/npc/pessoa/traits';
 import { DEATH_TEXT } from '../../../sim/people';
 import { installPixelArt } from '../../ui/pixelArt';
 import { pixelIcon, pixelize } from '../../ui/pixelIcons';
@@ -46,7 +46,7 @@ const TAB_INFO: Record<SheetTab, { label: string; icon: string }> = {
 };
 
 /**
- * Cada consideração da escolha do dia (src/IAUS/npc/decisions/day.ts) em palavras de gente: o ícone, a frase de quando
+ * Cada consideração da escolha do dia (src/IAUS/npc/mundo/jornada.ts) em palavras de gente: o ícone, a frase de quando
  * ela favoreceu a opção (`pro`), a de quando a derrubou (`con`) e o traço de personalidade de que depende, se houver.
  */
 const FACTOR: Record<string, { icon: string; pro: string; con: string; trait?: Trait }> = {

@@ -3,7 +3,7 @@ import { CHILD, ROLE, ROLE_NAMES, ROLES, type Role } from '../../sim/roles';
 import { animalStage, familyName, personName } from '../../sim/people';
 import { dietText, ecologyOf, HUNGRY, STARVING } from '../../sim/fauna';
 import { ITEMS, MATERIALS, type Category, type ItemDef, type Material } from '../../sim/items';
-import type { Thought } from '../../IAUS/npc/trace';
+import type { Thought } from '../../IAUS/npc/pessoa/trace';
 
 /**
  * Dados da ficha de uma criatura (RF-VIDA-335), lidos do ecossistema sob demanda: só a criatura aberta

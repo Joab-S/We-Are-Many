@@ -6,7 +6,7 @@ Cada tarefa diz **a estratégia** (como fazer), **onde** (arquivos de hoje), **p
 
 Convenções do projeto que valem para tudo aqui:
 - Mudança de comportamento da simulação vai num commit próprio, marcado "muda o comportamento; baseline regravado", com a impressão digital regravada (`UPDATE=1`). Refatoração passa pela impressão digital sem regravar.
-- A simulação (`src/sim`, `src/ai`, `src/procgen`) não importa three nem DOM (`src/core/purity.test.ts`).
+- A simulação (`src/sim`, `src/IAUS`, `src/procgen`) não importa three nem DOM (`src/core/purity.test.ts`).
 - Código do cliente novo lê o motor pela fachada (`engine.view`, `engine.debug`, eventos), nunca por `ecosystemOf`.
 
 ## 0. Decisões antes de começar

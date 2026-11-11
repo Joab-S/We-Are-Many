@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { generateSurface, type PlanetParams } from '../procgen/surface';
-import * as tuning from '../IAUS/npc/tuning';
+import * as tuning from '../IAUS/npc/mundo/ajustes';
 import * as balance from './balance';
 import { createEngine } from './api/engine';
 import { restoreEcosystem, snapshotEcosystem } from '../save/snapshot';
