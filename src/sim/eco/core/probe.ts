@@ -6,8 +6,8 @@
  * digital (o campo não é enumerável).
  */
 
-import type { Choice } from '../../../ai/utility';
-import type { MoveAction } from '../../../ai/decisions/move';
+import type { Choice } from '../../../IAUS/npc/mundo/decisor';
+import type { MoveAction } from '../../../IAUS/npc/mundo/mudanca';
 import type { Village } from '../types';
 
 /** Partes do passo (`Ecosystem.step` e o fim do ano de ação, `yearly`), na ordem em que rodam. */

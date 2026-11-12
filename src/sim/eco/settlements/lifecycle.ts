@@ -9,9 +9,9 @@ import { happens } from '../../stochastic';
 import * as P from '../../progress';
 import { emptyMade, emptyStock, makeCulture } from '../../economy';
 import { CHILD, ROLE, ROLES } from '../../roles';
-import { BOND, partnerOf } from '../../../IAUS/npc/relations';
-import { LEADER } from '../../../IAUS/npc/tuning';
-import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../../../IAUS/npc/decisions/leader';
+import { BOND, partnerOf } from '../../../IAUS/npc/pessoa/relations';
+import { LEADER } from '../../../IAUS/npc/mundo/ajustes';
+import { chooseLeader, leaderReason, rulerTemper, type Candidate } from '../../../IAUS/npc/mundo/lider';
 import { completeness, missingText } from '../../plan';
 import { welfare } from '../../needs';
 import { TIER_RADIUS } from '../../settlement';
@@ -47,7 +47,7 @@ export const lifecyclePart = {
       v.leader = -1;
       return;
     }
-    // O povo escolhe (IA local, src/IAUS/npc/decisions/leader.ts): carisma, ambição, idade e amigos; num reino, o herdeiro.
+    // O povo escolhe (IA local, src/IAUS/npc/mundo/lider.ts): carisma, ambição, idade e amigos; num reino, o herdeiro.
     const sp = this.species[v.species];
     const elder = elderAge(sp, Math.floor(v.tech));
     const old = v.leaderUid ?? 0;
@@ -258,6 +258,8 @@ export const lifecyclePart = {
         if (this.age[i] < elderAge(this.species[this.kind[i]], Math.floor(village.tech))) workers[v][this.role[i]]++;
       }
     }
+    // Lugar na tela: a produção conta o trabalho que as pessoas fizeram (people/mente.ts), não quem tem cada ofício.
+    for (const village of this.villages) if (!village.abandoned && workers[village.id] && this.full(village)) workers[village.id] = this.effectiveWorkers(village, workers[village.id], dt);
     const fishers = workers.map((w) => w[ROLE.fisher]);
     fishers.length = this.villages.length;
     let live = 0;

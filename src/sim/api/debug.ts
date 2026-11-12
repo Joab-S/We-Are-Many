@@ -53,7 +53,7 @@ export interface DebugOption {
   factors: DebugFactor[];
 }
 
-/** Uma decisão de mudança de uma família (IA de quando sair, src/ai/decisions/move.ts): ficar, migrar ou fundar. */
+/** Uma decisão de mudança de uma família (IA de quando sair, src/IAUS/npc/mundo/mudanca.ts): ficar, migrar ou fundar. */
 export interface FamilyDecision {
   /** Ano da decisão, o lugar onde a família morava e a família (o `family` das criaturas na vista). */
   year: number;

@@ -3,7 +3,7 @@ import { generateSurface, type PlanetParams } from '../procgen/surface';
 import * as B from './balance';
 import { Ecosystem, isLand, YEAR_SECONDS, type Village } from './ecosystem';
 import { nativeSpecies } from './species';
-import { BOND } from '../IAUS/npc/relations';
+import { BOND } from '../IAUS/npc/pessoa/relations';
 import { CHILD } from './roles';
 import { PILLARS } from './progress';
 

@@ -9,8 +9,8 @@ import { happens } from '../../stochastic';
 import { CHILD } from '../../roles';
 import { pairKey } from '../../community';
 import { emptyVital } from '../../people';
-import { BOND } from '../../../IAUS/npc/relations';
-import { chooseMove, moveWhy, type MoveAction, type MoveContext, type PlaceView } from '../../../IAUS/npc/decisions/move';
+import { BOND } from '../../../IAUS/npc/pessoa/relations';
+import { chooseMove, moveWhy, type MoveAction, type MoveContext, type PlaceView } from '../../../IAUS/npc/mundo/mudanca';
 import type { Village } from '../types';
 import type { ProbeSite } from '../core/probe';
 
@@ -68,7 +68,7 @@ export const migrationPart = {
 
   /**
    * Migração por nota (evolução dos povos, etapa 2; antes RF-VIDA-281), decidida pela IA de quando sair
-   * (src/IAUS/npc/decisions/move.ts): uma vez por ano, depois do ano da economia (as necessidades já são as deste
+   * (src/IAUS/npc/mundo/mudanca.ts): uma vez por ano, depois do ano da economia (as necessidades já são as deste
    * ano), cada família pensa em se mudar com chance MOVE_THINK (bem mais na falta) e escolhe entre ficar e
    * os lugares do seu povo que conhece, com caminho por terra, pela nota de cada um (descontadas a viagem e a
    * diferença de povo e de reino), a pressão social, os laços que tem lá, o apego e os anos desde a última
@@ -174,7 +174,7 @@ export const migrationPart = {
   },
 
   /**
-   * A família `members` de `v` pensa em se mudar (src/IAUS/npc/decisions/move.ts): monta o que ela sabe (a nota de
+   * A família `members` de `v` pensa em se mudar (src/IAUS/npc/mundo/mudanca.ts): monta o que ela sabe (a nota de
    * cada lugar ao alcance em `score`, a pressão social em `crowd` e a de casa em `pressure`, os laços que tem
    * em cada um, há quanto tempo chegou e os sítios que os batedores viram) e escolhe. Quem decide sair anota o
    * porquê no diário. Devolve a escolha (null: nenhuma opção).

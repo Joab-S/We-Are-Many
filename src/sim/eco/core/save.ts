@@ -5,7 +5,7 @@
 
 import type { Ecosystem } from '../../ecosystem';
 import { Weather } from '../../weather';
-import { randomTraits, TRAIT_COUNT } from '../../../IAUS/npc/traits';
+import { randomTraits, TRAIT_COUNT } from '../../../IAUS/npc/pessoa/traits';
 import { ECO_CELL } from '../../fauna';
 import type { Identity, Village } from '../types';
 import { EcoCells } from '../cells';

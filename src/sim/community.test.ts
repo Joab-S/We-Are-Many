@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import * as B from './balance';
 import { belowTier, lensArea, loyaltyScore, missingFunctions, polityOf, siteValue, spacingFor, tierAllowed, waterGrade, type LoyaltyLook, type SiteLook, type TierCheck } from './community';
 import type { BuildingKind } from './ecosystem';
-import { chooseDay, DAY, type BoardTask, type DayContext } from '../IAUS/npc/decisions/day';
-import { TRAIT_COUNT } from '../IAUS/npc/traits';
 
 /** Regras puras do plano novo dos assentamentos (REQUISITOS-VIDA.md, seção 20, RF-AS). */
 describe('nascimento e degraus (RF-AS fases 1 e 2)', () => {
@@ -90,37 +88,5 @@ describe('nascimento e degraus (RF-AS fases 1 e 2)', () => {
     expect(loyaltyScore({ ...base, dist: 90 })).toBeLessThan(l);
     expect(loyaltyScore({ ...base, burden: 1 })).toBeLessThan(l);
     expect(loyaltyScore({ ...base, sameCulture: false })).toBeLessThan(l);
-  });
-});
-
-describe('jornada: escolha da próxima tarefa (RF-AS-22 e 25)', () => {
-  const traits = new Int8Array(TRAIT_COUNT);
-  const task = (over: Partial<BoardTask>): BoardTask => ({ kind: DAY.work, tile: 1, prio: 0.5, slots: 3, taken: 0, role: 2, label: 'tarefa', ...over });
-  const ctx = (over: Partial<DayContext>): DayContext => ({ traits, i: 0, role: 2, hunger: 0, rest: 0, social: 0, faith: 0, tasks: [], friends: () => 0, temple: false, ...over });
-  const rnd = () => 0.5;
-
-  it('com fome, a pessoa vai comer antes de trabalhar', () => {
-    const c = chooseDay(ctx({ hunger: 0.95, tasks: [{ task: task({}), dist: 5 }] }), rnd)!;
-    expect(c.pick.action.kind).toBe(DAY.eat);
-  });
-
-  it('cansada, vai descansar; sem nada a fazer, fica parada', () => {
-    expect(chooseDay(ctx({ rest: 1 }), rnd)!.pick.action.kind).toBe(DAY.rest);
-    expect(chooseDay(ctx({}), rnd)).toBeNull();
-  });
-
-  it('na colheita urgente todo mundo ajuda, mesmo de outro ofício', () => {
-    const harvest = task({ kind: DAY.harvest, role: 2, urgent: true, prio: 1, label: 'colher a roça 1' });
-    const own = task({ kind: DAY.work, role: 3, prio: 0.3, label: 'cortar lenha' });
-    const c = chooseDay(ctx({ role: 3, tasks: [{ task: harvest, dist: 8 }, { task: own, dist: 8 }] }), rnd)!;
-    expect(c.pick.action.kind).toBe(DAY.harvest);
-    // Fora da urgência, o ofício pesa mais.
-    const calm = chooseDay(ctx({ role: 3, tasks: [{ task: { ...harvest, urgent: false, prio: 0.5 }, dist: 8 }, { task: own, dist: 8 }] }), rnd)!;
-    expect(calm.pick.action.kind).toBe(DAY.work);
-  });
-
-  it('tarefa cheia não é escolhida (reserva)', () => {
-    const full = task({ slots: 1, taken: 1 });
-    expect(chooseDay(ctx({ tasks: [{ task: full, dist: 1 }] }), rnd)).toBeNull();
   });
 });

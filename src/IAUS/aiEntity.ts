@@ -63,6 +63,68 @@ export class EntityTagSet {
   list(): EntityTag[] {
     return [...this.tags.keys()];
   }
+  /** Tags com o instante em que expiram (para salvar, mostrar e desenhar o cérebro). */
+  entries(): [EntityTag, number][] {
+    return [...this.tags.entries()];
+  }
+  get size(): number {
+    return this.tags.size;
+  }
+}
+
+/**
+ * Crenças: as tags que uma entidade PERCEBE nas outras (Tagging System). Diferente de `tags`, que são os
+ * fatos da própria entidade (o que ela é, ou o que outros marcaram nela), uma crença mora na cabeça de
+ * quem observa: "acho que Ana é padeira", "aquele cervo é meu alvo de caça". Duas pessoas podem crer em
+ * coisas diferentes sobre a mesma terceira, e uma crença pode estar errada ou vencida.
+ */
+export class BeliefSet {
+  /** id do alvo → tags percebidas nele. */
+  private readonly about = new Map<number, EntityTagSet>();
+
+  /** Passa a crer que `targetId` tem `tag` (até `expiresAt`). */
+  perceive(targetId: number, tag: EntityTag, expiresAt = Infinity): void {
+    let set = this.about.get(targetId);
+    if (!set) this.about.set(targetId, (set = new EntityTagSet()));
+    set.add(tag, expiresAt);
+  }
+  /** Deixa de crer (a tag sai só da cabeça de quem observa). */
+  forget(targetId: number, tag?: EntityTag): void {
+    if (tag === undefined) {
+      this.about.delete(targetId);
+      return;
+    }
+    const set = this.about.get(targetId);
+    if (!set) return;
+    set.remove(tag);
+    if (!set.size) this.about.delete(targetId);
+  }
+  believes(targetId: number, tag: EntityTag, now = 0): boolean {
+    return this.about.get(targetId)?.has(tag, now) ?? false;
+  }
+  /** Ids de quem a entidade crê ter `tag` (ex.: "quem eu conheço que é lenhador"). */
+  whoHas(tag: EntityTag, now = 0): number[] {
+    const out: number[] = [];
+    for (const [id, set] of this.about) if (set.has(tag, now)) out.push(id);
+    return out;
+  }
+  tagsOf(targetId: number): EntityTag[] {
+    return this.about.get(targetId)?.list() ?? [];
+  }
+  /** Remove as crenças vencidas. */
+  purge(now: number): void {
+    for (const [id, set] of this.about) {
+      set.purge(now);
+      if (!set.size) this.about.delete(id);
+    }
+  }
+  /** Tudo o que a entidade crê, por alvo. */
+  entries(): [number, EntityTag[]][] {
+    return [...this.about.entries()].map(([id, set]) => [id, set.list()]);
+  }
+  get size(): number {
+    return this.about.size;
+  }
 }
 
 export interface AiEntityInit {
@@ -88,6 +150,8 @@ export class AiEntity {
   /** Stats numéricos arbitrários: health, maxHealth, ammo, gold, threat… */
   readonly stats = new Map<string, number>();
   readonly tags = new EntityTagSet();
+  /** O que esta entidade percebe nas outras (Tagging System: tags vistas nos outros). */
+  readonly beliefs = new BeliefSet();
 
   constructor(init: AiEntityInit) {
     this.id = init.id;
@@ -114,6 +178,31 @@ export class AiEntity {
   isAlive(now = 0): boolean {
     return !this.tags.has(Tags.Dead, now) && this.stat('health', 1) > 0;
   }
+  // ---- Tagging System: dar e tirar tags de si, dos outros, e perceber tags nos outros ----
+
+  /** Dá uma tag a si mesmo ("eu sou ferreiro"). */
+  tagSelf(tag: EntityTag, expiresAt = Infinity): void {
+    this.tags.add(tag, expiresAt);
+  }
+  untagSelf(tag: EntityTag): void {
+    this.tags.remove(tag);
+  }
+  /** Marca uma tag em outra entidade, visível a todos ("alvo de caça", "procurado"). */
+  mark(other: AiEntity, tag: EntityTag, expiresAt = Infinity): void {
+    other.tags.add(tag, expiresAt);
+  }
+  unmark(other: AiEntity, tag: EntityTag): void {
+    other.tags.remove(tag);
+  }
+  /** Percebe uma tag em outra entidade: passa a crer nela, sem mudar a outra ("ela é padeira"). */
+  perceive(other: AiEntity, tag: EntityTag, expiresAt = Infinity): void {
+    this.beliefs.perceive(other.id, tag, expiresAt);
+  }
+  /** A outra tem a tag de fato ou esta entidade crê que tem. */
+  seesTag(other: AiEntity, tag: EntityTag, now = 0): boolean {
+    return other.tags.has(tag, now) || this.beliefs.believes(other.id, tag, now);
+  }
+
   isEnemyOf(other: AiEntity): boolean {
     return this.team !== 0 && other.team !== 0 && this.team !== other.team;
   }

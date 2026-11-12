@@ -6,7 +6,7 @@ Quanto custa tirar a simulação da thread da tela (Web Worker), levá-la para u
 
 ## Resumo
 
-1. **Dá para separar.** O motor (`src/sim` e `src/ai`, umas 24 mil linhas sem os testes) já é puro e roda no Node, e os comandos e os eventos já são dados. O que prende é a **leitura**: a tela ainda lê o `Ecosystem` vivo.
+1. **Dá para separar.** O motor (`src/sim` e `src/IAUS`, umas 24 mil linhas sem os testes) já é puro e roda no Node, e os comandos e os eventos já são dados. O que prende é a **leitura**: a tela ainda lê o `Ecosystem` vivo.
 2. Só há um `ecosystemOf` em produção (`SurfaceMode.ts`), mas ele entrega o `Ecosystem` a 18 arquivos do cliente: umas 300 linhas com `eco.` e 42 métodos chamados na hora (`pick`, `settlementAt`, `activityOf`, `priceAt`...).
 3. **Volume:** cerca de 150 KB por passo, 3 MB/s em 5x **[medido na Terra em 100 anos; a estimativa era 0,5 MB e 10 MB/s; ver seção 2]**. Cabe em `postMessage` com buffers transferidos, sem `SharedArrayBuffer`. Os assentamentos não podem ir inteiros a cada passo: vão em projeção, por versão ou por assinatura.
 4. **Esforço:**
