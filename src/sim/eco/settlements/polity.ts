@@ -135,9 +135,9 @@ export const polityPart = {
     for (const id of this.watched) {
       if (next.has(id) || !this.villages[id]) continue;
       this.flushYard(this.villages[id]);
-      this.boards.delete(id);
     }
     this.watched = next;
+    this.forgetMinds();
   },
 
   /** O lugar roda jornadas e passos completos (os demais, o modo agregado). */

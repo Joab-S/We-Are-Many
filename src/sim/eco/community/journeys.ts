@@ -1,14 +1,15 @@
 /**
- * Parte do Ecosystem (classe parcial, ver ecosystem.ts): jornadas do modo completo (RF-AS-20 a 27): quadro de serviços, entregas e passos.
+ * Parte do Ecosystem (classe parcial, ver ecosystem.ts): o chão das jornadas do modo completo (RF-AS-20 a 27): o pátio e o
+ * celeiro, os lugares de cada coisa (posto do ofício, roças, praça, portão) e o passo pelas ruas. Quem decide o que
+ * fazer é a mente de cada pessoa (people/mente.ts).
  * Os métodos vão para o protótipo da classe; `this` é o ecossistema inteiro.
  */
 
-import type { DayNote, Ecosystem } from '../../ecosystem';
+import type { Ecosystem } from '../../ecosystem';
 import { B } from '../../live';
 import type { Good } from '../../economy';
-import { ROLE, ROLE_NAMES, ROLES } from '../../roles';
-import { TRAIT, TRAIT_COUNT } from '../../../IAUS/npc/traits';
-import { chooseDay, DAY, DAY_BAND, DAY_NAMES, dayWhy, type BoardTask, type DayKind } from '../../../IAUS/npc/decisions/day';
+import { ROLE } from '../../roles';
+import { DAY } from '../../../IAUS/npc/aldeia/dia';
 import { isStreet, TRAIL, WALL } from '../../architecture';
 import { wrapDx } from '../../settlement';
 import type { BuildingKind, Village } from '../types';
@@ -17,7 +18,7 @@ import * as helpersModule from '../helpers';
 import * as tilesModule from '../tiles';
 
 // Cópias locais dos valores de eco/* (o porquê está em ecosystem.ts).
-const { YEAR_SECONDS, BUILDING_NAMES, THINK_INTERVAL, JOB, RAW, CARGO_NAMES, GESTURE, GESTURE_OF } = constantsModule;
+const { THINK_INTERVAL, RAW } = constantsModule;
 const { carryCode, CARGO_GOOD } = helpersModule;
 const { isLand } = tilesModule;
 
@@ -148,55 +149,6 @@ export const journeysPart = {
     return null;
   },
 
-  /** Quadro de tarefas do assentamento (RF-AS-21): o que ele precisa agora, com prioridade e vagas. */
-  board(this: Ecosystem, v: Village): BoardTask[] {
-    const b = this.boards.get(v.id);
-    if (b && this.year - b.at < B.TASK_SECONDS / YEAR_SECONDS) return b.tasks;
-    const tasks: BoardTask[] = [];
-    const season = this.season();
-    const pop = Math.max(1, v.population);
-    const foodNeed = 1 - (v.needs?.food ?? 1);
-    // Colheita: na safra (verão) vira urgente e junta ajudantes de todos os ofícios (colheita coletiva, RF-AS-28).
-    const fields = this.fieldTiles(v);
-    const harvest = season === 2;
-    const nf = Math.min(fields.length, 8);
-    for (let k = 0; k < nf; k++) {
-      const t = fields[Math.floor((k * fields.length) / nf)];
-      tasks.push({ kind: DAY.harvest, tile: t, prio: Math.min(1, B.SEASON_HARVEST[season] / 2.6 + foodNeed), slots: harvest ? 4 : 2, taken: 0, role: ROLE.farmer, urgent: harvest, label: `colher a roça ${k + 1}` });
-    }
-    // Carga parada no pátio: alguém leva ao celeiro.
-    let left = 0;
-    for (const g of Object.keys(v.yard ?? {}) as (Good | 'food')[]) left += v.yard![g] ?? 0;
-    if (left >= B.CARRY_LOAD) {
-      const at = fields.length ? fields[0] : this.plazaTile(v);
-      tasks.push({ kind: DAY.haul, tile: at, prio: Math.min(1, left / (left + pop)), slots: Math.min(6, Math.ceil(left / B.CARRY_LOAD)), taken: 0, role: -1, label: `levar ${Math.round(left)} de carga ao celeiro` });
-    }
-    // Obras: o mutirão é chamado para a muralha, o templo e quando o lugar não tem construtor.
-    for (const h of v.houses) {
-      if ((h.labor ?? 0) <= 0) continue;
-      const big = h.kind !== 'house' || (v.crew ?? 1) === 0;
-      tasks.push({ kind: DAY.build, tile: this.tileAt(h.x, h.y), prio: big ? 0.8 : 0.5, slots: B.JOB_SLOTS_BUILD + (big ? 3 : 0), taken: 0, role: ROLE.builder, urgent: big, label: `erguer ${h.kind === 'house' ? 'uma casa' : BUILDING_NAMES[h.kind]?.toLowerCase() ?? 'uma obra'}` });
-    }
-    // Água do poço (ou do rio) para as casas.
-    // O poço fica na praça da Idade do Bronze em diante (a tela desenha); antes, a água vem do rio ou do lago.
-    if (Math.floor(v.tech) >= 1 || v.wet) {
-      const t = this.plazaTile(v);
-      tasks.push({ kind: DAY.water, tile: t, prio: 0.3, slots: Math.max(1, Math.ceil(pop / 25)), taken: 0, role: -1, label: 'buscar água' });
-    }
-    // Ofício no posto: uma tarefa por ofício com vagas para todos dele.
-    for (const role of [ROLE.miner, ROLE.fisher, ROLE.blacksmith, ROLE.weaver, ROLE.potter, ROLE.miller, ROLE.merchant, ROLE.priest, ROLE.shepherd, ROLE.horsekeeper, ROLE.gatherer, ROLE.leader, ROLE.king]) {
-      tasks.push({ kind: DAY.work, tile: -1, prio: 0.55, slots: 999, taken: 0, role, label: `trabalhar como ${ROLE_NAMES[ROLES[role]].toLowerCase()}` });
-    }
-    // Reservas de quem já está numa tarefa do quadro anterior continuam valendo.
-    for (const t of tasks) t.taken = 0;
-    for (const i of this.residents(v.id)) {
-      if (!this.day[i] || this.day[i] >= DAY.eat) continue;
-      const t = tasks.find((x) => x.kind === this.day[i] && x.tile === this.dayAt[i]);
-      if (t) t.taken++;
-    }
-    this.boards.set(v.id, { at: this.year, tasks });
-    return tasks;
-  },
 
   /** Larga a jornada (e a carga volta ao pátio). */
   dropDay(this: Ecosystem, i: number, v: Village | null): void {
@@ -212,80 +164,6 @@ export const journeysPart = {
     this.gesture[i] = 0;
   },
 
-  /** Escolhe a próxima jornada pelo quadro e pelas necessidades (RF-AS-22 e 25). */
-  pickDay(this: Ecosystem, i: number, v: Village, working: boolean): void {
-    const role = this.role[i];
-    const w = this.map.width;
-    const tasks = working ? this.board(v) : [];
-    const options: { task: BoardTask; dist: number }[] = [];
-    for (const t of tasks) {
-      if (t.taken >= t.slots) continue;
-      let tile = t.tile;
-      if (t.kind === DAY.work) {
-        if (t.role !== role) continue;
-        tile = this.workplace(i, v, role);
-        if (tile < 0) continue;
-      }
-      const d = Math.hypot(wrapDx((tile % w) + 0.5 - this.x[i], w), Math.floor(tile / w) + 0.5 - this.y[i]);
-      options.push({ task: t.kind === DAY.work ? { ...t, tile } : t, dist: d });
-    }
-    // Amigos na mesma tarefa (o sociável gosta de trabalhar junto).
-    const friends = (t: BoardTask) => {
-      let n = 0;
-      for (const b of this.bonds.get(this.uid[i]) ?? []) {
-        const j = this.indexOfUid(b.uid);
-        if (j >= 0 && this.day[j] === t.kind && this.dayAt[j] === t.tile) n++;
-      }
-      return n;
-    };
-    const c = chooseDay(
-      {
-        traits: this.traits,
-        i,
-        role,
-        hunger: Math.max(0, Math.min(1, (0.75 - this.energy[i]) / 0.5)),
-        rest: this.needRest[i],
-        social: this.needSocial[i],
-        faith: this.needFaith[i],
-        tasks: options,
-        friends,
-        temple: this.has(v, 'temple'),
-      },
-      this.mindRnd,
-    );
-    if (!c) {
-      this.day[i] = DAY.none;
-      return;
-    }
-    const a = c.pick.action;
-    let tile = a.task?.tile ?? -1;
-    if (a.kind === DAY.eat) tile = v.food >= 1 ? this.granaryTile(v) : this.home[i] >= 0 ? this.home[i] : this.plazaTile(v);
-    else if (a.kind === DAY.rest) tile = this.home[i] >= 0 ? this.home[i] : this.plazaTile(v);
-    else if (a.kind === DAY.social) tile = this.plazaTile(v);
-    else if (a.kind === DAY.pray) {
-      const h = v.houses.find((b) => b.kind === 'temple');
-      tile = h ? this.tileAt(h.x + 1, h.y + 1) : this.plazaTile(v);
-    }
-    if (tile < 0) {
-      this.day[i] = DAY.none;
-      return;
-    }
-    if (a.task) a.task.taken++;
-    this.day[i] = a.kind;
-    this.dayAt[i] = tile;
-    this.dayLeg[i] = 0;
-    this.dayTime[i] = 0;
-    this.dayNotes.set(this.uid[i], {
-      label: c.pick.label,
-      why: dayWhy(c),
-      score: c.pick.score,
-      // Corte do sorteio: quem ficou acima dele estava no páreo; abaixo, perdeu na nota.
-      cut: Math.max(c.pick.score, c.others[0]?.score ?? 0) * DAY_BAND,
-      factors: c.pick.factors.slice().sort((p, q) => q.value - p.value).slice(0, 3),
-      // Considerações em ordem crescente: a primeira é a que mais derrubou a nota da alternativa.
-      others: c.others.slice(0, 3).map((o) => ({ label: o.label, score: o.score, low: o.factors[0]?.name })),
-    });
-  },
 
   /** Para onde andar agora rumo ao tile `t`: o vizinho que encurta o caminho, preferindo rua e trilha (RF-AS-26). */
   stepToward(this: Ecosystem, i: number, t: number): { x: number; y: number } {
@@ -329,144 +207,6 @@ export const journeysPart = {
     return 1.2;
   },
 
-  /**
-   * Um passo da jornada da pessoa `i` (modo completo): escolhe a jornada quando não tem, anda até o lugar,
-   * faz o gesto, volta com a carga e entrega. Devolve o vetor até onde andar (0,0 = parada no lugar), ou
-   * null quando outra regra cuida dela (lenhador e construtor com ordem presencial, soldado em marcha).
-   */
-  journey(this: Ecosystem, i: number, v: Village, working: boolean, dt: number): { x: number; y: number } | null {
-    const role = this.role[i];
-    const w = this.map.width;
-    this.needRest[i] = Math.min(1, this.needRest[i] + B.NEED_REST * dt * (working ? 1 : 0.6));
-    this.needSocial[i] = Math.min(1, this.needSocial[i] + B.NEED_SOCIAL * dt);
-    this.needFaith[i] = Math.min(1, this.needFaith[i] + B.NEED_FAITH * dt);
-    // Eventos do lugar passam na frente de tudo (RF-AS-28 e 29).
-    const event = this.eventFor(i, v, working);
-    if (event) {
-      if (this.day[i] !== event.kind || this.dayAt[i] !== event.tile) {
-        this.dropDay(i, v);
-        this.day[i] = event.kind;
-        this.dayAt[i] = event.tile;
-        this.dayNotes.set(this.uid[i], { label: DAY_NAMES[event.kind], why: event.why, others: [] });
-      }
-    } else if (this.day[i] >= DAY.shelter && this.day[i] !== DAY.festival + 100) {
-      if (this.day[i] === DAY.shelter || this.day[i] === DAY.festival || this.day[i] === DAY.funeral || this.day[i] === DAY.curious) this.dropDay(i, v);
-    } else if (this.day[i] === DAY.militia) this.dropDay(i, v);
-    // Lenhador e construtor com ordem presencial seguem a ordem; com a carga na mão, primeiro entregam.
-    if (!this.carry[i] && this.jobKind[i] && !event) return null;
-    if (role === ROLE.soldier || role === ROLE.guard) {
-      if (!event) return null;
-    }
-    // Com carga: leva ao celeiro.
-    if (this.carry[i] && this.dayLeg[i] !== 2) {
-      this.dayLeg[i] = 2;
-      this.dayAt[i] = this.granaryTile(v);
-      if (!this.day[i]) this.day[i] = DAY.haul;
-    }
-    if (!this.day[i]) {
-      this.pickDay(i, v, working);
-      if (!this.day[i]) {
-        this.sampleDay(i, v, working, false, true);
-        // Sem nada a fazer: fica pela praça, devagar.
-        return null;
-      }
-    }
-    const t = this.dayAt[i];
-    if (t < 0) {
-      this.dropDay(i, v);
-      return null;
-    }
-    const dx = wrapDx((t % w) + 0.5 - this.x[i], w);
-    const dy = Math.floor(t / w) + 0.5 - this.y[i];
-    const reach = this.day[i] === DAY.build ? B.BUILD_REACH : this.day[i] === DAY.festival || this.day[i] === DAY.social || this.day[i] === DAY.shelter || this.day[i] === DAY.curious || this.day[i] === DAY.funeral ? 3 : 1.4;
-    this.sampleDay(i, v, working, true, false);
-    if (dx * dx + dy * dy > reach * reach) {
-      this.gesture[i] = this.carry[i] ? GESTURE.carry : 0;
-      // Muito tempo sem chegar (água no caminho): desiste e devolve a carga ao pátio.
-      if ((this.dayTime[i] += dt) > B.JOB_TIMEOUT * 2) this.dropDay(i, v);
-      return this.stepToward(i, t);
-    }
-    if (this.dayLeg[i] === 0) {
-      this.dayLeg[i] = 1;
-      this.dayTime[i] = 0;
-    }
-    this.dayTime[i] += dt;
-    // Chegou com a carga: entrega no celeiro (RF-AS-23).
-    if (this.dayLeg[i] === 2) {
-      const g = CARGO_GOOD(this.carry[i]);
-      if (g) {
-        if (g === 'food' || g === 'water') {
-          if (g === 'food') {
-            v.food += this.carryAmt[i];
-            this.delivered.food = (this.delivered.food ?? 0) + this.carryAmt[i];
-          }
-        } else {
-          v.stock[g] += this.carryAmt[i];
-          this.delivered[g] = (this.delivered[g] ?? 0) + this.carryAmt[i];
-        }
-      }
-      this.carry[i] = 0;
-      this.carryAmt[i] = 0;
-      this.dropDay(i, v);
-      return { x: 0, y: 0 };
-    }
-    this.gesture[i] = GESTURE_OF[this.day[i] === DAY.work ? 100 + role : this.day[i]] ?? GESTURE.none;
-    const k = this.day[i] as DayKind;
-    if (this.dayTime[i] < B.TASK_SECONDS) {
-      if (k === DAY.build) this.helpBuild(i, v, dt);
-      return { x: 0, y: 0 };
-    }
-    // Terminou o gesto: o efeito e a próxima perna.
-    switch (k) {
-      case DAY.eat:
-        if (v.food >= 1 && this.energy[i] < 0.9) {
-          v.food -= 1;
-          this.book(v, 'food', 0, 1);
-          this.energy[i] = Math.min(1, this.energy[i] + 0.35);
-        }
-        break;
-      case DAY.rest:
-        this.needRest[i] = 0;
-        break;
-      case DAY.social:
-      case DAY.festival:
-      case DAY.curious:
-        this.needSocial[i] = 0;
-        break;
-      case DAY.pray:
-      case DAY.funeral:
-        this.needFaith[i] = 0;
-        break;
-      case DAY.water:
-        this.carry[i] = carryCode('water');
-        this.carryAmt[i] = 1;
-        this.dayAt[i] = this.home[i] >= 0 ? this.home[i] : this.plazaTile(v);
-        this.dayLeg[i] = 2;
-        this.dayTime[i] = 0;
-        return { x: 0, y: 0 };
-      case DAY.harvest:
-      case DAY.haul:
-      case DAY.work: {
-        const g = k === DAY.haul ? this.biggestYard(v) : this.yieldOf(role) ?? (k === DAY.harvest ? 'food' : null);
-        const have = g ? v.yard?.[g] ?? 0 : 0;
-        if (g && have > 0) {
-          const load = Math.min(have, B.CARRY_LOAD * (this.scale(v) >= 1 && k !== DAY.work ? B.CART_LOAD : 1));
-          v.yard![g] = have - load;
-          this.carry[i] = carryCode(g);
-          this.carryAmt[i] = load;
-          this.dayAt[i] = this.granaryTile(v);
-          this.dayLeg[i] = 2;
-          this.dayTime[i] = 0;
-          return { x: 0, y: 0 };
-        }
-        break;
-      }
-      default:
-        if (this.dayTime[i] < B.TASK_SECONDS * 2) return { x: 0, y: 0 };
-    }
-    this.dropDay(i, v);
-    return { x: 0, y: 0 };
-  },
 
   /** No modo completo, quem produziu leva nas mãos o que acabou de ir para o pátio (caçador com a carne, lenhador com o feixe). */
   pickUp(this: Ecosystem, i: number, v: Village, good: Good | 'food', amount: number): void {
@@ -478,47 +218,8 @@ export const journeysPart = {
     this.carryAmt[i] += n;
   },
 
-  /** O bem com mais carga parada no pátio. */
-  biggestYard(this: Ecosystem, v: Village): Good | 'food' | null {
-    let best: Good | 'food' | null = null;
-    let n = 0;
-    for (const g of Object.keys(v.yard ?? {}) as (Good | 'food')[]) {
-      if ((v.yard![g] ?? 0) > n) {
-        n = v.yard![g] ?? 0;
-        best = g;
-      }
-    }
-    return best;
-  },
 
-  /** Mutirão: quem não é construtor também bate na obra (RF-AS-28). */
-  helpBuild(this: Ecosystem, i: number, v: Village, dt: number): void {
-    const w = this.map.width;
-    const t = this.dayAt[i];
-    const h = v.houses.find((b) => b.x + b.y * w === t);
-    if (!h || (h.labor ?? 0) <= 0) {
-      this.dayTime[i] = B.TASK_SECONDS;
-      return;
-    }
-    h.labor = Math.max(0, h.labor! - dt * 0.6 * (v.stock.tools > 0 ? B.TOOL_SPEED : 1));
-    if (h.labor <= 0) h.site = undefined;
-  },
 
-  /**
-   * Evento do lugar que chama esta pessoa agora (RF-AS-28 e 29): no alarme quem luta vira milícia e os
-   * demais se abrigam; na festa e na caravana todos vão à praça; no enterro vai a família.
-   */
-  eventFor(this: Ecosystem, i: number, v: Village, working: boolean): { kind: DayKind; tile: number; why: string } | null {
-    if ((v.alarmUntil ?? -1) > this.year) {
-      const brave = working && this.traits[i * TRAIT_COUNT + TRAIT.courage] >= 0 && this.role[i] !== ROLE.priest;
-      if (brave) return { kind: DAY.militia, tile: this.gateTile(v), why: 'o alarme tocou e ela é corajosa: pegou a lança' };
-      return { kind: DAY.shelter, tile: this.plazaTile(v), why: 'o alarme tocou: correu para dentro' };
-    }
-    if (v.funeral && v.funeral.until > this.year && this.family[i] === v.funeral.family) return { kind: DAY.funeral, tile: v.funeral.tile, why: 'enterro de alguém da família' };
-    if ((v.festivalUntil ?? -1) > this.year) return { kind: DAY.festival, tile: this.plazaTile(v), why: 'festa da colheita na praça' };
-    if ((v.curiousUntil ?? -1) > this.year && this.traits[i * TRAIT_COUNT + TRAIT.curiosity] >= 3 && !this.carry[i]) return { kind: DAY.curious, tile: this.plazaTile(v), why: 'chegou uma caravana e ela é curiosa' };
-    return null;
-  },
 
   /** Portão (ou a borda da praça, sem muralha) onde a milícia se junta. */
   gateTile(this: Ecosystem, v: Village): number {
@@ -542,26 +243,5 @@ export const journeysPart = {
     }
   },
 
-  /**
-   * Ficha com o porquê (RF-AS-30): tarefa, as duas alternativas que perderam e o motivo. `note` é a nota
-   * completa da IAUS quando a tarefa saiu da escolha (a nota e as considerações), para a ficha detalhada.
-   */
-  dayOf(this: Ecosystem, i: number): { task: string; why: string; others: string[]; carry: string; note: DayNote | null } {
-    const f = (n: number) => n.toFixed(2).replace('.', ',');
-    const n = this.dayNotes.get(this.uid[i]);
-    const others = (k: DayNote | undefined) => k?.others.slice(0, 2).map((o) => `${o.label} (${f(o.score)})`) ?? [];
-    const carry = this.carry[i] ? `${CARGO_NAMES[CARGO_GOOD(this.carry[i]) ?? ''] ?? 'carga'} (${f(this.carryAmt[i])})` : '';
-    if (this.jobKind[i] && !this.carry[i]) {
-      const kind = this.jobKind[i] === JOB.build ? 'bater na obra' : this.jobKind[i] === JOB.plant ? 'plantar uma muda' : 'derrubar uma árvore';
-      return { task: kind, why: 'ordem do quadro do lugar para o seu ofício', others: others(n), carry, note: null };
-    }
-    const vi = this.village[i];
-    const v = vi >= 0 ? this.villages[vi] : null;
-    if (!v) return { task: 'sem lugar', why: 'vive solto, sem assentamento', others: [], carry, note: null };
-    if (!this.full(v)) return { task: 'rotina do lugar', why: 'o lugar está fora da tela: a produção corre no modo agregado', others: [], carry, note: null };
-    if (!this.day[i] || !n) return { task: DAY_NAMES[DAY.none], why: 'nada urgente no quadro e nenhuma necessidade: fica pela praça', others: [], carry, note: null };
-    const task = this.dayLeg[i] === 2 ? `${n.label}, levando a carga ao celeiro` : n.label;
-    return { task, why: n.why, others: others(n), carry, note: n };
-  },
 };
 export type JourneysPart = typeof journeysPart;

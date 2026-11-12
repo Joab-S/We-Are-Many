@@ -2,7 +2,7 @@
 
 Documento técnico · 31/10/2026
 
-`npm run calibrar:ajustar -- <plano.json>` procura sozinho os valores das constantes de equilíbrio (`src/sim/balance.ts` e `src/IAUS/npc/tuning.ts`) que deixam a simulação mais perto das metas. O método é o CMA-ES, uma estratégia evolutiva. Ele substitui o ajuste por tentativa e erro, em que se troca um número, roda a calibração, olha a tabela e repete.
+`npm run calibrar:ajustar -- <plano.json>` procura sozinho os valores das constantes de equilíbrio (`src/sim/balance.ts` e `src/IAUS/npc/mundo/ajustes.ts`) que deixam a simulação mais perto das metas. O método é o CMA-ES, uma estratégia evolutiva. Ele substitui o ajuste por tentativa e erro, em que se troca um número, roda a calibração, olha a tabela e repete.
 
 ## O problema
 

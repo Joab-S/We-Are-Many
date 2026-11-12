@@ -218,7 +218,7 @@ export const PRESSURE_STABILITY_MAX = 0.25;
 export const MOVE_PRESSURE = 0.5;
 /**
  * Fissão por pressão: com a pressão acima de PRESSURE_SCOUT os batedores procuram sítios e as famílias podem
- * escolher fundar (src/IAUS/npc/decisions/move.ts); a pressão acima dele também faz mais famílias pensarem em sair
+ * escolher fundar (src/IAUS/npc/mundo/mudanca.ts); a pressão acima dele também faz mais famílias pensarem em sair
  * (MOVE_PRESS_THINK por ponto, por ano, somado a MOVE_THINK). Acima de PRESSURE_FISSION, sem sítio nenhum, o
  * lugar está circunscrito. A colônia se organiza quando FISSION_CORE famílias escolhem fundar no mesmo ano (o
  * núcleo: na partida, as mais dispostas completam o grupo) e leva até FISSION_SHARE do povo (no mínimo COLONY_GROUP_MAX).

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import balanceSource from './balance.ts?raw';
-import tuningSource from '../IAUS/npc/tuning.ts?raw';
+import tuningSource from '../IAUS/npc/mundo/ajustes.ts?raw';
 import * as B from './balance';
-import { MOVE_W } from '../IAUS/npc/tuning';
+import { MOVE_W } from '../IAUS/npc/mundo/ajustes';
 import { generateSurface } from '../procgen/surface';
 import { planetParams, SOL_PLANETS } from '../nav/planets';
 import { EARTH_HABITABLE_TILES, earthParams, habitableTiles, LONG_TARGETS, scaledTargets, type Indicators } from './calibrate';

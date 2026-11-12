@@ -12,3 +12,4 @@ export * from './behaviorTypes';
 export * from './packs';
 export * from './brain';
 export * from './dataLoader';
+export * from './graph';

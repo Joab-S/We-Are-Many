@@ -4,9 +4,8 @@ import { streams } from './stochastic';
 import { seasonStrength, type SurfaceMap } from '../procgen/surface';
 import { generateDeposits, type Deposit } from './economy';
 import { yearlyEvents } from './events';
-import type { Thought } from '../IAUS/npc/trace';
-import type { Bond } from '../IAUS/npc/relations';
-import type { BoardTask } from '../IAUS/npc/decisions/day';
+import type { Thought } from '../IAUS/npc/pessoa/trace';
+import type { Bond } from '../IAUS/npc/pessoa/relations';
 import type { Agreement, Caravan } from './trade';
 import { EARTH_ID, type Species } from './species';
 import { DECISIONS_PER_YEAR, ECO_CELL } from './fauna';
@@ -37,6 +36,8 @@ import { techPart, type TechPart } from './eco/economy/tech';
 import { productionPart, type ProductionPart } from './eco/economy/production';
 import { savePart, type SavePart } from './eco/core/save';
 import { journeysPart, type JourneysPart } from './eco/community/journeys';
+import { mindPart, type MindPart } from './eco/people/mente';
+import { pathPart, type PathPart } from './eco/people/caminho';
 import { wearPart, type WearPart } from './eco/community/wear';
 import { relationsPart, type RelationsPart } from './eco/community/relations';
 import { jobsPart, type JobsPart } from './eco/work/jobs';
@@ -109,6 +110,8 @@ export interface Ecosystem
     ProductionPart,
     SavePart,
     JourneysPart,
+    MindPart,
+    PathPart,
     WearPart,
     RelationsPart,
     JobsPart,
@@ -803,8 +806,6 @@ export class Ecosystem {
    * Só leitura para a ficha; não vai no save.
    */
   dayNotes = new Map<number, DayNote>();
-  /** Quadro de tarefas de cada assentamento no modo completo, refeito a cada TASK_SECONDS (RF-AS-21). */
-  boards = new Map<number, { at: number; tasks: BoardTask[] }>();
   /** Roças de cada assentamento (tiles), refeitas no máximo uma vez por ano. */
   fieldCache = new Map<number, { year: number; tiles: number[] }>();
 
@@ -904,6 +905,8 @@ for (const part of [
   productionPart,
   savePart,
   journeysPart,
+  mindPart,
+  pathPart,
   wearPart,
   relationsPart,
   jobsPart,
