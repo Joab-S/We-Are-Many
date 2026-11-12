@@ -85,6 +85,8 @@ export interface EngineView {
   pickAll(x: number, y: number, radius: number): number[];
   findUid(uid: number): number;
   activityOf(i: number): string;
+  /** Estação do ano (0 a 3, a mesma de `Ecosystem.season`): o chão, as árvores e a feira mudam com ela. */
+  season(): number;
   tierName(v: Village): string;
   polityName(v: Village): string;
   settlementAt(x: number, y: number): Village | null;
@@ -383,6 +385,9 @@ class LiveView implements EngineView {
   }
   activityOf(i: number): string {
     return this.eco.activityOf(i);
+  }
+  season(): number {
+    return this.eco.season();
   }
   tierName(v: Village): string {
     return this.eco.tierName(v);

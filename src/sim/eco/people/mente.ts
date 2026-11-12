@@ -814,7 +814,7 @@ export const mindPart = {
       .map((x) => {
         const e = brain.explain(x);
         const low = e.factors.reduce((p, q) => (q.score < p.score ? q : p), e.factors[0]);
-        return { label: label(x), score: e.score, low: low?.name };
+        return { label: label(x), score: e.score, low: low?.name, factors: e.factors.map((f) => ({ name: f.name, value: f.score })) };
       });
     const note: DayNote = {
       label: label(d),
@@ -826,6 +826,9 @@ export const mindPart = {
         .sort((p, q) => q.score - p.score)
         .slice(0, 3)
         .map((f) => ({ name: f.name, value: f.score })),
+      // A conta inteira para a ficha: todas as considerações e o empurrão de quem continua na ação.
+      considerations: mine.factors.map((f) => ({ name: f.name, value: f.score })).sort((p, q) => q.value - p.value),
+      momentum: mine.momentum,
       others,
     };
     this.dayNotes.set(m.uid, note);

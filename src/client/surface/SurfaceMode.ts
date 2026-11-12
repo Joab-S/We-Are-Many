@@ -602,6 +602,8 @@ export class SurfaceMode {
     // Ficha da criatura: abas e fechar (a seleção continua a mesma).
     const ctab = el.closest<HTMLElement>('[data-ctab]');
     if (ctab) this.sheet.setTab(eco, ctab.dataset.ctab as SheetTab);
+    const fold = el.closest<HTMLElement>('[data-cs-x]');
+    if (fold) this.sheet.toggle(eco, fold.dataset.csX!);
     if (el.closest('[data-sheet-close]')) this.sel.unpin();
     const tab = el.closest<HTMLElement>('[data-vtab]');
     if (tab) this.vwin.setTab(eco, tab.dataset.vtab as SettlementTab);
@@ -986,7 +988,7 @@ export class SurfaceMode {
     }
     const ctx = this.renderer.context;
     const z = view.zoom * this.renderer.getPixelRatio();
-    this.raster.season = eco.season();
+    this.raster.season = this.engine.view.season();
     if (!this.raster.draw(ctx, view, z)) this.dirty = true;
     this.collectSprites(z);
     this.sprites.drawSoft(ctx, view.height);
@@ -1018,7 +1020,7 @@ export class SurfaceMode {
       const n = grid.query(x0 - GRID_SLACK, x1 + GRID_SLACK, r0 - GRID_SLACK, r1 + GRID_SLACK);
       const ids = grid.indices;
       for (let k = 0; k < n; k++) visit(ids[k]);
-    }, { pixels: this.raster.pixels, cache: this.raster.nature, focus: this.sel.follow ? this.sel.resolve() : -1 });
+    }, { pixels: this.raster.pixels, cache: this.raster.nature, focus: this.sel.follow ? this.sel.resolve() : -1, world: this.engine.view });
   }
 
   /** Câmera e velocidade, para o save. Antes de o mapa ficar pronto não há nada a guardar. */

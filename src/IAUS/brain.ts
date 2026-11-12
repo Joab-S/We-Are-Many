@@ -403,7 +403,7 @@ export class Brain {
    * As considerações de uma decisão, uma a uma (já compensadas), e a nota final, sem corte antecipado e sem
    * mexer em nada: para a ficha explicar o porquê de uma escolha.
    */
-  explain(d: Decision): { score: number; factors: { name: string; score: number }[] } {
+  explain(d: Decision): { score: number; momentum: number; factors: { name: string; score: number }[] } {
     const ctx = d.context;
     const b = ctx.behavior;
     const momentum = this.currentKey === d.key && b.duration === DurationType.Continuous ? b.momentum : 1;
@@ -414,7 +414,7 @@ export class Brain {
       factors.push({ name: c.name, score: s });
       score *= s;
     }
-    return { score, factors };
+    return { score, momentum, factors };
   }
 
   /** Executa uma decisão escolhida por fora (a mesma porta do ciclo de pensamento). */

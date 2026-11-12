@@ -54,6 +54,7 @@ describe('economia local (seções 19.4 e 19.5)', () => {
     // Uma rodada só e 250 anos: o número de vocações varia muito de semente para semente (de 2 a 5 em 1 a 6).
     // A semente 2 fica dentro das metas. A 3 deixou de ficar quando as caravanas passaram a seguir uma pessoa de verdade,
     // e a 1 (3 vocações) quando os lugares na tela passaram a ter a mente da aldeia (src/IAUS/npc/aldeia).
+    // Leva cerca de 90 s; o prazo de 240 s (o mesmo do mundo de 300 anos em mundo7.test.ts) cobre um runner mais lento.
     const { eco, indicators } = runWorld(2, 250);
     const live = eco.villages.filter((v) => !v.abandoned);
     expect(new Set(live.map((v) => v.stock)).size).toBe(live.length);
@@ -61,5 +62,5 @@ describe('economia local (seções 19.4 e 19.5)', () => {
     expect(indicators.vocations).toBeGreaterThanOrEqual(4);
     expect(indicators.herds).toBeGreaterThan(0);
     expect(indicators.welfare).toBeGreaterThan(0.4);
-  }, 120000);
+  }, 240000);
 });
