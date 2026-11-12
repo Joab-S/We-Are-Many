@@ -30,6 +30,7 @@ import { HABILIDADES, MATO, OFICIO, QUADRO, TRABALHAR_NO_OFICIO } from './susten
 import { COMERCIO } from './troca';
 import { CIDADANIA, DEFESA, GOVERNO } from './sociedade';
 import { PACOTES_DO_MUNDO } from '../mundo/index';
+import { PACOTES_DA_ALDEIA } from '../aldeia/pacotes';
 
 export { DESCANSO, MOVIMENTO, SOBREVIVENCIA, OCIO, PERCEPCAO, FAMILIA, INFANCIA, SOCIAL, MORADIA, MUDANCA, HABILIDADES, MATO, OFICIO, QUADRO, TRABALHAR_NO_OFICIO, COMERCIO, CIDADANIA, DEFESA, GOVERNO };
 
@@ -135,15 +136,18 @@ export interface ItemDoCatalogo {
   pacote: string;
   pacoteId: number;
   comportamento: Behavior;
-  /** Do mundo agregado (o Ecosystem decide uma vez por ano ou por jornada), não da pessoa com corpo. */
+  /** Do mundo agregado (o Ecosystem decide uma vez por ano), não da pessoa com corpo. */
   mundo?: boolean;
+  /** Da mente de quem mora num lugar na tela (src/IAUS/npc/aldeia). */
+  aldeia?: boolean;
 }
 
-/** Todos os comportamentos, por camada e pacote (os da pessoa com corpo e, no fim, os do mundo agregado). */
+/** Todos os comportamentos, por camada e pacote (os da pessoa com corpo, os da aldeia na tela e, no fim, os do mundo agregado). */
 export function catalogo(): ItemDoCatalogo[] {
   const out: ItemDoCatalogo[] = [];
   for (const p of PACOTES) for (const b of p.comportamentos) out.push({ camada: p.camada, pacote: p.nome, pacoteId: p.id, comportamento: b });
   out.push({ camada: 'Sustento', pacote: 'Pacotes de habilidade dos ofícios', pacoteId: 100, comportamento: TRABALHAR_NO_OFICIO });
+  for (const p of PACOTES_DA_ALDEIA) for (const b of p.comportamentos) out.push({ camada: p.camada, pacote: p.nome, pacoteId: p.id, comportamento: b, aldeia: true });
   for (const p of PACOTES_DO_MUNDO) for (const b of p.comportamentos) out.push({ camada: p.camada, pacote: p.nome, pacoteId: p.id, comportamento: b, mundo: true });
   return out;
 }

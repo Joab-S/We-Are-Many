@@ -62,6 +62,11 @@ export interface SelectionConfig {
   topPercent?: number;
   /** Descarta decisões com score < fração × melhor (ex.: 0.75 = até 25% abaixo). */
   withinFractionOfBest?: number;
+  /**
+   * Com a decisão em andamento ainda na frente (já com o momentum), fica com ela em vez de sortear: o sorteio
+   * entre as melhores dá variedade na hora de escolher, não no meio de uma ação (anti-dithering).
+   */
+  stickWhenBest?: boolean;
 }
 
 export interface BrainOptions {
@@ -348,6 +353,11 @@ export class Brain {
     if (sel.mode === SelectionMode.Best) {
       return valid.reduce((a, b) => (b.score > a.score ? b : a));
     }
+    if (sel.stickWhenBest && this.current) {
+      const key = this.current.decision.key;
+      const cur = valid.find((d) => d.key === key);
+      if (cur && cur.score >= best) return cur;
+    }
 
     let pool = valid;
     if (sel.withinFractionOfBest !== undefined) {
@@ -387,6 +397,24 @@ export class Brain {
     else this.rebuildNeighborList(now);
     this.rebuildDecisionList();
     return this.selectDecision();
+  }
+
+  /**
+   * As considerações de uma decisão, uma a uma (já compensadas), e a nota final, sem corte antecipado e sem
+   * mexer em nada: para a ficha explicar o porquê de uma escolha.
+   */
+  explain(d: Decision): { score: number; factors: { name: string; score: number }[] } {
+    const ctx = d.context;
+    const b = ctx.behavior;
+    const momentum = this.currentKey === d.key && b.duration === DurationType.Continuous ? b.momentum : 1;
+    let score = b.weight * momentum;
+    const factors: { name: string; score: number }[] = [];
+    for (const c of b.considerations) {
+      const s = this.compensate(c.getScore(ctx), b.considerations.length);
+      factors.push({ name: c.name, score: s });
+      score *= s;
+    }
+    return { score, factors };
   }
 
   /** Executa uma decisão escolhida por fora (a mesma porta do ciclo de pensamento). */

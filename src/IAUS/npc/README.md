@@ -82,14 +82,20 @@ pescador, agricultor) e os bens das oficinas (pão, ferramentas, pano...).
 
 As obras **privadas** nascem do que cada morador sente (casa, ampliação, oficina); as **públicas**, só do líder.
 
-## Duas escalas
+## Três escalas
 
 - **A pessoa com corpo** (pacotes 1 a 17): pensa a cada segundo e meio, percebe o que está perto e age pelo corpo. O
   mundo de exemplo é o laboratório da sociedade (`src/sim/sociedade`): um mapa pequeno onde a fundação acontece
   sozinha. O corpo é uma interface (`Corpo.agir`), então outro mundo só precisa implementar as ações.
-- **O mundo agregado** (`mundo/`, pacotes 31 a 34): o Ecosystem decide uma vez por ano ou por jornada. Cada decisão é
-  um pacote escrito igual aos outros, pontuado pelo `Decisor`, que preenche os stats de quem decide e de cada opção.
-  Os pesos ficam em `mundo/ajustes.ts`, que o ajuste automático (`npm run calibrar:ajustar`) e a aba Ajustes editam.
+- **A aldeia na tela** (`aldeia/`, pacotes 35 a 38): quem mora num lugar perto da câmera tem um cérebro próprio
+  (adulto, criança ou idoso), que pensa a cada segundo. A percepção (`perceive` em `src/sim/eco/people/mente.ts`)
+  entrega os alvos com stats: o celeiro e a casa com comida, as roças com a safra, a árvore livre, a carga no pátio,
+  a obra com vaga, a praça com gente ou festa, as pessoas por perto com o laço. O corpo (`mindAct`) faz cada ação
+  atômica e diz quando acabou. O caminho a pé é um A* nos tiles (`caminho.ts`). Fora da tela, o lugar volta ao modo
+  agregado.
+- **O mundo agregado** (`mundo/`, pacotes 31 a 33): o Ecosystem decide uma vez por ano. Cada decisão é um pacote
+  escrito igual aos outros, pontuado pelo `Decisor`, que preenche os stats de quem decide e de cada opção. Os pesos
+  ficam em `mundo/ajustes.ts`, que o ajuste automático (`npm run calibrar:ajustar`) e a aba Ajustes editam.
 
 ## O grafo do cérebro
 

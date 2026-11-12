@@ -9,6 +9,7 @@ import { BrainLibrary } from '../brain';
 import { ContextType, DurationType } from '../enums';
 import { CAMADAS, CEREBRO, HABILIDADES, PACOTES, TRABALHAR_NO_OFICIO } from './pacotes/index';
 import { PACOTES_DO_MUNDO } from './mundo/index';
+import { CEREBRO_DA_ALDEIA, PACOTES_DA_ALDEIA } from './aldeia/pacotes';
 import type { Pacote } from './dsl';
 import { ACOES, ACOES_DE_TAG } from './tipos';
 
@@ -97,9 +98,27 @@ export function listaDeComportamentos(): string {
     }
   }
   out.push(
+    '## A aldeia na tela',
+    '',
+    'Quem mora num lugar perto da câmera tem um cérebro próprio, com estes pacotes (src/IAUS/npc/aldeia): cada ação é atômica e tem um alvo percebido (o celeiro, a roça, a árvore, a pessoa), e o corpo diz quando ela acabou. Nada é roteiro: comer, trabalhar e conviver disputam a cada pensamento.',
+    '',
+    '| Cérebro | Pacotes |',
+    '|---|---|',
+  );
+  const nomeDaAldeia = (id: number) => PACOTES_DA_ALDEIA.find((p) => p.id === id)?.nome ?? String(id);
+  for (const id of Object.values(CEREBRO_DA_ALDEIA)) {
+    const s = BrainLibrary.brains.get(id)!;
+    out.push(`| ${s.name} | ${s.behaviorPackIds.map(nomeDaAldeia).join(', ')} |`);
+  }
+  out.push('');
+  for (const p of PACOTES_DA_ALDEIA) {
+    out.push(...tabela(p));
+    n += p.comportamentos.length;
+  }
+  out.push(
     '## O mundo agregado',
     '',
-    'O Ecosystem decide uma vez por ano ou por jornada, sem corpo: estes pacotes são pontuados pelo mesmo `Brain` (src/IAUS/npc/mundo).',
+    'O Ecosystem decide uma vez por ano, sem corpo: estes pacotes são pontuados pelo mesmo `Brain` (src/IAUS/npc/mundo).',
     '',
   );
   for (const p of PACOTES_DO_MUNDO) {
@@ -109,6 +128,6 @@ export function listaDeComportamentos(): string {
   out.push('## Tipos de comportamento (o quê)', '', '| Tipo | O que faz |', '|---|---|');
   for (const [k, v] of Object.entries(ACOES)) out.push(`| ${k} | ${cel(v)} |`);
   for (const [k, v] of Object.entries(ACOES_DE_TAG)) out.push(`| ${k} | ${cel(v)} (Tagging System) |`);
-  out.push('', `Total: ${n} comportamentos em ${PACOTES.length + PACOTES_DO_MUNDO.length} pacotes e ${Object.keys(HABILIDADES).length} pacotes de habilidade.`, '');
+  out.push('', `Total: ${n} comportamentos em ${PACOTES.length + PACOTES_DA_ALDEIA.length + PACOTES_DO_MUNDO.length} pacotes e ${Object.keys(HABILIDADES).length} pacotes de habilidade.`, '');
   return out.join('\n');
 }

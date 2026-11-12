@@ -112,8 +112,8 @@ export function statusMarks(eco: Ecosystem, i: number): StatusMark[] {
 export function needsOf(eco: Ecosystem, i: number): { hunger: number; rest: number; social: number; faith: number } | null {
   const v = homeOf(eco, i);
   if (!v || !eco.full(v) || eco.role[i] === CHILD) return null;
-  // A fome é a mesma conta que a escolha do dia usa (journeys.ts, pickDay): cheia com a energia em 25%, nula acima de 75%.
-  const hunger = Math.max(0, Math.min(1, (0.75 - eco.energy[i]) / 0.5));
+  // A fome é a mesma conta que a mente da pessoa sente (people/mente.ts, `feel`): cheia com a energia em 25%, nula acima de 85%.
+  const hunger = Math.max(0, Math.min(1, (0.85 - eco.energy[i]) / 0.6));
   return { hunger, rest: eco.needRest[i], social: eco.needSocial[i], faith: eco.needFaith[i] };
 }
 

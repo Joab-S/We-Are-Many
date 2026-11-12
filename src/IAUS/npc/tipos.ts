@@ -47,6 +47,7 @@ export const ACOES = {
   AbrirOficina: 'Transforma (parte da) casa na oficina do ofício do alvo.',
   AmpliarCasa: 'Abre a obra que aumenta a casa.',
   Entregar: 'Leva a carga ao estoque da casa, ao celeiro ou a quem encomendou.',
+  PegarCarga: 'Pega uma carga da pilha do alvo (o pátio) para levar ao celeiro.',
   // Comércio.
   Negociar: 'Propõe uma troca ou compra ao alvo (cria uma oferta).',
   Contratar: 'Encomenda ao alvo um serviço ou bem que ele faz (cria uma oferta de encomenda).',
@@ -93,6 +94,7 @@ export const ACOES = {
   Treinar: 'Treina com as armas.',
   Atacar: 'Ataca o alvo.',
   Abrigar: 'Corre para o abrigo.',
+  Defender: 'Pega a lança e vai ao portão defender o lugar.',
 } as const;
 export type Acao = keyof typeof ACOES;
 

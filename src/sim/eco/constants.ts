@@ -2,7 +2,7 @@
 
 import { Biome } from '../../procgen/surface';
 import { ROLE } from '../roles';
-import { DAY } from '../../IAUS/npc/mundo/jornada';
+import { DAY } from '../../IAUS/npc/aldeia/dia';
 import { BUILDING_TYPES } from '../buildingTypes';
 import type { SpeciesKind } from '../species';
 import type { WarMotive, BuildingKind, HerdKind, Behaviour } from './types';

@@ -271,9 +271,71 @@ Defender o lugar, patrulhar, treinar e correr para o abrigo.
 | 1603 | **Treinar**<br>Soldado sem ameaça treina com as armas. | Treinar | eu | contínuo | 1.6 | soldado · sem ameaça · diligência |
 | 1604 | **Correr para o abrigo**<br>Ataque ao lugar: quem não luta corre para a praça ou para dentro da muralha. | Abrigar | eu | contínuo | 4.5 | ameaça · não sou soldado · medo · não está passando fome · não está com muita sede |
 
+## A aldeia na tela
+
+Quem mora num lugar perto da câmera tem um cérebro próprio, com estes pacotes (src/IAUS/npc/aldeia): cada ação é atômica e tem um alvo percebido (o celeiro, a roça, a árvore, a pessoa), e o corpo diz quando ela acabou. Nada é roteiro: comer, trabalhar e conviver disputam a cada pensamento.
+
+| Cérebro | Pacotes |
+|---|---|
+| Aldeão | Necessidades na aldeia, Trabalho na aldeia, Convívio na aldeia |
+| Criança da aldeia | Necessidades na aldeia, Convívio na aldeia, Infância na aldeia |
+| Idoso da aldeia | Necessidades na aldeia, Convívio na aldeia |
+
+### 35. Necessidades na aldeia
+
+Comer, dormir e correr para o abrigo, cada um com um lugar e um fim.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 3501 | **Comer no celeiro**<br>Com fome, vai ao celeiro e come até ficar satisfeito (se houver comida). | Comer | alvo: celeiro | contínuo | 4 | fome · tem comida · perto |
+| 3502 | **Comer em casa**<br>Com fome, come em casa da comida da família (que vem do celeiro do lugar). | Comer | alvo: casa | contínuo | 4 | fome · tem comida · perto |
+| 3503 | **Procurar comida no mato**<br>Com fome e o celeiro vazio, colhe o que acha no mato perto. | Coletar | eu | contínuo | 4 | fome · celeiro vazio |
+| 3504 | **Dormir em casa**<br>Cansado, vai para casa e dorme até descansar; o preguiçoso deita antes. | Dormir | alvo: casa | contínuo | 4 | cansaço · disposição · perto |
+| 3505 | **Dormir ao relento**<br>Sem casa, dorme onde está quando o cansaço aperta. | Dormir | eu | contínuo | 4 | cansaço · sem casa |
+| 3506 | **Correr para o abrigo**<br>O alarme tocou: quem não luta (ou tem medo) corre para a praça. | Abrigar | alvo: praca | contínuo | 5 | alarme · medo |
+
+### 36. Trabalho na aldeia
+
+O que o lugar precisa, visto por quem trabalha: cada tarefa é uma ação com alvo e fim.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 3601 | **Trabalhar no posto do ofício**<br>Vai ao posto do ofício (roça, mina, porto, oficina) e trabalha um turno; o que sai fica no pátio ou na mão. | Trabalhar | alvo: posto | contínuo | 3 | falta · diligente · mãos livres · alimentado · descansado · perto |
+| 3602 | **Colher a roça**<br>Na safra, colhe a roça madura; o agricultor sempre, os outros quando falta comida. | Colher | alvo: roca | contínuo | 3 | safra · ofício · falta · mãos livres · alimentado · descansado · perto |
+| 3603 | **Pegar a carga do pátio**<br>Há carga parada no pátio: pega uma para levar ao celeiro, mais se faz falta lá. | PegarCarga | alvo: carga | contínuo | 3 | carga cheia · falta · diligente · mãos livres · alimentado · descansado · perto |
+| 3604 | **Levar a carga ao celeiro**<br>Com a carga na mão, leva ao celeiro. | Entregar | alvo: celeiro | contínuo | 3.5 | carga · mão cheia · perto |
+| 3605 | **Bater na obra**<br>Trabalha na obra aberta: o construtor sempre; os outros no mutirão (obra grande ou sem construtor). | Construir | alvo: obra | contínuo | 3 | ofício · vaga · urgente · diligente · mãos livres · alimentado · descansado · perto |
+| 3606 | **Derrubar uma árvore**<br>O lenhador escolhe uma árvore livre, derruba e sai com a madeira na mão. | CortarLenha | alvo: arvore | contínuo | 3 | falta · cabe no armazém · cabe na mão · alimentado · descansado · perto |
+| 3607 | **Caçar**<br>O caçador persegue um bicho onde a caça sobra; a carne vai na mão para o celeiro. | Cacar | alvo: animal | contínuo | 3 | ofício · caça sobrando · mãos livres · alimentado · descansado · perto |
+| 3608 | **Defender o lugar**<br>O alarme tocou: o corajoso pega a lança e vai ao portão. | Defender | alvo: portao | contínuo | 5 | alarme · coragem |
+| 3609 | **Patrulhar**<br>Guarda e soldado rondam o portão quando não há outra coisa a fazer. | Patrulhar | alvo: portao | contínuo | 2 | ofício · alimentado · descansado · perto |
+
+### 37. Convívio na aldeia
+
+Conversar, rezar, a festa, o enterro, a caravana e ficar em casa.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 3701 | **Conversar com alguém**<br>Sozinho há tempo, procura alguém de quem gosta que esteja livre por perto. | Conversar | alvo: pessoa | contínuo | 2.5 | solidão · sociável · laço · livre · perto |
+| 3702 | **Ir à praça encontrar gente**<br>Sozinho há tempo, vai à praça, mais se há gente lá. | Passear | alvo: praca | contínuo | 2.5 | solidão · sociável · gente · perto |
+| 3703 | **Rezar no templo**<br>A fé chama: vai ao templo, mais cedo o devoto. | Rezar | alvo: templo | contínuo | 2.5 | fé · devoto · perto |
+| 3704 | **Ir à festa**<br>Há festa na praça e dá tempo de chegar: o sociável vai, quem está com fome come antes. | Festejar | alvo: praca | contínuo | 3 | festa · sociável · alimentado |
+| 3705 | **Ir ao enterro**<br>Morreu alguém da família: vai ao enterro. | Rezar | alvo: evento | contínuo | 3.5 | enterro |
+| 3706 | **Ver a caravana**<br>Chegou uma caravana à praça: o curioso vai ver. | Passear | alvo: praca | contínuo | 2 | caravana · curioso · alimentado · descansado |
+| 3707 | **Ficar em casa**<br>Nada pede a pessoa: fica em casa (o caseiro mais). | IrParaCasa | alvo: casa | contínuo | 1 | à toa · caseiro · perto |
+
+### 38. Infância na aldeia
+
+Brincar na praça e ficar perto dos pais.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 3801 | **Brincar na praça**<br>Brinca na praça com as outras crianças. | Brincar | alvo: praca | contínuo | 2 | vontade de brincar · gente · alimentado · descansado · perto |
+| 3802 | **Ficar perto dos pais**<br>Sente falta dos pais e vai para perto deles. | Seguir | alvo: pessoa | contínuo | 2 | pai ou mãe · solidão · perto |
+
 ## O mundo agregado
 
-O Ecosystem decide uma vez por ano ou por jornada, sem corpo: estes pacotes são pontuados pelo mesmo `Brain` (src/IAUS/npc/mundo).
+O Ecosystem decide uma vez por ano, sem corpo: estes pacotes são pontuados pelo mesmo `Brain` (src/IAUS/npc/mundo).
 
 ### 31. Ofício do ano
 
@@ -300,19 +362,6 @@ Mundo agregado: cada família compara ficar, migrar para um lugar conhecido e fu
 | 3301 | **Ficar onde mora (família)**<br>A nota do lugar com o custo de mudar e a histerese, a lotação, os laços ali e o apego. | Ficar | eu | instantâneo | 1 | lugar · pressão · laços · apego |
 | 3302 | **Migrar para um lugar conhecido**<br>A nota do outro lugar, a lotação de lá, os amigos e parentes lá e a afinidade; o apego pesa contra. | MudarSe | alvo: assentamento | instantâneo | 1 | lugar · pressão · laços · desapego |
 | 3303 | **Fundar num sítio vazio**<br>A nota do sítio (no máximo um pouco acima da de casa), a pressão de casa (fissão) e a ousadia. | Fundar | alvo: sitio | instantâneo | 1 | sítio · pressão · ousadia |
-
-### 34. Jornada
-
-Mundo agregado: ao fim de cada tarefa, a próxima jornada entre as necessidades e o quadro do lugar.
-
-| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
-|---|---|---|---|---|---|---|
-| 3401 | **Comer (jornada)**<br>A fome aperta. | Comer | eu | instantâneo | 1.4 | fome |
-| 3402 | **Descansar em casa (jornada)**<br>Cansado; o preguiçoso descansa antes. | Dormir | eu | instantâneo | 1.4 | cansaço · disposição |
-| 3403 | **Conversar na praça (jornada)**<br>Sozinho há tempo, e mais se for sociável. | Conversar | eu | instantâneo | 1.1199999999999999 | solidão · sociável |
-| 3404 | **Rezar no templo (jornada)**<br>Há templo e a fé chama, mais no devoto. | Rezar | eu | instantâneo | 1.1199999999999999 | fé · devoto |
-| 3405 | **Pegar uma tarefa do quadro (jornada)**<br>Prioridade, ofício, distância e amigos na mesma tarefa. | FazerTarefa | alvo: tarefa | instantâneo | 1 | prioridade · ofício · perto · amigos |
-| 3406 | **Acudir uma tarefa urgente (jornada)**<br>Colheita, fogo, muralha ou alarme: qualquer adulto ajuda. | FazerTarefa | alvo: tarefa | instantâneo | 1.6 | prioridade · ofício · perto · amigos |
 
 ## Tipos de comportamento (o quê)
 
@@ -346,6 +395,7 @@ Mundo agregado: ao fim de cada tarefa, a próxima jornada entre as necessidades 
 | AbrirOficina | Transforma (parte da) casa na oficina do ofício do alvo. |
 | AmpliarCasa | Abre a obra que aumenta a casa. |
 | Entregar | Leva a carga ao estoque da casa, ao celeiro ou a quem encomendou. |
+| PegarCarga | Pega uma carga da pilha do alvo (o pátio) para levar ao celeiro. |
 | Negociar | Propõe uma troca ou compra ao alvo (cria uma oferta). |
 | Contratar | Encomenda ao alvo um serviço ou bem que ele faz (cria uma oferta de encomenda). |
 | AceitarOferta | Aceita a oferta do alvo: entrega do estoque ou vai produzir. |
@@ -387,6 +437,7 @@ Mundo agregado: ao fim de cada tarefa, a próxima jornada entre as necessidades 
 | Treinar | Treina com as armas. |
 | Atacar | Ataca o alvo. |
 | Abrigar | Corre para o abrigo. |
+| Defender | Pega a lança e vai ao portão defender o lugar. |
 | DarTagASi | Dá uma tag a si mesmo ("eu sou lenhador"). (Tagging System) |
 | TirarTagDeSi | Tira uma tag de si mesmo. (Tagging System) |
 | MarcarAlvo | Marca uma tag no alvo, com o próprio id ("AlvoDeCaca:12"), visível a todos; com o param `eu`, marca a si junto ("Caçando"). (Tagging System) |
@@ -394,4 +445,4 @@ Mundo agregado: ao fim de cada tarefa, a próxima jornada entre as necessidades 
 | PerceberTag | Passa a crer que o alvo tem uma tag (ou as tags de ofício que o alvo mostra). (Tagging System) |
 | EsquecerTag | Deixa de crer numa tag do alvo. (Tagging System) |
 
-Total: 117 comportamentos em 21 pacotes e 16 pacotes de habilidade.
+Total: 135 comportamentos em 24 pacotes e 16 pacotes de habilidade.

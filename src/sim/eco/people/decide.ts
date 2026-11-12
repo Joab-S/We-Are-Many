@@ -13,6 +13,7 @@ import { partnerOf } from '../../../IAUS/npc/pessoa/relations';
 import { SOCIAL } from '../../../IAUS/npc/mundo/ajustes';
 import type { DeathCause } from '../../people';
 import { welfare } from '../../needs';
+import { MIND } from './mente';
 import * as settlementModule from '../../settlement';
 import * as faunaModule from '../../fauna';
 import * as constantsModule from '../constants';
@@ -157,8 +158,17 @@ export const peopleDecidePart = {
           if (veg > 0.1) e += 0.06 * dt;
           if (this.nearWater(tile)) e += 0.05 * dt;
         }
+        // Lugar na tela (modo completo): a pessoa tem mente própria (people/mente.ts) e decide tudo pelo IAUS,
+        // exceto as ordens do lugar que a tiram da rotina (batedor e marcha de guerra).
+        const pre = v && this.full(v) && !this.expedition.has(i) ? { scout: this.scoutTarget(i, v), march: null as { x: number; y: number } | null } : null;
+        if (pre && v && !pre.scout) pre.march = this.soldier(i, v);
+        if (!this.alive[i]) return;
+        const minded = !!pre && !pre.scout && !pre.march;
+        // Na tela, a pessoa vive no ritmo da mente (MIND.pace): tudo o que mexe na energia dela (o gasto, o frio, o
+        // que belisca no mato) corre `pace` vezes mais devagar, e cada refeição vale `pace` porções.
+        if (minded) e = this.energy[i] + (e - this.energy[i]) / MIND.pace;
         // Quem tem fome come o peixe que os barcos trouxeram.
-        if (v && v.food >= 1 && e < 0.6) {
+        if (v && !minded && v.food >= 1 && e < 0.6) {
           v.food -= 1;
           this.book(v, 'food', 0, 1);
           e += 0.35;
@@ -170,6 +180,16 @@ export const peopleDecidePart = {
         let bias: { x: number; y: number } | undefined = lone;
         // Com uma ordem presencial, anda reto até o alvo (sem o vaivém do passeio) e fica parado trabalhando.
         let direct = false;
+        if (v && minded) {
+          if (working && this.role[i] <= ROLE.miner && this.rnd() < 0.3) this.discover(i, v);
+          this.energy[i] = e;
+          const go = this.mindStep(i, v, working, dt);
+          e = this.energy[i];
+          if (go) this.walkTo(i, sp.speed * B.WALK_PACE * (this.role[i] === CHILD ? 0.8 : elder ? 0.55 : 1), go.x, go.y);
+          else this.stand(i);
+          if (this.stuck[i] >= B.RAFT_STUCK && this.role[i] !== CHILD && this.tryRaft(i)) return;
+          break;
+        }
         if (v) {
           let dx = v.x - this.x[i];
           if (dx > map.width / 2) dx -= map.width;
@@ -215,29 +235,20 @@ export const peopleDecidePart = {
             range = this.radius(v) * (role === ROLE.miner ? 2.5 : 1.8) * (1 + 0.25 * era);
           }
           if (working && role <= ROLE.miner && this.rnd() < 0.3) this.discover(i, v);
-          const scout = this.scoutTarget(i, v);
+          const scout = pre ? pre.scout : this.scoutTarget(i, v);
           if (scout) {
             dx = scout.x;
             dy = scout.y;
             range = 2;
           }
-          const march = this.soldier(i, v);
+          const march = pre ? pre.march : this.soldier(i, v);
           if (!this.alive[i]) return;
           if (march) {
             dx = march.x;
             dy = march.y;
             range = 2;
           }
-          // Modo completo (RF-AS-20 a 31): a jornada decide para onde ir e quando parar para o gesto.
-          if (!march && !scout && this.full(v) && !this.expedition.has(i)) {
-            const j = this.journey(i, v, working, dt);
-            if (j) {
-              dx = j.x;
-              dy = j.y;
-              range = 0;
-              direct = true;
-            }
-          } else if (this.day[i]) this.dropDay(i, v);
+          if (this.day[i]) this.dropDay(i, v);
           if (dx * dx + dy * dy > range * range) bias = { x: dx, y: dy };
           // Caçadores abatem herbívoros por perto; com fome e sem comida no celeiro, qualquer adulto caça.
           if (((role === ROLE.hunter && working) || (this.role[i] !== CHILD && e < 0.4 && v.food < 1)) && e < 0.8) {

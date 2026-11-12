@@ -258,6 +258,8 @@ export const lifecyclePart = {
         if (this.age[i] < elderAge(this.species[this.kind[i]], Math.floor(village.tech))) workers[v][this.role[i]]++;
       }
     }
+    // Lugar na tela: a produção conta o trabalho que as pessoas fizeram (people/mente.ts), não quem tem cada ofício.
+    for (const village of this.villages) if (!village.abandoned && workers[village.id] && this.full(village)) workers[village.id] = this.effectiveWorkers(village, workers[village.id], dt);
     const fishers = workers.map((w) => w[ROLE.fisher]);
     fishers.length = this.villages.length;
     let live = 0;

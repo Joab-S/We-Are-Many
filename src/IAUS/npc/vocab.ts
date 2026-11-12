@@ -37,6 +37,18 @@ export const WOT = {
   imposto: 'imposto',
   /** Um evento no lugar (festa, enterro, caravana). */
   evento: 'evento',
+  // Lugares de uma aldeia (o jogo, src/sim/eco/people/mente.ts).
+  /** O celeiro ou armazém, onde se come e se entrega a carga. */
+  celeiro: 'celeiro',
+  /** A praça: encontro, festa, abrigo no alarme. */
+  praca: 'praca',
+  templo: 'templo',
+  /** O posto de trabalho do ofício (a roça do agricultor, a mina, o porto, a oficina). */
+  posto: 'posto',
+  /** Uma pilha de carga no pátio, à espera de quem a leve ao celeiro. */
+  carga: 'carga',
+  /** O portão (ou a borda da praça) onde a milícia se junta. */
+  portao: 'portao',
 } as const;
 export type Wot = (typeof WOT)[keyof typeof WOT];
 

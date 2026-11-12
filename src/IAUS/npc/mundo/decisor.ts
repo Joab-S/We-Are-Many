@@ -10,7 +10,7 @@
  * - as opções sem alvo (ficar, comer, descansar) usam o próprio dono (Self).
  *
  * As entradas são só as genéricas `E.eu` e `E.alvo` (um stat), então o pacote não sabe nada do Ecosystem: o
- * adaptador de cada decisão (ofício, líder, mudança, jornada) calcula os stats. Quem pontua e sorteia é o
+ * adaptador de cada decisão (ofício, líder, mudança) calcula os stats. Quem pontua e sorteia é o
  * `Brain` (compensação pelo número de considerations e WeightedRandomTop dentro da faixa de cada pessoa), com
  * o gerador da simulação, então a mesma semente continua dando a mesma história.
  */
