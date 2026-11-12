@@ -39,7 +39,7 @@ const TAB_INFO: Record<SheetTab, { label: string; icon: string }> = {
   personality: { label: 'Personalidade', icon: 'sparkle' },
   family: { label: 'Família e laços', icon: 'group' },
   diary: { label: 'Pensamentos recentes', icon: 'thought' },
-  journey: { label: 'Decisão do dia', icon: 'compass' },
+  journey: { label: 'Mente e decisão', icon: 'compass' },
   history: { label: 'História de vida', icon: 'scroll' },
   gear: { label: 'Equipamento', icon: 'sword' },
   nature: { label: 'Vida selvagem', icon: 'leaf' },
@@ -109,6 +109,8 @@ const tile = (ic: string, value: string, label: string, t = '') => `<span class=
 const section = (title: string) => `<div class="cs-sec"><span>${title}</span></div>`;
 const empty = (text: string) => `<div class="cs-empty">${text}</div>`;
 const now = (eco: Ecosystem, i: number) => `<div class="cs-now">${pixelIcon('play')}<span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>`;
+/** O que a pessoa faz agora e a decisão por trás, lidos juntos (a mente da ficha e o resumo usam os dois). */
+const doing = (eco: Ecosystem, i: number) => ({ d: eco.dayOf(i), act: eco.activityOf(i) });
 /** "a, b e c". */
 const andList = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}` : (xs[0] ?? ''));
 
@@ -128,6 +130,8 @@ export class CreatureSheet extends HudComponent {
   private shown = '';
   /** Última cor escrita na placa do título (só mexe no DOM quando muda). */
   private titleTint = '';
+  /** Detalhes abertos na ficha (as linhas da disputa, a conta, a explicação), pela chave. */
+  private readonly open = new Set<string>();
 
   constructor(
     private readonly el: HTMLElement,
@@ -213,6 +217,7 @@ export class CreatureSheet extends HudComponent {
     this.el.hidden = false;
     if (key !== this.shown) {
       this.shown = key;
+      this.open.clear();
       this.body.el.scrollTop = 0;
     }
   }
@@ -226,12 +231,13 @@ export class CreatureSheet extends HudComponent {
   /** Abas que fazem sentido para a criatura: as de pessoa só para pessoas, e nenhuma aba vazia. */
   private tabsFor(eco: Ecosystem, i: number): SheetTab[] {
     if (!isPerson(eco, i)) return ['overview', 'nature'];
-    const out: SheetTab[] = ['overview', 'status', 'personality'];
+    // A mente vem logo depois do resumo: é o que mais se consulta para entender o comportamento.
+    const out: SheetTab[] = ['overview', 'journey', 'status', 'personality'];
     const fam = eco.familyOf(i);
     const t = eco.tiesOf(i);
     if (fam.parent >= 0 || fam.children.length || t.partner >= 0 || t.friends.length || t.rivals.length) out.push('family');
     if (eco.diary.get(eco.uid[i])?.length) out.push('diary');
-    out.push('journey', 'history');
+    out.push('history');
     if (equipmentOf(eco, i).length) out.push('gear');
     return out;
   }
@@ -367,7 +373,7 @@ export class CreatureSheet extends HudComponent {
     ].join('');
     const teaching = v?.pendingTech?.uid === eco.uid[i] ? v.pendingTech : null;
     return `
-      ${now(eco, i)}
+      ${this.mindPeek(eco, i) || now(eco, i)}
       <div class="cs-tiles">${tiles}</div>
       ${this.placeCard(eco, i)}
       <div class="cs-rows">
@@ -375,6 +381,20 @@ export class CreatureSheet extends HudComponent {
         ${row('Espécie', esc(eco.species[eco.kind[i]].name), pixelIcon('dna'))}
       </div>
       ${teaching ? this.teaching(teaching) : ''}`;
+  }
+
+  /**
+   * O pensamento em um cartão no resumo: o que está fazendo, a decisão por trás (quando é outra coisa), o motivo
+   * principal e quantas ideias venceu, com a nota e o atalho para a aba da mente. Vazio para quem vive solto.
+   */
+  private mindPeek(eco: Ecosystem, i: number): string {
+    if (!homeOf(eco, i)) return '';
+    const { d, act } = doing(eco, i);
+    const n = d.note;
+    const top = n?.factors?.find((f) => f.value >= 0.5);
+    const why = top ? cap(FACTOR[top.name]?.pro ?? top.name) : cap(d.why);
+    const parts = [act !== d.task ? `Decidiu ${d.task}` : '', why, n?.others.length ? `venceu ${n.others.length} ${n.others.length === 1 ? 'ideia' : 'ideias'}` : ''].filter(Boolean);
+    return `<button class="cs-peek" data-ctab="journey" title="Ver o que pensa: Mente e decisão">${pixelIcon('thought')}<span><em>Agora</em><b>${esc(cap(act))}</b><small>${esc(parts.join(' · '))}</small></span>${n?.score !== undefined ? `<code title="Nota da decisão">${num(n.score)}</code>` : ''}<i class="cs-go">${pixelIcon('chevron')}</i></button>`;
   }
 
   /** Quem descobriu uma técnica e ainda a ensina ao lugar (RF-VIDA-419): nome, progresso e o aviso de que transmite. */
@@ -458,24 +478,69 @@ export class CreatureSheet extends HudComponent {
       <div class="cs-note">O diário guarda as últimas ${all.length >= 10 ? 10 : all.length} decisões; brigas e amizades antigas saem primeiro.</div>`;
   }
 
-  /** Uma consideração da escolha em palavras: ícone, frase (a favor ou contra) e a barra, com o jeito dele quando o traço pesa. */
-  private factorChip(eco: Ecosystem, i: number, name: string, value: number, against = false): string {
+  /**
+   * Uma consideração da escolha numa linha da conta: ícone, a frase (a favor quando ajudou, contra quando derrubou),
+   * o nome técnico e o traço de que depende, a barra e o fator (0 a 1). `low` marca a que mais puxou a nota para baixo.
+   */
+  private consRow(eco: Ecosystem, i: number, name: string, value: number, low = false): string {
     const f = FACTOR[name];
-    if (!f) return `<span class="cs-fchip"><em>${esc(name)}</em></span>`;
-    const tv = f.trait ? eco.traits[i * TRAIT_COUNT + TRAIT[f.trait]] : 0;
-    const info = f.trait ? TRAIT_INFO[f.trait] : null;
-    const trait = info && Math.abs(tv) >= 3 ? `<small>${tv > 0 ? info.high : info.low}</small>` : '';
-    return `<span class="cs-fchip ${against ? 'against' : ''}" title="${esc(name)}: ${num(value)} (de 0 a 1)${info ? ` · depende do traço ${esc(info.name.toLowerCase())}` : ''}">${pixelIcon(f.icon)}<em>${cap(against ? f.con : f.pro)}</em>${trait}<span class="cs-tb1"><i style="width:${pct(value)}"></i></span></span>`;
+    const good = value >= 0.6;
+    const phrase = f ? cap(good ? f.pro : f.con) : cap(name);
+    const tv = f?.trait ? eco.traits[i * TRAIT_COUNT + TRAIT[f.trait]] : 0;
+    const info = f?.trait ? TRAIT_INFO[f.trait] : null;
+    const trait = info && Math.abs(tv) >= 3 ? `<small title="Depende do traço ${esc(info.name.toLowerCase())} (${tv > 0 ? '+' : ''}${tv})">${tv > 0 ? info.high : info.low}</small>` : '';
+    const t = value >= 0.6 ? 't-good' : value >= 0.3 ? 't-warn' : 't-bad';
+    return `<div class="cs-con ${t} ${low ? 'low' : ''}" title="${esc(name)}: ${num(value)} (de 0 a 1). Cada fator multiplica a nota: 1 não muda nada, 0 zera.">
+        <i>${pixelIcon(f?.icon ?? 'thought')}</i>
+        <span><b>${esc(phrase)}</b><em>${esc(name)}${low ? ' · a que mais pesou contra' : ''}</em>${trait}</span>
+        <span class="cs-tb1"><i style="width:${pct(value)}"></i></span>
+        <code>${num(value)}</code>
+      </div>`;
   }
 
-  /** Decisão do dia (RF-AS-30): o que fez, por quê, em que estado estava e as outras ideias, em linguagem de personagem. */
+  /** Necessidades em grade com rótulo, valor e barra; a mais urgente fica destacada (é a que mais disputa a vez). */
+  private needGrid(needs: NonNullable<ReturnType<typeof needsOf>>): string {
+    const list: [string, string, number, string][] = [
+      ['meat', 'Fome', needs.hunger, 'Calculada da energia (mais fome abaixo de 75% de energia)'],
+      ['rest', 'Cansaço', needs.rest, 'Sobe com o tempo e zera ao descansar em casa'],
+      ['chat', 'Companhia', needs.social, 'Falta de companhia: sobe com o tempo e zera ao conversar'],
+      ['candle', 'Fé', needs.faith, 'Vontade de rezar: sobe com o tempo e zera ao rezar ou ir a um enterro'],
+    ];
+    const top = Math.max(...list.map((x) => x[2]));
+    return `<div class="cs-needs">${list
+      .map(([ic, l, f, hint]) => {
+        const t = f > 0.75 ? 't-bad' : f > 0.5 ? 't-warn' : 't-good';
+        return `<div class="cs-need ${t} ${f === top && f > 0.5 ? 'top' : ''}" title="${l}: ${pct(f)}. ${hint}.">${pixelIcon(ic)}<span>${l}</span><code>${pct(f)}</code><span class="cs-tb1"><i style="width:${pct(f)}"></i></span></div>`;
+      })
+      .join('')}</div>`;
+  }
+
+  /** Abre ou fecha um detalhe da ficha (as linhas da disputa, a explicação); o estado sobrevive às atualizações. */
+  toggle(eco: Ecosystem, key: string): void {
+    if (this.open.has(key)) this.open.delete(key);
+    else this.open.add(key);
+    this.refresh(eco);
+  }
+
+  /** Botão de abrir e fechar um detalhe, com a seta que gira. */
+  private fold(key: string, label: string): string {
+    const on = this.open.has(key);
+    return `<button class="cs-fold ${on ? 'on' : ''}" data-cs-x="${esc(key)}" aria-expanded="${on}">${pixelIcon('chevron')}<span>${label}</span></button>`;
+  }
+
+  /**
+   * Mente e decisão (RF-AS-30), de cima para baixo, do que se vê ao porquê: o que está fazendo agora, como está o
+   * corpo (as necessidades que disputam a vez), a escolha com a conta inteira (cada consideração, o peso e o
+   * momentum) e a disputa: todas as ideias numa régua, com o corte do sorteio, e o porquê de cada uma ao abrir.
+   */
   private personJourney(eco: Ecosystem, i: number): string {
     const v = homeOf(eco, i);
     const name = personFullName(eco, i).first;
     if (!v) {
       const g = eco.wanderGoal(i);
       const to = g.village >= 0 ? eco.villages[g.village] : null;
-      return `${now(eco, i)}
+      return `${this.nowCard(doing(eco, i).act, '')}
+        ${section('O que decidiu')}
         <div class="cs-pick"><div class="cs-pick-head">${pixelIcon('check')}<b>${to ? 'Ir morar num lugar do seu povo' : 'Juntar-se a outros solitários'}</b></div>
           <p class="cs-say">${esc(name)} vive sem assentamento e ${
             to
@@ -483,52 +548,99 @@ export class CreatureSheet extends HudComponent {
               : 'não há lugar do seu povo a menos de 40 tiles: procura outros solitários e só funda um lugar em grupo.'
           }</p></div>`;
     }
-    const d = eco.dayOf(i);
+    const { d, act } = doing(eco, i);
     const n = d.note;
     const needs = needsOf(eco, i);
-    const state = needs
-      ? `<div class="cs-needmini" title="O estado dele na hora de decidir">${[['meat', 'Fome', needs.hunger], ['rest', 'Cansaço', needs.rest], ['chat', 'Companhia', needs.social], ['candle', 'Fé', needs.faith]]
-          .map(([ic, l, f]) => `<span class="${(f as number) > 0.75 ? 'bad' : (f as number) > 0.5 ? 'warn' : 'good'}" title="${l}: ${pct(f as number)}">${pixelIcon(ic as string)}<span class="cs-tb1"><i style="width:${pct(f as number)}"></i></span></span>`)
-          .join('')}</div>`
-      : '';
-    const carry = d.carry ? `<div class="cs-carry">${pixelIcon('bag')}<span>Carregando <b>${esc(d.carry)}</b></span></div>` : '';
     const full = eco.full(v);
-    const topFactors = n?.factors ?? [];
-    const best = Math.max(n?.score ?? 0, ...(n?.others.map((o) => o.score) ?? []), 1e-6);
-    const cut = n?.cut;
-    // O porquê: as considerações que mais pesaram a favor, ditas como motivos.
-    const reasons = topFactors.map((f) => (FACTOR[f.name]?.pro ?? f.name));
-    let because: string;
-    if (topFactors.length) because = `<p class="cs-say">${esc(name)} escolheu <b>${esc(d.task)}</b> porque ${andList(reasons)}.</p>`;
-    else because = `<p class="cs-say">${esc(cap(d.why))}.</p>`;
-    let luck = '';
-    if (topFactors.length && n?.score !== undefined) {
-      const top = n.others.length && n.others[0].score > n.score;
-      luck = `<p class="cs-fine" title="Corte do sorteio: ${num(cut ?? 0)} (85% da melhor nota)">${top ? 'Havia uma opção com nota um pouco maior, mas esta também estava entre as melhores e foi a sorteada.' : 'Era a opção com a melhor nota naquele momento.'}</p>`;
+    const now = this.nowCard(act, d.carry);
+    const needsHtml = needs ? `${section('Como está')}${this.needGrid(needs)}` : '';
+    const offscreen = full ? '' : '<div class="cs-note">O lugar está fora da tela: as decisões só são tomadas uma a uma nos lugares perto da câmera ou de quem está aberto na ficha.</div>';
+
+    // Sem nota da IAUS: uma ordem do quadro ou um evento do lugar passou na frente da escolha.
+    if (!n || n.score === undefined) {
+      const orders = d.others.length
+        ? `${section('Também pensou em')}${d.others.map((o) => `<div class="cs-alt"><div class="cs-alt-head">${pixelIcon('thought')}<b>${esc(cap(o))}</b></div><p>A ordem do quadro do lugar passou na frente.</p></div>`).join('')}`
+        : '';
+      return `${now}${needsHtml}
+        ${section('O que decidiu')}
+        <div class="cs-pick"><div class="cs-pick-head">${pixelIcon(n ? 'flag' : 'check')}<b>${esc(cap(d.task))}</b><span class="cs-tag">${n ? 'evento do lugar' : 'sem sorteio'}</span></div>
+          <p class="cs-say">${esc(cap(d.why))}.</p>
+          <p class="cs-fine">${n ? 'Um evento do lugar (festa, enterro, alarme) passa na frente da escolha: não houve disputa de notas.' : 'Esta ação não veio de uma escolha pontuada: veio do quadro do lugar ou da falta do que fazer.'}</p></div>
+        ${orders}${offscreen}`;
     }
-    const pick = `<div class="cs-pick"><div class="cs-pick-head">${pixelIcon('check')}<b>${esc(cap(d.task))}</b>${n?.score !== undefined ? `<span class="cs-tb1" title="Nota da escolha: ${num(n.score)}"><i style="width:${pct(n.score / best)}"></i></span>` : ''}</div>
-        ${because}
-        ${topFactors.length ? `<div class="cs-fchips">${topFactors.map((f) => this.factorChip(eco, i, f.name, f.value)).join('')}</div>` : ''}
-        ${luck}</div>`;
-    const lost = (o: { label: string; score: number; low?: string }) => {
-      const close = cut !== undefined && o.score >= cut;
-      const con = o.low ? (FACTOR[o.low]?.con ?? o.low) : '';
-      const reason = close ? 'Também era uma boa opção, mas o sorteio escolheu outra.' : con ? `Ficou de fora: ${con}.` : 'Ficou de fora: a nota foi mais baixa.';
-      return `<div class="cs-alt ${close ? 'close' : ''}"><div class="cs-alt-head">${pixelIcon('thought')}<b>${esc(cap(o.label))}</b><span class="cs-tb1" title="Nota: ${num(o.score)}"><i style="width:${pct(o.score / best)}"></i></span></div><p>${reason}</p>${!close && o.low ? `<div class="cs-fchips">${this.factorChip(eco, i, o.low, 0, true)}</div>` : ''}</div>`;
-    };
-    const others = n?.others.length
-      ? n.others.map(lost).join('')
-      : d.others.length
-        ? d.others.map((o) => `<div class="cs-alt"><div class="cs-alt-head">${pixelIcon('thought')}<b>${esc(cap(o))}</b></div><p>A ordem do quadro do lugar passou na frente.</p></div>`).join('')
-        : empty(n ? 'Nenhuma outra ideia disputou: um evento do lugar passou na frente da escolha.' : 'Nenhuma outra ideia registrada.');
-    return `${now(eco, i)}
-      ${carry}
-      ${state ? `${section('Como está agora')}${state}` : ''}
-      ${section('O que decidiu')}
-      ${pick}
-      ${section('Também pensou em')}
-      ${others}
-      ${full ? '' : '<div class="cs-note">O lugar está fora da tela: as decisões só são tomadas uma a uma nos lugares perto da câmera ou de quem está aberto na ficha.</div>'}`;
+
+    const score = n.score;
+    const cut = n.cut ?? score * 0.85;
+    const cons = (n.considerations ?? n.factors ?? []).slice();
+    const lowName = cons.length > 1 ? cons.reduce((p, q) => (q.value < p.value ? q : p)).name : '';
+    const prod = cons.reduce((p, c) => p * c.value, 1);
+    const momentum = n.momentum && n.momentum !== 1 ? n.momentum : 0;
+    const weight = prod > 0 ? score / prod / (momentum || 1) : 0;
+
+    // O porquê em uma frase: as considerações que mais ajudaram.
+    const top = (n.factors ?? cons.slice().sort((p, q) => q.value - p.value).slice(0, 3)).filter((f) => f.value >= 0.5);
+    const because = top.length
+      ? `${esc(name)} escolheu <b>${esc(d.task)}</b> porque ${andList(top.map((f) => FACTOR[f.name]?.pro ?? f.name))}.`
+      : `${esc(cap(d.why))}.`;
+    const rivals = n.others;
+    const best = Math.max(score, ...rivals.map((o) => o.score), 1e-6);
+    const beaten = rivals.length && rivals[0].score > score;
+    const verdict = beaten
+      ? 'Não era a maior nota, mas estava dentro da faixa do sorteio e foi a sorteada.'
+      : rivals.length && rivals[0].score >= cut
+        ? 'Era a maior nota, mas outra ideia também estava na faixa do sorteio.'
+        : 'Era a maior nota, com folga: nenhuma outra ideia chegou perto.';
+    const math = cons.length
+      ? `<div class="cs-math" title="Nota = peso × momentum × cada fator">
+          <span>peso <b>${num(weight)}</b></span>${momentum ? `<span>× momentum <b>${num(momentum)}</b></span>` : ''}${cons.map((c) => `<span>× ${esc(c.name)} <b>${num(c.value)}</b></span>`).join('')}<span>= <b>${num(score)}</b></span>
+        </div>`
+      : '';
+    const pick = `<div class="cs-pick">
+        <div class="cs-pick-head">${pixelIcon('check')}<b>${esc(cap(d.task))}</b><span class="cs-score" title="Nota da escolha (0 a 1)"><span class="cs-tb1"><i style="width:${pct(score / best)}"></i></span><code>${num(score)}</code></span></div>
+        <p class="cs-say">${because}</p>
+        ${momentum ? `<p class="cs-fine">${pixelIcon('bolt')} Momentum ×${num(momentum)}: quem já está numa ação ganha um empurrão para não largá-la por pouco.</p>` : ''}
+        ${cons.length ? `<div class="cs-cons">${cons.map((c) => this.consRow(eco, i, c.name, c.value, c.name === lowName && c.value < 0.6)).join('')}</div>` : ''}
+        ${cons.length ? this.fold('math', 'Ver a conta') : ''}
+        ${this.open.has('math') ? math : ''}
+      </div>`;
+
+    // A disputa: todas as ideias numa régua (a escolhida em ouro), com o corte do sorteio.
+    const all = [{ label: d.task, score, low: undefined as string | undefined, factors: undefined as { name: string; value: number }[] | undefined, chosen: true }, ...rivals.map((o) => ({ ...o, chosen: false }))].sort((p, q) => q.score - p.score);
+    const cutAt = (cut / best) * 100;
+    const rank = all
+      .map((o, k) => {
+        const inBand = o.score >= cut;
+        const tag = o.chosen ? 'escolhida' : inBand ? 'no sorteio' : 'fora';
+        const key = `alt:${o.label}`;
+        const open = !o.chosen && this.open.has(key);
+        const con = o.low ? FACTOR[o.low]?.con ?? o.low : '';
+        const why = o.chosen ? '' : inBand ? 'Estava na faixa do sorteio, mas o sorteio escolheu outra.' : con ? `Ficou de fora porque ${con}.` : 'Ficou de fora: a nota foi mais baixa.';
+        const detail = open
+          ? `<div class="cs-rank-more"><p>${why}</p>${o.factors?.length ? `<div class="cs-cons">${o.factors.slice().sort((p, q) => p.value - q.value).map((c, j) => this.consRow(eco, i, c.name, c.value, j === 0 && c.value < 0.6)).join('')}</div>` : o.low ? `<div class="cs-cons">${this.consRow(eco, i, o.low, 0, true)}</div>` : ''}</div>`
+          : '';
+        const head = `<span class="cs-rank-n">${k + 1}</span><b>${esc(cap(o.label))}</b><span class="cs-rank-bar"><i style="width:${pct(o.score / best)}"></i><s style="left:${cutAt.toFixed(1)}%"></s></span><code>${num(o.score)}</code><span class="cs-tag ${o.chosen ? 'on' : inBand ? 'mid' : ''}">${tag}</span>`;
+        return o.chosen
+          ? `<div class="cs-rank chosen"><div class="cs-rank-row">${head}</div></div>`
+          : `<div class="cs-rank ${inBand ? 'band' : ''} ${open ? 'open' : ''}"><button class="cs-rank-row" data-cs-x="${esc(key)}" aria-expanded="${open}" title="${esc(why)} Clique para ver a conta.">${head}</button>${detail}</div>`;
+      })
+      .join('');
+    const race = rivals.length
+      ? `${section(`Disputa · ${all.length} ideias`)}
+        <div class="cs-ranks">${rank}</div>
+        <p class="cs-fine">${verdict} A linha vertical é o corte do sorteio (${num(cut)}, 85% da melhor nota): só as ideias à direita dela concorrem. Clique numa ideia para ver por que perdeu.</p>`
+      : `${section('Disputa')}${empty('Nenhuma outra ideia disputou a vez.')}`;
+
+    const help = `${this.fold('help', 'Como a decisão funciona')}${
+      this.open.has('help')
+        ? `<div class="cs-note">Cada ideia ganha uma nota: o peso dela vezes cada consideração (de 0 a 1, depois da curva de resposta). Basta uma consideração perto de zero para derrubar a ideia. As ideias com nota acima de 85% da melhor vão a um sorteio ponderado, por isso duas pessoas no mesmo estado podem escolher coisas diferentes. Os traços de personalidade mudam o tamanho de algumas considerações (aba Personalidade). As necessidades sobem com o tempo e só zeram quando a pessoa conclui o gesto.</div>`
+        : ''
+    }`;
+    return `${now}${needsHtml}${section('O que decidiu')}${pick}${race}${help}${offscreen}`;
+  }
+
+  /** "Agora": a ação em andamento e o que leva na mão, num cartão só. */
+  private nowCard(act: string, carry: string): string {
+    return `<div class="cs-nowcard">${pixelIcon('play')}<span><em>Fazendo agora</em><b>${esc(cap(act))}</b>${carry ? `<small>${pixelIcon('bag')} Carregando ${esc(carry)}</small>` : ''}</span></div>`;
   }
 
   private personHistory(eco: Ecosystem, i: number): string {

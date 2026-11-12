@@ -140,7 +140,12 @@ export interface DayNote {
   cut?: number;
   /** As considerações que mais pesaram a favor, da maior para a menor. */
   factors?: { name: string; value: number }[];
-  others: { label: string; score: number; low?: string }[];
+  /** Todas as considerações da escolhida, da maior para a menor (a ficha mostra a conta inteira). */
+  considerations?: { name: string; value: number }[];
+  /** Multiplicador de quem continua na ação em andamento, quando o motor o aplicou (1 ou ausente: nenhum). */
+  momentum?: number;
+  /** As outras ideias; `factors` traz todas as considerações de cada uma, para a ficha mostrar por que perdeu. */
+  others: { label: string; score: number; low?: string; factors?: { name: string; value: number }[] }[];
 }
 
 export class Ecosystem {

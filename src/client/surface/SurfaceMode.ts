@@ -602,6 +602,8 @@ export class SurfaceMode {
     // Ficha da criatura: abas e fechar (a seleção continua a mesma).
     const ctab = el.closest<HTMLElement>('[data-ctab]');
     if (ctab) this.sheet.setTab(eco, ctab.dataset.ctab as SheetTab);
+    const fold = el.closest<HTMLElement>('[data-cs-x]');
+    if (fold) this.sheet.toggle(eco, fold.dataset.csX!);
     if (el.closest('[data-sheet-close]')) this.sel.unpin();
     const tab = el.closest<HTMLElement>('[data-vtab]');
     if (tab) this.vwin.setTab(eco, tab.dataset.vtab as SettlementTab);

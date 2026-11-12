@@ -282,8 +282,9 @@ export const journeysPart = {
       // Corte do sorteio: quem ficou acima dele estava no páreo; abaixo, perdeu na nota.
       cut: Math.max(c.pick.score, c.others[0]?.score ?? 0) * DAY_BAND,
       factors: c.pick.factors.slice().sort((p, q) => q.value - p.value).slice(0, 3),
+      considerations: c.pick.factors.slice().sort((p, q) => q.value - p.value),
       // Considerações em ordem crescente: a primeira é a que mais derrubou a nota da alternativa.
-      others: c.others.slice(0, 3).map((o) => ({ label: o.label, score: o.score, low: o.factors[0]?.name })),
+      others: c.others.slice(0, 5).map((o) => ({ label: o.label, score: o.score, low: o.factors[0]?.name, factors: o.factors })),
     });
   },
 
