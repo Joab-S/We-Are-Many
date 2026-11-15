@@ -133,6 +133,18 @@ export interface Ecosystem
     ClockPart,
     SiteFieldPart {}
 
+/**
+ * Uma consideração na ficha: o fator na nota (0 a 1, já compensado) e, quando o motor explicou, a entrada normalizada
+ * (`x`), o valor da curva em x (`curve`, antes da compensação) e a forma da curva (`shape`, de x = 0 a 1).
+ */
+export interface NoteFactor {
+  name: string;
+  value: number;
+  x?: number;
+  curve?: number;
+  shape?: number[];
+}
+
 /** Nota da IAUS guardada para a ficha (ver `dayNotes`). */
 export interface DayNote {
   label: string;
@@ -144,11 +156,11 @@ export interface DayNote {
   /** As considerações que mais pesaram a favor, da maior para a menor. */
   factors?: { name: string; value: number }[];
   /** Todas as considerações da escolhida, da maior para a menor (a ficha mostra a conta inteira). */
-  considerations?: { name: string; value: number }[];
+  considerations?: NoteFactor[];
   /** Multiplicador de quem continua na ação em andamento, quando o motor o aplicou (1 ou ausente: nenhum). */
   momentum?: number;
   /** As outras ideias; `factors` traz todas as considerações de cada uma, para a ficha mostrar por que perdeu. */
-  others: { label: string; score: number; low?: string; factors?: { name: string; value: number }[] }[];
+  others: { label: string; score: number; low?: string; factors?: NoteFactor[] }[];
 }
 
 export class Ecosystem {

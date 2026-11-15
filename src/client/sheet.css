@@ -405,3 +405,12 @@ button.cs-rank-row:hover { background: rgba(255, 255, 255, 0.4); }
   .cs-close { top: -38px; right: -8px; }
   .cs-traits, .cs-rows { grid-template-columns: 1fr; }
 }
+
+/* Curva de resposta de cada consideração: a linha, a guia na entrada de agora e o ponto. */
+.cs-curve { display: block; overflow: visible; }
+.cs-curve polyline { fill: none; stroke: #8a6a3a; stroke-width: 1.6; stroke-linejoin: round; }
+.cs-curve .ax { stroke: #bfa971; stroke-width: 1; }
+.cs-curve .gd { stroke: #8a6a3a; stroke-width: 1; stroke-dasharray: 2 2; }
+.cs-curve circle { fill: #3f9a2a; stroke: #1d150a; stroke-width: 1; }
+.cs-con.t-warn .cs-curve circle { fill: #d9a41e; }
+.cs-con.t-bad .cs-curve circle { fill: #c8442f; }

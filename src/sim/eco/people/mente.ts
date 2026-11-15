@@ -806,6 +806,9 @@ export const mindPart = {
   noteDecision(this: Ecosystem, m: Mente, d: Decision): void {
     const brain = m.brain;
     const label = (x: Decision) => x.context.behavior.name.toLowerCase();
+    // Cada consideração com a entrada (x), o valor da curva em x e a forma da curva, para a ficha desenhar.
+    const detail = (x: Decision, e: ReturnType<Brain['explain']>) =>
+      e.factors.map((f, k) => ({ name: f.name, value: f.score, x: f.x, curve: f.curve, shape: shapeOf(x.context.behavior.considerations[k]) }));
     const mine = brain.explain(d);
     const others = brain.decisions
       .filter((x) => x !== d && x.score > 0 && x.context.behavior !== d.context.behavior)
@@ -814,7 +817,7 @@ export const mindPart = {
       .map((x) => {
         const e = brain.explain(x);
         const low = e.factors.reduce((p, q) => (q.score < p.score ? q : p), e.factors[0]);
-        return { label: label(x), score: e.score, low: low?.name, factors: e.factors.map((f) => ({ name: f.name, value: f.score })) };
+        return { label: label(x), score: e.score, low: low?.name, factors: detail(x, e) };
       });
     const note: DayNote = {
       label: label(d),
@@ -827,7 +830,7 @@ export const mindPart = {
         .slice(0, 3)
         .map((f) => ({ name: f.name, value: f.score })),
       // A conta inteira para a ficha: todas as considerações e o empurrão de quem continua na ação.
-      considerations: mine.factors.map((f) => ({ name: f.name, value: f.score })).sort((p, q) => q.value - p.value),
+      considerations: detail(d, mine).sort((p, q) => q.value - p.value),
       momentum: mine.momentum,
       others,
     };
@@ -848,6 +851,14 @@ export const mindPart = {
     if (!cur || !n) return { task: DAY_NAMES[DAY.none], why: 'nada pede a pessoa agora: espera a próxima ideia', others: [], carry, note: null };
     return { task: n.label, why: n.why, others: n.others.map((o) => `${o.label} (${f(o.score)})`), carry, note: n };
   },
+};
+
+/** Forma de cada curva de resposta, amostrada uma vez por consideração (as curvas não mudam durante o jogo). */
+const SHAPES = new WeakMap<object, number[]>();
+const shapeOf = (c: { curve: { evaluate(x: number): number } }): number[] => {
+  let s = SHAPES.get(c);
+  if (!s) SHAPES.set(c, (s = Brain.curveShape(c).map((y) => Math.round(y * 1000) / 1000)));
+  return s;
 };
 
 /** Gestos de quem está trabalhando (não é hora de conversar com essa pessoa). */

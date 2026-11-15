@@ -1,4 +1,4 @@
-import type { Ecosystem } from '../../../sim/ecosystem';
+import type { Ecosystem, NoteFactor } from '../../../sim/ecosystem';
 import { ROLE_NAMES, ROLES } from '../../../sim/roles';
 import { aptitudeOf, bestCraft, TECH_BY_ID } from '../../../sim/progress';
 import { notable, TRAIT, TRAIT_INFO, TRAITS, TRAIT_COUNT, type Trait } from '../../../IAUS/npc/pessoa/traits';
@@ -143,6 +143,20 @@ const empty = (text: string) => `<div class="cs-empty">${text}</div>`;
 const now = (eco: Ecosystem, i: number) => `<div class="cs-now">${pixelIcon('play')}<span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>`;
 /** O que a pessoa faz agora e a decisão por trás, lidos juntos (a mente da ficha e o resumo usam os dois). */
 const doing = (eco: Ecosystem, i: number) => ({ d: eco.dayOf(i), act: eco.activityOf(i) });
+/**
+ * A curva de resposta de uma consideração em miniatura (x e y de 0 a 1): a linha da curva, a guia vertical na
+ * entrada de agora e o ponto onde ela cai na curva. É o "por que este fator deu tanto" da conta.
+ */
+function curvePlot(shape: number[], x: number, y: number): string {
+  const W = 56;
+  const H = 22;
+  const n = shape.length - 1;
+  const pts = shape.map((v, k) => `${((k / n) * W).toFixed(1)},${(H - v * H).toFixed(1)}`).join(' ');
+  const cx = (Math.max(0, Math.min(1, x)) * W).toFixed(1);
+  const cy = (H - Math.max(0, Math.min(1, y)) * H).toFixed(1);
+  return `<svg class="cs-curve" viewBox="-2 -2 ${W + 4} ${H + 4}" width="${W}" height="${H}" aria-hidden="true"><path d="M0 ${H}H${W}" class="ax"/><polyline points="${pts}"/><path d="M${cx} ${H}V${cy}" class="gd"/><circle cx="${cx}" cy="${cy}" r="2.6"/></svg>`;
+}
+
 /** "a, b e c". */
 const andList = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}` : (xs[0] ?? ''));
 
@@ -512,9 +526,11 @@ export class CreatureSheet extends HudComponent {
 
   /**
    * Uma consideração da escolha numa linha da conta: ícone, a frase (a favor quando ajudou, contra quando derrubou),
-   * o nome técnico e o traço de que depende, a barra e o fator (0 a 1). `low` marca a que mais puxou a nota para baixo.
+   * o nome técnico e o traço de que depende, a curva de resposta com o ponto de agora (ou a barra, quando o motor não
+   * mandou a curva) e o fator (0 a 1). `low` marca a que mais puxou a nota para baixo.
    */
-  private consRow(eco: Ecosystem, i: number, name: string, value: number, low = false): string {
+  private consRow(eco: Ecosystem, i: number, c: NoteFactor, low = false): string {
+    const { name, value } = c;
     const f = FACTOR[name];
     const good = value >= 0.6;
     const phrase = f ? cap(good ? f.pro : f.con) : cap(name);
@@ -522,10 +538,14 @@ export class CreatureSheet extends HudComponent {
     const info = f?.trait ? TRAIT_INFO[f.trait] : null;
     const trait = info && Math.abs(tv) >= 3 ? `<small title="Depende do traço ${esc(info.name.toLowerCase())} (${tv > 0 ? '+' : ''}${tv})">${tv > 0 ? info.high : info.low}</small>` : '';
     const t = value >= 0.6 ? 't-good' : value >= 0.3 ? 't-warn' : 't-bad';
-    return `<div class="cs-con ${t} ${low ? 'low' : ''}" title="${esc(name)}: ${num(value)} (de 0 a 1). Cada fator multiplica a nota: 1 não muda nada, 0 zera.">
+    const path = c.shape && c.x !== undefined ? curvePlot(c.shape, c.x, c.curve ?? value) : '';
+    const how = path
+      ? ` Entrada ${num(c.x!)} na curva dá ${num(c.curve ?? value)}${Math.abs((c.curve ?? value) - value) > 0.005 ? `; com a compensação pelo número de considerações, ${num(value)}` : ''}.`
+      : '';
+    return `<div class="cs-con ${t} ${low ? 'low' : ''}" title="${esc(name)}: ${num(value)} (de 0 a 1).${how} Cada fator multiplica a nota: 1 não muda nada, 0 zera.">
         <i>${pixelIcon(f?.icon ?? 'thought')}</i>
         <span><b>${esc(phrase)}</b><em>${esc(name)}${low ? ' · a que mais pesou contra' : ''}</em>${trait}</span>
-        <span class="cs-tb1"><i style="width:${pct(value)}"></i></span>
+        ${path || `<span class="cs-tb1"><i style="width:${pct(value)}"></i></span>`}
         <code>${num(value)}</code>
       </div>`;
   }
@@ -631,7 +651,7 @@ export class CreatureSheet extends HudComponent {
         <div class="cs-pick-head">${pixelIcon('check')}<b>${esc(cap(d.task))}</b><span class="cs-score" title="Nota da escolha (0 a 1)"><span class="cs-tb1"><i style="width:${pct(score / best)}"></i></span><code>${num(score)}</code></span></div>
         <p class="cs-say">${because}</p>
         ${momentum ? `<p class="cs-fine">${pixelIcon('bolt')} Momentum ×${num(momentum)}: quem já está numa ação ganha um empurrão para não largá-la por pouco.</p>` : ''}
-        ${cons.length ? `<div class="cs-cons">${cons.map((c) => this.consRow(eco, i, c.name, c.value, c.name === lowName && c.value < 0.6)).join('')}</div>` : ''}
+        ${cons.length ? `<div class="cs-cons">${cons.map((c) => this.consRow(eco, i, c, c.name === lowName && c.value < 0.6)).join('')}</div>` : ''}
         ${cons.length ? this.fold('math', 'Ver a conta') : ''}
         ${this.open.has('math') ? math : ''}
       </div>`;
@@ -648,7 +668,7 @@ export class CreatureSheet extends HudComponent {
         const con = o.low ? FACTOR[o.low]?.con ?? o.low : '';
         const why = o.chosen ? '' : inBand ? 'Estava na faixa do sorteio, mas o sorteio escolheu outra.' : con ? `Ficou de fora porque ${con}.` : 'Ficou de fora: a nota foi mais baixa.';
         const detail = open
-          ? `<div class="cs-rank-more"><p>${why}</p>${o.factors?.length ? `<div class="cs-cons">${o.factors.slice().sort((p, q) => p.value - q.value).map((c, j) => this.consRow(eco, i, c.name, c.value, j === 0 && c.value < 0.6)).join('')}</div>` : o.low ? `<div class="cs-cons">${this.consRow(eco, i, o.low, 0, true)}</div>` : ''}</div>`
+          ? `<div class="cs-rank-more"><p>${why}</p>${o.factors?.length ? `<div class="cs-cons">${o.factors.slice().sort((p, q) => p.value - q.value).map((c, j) => this.consRow(eco, i, c, j === 0 && c.value < 0.6)).join('')}</div>` : o.low ? `<div class="cs-cons">${this.consRow(eco, i, { name: o.low, value: 0 }, true)}</div>` : ''}</div>`
           : '';
         const head = `<span class="cs-rank-n">${k + 1}</span><b>${esc(cap(o.label))}</b><span class="cs-rank-bar"><i style="width:${pct(o.score / best)}"></i><s style="left:${cutAt.toFixed(1)}%"></s></span><code>${num(o.score)}</code><span class="cs-tag ${o.chosen ? 'on' : inBand ? 'mid' : ''}">${tag}</span>`;
         return o.chosen
