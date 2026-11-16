@@ -19,14 +19,14 @@ import { AiEntity, type World } from '../../../IAUS/aiEntity';
 import { Brain } from '../../../IAUS/brain';
 import type { ContextInfo } from '../../../IAUS/context';
 import type { Decision } from '../../../IAUS/context';
-import { SelectionMode } from '../../../IAUS/enums';
+import { DurationType, SelectionMode } from '../../../IAUS/enums';
 import { Pessoa, type Resultado } from '../../../IAUS/npc/pessoa';
 import { CEREBRO_DA_ALDEIA } from '../../../IAUS/npc/aldeia/pacotes';
 import { DAY, DAY_NAMES, type DayKind } from '../../../IAUS/npc/aldeia/dia';
 import { TRAITS, TRAIT_COUNT } from '../../../IAUS/npc/pessoa/traits';
 import { bondWith, touch } from '../../../IAUS/npc/pessoa/relations';
 import { WOT } from '../../../IAUS/npc/vocab';
-import type { DayNote, Ecosystem } from '../../ecosystem';
+import type { DayNote, Ecosystem, MindLive, NoteTarget } from '../../ecosystem';
 import { B } from '../../live';
 import type { Good } from '../../economy';
 import { CHILD, ROLE, ROLES } from '../../roles';
@@ -130,13 +130,18 @@ interface Aldeia {
   labor: Map<number, Float64Array>;
   /** Trabalhadores efetivos por ofício (média móvel), por lugar. */
   effective: Map<number, Float64Array>;
+  /** As últimas decisões de cada pessoa (a mais nova primeiro), com como acabaram: o histórico da ficha. */
+  history: Map<number, DayNote[]>;
 }
+
+/** Quantas decisões o histórico da ficha guarda por pessoa. */
+const HISTORY = 8;
 
 /** Estado fora do Ecosystem: o save lê a instância por reflexão, e cérebros não vão para o save (recomeçam ao carregar). */
 const STATE = new WeakMap<Ecosystem, Aldeia>();
 function stateOf(eco: Ecosystem): Aldeia {
   let s = STATE.get(eco);
-  if (!s) STATE.set(eco, (s = { minds: new Map(), tally: { started: {}, done: {}, failed: {}, switched: {}, pairs: {} }, labor: new Map(), effective: new Map() }));
+  if (!s) STATE.set(eco, (s = { minds: new Map(), tally: { started: {}, done: {}, failed: {}, switched: {}, pairs: {} }, labor: new Map(), effective: new Map(), history: new Map() }));
   return s;
 }
 
@@ -254,6 +259,11 @@ export const mindPart = {
         if (r !== 'continua') {
           bump(r === 'feito' ? tally.done : tally.failed, ctx.behavior.name);
           open = null;
+          const n = eco.dayNotes.get(uid);
+          if (n && !n.end) {
+            n.end = r;
+            n.endAt = eco.year;
+          }
         }
         return r;
       },
@@ -265,6 +275,11 @@ export const mindPart = {
       }
       open = to.context.behavior.name;
       bump(tally.started, open);
+      const last = eco.dayNotes.get(uid);
+      if (last && !last.end) {
+        last.end = 'trocou';
+        last.endAt = eco.year;
+      }
       eco.noteDecision(mind, to);
     };
     s.minds.set(uid, m);
@@ -810,14 +825,21 @@ export const mindPart = {
     const detail = (x: Decision, e: ReturnType<Brain['explain']>) =>
       e.factors.map((f, k) => ({ name: f.name, value: f.score, x: f.x, curve: f.curve, shape: shapeOf(x.context.behavior.considerations[k]) }));
     const mine = brain.explain(d);
+    // As rivais: todas as que pontuaram, até duas por comportamento (a mesma ação em outro alvo também disputa).
+    const per = new Map<object, number>();
     const others = brain.decisions
-      .filter((x) => x !== d && x.score > 0 && x.context.behavior !== d.context.behavior)
+      .filter((x) => x !== d && x.key !== d.key && x.score > 0)
       .sort((p, q) => q.score - p.score)
-      .slice(0, 3)
+      .filter((x) => {
+        const k = (per.get(x.context.behavior) ?? 0) + 1;
+        per.set(x.context.behavior, k);
+        return k <= 2;
+      })
+      .slice(0, 6)
       .map((x) => {
         const e = brain.explain(x);
         const low = e.factors.reduce((p, q) => (q.score < p.score ? q : p), e.factors[0]);
-        return { label: label(x), score: e.score, low: low?.name, factors: detail(x, e) };
+        return { label: label(x), score: e.score, low: low?.name, factors: detail(x, e), target: this.noteTarget(m, x) };
       });
     const note: DayNote = {
       label: label(d),
@@ -833,8 +855,55 @@ export const mindPart = {
       considerations: detail(d, mine).sort((p, q) => q.value - p.value),
       momentum: mine.momentum,
       others,
+      at: this.year,
+      target: this.noteTarget(m, d),
     };
     this.dayNotes.set(m.uid, note);
+    const h = stateOf(this).history;
+    const list = h.get(m.uid) ?? [];
+    list.unshift(note);
+    if (list.length > HISTORY) list.length = HISTORY;
+    h.set(m.uid, list);
+  },
+
+  /** O alvo de uma decisão para a ficha (nada quando a ação é sobre a própria pessoa). */
+  noteTarget(this: Ecosystem, m: Mente, d: Decision): NoteTarget | undefined {
+    const t = d.context.target;
+    if (!(t instanceof Alvo)) return undefined;
+    const i = m.i;
+    const dist = Math.hypot(wrapDx(t.position.x - this.x[i], this.map.width), t.position.y - this.y[i]);
+    const living = t.type === WOT.pessoa || t.type === WOT.animal;
+    return { type: t.type, tile: t.tile, dist, uid: living ? t.id : undefined };
+  },
+
+  /** A mente ao vivo de quem tem cérebro na tela (ver `MindLive`), ou null. */
+  mindLive(this: Ecosystem, i: number): MindLive | null {
+    const m = this.mindNow(i);
+    const cur = m?.brain.currentDecision;
+    const n = this.dayNotes.get(this.uid[i]);
+    if (!m || !cur) return null;
+    const b = cur.context.behavior;
+    const label = (x: Decision) => x.context.behavior.name.toLowerCase();
+    const rivals = m.brain.decisions
+      .filter((x) => x.key !== cur.key && x.score > 0)
+      .sort((p, q) => q.score - p.score)
+      .slice(0, 3)
+      .map((x) => ({ label: label(x), score: x.score, target: this.noteTarget(m, x) }));
+    const g = m.goal;
+    const dist = g ? Math.hypot(wrapDx(g.x - this.x[i], this.map.width), g.y - this.y[i]) : 0;
+    return {
+      seconds: n?.at !== undefined ? (this.year - n.at) * this.yearSpan : 0,
+      arrived: !g || dist <= g.reach,
+      dist,
+      score: cur.score,
+      momentum: b.duration === DurationType.Continuous ? b.momentum : 1,
+      rivals,
+    };
+  },
+
+  /** As últimas decisões de quem tem cérebro na tela (a mais nova primeiro). */
+  mindHistory(this: Ecosystem, i: number): readonly DayNote[] {
+    return stateOf(this).history.get(this.uid[i]) ?? [];
   },
 
   /** Ficha com o porquê (RF-AS-30): a ação, as outras ideias e a carga. */

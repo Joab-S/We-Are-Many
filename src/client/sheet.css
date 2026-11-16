@@ -414,3 +414,75 @@ button.cs-rank-row:hover { background: rgba(255, 255, 255, 0.4); }
 .cs-curve circle { fill: #3f9a2a; stroke: #1d150a; stroke-width: 1; }
 .cs-con.t-warn .cs-curve circle { fill: #d9a41e; }
 .cs-con.t-bad .cs-curve circle { fill: #c8442f; }
+
+/* ---------- Mente: o pensamento de agora (cartão escuro no alto, como um painel de jogo) ---------- */
+.cs-hero {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; color: #efe3c2;
+  background: linear-gradient(180deg, #2c333e 0%, #20262f 100%); box-shadow: inset 0 0 0 2px #0d0f12, inset 0 0 0 4px #8a6a3a, 0 3px 0 rgba(0, 0, 0, 0.25);
+}
+.cs-hero-top { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.cs-hero-top > .pxi { width: 36px; height: 36px; filter: drop-shadow(0 2px 0 #000); }
+.cs-hero-top > span:not(.cs-pill) { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.cs-hero-top em { font-style: normal; font-family: var(--cs-title); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #b9a477; }
+.cs-hero-top b { font-family: var(--cs-title); font-size: 20px; font-weight: 700; color: var(--cs-gold); text-shadow: 0 2px 0 #000; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-hero-top small { font-size: 13px; color: #c9bb98; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 12px; font-weight: 700; white-space: nowrap; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.45); }
+.cs-pill .pxi { width: 14px; height: 14px; }
+.cs-pill.ok { background: #35722f; color: #eaf7d8; }
+.cs-pill.go { background: #9a5e12; color: #fff1d0; }
+.cs-hrows { display: grid; grid-template-columns: 1fr; gap: 2px; padding: 4px 0; border-top: 2px solid rgba(138, 106, 58, 0.5); border-bottom: 2px solid rgba(138, 106, 58, 0.5); }
+.cs-hrow { display: grid; grid-template-columns: 20px 92px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 26px; font-size: 14px; }
+.cs-hrow > i { display: inline-flex; }
+.cs-hrow > i .pxi { width: 18px; height: 18px; }
+.cs-hrow > span { color: #b9a477; }
+.cs-hrow > b { font-weight: 600; color: #f6edd3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-hrow em { font-style: normal; font-weight: 500; color: #b9a477; }
+.cs-hero .cs-link { color: #f0c66a; }
+.cs-live { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; background: rgba(0, 0, 0, 0.28); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.4); }
+.cs-live-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cs-live-h em { font-style: normal; font-family: var(--cs-title); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #b9a477; }
+.cs-duel { display: grid; grid-template-columns: minmax(0, 40%) 1fr 40px; align-items: center; gap: 8px; font-size: 13px; }
+.cs-duel small { color: #b9a477; font-size: 12px; }
+.cs-duel > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e3d6b4; }
+.cs-duel code { text-align: right; color: #f6edd3; }
+.cs-rank-bar.mine i { background: #f0a53a; }
+.cs-live .cs-fine { margin: 2px 0 0; color: #c9bb98; }
+.cs-live .cs-tag.mid { background: #d9a41e; color: #1d150a; }
+
+/* Lendo uma decisão antiga: faixa no topo com o botão de voltar. */
+.cs-past { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px; background: #f3e3ae; box-shadow: inset 4px 0 0 #1f5a9a, inset 0 0 0 1px #bfa971; font-size: 14px; color: var(--cs-ink2); }
+.cs-past > span { flex: 1; min-width: 0; }
+.cs-btn.sm { height: 32px; padding: 0 8px; font-size: 12px; border-width: 6px; gap: 4px; }
+.cs-btn.sm .pxi { width: 16px; height: 16px; }
+
+/* Últimas decisões: uma linha por decisão, com como terminou. */
+.cs-hist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.cs-hist-row {
+  box-sizing: border-box; display: grid; grid-template-columns: 62px 22px minmax(0, 1fr) 40px; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 3px 8px;
+  border: 0; background: rgba(255, 255, 255, 0.3); font: inherit; text-align: left; color: var(--cs-ink); cursor: pointer;
+}
+.cs-hist-row:hover { background: rgba(255, 255, 255, 0.55); }
+.cs-hist-row.on { background: #f3e3ae; box-shadow: inset 4px 0 0 #b08a4a; }
+.cs-hist-t { font-family: var(--cs-num); font-size: 12px; color: var(--cs-dim); }
+.cs-hist-e { display: inline-grid; place-items: center; width: 22px; height: 22px; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35); }
+.cs-hist-e .pxi { width: 14px; height: 14px; }
+.cs-hist-e.ok { background: #8fc27a; }
+.cs-hist-e.bad { background: #e08a7a; }
+.cs-hist-e.mid { background: #e6c66e; }
+.cs-hist-e.now { background: #9fc0e6; }
+.cs-hist-l { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.cs-hist-l b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-hist-l em { font-style: normal; font-size: 12px; color: var(--cs-dim); }
+.cs-hist-row code { text-align: right; font-size: 13px; }
+
+/* Rodapé: aviso de que a mente está parada enquanto se lê. */
+.cs-hold .pxi { width: 14px; height: 14px; }
+.cs-foot { min-width: 0; gap: 8px; }
+.cs-hold { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding: 3px 8px; font-size: 13px; font-weight: 700; color: #1d150a; background: #e6c66e; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35); white-space: nowrap; }
+.wb-sheet.docked .cs-hold { display: inline-flex; }
+
+/* Encostada à esquerda, as dicas das abas abrem para a direita (do lado de fora não cabem). */
+.wb-sheet.docked .cs-tip { right: auto; left: calc(100% + 10px); }
+/* Prévia do mouse: o que pensa, com o motivo em linha menor. */
+.cs-now.think > span { display: flex; flex-direction: column; line-height: 1.2; padding: 4px 0; }
+.cs-now.think em { font-style: normal; font-size: 13px; color: var(--cs-dim); }

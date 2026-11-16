@@ -145,6 +145,28 @@ export interface NoteFactor {
   shape?: number[];
 }
 
+/** O alvo de uma ação na ficha: o tipo (WOT), o tile, a distância ao decidir e, se é gente ou bicho, o `uid`. */
+export interface NoteTarget {
+  type: string;
+  tile: number;
+  dist: number;
+  uid?: number;
+}
+
+/**
+ * A mente ao vivo de quem está na tela (para a ficha): há quanto tempo está na ação (segundos de jogo), se já chegou
+ * ao alvo, a distância até ele, a nota de agora (com o momentum, quando a ação é contínua) e as melhores rivais de
+ * agora. A nota guardada em `DayNote` é a da hora da escolha; esta é a do último pensamento.
+ */
+export interface MindLive {
+  seconds: number;
+  arrived: boolean;
+  dist: number;
+  score: number;
+  momentum: number;
+  rivals: { label: string; score: number; target?: NoteTarget }[];
+}
+
 /** Nota da IAUS guardada para a ficha (ver `dayNotes`). */
 export interface DayNote {
   label: string;
@@ -160,7 +182,15 @@ export interface DayNote {
   /** Multiplicador de quem continua na ação em andamento, quando o motor o aplicou (1 ou ausente: nenhum). */
   momentum?: number;
   /** As outras ideias; `factors` traz todas as considerações de cada uma, para a ficha mostrar por que perdeu. */
-  others: { label: string; score: number; low?: string; factors?: NoteFactor[] }[];
+  others: { label: string; score: number; low?: string; factors?: NoteFactor[]; target?: NoteTarget }[];
+  /** Ano do mundo (com fração) em que a decisão foi tomada. */
+  at?: number;
+  /** Sobre o que a ação age (o celeiro, a árvore, uma pessoa), quando tem alvo. */
+  target?: NoteTarget;
+  /** Como a ação acabou (ausente enquanto dura): terminou, falhou no caminho ou foi trocada por outra no meio. */
+  end?: 'feito' | 'falhou' | 'trocou';
+  /** Ano do mundo em que acabou. */
+  endAt?: number;
 }
 
 export class Ecosystem {
