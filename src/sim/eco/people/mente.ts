@@ -50,8 +50,8 @@ export const MIND = {
   short: 2.5,
   /** Cada porção comida no celeiro. */
   bite: 0.6,
-  /** Descanso por segundo de sono (o cansaço vai de 1 a 0 em uns 3 s). */
-  sleep: 0.35,
+  /** Descanso por segundo de sono (uma noite, do cansaço de dormir até descansar, leva uns 3 s). */
+  sleep: 0.2,
   /** Andando sem chegar mais perto do destino por tanto tempo, a ação falha (o caminho não leva lá). */
   stall: 15,
   /** E andando por tanto tempo, mesmo chegando mais perto, também (o destino está longe demais). */
@@ -71,6 +71,12 @@ export const MIND = {
    * porções: o lugar come o mesmo por ano que no modo agregado, e a pessoa come umas poucas vezes por minuto de tela.
    */
   pace: 25,
+  /**
+   * Ritmo do cansaço, da solidão e da fé na tela. Com o `pace` da comida, o cansaço levaria uns 3 minutos de tela
+   * para pedir sono e a solidão uns 5: quem se olha na tela só trabalharia. Com este, a pessoa dorme, conversa e
+   * reza umas vezes por minuto de tela, e o resto do dia continua sendo trabalho.
+   */
+  needPace: 15,
   /**
    * Quantas cargas do modo agregado cabem numa carga na tela: uma ida ao celeiro leva anos do mundo, então cada
    * uma leva o que o lugar produziu nesse tempo.
@@ -132,6 +138,8 @@ interface Aldeia {
   effective: Map<number, Float64Array>;
   /** As últimas decisões de cada pessoa (a mais nova primeiro), com como acabaram: o histórico da ficha. */
   history: Map<number, DayNote[]>;
+  /** Quantos já vão comer em cada lugar, contado uma vez por instante (`at`): a comida que já tem dono. */
+  eaters: Map<number, { at: number; n: number }>;
 }
 
 /** Quantas decisões o histórico da ficha guarda por pessoa. */
@@ -141,7 +149,7 @@ const HISTORY = 8;
 const STATE = new WeakMap<Ecosystem, Aldeia>();
 function stateOf(eco: Ecosystem): Aldeia {
   let s = STATE.get(eco);
-  if (!s) STATE.set(eco, (s = { minds: new Map(), tally: { started: {}, done: {}, failed: {}, switched: {}, pairs: {} }, labor: new Map(), effective: new Map(), history: new Map() }));
+  if (!s) STATE.set(eco, (s = { minds: new Map(), tally: { started: {}, done: {}, failed: {}, switched: {}, pairs: {} }, labor: new Map(), effective: new Map(), history: new Map(), eaters: new Map() }));
   return s;
 }
 
@@ -181,7 +189,7 @@ export const mindPart = {
    * e devolve para onde andar (null = fica parada onde está).
    */
   mindStep(this: Ecosystem, i: number, v: Village, working: boolean, dt: number): { x: number; y: number } | null {
-    const slow = dt / MIND.pace;
+    const slow = dt / MIND.needPace;
     this.needRest[i] = Math.min(1, this.needRest[i] + B.NEED_REST * slow * (working ? 1 : 0.6));
     this.needSocial[i] = Math.min(1, this.needSocial[i] + B.NEED_SOCIAL * slow);
     this.needFaith[i] = Math.min(1, this.needFaith[i] + B.NEED_FAITH * slow);
@@ -292,7 +300,9 @@ export const mindPart = {
     const p = m.pessoa;
     p.position = { x: this.x[i], y: this.y[i] };
     p.setStat('fome', Math.max(0, Math.min(1, (0.85 - this.energy[i]) / 0.6)));
-    p.setStat('cansaco', this.needRest[i]);
+    // Quem já dorme sente o cansaço até descansar de verdade (sem isso, acordaria na metade e voltaria a deitar logo).
+    const sleeping = m.brain?.currentDecision?.context.behavior.behaviorType === 'Dormir' && this.needRest[i] > 0.05;
+    p.setStat('cansaco', sleeping ? Math.max(this.needRest[i], 0.75) : this.needRest[i]);
     p.setStat('solidao', this.needSocial[i]);
     p.setStat('fe', this.needFaith[i]);
     // A carga na mão: `carga` (tem alguma), `cheio` (quanto pesa para levar já: comida e o que não se junta contam
@@ -305,7 +315,7 @@ export const mindPart = {
     p.setStat('espacoLenha', !g ? 1 : g === 'wood' ? 1 - fill : 0);
     p.setStat('trabalha', working ? 1 : 0);
     p.setStat('semCasa', this.homeTile(i, v) < 0 ? 1 : 0);
-    p.setStat('semComida', 1 - this.foodHere(v));
+    p.setStat('semComida', 1 - this.foodFor(m, v));
     p.setStat('alarme', (v.alarmUntil ?? -1) > this.year ? 1 : 0);
     p.setStat('enterro', v.funeral && v.funeral.until > this.year && this.family[i] === v.funeral.family ? 1 : 0);
     for (let k = 0; k < TRAIT_COUNT; k++) p.setStat(`tr.${TRAITS[k]}`, this.traits[i * TRAIT_COUNT + k] / 10);
@@ -358,9 +368,10 @@ export const mindPart = {
     const working = m.seed === CEREBRO_DA_ALDEIA.adulto;
     const alarm = (v.alarmUntil ?? -1) > this.year;
     const plaza = this.plazaTile(v);
-    add(ID.celeiro, v.id, WOT.celeiro, this.granaryTile(v), { comida: this.foodHere(v) });
+    const food = this.foodFor(m, v);
+    add(ID.celeiro, v.id, WOT.celeiro, this.granaryTile(v), { comida: food });
     const home = this.homeTile(i, v);
-    if (home >= 0) add(ID.casa, home, WOT.casa, home, { comida: this.foodHere(v) }, 1);
+    if (home >= 0) add(ID.casa, home, WOT.casa, home, { comida: food }, 1);
     let crowd = 0;
     this.forEachNear((plaza % w) + 0.5, Math.floor(plaza / w) + 0.5, 3, (j) => {
       if (this.village[j] === v.id) crowd++;
@@ -712,8 +723,33 @@ export const mindPart = {
    * celeiro quase vazio, cada entrega e cada refeição ligariam e desligariam a vontade de ir comer lá, e a pessoa
    * ficaria indo e voltando entre o celeiro e o mato.
    */
+  /**
+   * A comida do celeiro como a pessoa a vê, com folga para não ficar indo e voltando: quem já vai comer continua
+   * enquanto houver qualquer coisa lá (os outros comem antes e o celeiro baixa de uma refeição), e quem está no
+   * mato só volta quando o celeiro tem bem mais que uma refeição.
+   */
+  foodFor(this: Ecosystem, m: Mente, v: Village): number {
+    const t = m.brain?.currentDecision?.context.behavior.behaviorType;
+    if (t === 'Comer') return v.food >= 1 ? 1 : 0;
+    // O que sobra depois de quem já está indo comer (cada um leva até uma refeição; em média, meia).
+    const free = v.food - this.eatersOf(v) * MIND.pace * 0.5;
+    return Math.max(0, Math.min(1, free / ((t === 'Coletar' ? 1.6 : 1) * MIND.pace)));
+  },
+
+  /** Quantos moradores do lugar estão indo comer ou comendo agora (contado uma vez por instante). */
+  eatersOf(this: Ecosystem, v: Village): number {
+    const s = stateOf(this);
+    const c = s.eaters.get(v.id);
+    if (c && c.at === this.year) return c.n;
+    let n = 0;
+    for (const i of this.residents(v.id)) if (s.minds.get(this.uid[i])?.brain.currentDecision?.context.behavior.behaviorType === 'Comer') n++;
+    s.eaters.set(v.id, { at: this.year, n });
+    return n;
+  },
+
   foodHere(this: Ecosystem, v: Village): number {
-    return Math.max(0, Math.min(1, v.food / (2 * MIND.pace)));
+    // 1 quando o celeiro tem uma refeição inteira (`pace` porções): quem tem fome vai lá antes de ir ao mato.
+    return Math.max(0, Math.min(1, v.food / MIND.pace));
   },
 
   /** Quanto cabe numa carga na tela (com carroça a partir da vila). */

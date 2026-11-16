@@ -55,7 +55,7 @@ export const NECESSIDADES_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.celeiro],
       peso: 4,
-      considera: [c('fome', E.eu, curva.limiar(0.4, 9), { stat: 'fome' }), c('tem comida', E.alvo, curva.sim(0), { stat: 'comida' }), perto(60, 0.3)],
+      considera: [c('fome', E.eu, curva.limiar(0.4, 9), { stat: 'fome' }), c('tem comida', E.alvo, curva.limiar(0.4, 14), { stat: 'comida' }), perto(60, 0.3)],
     }),
     trabalho({
       nome: 'Comer em casa',
@@ -64,7 +64,7 @@ export const NECESSIDADES_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.casa],
       peso: 4,
-      considera: [c('fome', E.eu, curva.limiar(0.4, 9), { stat: 'fome' }), c('tem comida', E.alvo, curva.sim(0), { stat: 'comida' }), perto(60, 0.3)],
+      considera: [c('fome', E.eu, curva.limiar(0.4, 9), { stat: 'fome' }), c('tem comida', E.alvo, curva.limiar(0.4, 14), { stat: 'comida' }), perto(60, 0.3)],
     }),
     trabalho({
       nome: 'Procurar comida no mato',
@@ -72,7 +72,7 @@ export const NECESSIDADES_DA_ALDEIA = pacote(
       tipo: 'Coletar',
       contexto: 'eu',
       peso: 4,
-      considera: [c('fome', E.eu, curva.limiar(0.45, 9), { stat: 'fome' }), c('celeiro vazio', E.eu, curva.sim(0.06), { stat: 'semComida' })],
+      considera: [c('fome', E.eu, curva.limiar(0.45, 9), { stat: 'fome' }), c('celeiro vazio', E.eu, curva.limiar(0.6, 14), { stat: 'semComida' })],
     }),
     trabalho({
       nome: 'Dormir em casa',
@@ -168,7 +168,7 @@ export const TRABALHO_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.animal],
       peso: 3,
-      considera: [c('ofício', E.alvo, curva.sobe(0, 1), { stat: 'oficio' }), c('caça sobrando', E.alvo, curva.sim(0), { stat: 'abundante' }), semCarga(), ...corpoEmOrdem(), perto(24, 0.3)],
+      considera: [c('ofício', E.alvo, curva.sobe(0, 1), { stat: 'oficio' }), c('caça sobrando', E.alvo, curva.sim(0), { stat: 'abundante' }), semCarga(), ...corpoEmOrdem(), perto(24, 0.6)],
     }),
     trabalho({
       nome: 'Defender o lugar',

@@ -25,6 +25,8 @@ it('sonda da mente da aldeia', () => {
   for (const o of eco.villages) if (!o.abandoned && o.population > v.population) v = o;
   const e = eco as any;
   const pop0 = v.population;
+  const dead0 = eco.deaths.length;
+  const year0 = eco.year;
   eco.focus = { x: v.x, y: v.y, r: 24 };
   let n = 0, rest = 0, soc = 0, fai = 0, hun = 0, high = 0, idle = 0, work = 0, there = 0;
   const WORK = new Set(['Trabalhar', 'Colher', 'PegarCarga', 'Entregar', 'Construir', 'CortarLenha', 'Cacar', 'Defender', 'Patrulhar']);
@@ -49,6 +51,10 @@ it('sonda da mente da aldeia', () => {
       }
     }
   }
+  const why: Record<string, number> = {};
+  for (const d of eco.deaths.slice(dead0)) if (d.village === v.id) why[d.cause] = (why[d.cause] ?? 0) + 1;
+  console.log('Mortes no lugar:', JSON.stringify(why));
+  for (const c of eco.chronicle) if (c.year >= year0 && c.text.includes(v.name)) console.log('Crônica:', Math.round(c.year), c.text);
   const f = (x: number) => +(x / n).toFixed(2);
   console.log(JSON.stringify({ pessoas: [pop0, v.population], comida: +v.food.toFixed(1), lenha: +v.stock.wood.toFixed(1), atendimento: v.needs }));
   console.log(JSON.stringify({ necessidades: { cansaco: f(rest), solidao: f(soc), fe: f(fai), fome: f(hun), criticas: f(high) }, parado: f(idle), trabalhando: f(work), 'no lugar': f(there) }));
@@ -56,5 +62,5 @@ it('sonda da mente da aldeia', () => {
   for (const k of Object.keys(t.started).sort((a, b) => t.started[b] - t.started[a])) {
     console.log(`${k}: começou ${t.started[k]}, terminou ${t.done[k] ?? 0}, falhou ${t.failed[k] ?? 0}, trocou ${t.switched[k] ?? 0}`);
   }
-  console.log('Trocas mais comuns:', Object.entries(t.pairs as Record<string, number>).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, x]) => `${k} (${x})`).join('; '));
+  console.log('Trocas mais comuns:', Object.entries(t.pairs as Record<string, number>).sort((a, b) => b[1] - a[1]).slice(0, Number(process.env.TROCAS ?? 8)).map(([k, x]) => `${k} (${x})`).join('; '));
 });
