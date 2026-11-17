@@ -90,6 +90,8 @@ export const MIND = {
    * uma leva o que o lugar produziu nesse tempo.
    */
   load: 5,
+  /** Segundos que a comida pega para dar a alguém fica na mão antes de virar carga comum (e voltar ao celeiro). */
+  giftFor: 20,
 };
 
 /** Um alvo percebido: o AiEntity do IAUS mais o que o corpo precisa para agir sobre ele. */
@@ -99,6 +101,8 @@ class Alvo extends AiEntity {
   j = -1;
   good: Good | 'food' | null = null;
   house: Building | null = null;
+  /** O lugar do alvo `assentamento` (o do povo, para o andarilho). */
+  place = -1;
 }
 
 interface Mente {
@@ -152,6 +156,12 @@ interface Aldeia {
   history: Map<number, DayNote[]>;
   /** Quantos já vão comer em cada lugar, contado uma vez por instante (`at`): a comida que já tem dono. */
   eaters: Map<number, { at: number; n: number }>;
+  /** Quem leva comida na mão para dar a alguém, e desde quando (ano do mundo). */
+  gifts: Map<number, number>;
+  /** Quem pediu comida a alguém, e quando (ano do mundo). */
+  asked: Map<number, number>;
+  /** Quem mais precisa de comida perto de cada pessoa (uid → uid), visto em `hungryNear`. */
+  needy: Map<number, number>;
 }
 
 /** Quantas decisões o histórico da ficha guarda por pessoa. */
@@ -161,12 +171,12 @@ const HISTORY = 8;
 const STATE = new WeakMap<Ecosystem, Aldeia>();
 function stateOf(eco: Ecosystem): Aldeia {
   let s = STATE.get(eco);
-  if (!s) STATE.set(eco, (s = { minds: new Map(), tally: { started: {}, done: {}, failed: {}, switched: {}, pairs: {} }, labor: new Map(), effective: new Map(), history: new Map(), eaters: new Map() }));
+  if (!s) STATE.set(eco, (s = { minds: new Map(), tally: { started: {}, done: {}, failed: {}, switched: {}, pairs: {} }, labor: new Map(), effective: new Map(), history: new Map(), eaters: new Map(), gifts: new Map(), asked: new Map(), needy: new Map() }));
   return s;
 }
 
 /** Ids dos alvos por tipo, para a mesma coisa ter a mesma chave de decisão de um pensamento ao outro (o momentum). */
-const ID = { celeiro: 1, casa: 2, praca: 3, templo: 4, posto: 5, roca: 6, carga: 7, obra: 8, arvore: 9, portao: 10, evento: 11, mato: 12, agua: 13 } as const;
+const ID = { celeiro: 1, casa: 2, praca: 3, templo: 4, posto: 5, roca: 6, carga: 7, obra: 8, arvore: 9, portao: 10, evento: 11, mato: 12, agua: 13, assentamento: 14, sitio: 15 } as const;
 const idOf = (kind: number, n: number) => -(kind * 100_000_000 + n);
 
 /** Atividade (DAY) de cada Behavior Type, para a tela e as contas do dia. */
@@ -335,9 +345,13 @@ export const mindPart = {
     // árvore antes de ir ao celeiro).
     const g = this.carry[i] && this.carryAmt[i] > 0 ? CARGO_GOOD(this.carry[i]) : null;
     const fill = g ? Math.min(1, this.carryAmt[i] / this.loadCap(v)) : 0;
+    // A comida pega para dar a alguém ocupa as mãos mas não pede o celeiro (até passar a vontade, `gift`).
+    const gift = this.gift(i);
     p.setStat('carga', g ? 1 : 0);
-    p.setStat('cheio', !g ? 0 : g === 'wood' ? fill : 1);
+    p.setStat('cheio', !g || gift ? 0 : g === 'wood' ? fill : 1);
     p.setStat('espacoLenha', !g ? 1 : g === 'wood' ? 1 - fill : 0);
+    p.setStat('comidaNaMao', gift ? 1 : 0);
+    p.setStat('fracoPerto', this.hungryNear(i, v));
     p.setStat('trabalha', working ? 1 : 0);
     p.setStat('semCasa', this.homeTile(i, v) < 0 ? 1 : 0);
     p.setStat('semComida', 1 - this.foodFor(m, v));
@@ -366,6 +380,45 @@ export const mindPart = {
     p.setStat('solidao', this.needSocial[i]);
     p.setStat('fe', this.needFaith[i]);
     for (let k = 0; k < TRAIT_COUNT; k++) p.setStat(`tr.${TRAITS[k]}`, this.traits[i * TRAIT_COUNT + k] / 10);
+  },
+
+  /**
+   * Leva comida na mão para dar a alguém? Vale por `MIND.giftFor` segundos; depois, se ninguém quis, a comida vira
+   * uma carga comum e volta ao celeiro (a ação de entregar).
+   */
+  gift(this: Ecosystem, i: number): boolean {
+    const s = stateOf(this);
+    const at = s.gifts.get(this.uid[i]);
+    if (at === undefined) return false;
+    if (!this.carry[i] || CARGO_GOOD(this.carry[i]) !== 'food' || (this.year - at) * this.yearSpan > MIND.giftFor) {
+      s.gifts.delete(this.uid[i]);
+      return false;
+    }
+    return true;
+  },
+
+  /**
+   * O quanto alguém perto (do mesmo lugar) precisa de comida, de 0 a 1: o mais fraco à vista, ou 1 quando um filho
+   * pediu comida há pouco (`pede`).
+   */
+  hungryNear(this: Ecosystem, i: number, v: Village): number {
+    const asked = stateOf(this).asked;
+    let most = 0;
+    let who = -1;
+    this.forEachNear(this.x[i], this.y[i], MIND.sight, (j) => {
+      if (j === i || this.village[j] !== v.id) return;
+      const at = asked.get(this.uid[j]);
+      const need = at !== undefined && this.parent[j] === this.uid[i] && (this.year - at) * this.yearSpan < MIND.giftFor ? 1 : Math.min(1, (0.55 - this.energy[j]) / 0.35);
+      if (need > most) {
+        most = need;
+        who = this.uid[j];
+      }
+    });
+    // Quem mais precisa entra na percepção mesmo fora das cinco pessoas mais à mão (ver `perceive`).
+    const s = stateOf(this);
+    if (who >= 0) s.needy.set(this.uid[i], who);
+    else s.needy.delete(this.uid[i]);
+    return most;
   },
 
   /** Casa da pessoa (tile do centro), ou -1: a da família, ou uma casa do lugar escolhida pela família. */
@@ -479,6 +532,9 @@ export const mindPart = {
     const hunter = working && role === ROLE.hunter;
     const hungry = working && v.food < 1 && this.energy[i] < 0.45;
     const c = this.cells?.ready ? this.cells : null;
+    const askedAt = stateOf(this).asked;
+    const needy = stateOf(this).needy.get(this.uid[i]) ?? -1;
+    const asked = (j: number) => this.parent[j] === this.uid[i] && (this.year - (askedAt.get(this.uid[j]) ?? -Infinity)) * this.yearSpan < MIND.giftFor;
     let people = 0;
     let prey = 0;
     // O caçador conhece o território de caça: procura a presa mais longe que a vista comum.
@@ -487,7 +543,7 @@ export const mindPart = {
       const sp = this.species[this.kind[j]];
       if (sp.kind === 'sapient') {
         if (dx * dx + dy * dy > MIND.sight * MIND.sight) return;
-        if (this.village[j] !== v.id || people >= 5) return;
+        if (this.village[j] !== v.id || (people >= 5 && this.uid[j] !== needy)) return;
         people++;
         const bond = bondWith(this.bonds, this.uid[i], this.uid[j]);
         const parent = this.uid[j] === this.parent[i] ? 1 : 0;
@@ -514,7 +570,8 @@ export const mindPart = {
             crianca: kid,
             idoso: old,
             adulto: kid || old ? 0 : 1,
-            fraco: Math.max(0, Math.min(1, (0.55 - this.energy[j]) / 0.35)),
+            // Fraco de fome, ou um filho que acabou de pedir comida a esta pessoa (`pede`).
+            fraco: asked(j) ? 1 : Math.max(0, Math.min(1, (0.55 - this.energy[j]) / 0.35)),
             sozinho: this.needSocial[j],
             cansado: this.needRest[j],
             colega: !kid && this.role[j] === this.role[i] ? 1 : 0,
@@ -804,8 +861,9 @@ export const mindPart = {
    * O corpo das ações simples (src/IAUS/npc/aldeia/rotina.ts), lido dos params do comportamento: vai ao alvo (a
    * pessoa, o lugar, ou um ponto sorteado da aldeia com `anda`), fica `fica` segundos com o `gesto` e então tira das
    * necessidades (`social`, `fe`, `descanso`), come (`come`, uma fração de refeição do celeiro), muda o laço com a
-   * pessoa do alvo (`laco`, os dois lados), a companhia dela (`outro`), o cansaço dela (`aliviar`) e dá de comer a
-   * ela (`alimenta`).
+   * pessoa do alvo (`laco`, os dois lados), a companhia dela (`outro`) e o cansaço dela (`aliviar`). Cada uma é um
+   * passo só: dar de comer são duas ações, pegar comida no celeiro (`pega`, o alvo é o celeiro) e dar a comida da
+   * mão (`entrega`, o alvo é a pessoa); pedir comida (`pede`) só avisa quem foi pedido.
    */
   simpleAct(this: Ecosystem, m: Mente, ctx: ContextInfo, a: Alvo | null, v: Village, dt: number): Resultado {
     const i = m.i;
@@ -849,6 +907,15 @@ export const mindPart = {
     this.needSocial[i] = Math.max(0, this.needSocial[i] - n('social'));
     this.needFaith[i] = Math.max(0, this.needFaith[i] - n('fe'));
     this.needRest[i] = Math.max(0, this.needRest[i] - n('descanso'));
+    if (n('pega') > 0) {
+      // Comida na mão para dar a alguém (`entrega`): não é carga de entregar no celeiro (ver `gift`).
+      if (this.carry[i] || v.food < 1) return 'falhou';
+      const meal = Math.min(v.food, MIND.pace * n('pega'));
+      v.food -= meal;
+      this.carry[i] = carryCode('food');
+      this.carryAmt[i] = meal;
+      stateOf(this).gifts.set(this.uid[i], this.year);
+    }
     if (n('come') > 0 && v.food >= 1) {
       const meal = Math.min(v.food, MIND.pace * n('come'));
       v.food -= meal;
@@ -858,12 +925,16 @@ export const mindPart = {
     if (j >= 0) {
       this.needSocial[j] = Math.max(0, this.needSocial[j] - n('outro'));
       this.needRest[j] = Math.max(0, this.needRest[j] - n('aliviar'));
-      if (n('alimenta') > 0 && v.food >= 1) {
-        const meal = Math.min(v.food, MIND.pace * n('alimenta'));
-        v.food -= meal;
+      if (n('entrega') > 0) {
+        if (!this.gift(i)) return 'falhou';
+        const meal = this.carryAmt[i];
         this.book(v, 'food', 0, meal);
         this.energy[j] = Math.min(1, this.energy[j] + (0.35 * meal) / MIND.pace);
+        this.carry[i] = 0;
+        this.carryAmt[i] = 0;
+        stateOf(this).gifts.delete(this.uid[i]);
       }
+      if (n('pede') > 0) stateOf(this).asked.set(this.uid[i], this.year);
       if (n('laco')) {
         for (const [x, y] of [
           [i, j],
@@ -892,7 +963,7 @@ export const mindPart = {
 
   /**
    * Um passo do andarilho com mente (pacote ANDARILHO, src/IAUS/npc/aldeia/andarilho.ts): sente, pensa e age, e
-   * devolve para onde andar. Entre as ações está seguir o rumo do povo, que pode juntá-lo a um lugar ou fundar um.
+   * devolve para onde andar. Entre as ações estão ir até o lugar do povo (e entrar nele) e fundar um com outros.
    */
   lonerStep(this: Ecosystem, i: number, dt: number): { x: number; y: number } | null {
     const slow = dt / MIND.needPace;
@@ -919,11 +990,8 @@ export const mindPart = {
     const i = m.i;
     this.feelSelf(m);
     m.pessoa.setStat('povo', this.wanderGoal(i).village >= 0 ? 1 : 0);
-    let mates = 0;
-    this.forEachNear(this.x[i], this.y[i], B.LONER_MEET, (j) => {
-      if (j !== i && this.kind[j] === this.kind[i] && this.village[j] < 0) mates++;
-    });
-    m.pessoa.setStat('grupo', Math.min(1, mates / Math.max(1, B.LONER_GROUP_MIN - 1)));
+    m.pessoa.setStat('grupo', Math.min(1, this.lonerMates(i).length / Math.max(1, B.LONER_GROUP_MIN - 1)));
+    m.pessoa.setStat('lugarBom', this.foundHere(i) ? 1 : 0);
     m.pessoa.setStat('carga', 0);
   },
 
@@ -955,21 +1023,50 @@ export const mindPart = {
         wd = d;
       }
     if (water >= 0) add(ID.agua, WOT.agua, water, {});
-    let people = 0;
-    this.forEachNear(x0, y0, MIND.sight, (j, dx, dy) => {
-      if (j === i || people >= 3 || this.village[j] >= 0 || this.species[this.kind[j]].kind !== 'sapient') return;
-      people++;
+    // O lugar do povo mais perto (a até 40 tiles), ou, sem nenhum, um lugar melhor para viver: ruínas por perto ou o
+    // melhor sítio a até 25 tiles.
+    const goal = this.wanderGoal(i);
+    if (goal.village >= 0) {
+      const v = this.villages[goal.village];
+      const t = this.tileAt(v.x, Math.floor(v.y));
+      if (t >= 0) {
+        add(ID.assentamento, WOT.assentamento, t, {});
+        (out[out.length - 1] as Alvo).place = v.id;
+      }
+    } else {
+      const ruin = this.ruinNear(x0, y0, 30, this.kind[i]);
+      const dir = ruin ? null : this.betterSite(i);
+      const t = ruin ? this.tileAt(ruin.x, Math.floor(ruin.y)) : dir ? this.tileAt(x0 + dir.x, Math.floor(y0 + dir.y)) : -1;
+      if (t >= 0) add(ID.sitio, WOT.sitio, t, {});
+    }
+    // Outros andarilhos do povo, os três mais perto a até LONER_SEEK tiles (`junto`: já está perto para fundar).
+    const near: { j: number; dx: number; dy: number; d: number }[] = [];
+    this.forEachNear(x0, y0, B.LONER_SEEK, (j, dx, dy) => {
+      if (j !== i && this.village[j] < 0 && this.kind[j] === this.kind[i]) near.push({ j, dx, dy, d: dx * dx + dy * dy });
+    });
+    near.sort((p, q) => p.d - q.d || p.j - q.j);
+    for (const { j, dx, dy, d } of near.slice(0, 3)) {
       const bond = bondWith(this.bonds, this.uid[i], this.uid[j]);
-      const a = new Alvo({ id: this.uid[j], name: 'pessoa', type: WOT.pessoa, position: { x: x0 + dx, y: y0 + dy }, stats: { laco: ((bond?.value ?? 0) + 100) / 200, livre: 1, sozinho: this.needSocial[j] } });
+      const a = new Alvo({ id: this.uid[j], name: 'pessoa', type: WOT.pessoa, position: { x: x0 + dx, y: y0 + dy }, stats: { laco: ((bond?.value ?? 0) + 100) / 200, livre: 1, sozinho: this.needSocial[j], junto: d <= B.LONER_MEET * B.LONER_MEET ? 1 : 0 } });
       a.j = j;
       out.push(a);
-    });
+    }
     return out;
   },
 
+  /** Dá para fundar onde o andarilho está: ruínas a até 2 tiles, ou um sítio que passa no veto e tem espaço. */
+  foundHere(this: Ecosystem, i: number): boolean {
+    if (this.ruinNear(this.x[i], this.y[i], 2, this.kind[i])) return true;
+    const tx = ((Math.floor(this.x[i]) % this.map.width) + this.map.width) % this.map.width;
+    const ty = Math.floor(this.y[i]);
+    const t = this.tileAt(tx, ty);
+    return t >= 0 && this.goodSite(this.kind[i], t) && this.canFound(tx, ty);
+  },
+
   /**
-   * O corpo do andarilho: as ações simples (os params de rotina.ts) sem celeiro nem casa. `rumo` segue a regra de
-   * procurar o povo por `fica` segundos; `mato` come do verde onde está; dormir vai até descansar.
+   * O corpo do andarilho: as ações simples (os params de rotina.ts) sem celeiro nem casa, cada uma um passo só:
+   * `junta` entra no lugar do povo ao chegar; `encontra` chega perto de outro andarilho; `funda` funda um lugar com o
+   * grupo onde está; `mato` come do verde onde está; dormir vai até descansar.
    */
   lonerAct(this: Ecosystem, m: Mente, acao: string, ctx: ContextInfo, dt: number): Resultado {
     const i = m.i;
@@ -981,21 +1078,17 @@ export const mindPart = {
     if (m.stall > MIND.stall || m.walked > MIND.walkTimeout) return 'falhou';
     const j = a?.j ?? -1;
     if (j >= 0 && (!this.alive[j] || this.uid[j] !== a!.id)) return 'falhou';
-    if (n('rumo') > 0) {
+    if (n('funda') > 0) {
+      // Fundar com o grupo onde está: um passo só, que falha se o grupo se desfez ou o lugar deixou de servir.
+      m.goal = null;
       m.at += dt;
-      const dir = this.loner(m.i, dt);
-      if (this.village[i] >= 0) return 'feito';
-      if (dir) {
-        // Um trecho de até 8 tiles na direção do povo (o caminho a pé é achado até ali).
-        const d = Math.hypot(dir.x, dir.y) || 1;
-        const k = Math.min(1, 8 / d);
-        m.goal = { x: this.x[i] + dir.x * k, y: this.y[i] + dir.y * k, reach: 0.5 };
-        this.gesture[i] = GESTURE.none;
-      } else {
-        m.goal = null;
-        this.gesture[i] = GESTURE.rest;
-      }
-      return m.at >= n('fica') ? 'feito' : 'continua';
+      this.gesture[i] = GESTURE.hammer;
+      if (m.at < n('fica')) return 'continua';
+      const mates = this.lonerMates(i);
+      if (mates.length + 1 < B.LONER_GROUP_MIN || !this.foundHere(i)) return 'falhou';
+      const ruin = this.ruinNear(this.x[i], this.y[i], 2, this.kind[i]);
+      this.lonerFound(i, ruin ? Math.floor(ruin.x) : ((Math.floor(this.x[i]) % w) + w) % w, ruin ? Math.floor(ruin.y) : Math.floor(this.y[i]), mates);
+      return 'feito';
     }
     if (acao === 'Dormir') {
       m.goal = null;
@@ -1011,10 +1104,11 @@ export const mindPart = {
       gx = this.x[j];
       gy = this.y[j];
       reach = 1.8;
+      if (n('encontra') > 0) reach = B.LONER_MEET * 0.7;
     } else if (a) {
       gx = (a.tile % w) + 0.5;
       gy = Math.floor(a.tile / w) + 0.5;
-      reach = 1.2;
+      reach = a.place >= 0 ? Math.max(2, this.radius(this.villages[a.place]) * 0.9) : 1.2;
     } else if (n('anda') > 0) {
       // Um ponto sorteado de 4 a 8 tiles, em chão firme, uma vez por ação.
       if (!m.spot) {
@@ -1037,6 +1131,14 @@ export const mindPart = {
     if (j >= 0 || a || n('anda') > 0) {
       if (!this.reach(m, gx, gy, reach, dt)) return 'continua';
     } else m.goal = null;
+    // Chegou ao lugar do povo: passa a morar ali (o fim da ação).
+    if (n('junta') > 0 && a && a.place >= 0) {
+      const v = this.villages[a.place];
+      if (v.abandoned) return 'falhou';
+      this.join(i, v);
+      this.note(`Um ${this.species[this.kind[i]].name.toLowerCase()} solitário se juntou a ${v.name}`, 'povo', v, { key: `join:${v.id}` });
+      return 'feito';
+    }
     m.at += dt;
     const g = typeof p.gesto === 'string' && p.gesto in GESTURE ? GESTURE[p.gesto as keyof typeof GESTURE] : GESTURE.none;
     this.gesture[i] = g;

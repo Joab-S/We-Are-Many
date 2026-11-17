@@ -3,7 +3,7 @@ import { ANDARILHO } from '../IAUS/npc/aldeia/andarilho';
 import { seedWorld } from './calibrate';
 
 describe('andarilho (quem vive sem lugar)', () => {
-  it('perto da tela tem mente própria: dorme, come do mato, faz fogo e procura o povo, não só procura o povo', () => {
+  it('perto da tela tem mente própria: dorme, come do mato, faz fogo e procura o povo, cada coisa uma ação', () => {
     const { eco } = seedWorld(1234);
     const e = eco as unknown as { uid: Int32Array; x: Float32Array; y: Float32Array; village: Int32Array; mindNow(i: number): { brain: { currentDecision: { context: { behavior: { name: string } } } | null } } | undefined };
     const s = eco.species.findIndex((x) => x.kind === 'sapient');
@@ -34,7 +34,7 @@ describe('andarilho (quem vive sem lugar)', () => {
     }
     for (const n of seen) expect(pack.has(n)).toBe(true);
     expect(seen.size).toBeGreaterThanOrEqual(4);
-    expect(seen.has('Procurar o seu povo')).toBe(true);
+    expect([...seen].some((n) => ['Ir para o lugar do seu povo', 'Ir ao encontro de outro andarilho', 'Procurar um bom lugar para viver'].includes(n))).toBe(true);
     expect(noted).toBe(true);
   }, 60000);
 });

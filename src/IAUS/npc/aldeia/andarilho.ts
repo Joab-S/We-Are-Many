@@ -1,16 +1,18 @@
 /**
  * O andarilho: quem vive sem assentamento (solto pelo jogador, sobrevivente de um lugar que acabou, quem saiu
  * andando). Perto da tela ele também tem um cérebro, e não só a regra de procurar o povo: come do mato, bebe no
- * rio, dorme ao relento, acende fogo, reza, explora, conversa com outro andarilho e, entre uma coisa e outra, segue
- * o rumo do povo (`rumo`: o lugar do seu povo mais perto ou outros solitários para fundar um lugar juntos, a regra de
- * `loner` em src/sim/eco/settlements/founding.ts).
+ * rio, dorme ao relento, acende fogo, reza, explora, conversa com outro andarilho e procura o seu povo. Cada ação é
+ * um passo só, como as da aldeia: ir até o lugar do povo (e entrar ao chegar), ir ao encontro de outro andarilho,
+ * procurar um bom lugar para viver e fundar ali um lugar com o grupo. Juntas, refazem a regra de `loner`
+ * (src/sim/eco/settlements/founding.ts), que continua valendo longe da tela.
  *
  * O corpo é o de `lonerAct` (src/sim/eco/people/mente.ts), com os mesmos params das ações simples (rotina.ts),
- * mais `mato` (come do verde onde está, em frações do forrageio do mato, FORAGE_WILD) e `rumo`.
+ * mais `mato` (come do verde onde está, em frações do forrageio do mato, FORAGE_WILD), `junta`, `encontra` e `funda`.
  *
  * Stats que o andarilho vê em si, além dos de sempre (`fome`, `cansaco`, `sono`, `noite`, `dia`, `tarde`,
  * `conversa`, `fe`, os traços): `povo` (1 quando conhece um lugar do seu povo a até 40 tiles) e `grupo` (quantos
- * solitários estão juntos dele, de 0 a 1, cheio no grupo mínimo para fundar). O mato (`arbusto`) tem `verde`.
+ * solitários estão juntos dele, de 0 a 1, cheio no grupo mínimo para fundar) e `lugarBom` (onde está dá para fundar).
+ * O mato (`arbusto`) tem `verde`; o outro andarilho (`pessoa`), `junto` (já está perto o bastante).
  */
 import { c, pacote } from '../dsl';
 import { curva } from '../curvas';
@@ -27,7 +29,10 @@ const perto = (longe = 24, piso = 0.25) => c('perto', E.DistanceToTarget, curva.
 
 /** Pacote 45: a vida de quem anda sozinho, sem lugar. */
 export const ANDARILHO = pacote({ id: 45, nome: 'Vida sem lugar', camada: 'Mente', descricao: 'Quem anda sozinho: comer do mato, dormir ao relento, fazer fogo e procurar o seu povo.' }, [
-  r({ nome: 'Procurar o seu povo', descricao: 'Anda na direção do lugar do seu povo mais perto ou de outros que andam sozinhos, para viver junto.', tipo: 'JuntarSe', peso: 2.2, fica: 6, gesto: 'none', dia: 'curious', rumo: true, considera: [deDia(0.3), c('vontade de gente', E.eu, curva.sobe(0.4, 1), { stat: 'conversa' }), c('sabe onde ir', E.eu, curva.sim(0.6), { stat: 'povo' }), ...bem()] }),
+  r({ nome: 'Ir para o lugar do seu povo', descricao: 'Sabe onde vive o seu povo: anda até lá e, ao chegar, passa a morar ali.', tipo: 'JuntarSe', alvo: WOT.assentamento, peso: 2.4, fica: 0, gesto: 'none', dia: 'curious', junta: true, considera: [deDia(0.3), c('vontade de gente', E.eu, curva.sobe(0.4, 1), { stat: 'conversa' }), ...bem(), perto(40, 0.5)] }),
+  r({ nome: 'Ir ao encontro de outro andarilho', descricao: 'Sem lugar do povo por perto, vai até outro que anda sozinho: juntos podem fundar um lugar.', tipo: 'Seguir', alvo: WOT.pessoa, peso: 2.2, fica: 0, gesto: 'none', dia: 'social', encontra: true, social: 0.05, considera: [c('não sabe onde ir', E.eu, curva.nao(0), { stat: 'povo' }), c('longe dele', E.alvo, curva.nao(0), { stat: 'junto' }), deDia(0.3), c('vontade de gente', E.eu, curva.sobe(0.4, 1), { stat: 'conversa' }), perto(40, 0.3)] }),
+  r({ nome: 'Procurar um bom lugar para viver', descricao: 'Anda até um lugar melhor para viver por perto: verde, com água, ou as ruínas de um lugar antigo.', tipo: 'Explorar', alvo: WOT.sitio, peso: 1.8, fica: 0.5, gesto: 'none', dia: 'curious', considera: [c('não sabe onde ir', E.eu, curva.nao(0), { stat: 'povo' }), c('aqui não serve', E.eu, curva.nao(0.1), { stat: 'lugarBom' }), deDia(0.3), ...bem(), perto(30, 0.4)] }),
+  r({ nome: 'Fundar um lugar com o grupo', descricao: 'Com outros andarilhos juntos e num lugar bom, fundam ali um lugar para viver.', tipo: 'Fundar', peso: 3, fica: 2, gesto: 'hammer', dia: 'curious', funda: true, considera: [c('não sabe onde ir', E.eu, curva.nao(0), { stat: 'povo' }), c('em grupo', E.eu, curva.limiar(0.95, 30), { stat: 'grupo' }), c('lugar bom', E.eu, curva.sim(0), { stat: 'lugarBom' }), deDia(0.4)] }),
   r({ nome: 'Colher frutos no mato', descricao: 'Com fome e sem celeiro, procura frutos e raízes no mato mais verde por perto.', tipo: 'Coletar', alvo: WOT.arbusto, peso: 2.6, fica: 4, gesto: 'reap', dia: 'eat', mato: 0.5, considera: [c('fome', E.eu, curva.limiar(0.3, 8), { stat: 'fome' }), c('verde', E.alvo, curva.sobe(0.2, 1), { stat: 'verde' }), perto(12, 0.3)] }),
   r({ nome: 'Beber água no rio', descricao: 'Vai até a beira da água beber e se lavar (e acha alguma coisa para comer na margem).', tipo: 'Beber', alvo: WOT.agua, peso: 1.5, fica: 2, gesto: 'dig', dia: 'water', descanso: 0.1, mato: 0.2, considera: [deDia(0.2), c('calor e cansaço', E.eu, curva.sobe(0.3, 1), { stat: 'cansaco' }), perto(15, 0.2)] }),
   r({ nome: 'Dormir ao relento', descricao: 'Com sono, deita onde está e dorme até descansar (de noite, até o dia nascer).', tipo: 'Dormir', peso: 3, fica: 1, gesto: 'rest', dia: 'rest', considera: [c('sono', E.eu, curva.limiar(0.55, 10), { stat: 'sono' })] }),

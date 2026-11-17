@@ -5,7 +5,7 @@
  *
  * Todos usam o corpo simples da aldeia (`simpleAct` em src/sim/eco/people/mente.ts), descrito pelos params: ir ao
  * alvo (uma pessoa, um lugar, ou um ponto da aldeia com `anda`), ficar `fica` segundos com um `gesto` e então mudar o
- * que a pessoa sente (`social`, `fe`, `descanso`, `come`) e o que a outra sente (`outro`, `aliviar`, `alimenta`) e o
+ * que a pessoa sente (`social`, `fe`, `descanso`, `come`) e o que a outra sente (`outro`, `aliviar`) e o
  * laço entre as duas (`laco`). Nenhum produz bens: a economia continua no trabalho.
  *
  * O peso fica entre 1,2 e 2,8, abaixo do trabalho (3): de dia o trabalho ganha e a rotina aparece nas brechas; no fim
@@ -46,20 +46,29 @@ export interface Rotina {
   come?: number;
   outro?: number;
   aliviar?: number;
-  alimenta?: number;
+  /** Pega comida no celeiro (o alvo) e leva na mão, em refeições (`MIND.pace`): o primeiro passo de dar de comer. */
+  pega?: number;
+  /** Dá a comida que tem na mão à pessoa do alvo: o segundo passo. */
+  entrega?: boolean;
+  /** Pede comida (à pessoa do alvo): quem pediu conta como alguém com fome para ela (`fracoPerto`). */
+  pede?: boolean;
   laco?: number;
   /** Come do mato onde está (fração do forrageio FORAGE_WILD por segundo, vezes o verde do lugar): quem vive sem celeiro. */
   mato?: number;
-  /** Segue o rumo do povo (o lugar mais perto do seu povo, ou outros solitários): ver `loner` em founding.ts. */
-  rumo?: boolean;
+  /** O andarilho: ao chegar ao lugar do alvo, entra nele (`junta`); chega perto do solitário do alvo (`encontra`); funda um lugar com o grupo onde está (`funda`). */
+  junta?: boolean;
+  encontra?: boolean;
+  funda?: boolean;
 }
 
 /** Um comportamento do corpo simples (também usado pelo andarilho, andarilho.ts). */
 export function r(x: Rotina): ComportamentoDef {
   const params: Record<string, number | string | boolean> = { fica: x.fica, gesto: x.gesto ?? 'none', dia: x.dia ?? 'social' };
-  for (const k of ['social', 'fe', 'descanso', 'come', 'outro', 'aliviar', 'alimenta', 'laco', 'mato'] as const) if (x[k]) params[k] = x[k]!;
+  for (const k of ['social', 'fe', 'descanso', 'come', 'outro', 'aliviar', 'laco', 'mato', 'pega'] as const) if (x[k]) params[k] = x[k]!;
   if (x.anda) params.anda = 1;
-  if (x.rumo) params.rumo = 1;
+  for (const k of ['junta', 'encontra', 'funda'] as const) if (x[k]) params[k] = 1;
+  if (x.entrega) params.entrega = 1;
+  if (x.pede) params.pede = 1;
   const contexto: Contexto = x.alvo ? 'alvo' : 'eu';
   return {
     nome: x.nome,
@@ -135,7 +144,8 @@ export const GENTE_DA_ALDEIA = pacote({ id: 40, nome: 'Gente da aldeia', camada:
   r({ nome: 'Implicar com alguém', descricao: 'O briguento implica com quem não gosta.', tipo: 'Discutir', alvo: P, peso: 1.5, fica: 1.5, gesto: 'talk', laco: -2, considera: [acordado(), naoGosta(), doAlvo('adulto', 'adulto', 0.5), traco('briguento', 'aggression', 0.9), perto(10, 0.1)] }),
   r({ nome: 'Fazer as pazes', descricao: 'O bondoso procura o rival para acabar com a briga.', tipo: 'Conversar', alvo: P, peso: 1.9, fica: 3, gesto: 'talk', social: 0.2, laco: 8, considera: [folga(0.3), acordado(), doAlvo('rival', 'rival'), traco('bondoso', 'kindness', 0.7), traco('leal', 'loyalty', 0.3), perto()] }),
   r({ nome: 'Consolar quem está sozinho', descricao: 'Vê alguém triste e sozinho e vai fazer companhia.', tipo: 'Cuidar', alvo: P, peso: 2.2, fica: 3, gesto: 'talk', social: 0.2, outro: 0.5, laco: 3, considera: [acordado(), c('sozinho', E.alvo, curva.limiar(0.55, 10), { stat: 'sozinho' }), traco('bondoso', 'kindness', 0.7), livre(0.5), perto()] }),
-  r({ nome: 'Dar de comer a quem está fraco', descricao: 'Alguém fraco de fome: o bondoso leva comida do celeiro.', tipo: 'Doar', alvo: P, peso: 2.8, fica: 1.5, gesto: 'carry', alimenta: 0.3, laco: 4, considera: [c('fraco', E.alvo, curva.limiar(0.4, 10), { stat: 'fraco' }), c('celeiro tem', E.eu, curva.nao(0.05), { stat: 'semComida' }), traco('bondoso', 'kindness', 0.8), perto()] }),
+  r({ nome: 'Pegar comida para quem está fraco', descricao: 'Vê alguém fraco de fome (ou o filho pediu): o bondoso vai ao celeiro e pega comida na mão.', tipo: 'PegarCarga', alvo: WOT.celeiro, peso: 2.6, fica: 0.8, gesto: 'pick', pega: 0.5, considera: [c('alguém com fome', E.eu, curva.limiar(0.4, 10), { stat: 'fracoPerto' }), maos(), doAlvo('tem comida', 'comida'), traco('bondoso', 'kindness', 0.6), perto(40)] }),
+  r({ nome: 'Dar comida a quem está fraco', descricao: 'Com comida na mão, leva a quem está fraco de fome e dá.', tipo: 'Doar', alvo: P, peso: 3.8, fica: 1, gesto: 'carry', entrega: true, laco: 4, considera: [c('fraco', E.alvo, curva.limiar(0.3, 10), { stat: 'fraco' }), c('comida na mão', E.eu, curva.sim(0), { stat: 'comidaNaMao' }), perto(40)] }),
   r({ nome: 'Ajudar um cansado', descricao: 'Vê alguém exausto e dá uma mão para ele descansar.', tipo: 'Cuidar', alvo: P, peso: 1.8, fica: 2, gesto: 'carry', aliviar: 0.25, laco: 2, considera: [acordado(), c('cansado', E.alvo, curva.limiar(0.6, 10), { stat: 'cansado' }), traco('bondoso', 'kindness', 0.6), ...bem(), perto()] }),
   r({ nome: 'Trocar ideias com um colega', descricao: 'Conversa sobre o ofício com alguém do mesmo ofício.', tipo: 'Conversar', alvo: P, peso: 1.9, fica: 2.5, gesto: 'talk', social: 0.3, outro: 0.2, laco: 2, considera: [folga(0.3), acordado(), doAlvo('colega', 'colega'), livre(), traco('curioso', 'curiosity', 0.4), perto()] }),
   r({ nome: 'Pedir conselho a um idoso', descricao: 'Com uma dúvida da vida, vai ouvir um idoso.', tipo: 'Conversar', alvo: P, peso: 1.8, fica: 3, gesto: 'talk', social: 0.3, outro: 0.4, laco: 2, considera: [folga(0.3), acordado(), doAlvo('idoso', 'idoso'), traco('paciente', 'patience', 0.4), laco(), perto()] }),
@@ -149,7 +159,7 @@ export const GENTE_DA_ALDEIA = pacote({ id: 40, nome: 'Gente da aldeia', camada:
   r({ nome: 'Apostar com alguém', descricao: 'O ganancioso aposta qualquer coisa com um conhecido.', tipo: 'Conversar', alvo: P, peso: 1.4, fica: 2, gesto: 'cheer', social: 0.2, laco: 1, considera: [folga(), acordado(), doAlvo('adulto', 'adulto'), livre(), traco('ganancioso', 'greed', 0.7), laco(), perto(12)] }),
   r({ nome: 'Desafiar para uma luta de brincadeira', descricao: 'O forte desafia um conhecido para uma luta de mentira.', tipo: 'Treinar', alvo: P, peso: 1.4, fica: 2, gesto: 'hammer', social: 0.15, outro: 0.1, laco: 1, considera: [folga(), entardecer(0.4), doAlvo('adulto', 'adulto'), livre(), traco('forte', 'strength', 0.6), traco('corajoso', 'courage', 0.4), perto(12)] }),
   r({ nome: 'Contar as novidades', descricao: 'Quem soube de algo corre para contar a um conhecido.', tipo: 'Conversar', alvo: P, peso: 1.5, fica: 1.5, gesto: 'talk', social: 0.15, outro: 0.1, laco: 1, considera: [acordado(), laco(), livre(), traco('falante', 'sociability', 0.5), traco('curioso', 'curiosity', 0.3), perto(12)] }),
-  r({ nome: 'Dividir o almoço com um colega', descricao: 'Na pausa do meio do dia, come junto com alguém do mesmo ofício.', tipo: 'Comer', alvo: P, peso: 1.8, fica: 2, gesto: 'rest', dia: 'eat', social: 0.25, come: 0.15, laco: 2, considera: [deDia(0.05), c('fome leve', E.eu, curva.lombada(0.3, 0.15, 0), { stat: 'fome' }), doAlvo('colega', 'colega', 0.4), livre(), perto(12)] }),
+  r({ nome: 'Fazer a pausa com um colega', descricao: 'No meio do dia, para um pouco e conversa com alguém do mesmo ofício.', tipo: 'Conversar', alvo: P, peso: 1.8, fica: 2, gesto: 'rest', dia: 'social', social: 0.25, descanso: 0.05, laco: 2, considera: [deDia(0.05), c('um pouco cansado', E.eu, curva.lombada(0.3, 0.15, 0), { stat: 'cansaco' }), doAlvo('colega', 'colega', 0.4), livre(), perto(12)] }),
 ]);
 
 /** Pacote 41: a família e quem precisa de cuidado. */
@@ -159,7 +169,7 @@ export const FAMILIA_DA_ALDEIA = pacote({ id: 41, nome: 'Família na aldeia', ca
   r({ nome: 'Ensinar o filho', descricao: 'Mostra ao filho como se faz o que ele faz.', tipo: 'Ensinar', alvo: P, peso: 2, fica: 3, gesto: 'talk', social: 0.15, outro: 0.25, laco: 2, considera: [folga(0.3), acordado(), doAlvo('filho', 'filho'), traco('paciente', 'patience', 0.5), ...bem(), perto(30)] }),
   r({ nome: 'Visitar os pais', descricao: 'Vai ver o pai ou a mãe.', tipo: 'Seguir', alvo: P, peso: 2.1, fica: 3, gesto: 'talk', social: 0.4, outro: 0.3, laco: 3, considera: [folga(), acordado(), doAlvo('pai ou mãe', 'parente'), traco('apegado', 'attachment', 0.5), perto(40)] }),
   r({ nome: 'Cuidar de um idoso da família', descricao: 'Ajuda um idoso da família no que ele precisar.', tipo: 'Cuidar', alvo: P, peso: 2.1, fica: 3, gesto: 'carry', social: 0.15, outro: 0.3, aliviar: 0.2, laco: 3, considera: [acordado(), doAlvo('idoso', 'idoso'), doAlvo('família', 'familia'), traco('bondoso', 'kindness', 0.5), perto(30)] }),
-  r({ nome: 'Cuidar de um doente', descricao: 'Alguém está fraco: senta do lado e cuida dele.', tipo: 'Cuidar', alvo: P, peso: 2.4, fica: 4, gesto: 'pray', outro: 0.3, aliviar: 0.3, alimenta: 0.15, laco: 4, considera: [c('fraco', E.alvo, curva.limiar(0.55, 10), { stat: 'fraco' }), traco('bondoso', 'kindness', 0.6), laco(), perto(30)] }),
+  r({ nome: 'Cuidar de um doente', descricao: 'Alguém está fraco: senta do lado e cuida dele.', tipo: 'Cuidar', alvo: P, peso: 2.4, fica: 4, gesto: 'pray', outro: 0.3, aliviar: 0.3, laco: 4, considera: [c('fraco', E.alvo, curva.limiar(0.55, 10), { stat: 'fraco' }), traco('bondoso', 'kindness', 0.6), laco(), perto(30)] }),
   r({ nome: 'Jantar com a família', descricao: 'No fim da tarde, come em casa com a família.', tipo: 'Comer', alvo: WOT.casa, peso: 2.5, fica: 3, gesto: 'rest', dia: 'eat', social: 0.3, come: 0.3, considera: [folga(0.1), entardecer(0.2), c('apetite', E.eu, curva.sobe(0.3, 1), { stat: 'fome' }), doAlvo('tem comida', 'comida'), traco('familiar', 'familism', 0.4), perto(60, 0.3)] }),
   r({ nome: 'Contar o dia ao parceiro', descricao: 'No fim da tarde, conta ao parceiro como foi o dia.', tipo: 'Conversar', alvo: P, peso: 2.4, fica: 3, gesto: 'talk', social: 0.4, outro: 0.4, laco: 2, considera: [folga(), entardecer(), doAlvo('parceiro', 'parceiro'), livre(), perto(40)] }),
   r({ nome: 'Pôr as crianças para dormir', descricao: 'À noitinha, leva o filho pequeno para a cama.', tipo: 'Cuidar', alvo: P, peso: 2.5, fica: 2, gesto: 'rest', outro: 0.2, aliviar: 0.2, laco: 2, considera: [c('anoitecer', E.eu, curva.lombada(0.5, 0.3, 0.05), { stat: 'noite' }), doAlvo('filho', 'filho'), doAlvo('criança', 'crianca'), perto(40)] }),
@@ -224,7 +234,7 @@ export const BRINCADEIRAS_DA_ALDEIA = pacote({ id: 44, nome: 'Brincadeiras', cam
   r({ nome: 'Seguir os pais no trabalho', descricao: 'Vai atrás do pai ou da mãe para ver o trabalho.', tipo: 'Seguir', alvo: P, peso: 1.9, fica: 3, gesto: 'none', social: 0.2, laco: 1, considera: [deDia(0.2), doAlvo('pai ou mãe', 'parente'), traco('apegado', 'attachment', 0.5), perto(30)] }),
   r({ nome: 'Brigar com outra criança', descricao: 'A criança brava briga com outra por qualquer coisa.', tipo: 'Discutir', alvo: P, peso: 1.4, fica: 1.5, gesto: 'talk', laco: -2, considera: [acordado(), doAlvo('criança', 'crianca'), naoGosta(), traco('brava', 'aggression', 0.8), perto(10, 0.1)] }),
   r({ nome: 'Fazer travessura', descricao: 'Sai pela aldeia aprontando alguma.', tipo: 'Vagar', peso: 1.4, fica: 1.5, gesto: 'cheer', anda: true, considera: [deDia(0.1), traco('levada', 'aggression', 0.5), traco('curiosa', 'curiosity', 0.4), ...bem()] }),
-  r({ nome: 'Pedir comida aos pais', descricao: 'Com fome, vai pedir comida ao pai ou à mãe.', tipo: 'Seguir', alvo: P, peso: 2.2, fica: 1.5, gesto: 'none', dia: 'eat', come: 0.3, laco: 1, considera: [fome(0.3), doAlvo('pai ou mãe', 'parente'), c('celeiro tem', E.eu, curva.nao(0.05), { stat: 'semComida' }), perto(40)] }),
+  r({ nome: 'Pedir comida aos pais', descricao: 'Com fome, vai até o pai ou a mãe e pede comida (quem vai ao celeiro buscar são eles).', tipo: 'Conversar', alvo: P, peso: 2.2, fica: 1.5, gesto: 'talk', dia: 'social', pede: true, laco: 1, considera: [fome(0.3), doAlvo('pai ou mãe', 'parente'), c('celeiro tem', E.eu, curva.nao(0.05), { stat: 'semComida' }), perto(40)] }),
   r({ nome: 'Cochilar depois de brincar', descricao: 'Cansada de brincar, tira um cochilo em casa.', tipo: 'Dormir', alvo: WOT.casa, peso: 2, fica: 3, gesto: 'rest', dia: 'rest', descanso: 0.35, considera: [cansaco(0.3), deDia(0.3), perto(40)] }),
 ]);
 
