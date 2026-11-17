@@ -36,6 +36,7 @@ import { E } from '../entradas';
 import { WOT } from '../vocab';
 
 import { BRINCADEIRAS_DA_ALDEIA, FAMILIA_DA_ALDEIA, FOCO_ALDEIA, GENTE_DA_ALDEIA, LUGARES_DA_ALDEIA, OCIO_DA_ALDEIA, PASSATEMPOS_DA_ALDEIA, ROTINA_DA_ALDEIA } from './rotina';
+import { ANDARILHO } from './andarilho';
 
 export { FOCO_ALDEIA };
 
@@ -303,15 +304,16 @@ export const INFANCIA_DA_ALDEIA = pacote(
   ],
 );
 
-export const PACOTES_DA_ALDEIA = [NECESSIDADES_DA_ALDEIA, TRABALHO_DA_ALDEIA, CONVIVIO_DA_ALDEIA, INFANCIA_DA_ALDEIA, ...ROTINA_DA_ALDEIA];
+export const PACOTES_DA_ALDEIA = [NECESSIDADES_DA_ALDEIA, TRABALHO_DA_ALDEIA, CONVIVIO_DA_ALDEIA, INFANCIA_DA_ALDEIA, ...ROTINA_DA_ALDEIA, ANDARILHO];
 
 /** Cérebros de nascença da aldeia: adulto que trabalha, criança e idoso. */
-export const CEREBRO_DA_ALDEIA = { adulto: 11, crianca: 12, idoso: 13 } as const;
+export const CEREBRO_DA_ALDEIA = { adulto: 11, crianca: 12, idoso: 13, andarilho: 14 } as const;
 const ids = (...p: { id: number }[]) => p.map((x) => x.id);
 for (const [id, name, packs] of [
   [CEREBRO_DA_ALDEIA.adulto, 'Aldeão', ids(NECESSIDADES_DA_ALDEIA, TRABALHO_DA_ALDEIA, CONVIVIO_DA_ALDEIA, OCIO_DA_ALDEIA, GENTE_DA_ALDEIA, FAMILIA_DA_ALDEIA, LUGARES_DA_ALDEIA, PASSATEMPOS_DA_ALDEIA)],
   [CEREBRO_DA_ALDEIA.crianca, 'Criança da aldeia', ids(NECESSIDADES_DA_ALDEIA, CONVIVIO_DA_ALDEIA, INFANCIA_DA_ALDEIA, BRINCADEIRAS_DA_ALDEIA)],
   [CEREBRO_DA_ALDEIA.idoso, 'Idoso da aldeia', ids(NECESSIDADES_DA_ALDEIA, CONVIVIO_DA_ALDEIA, OCIO_DA_ALDEIA, GENTE_DA_ALDEIA, FAMILIA_DA_ALDEIA, LUGARES_DA_ALDEIA)],
+  [CEREBRO_DA_ALDEIA.andarilho, 'Andarilho (sem lugar)', ids(ANDARILHO)],
 ] as const) {
   if (!BrainLibrary.brains.has(id)) BrainLibrary.brains.set(id, { id, name, behaviorPackIds: [...packs], abilityPackIds: [] });
 }

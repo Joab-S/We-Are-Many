@@ -166,7 +166,7 @@ function stateOf(eco: Ecosystem): Aldeia {
 }
 
 /** Ids dos alvos por tipo, para a mesma coisa ter a mesma chave de decisão de um pensamento ao outro (o momentum). */
-const ID = { celeiro: 1, casa: 2, praca: 3, templo: 4, posto: 5, roca: 6, carga: 7, obra: 8, arvore: 9, portao: 10, evento: 11 } as const;
+const ID = { celeiro: 1, casa: 2, praca: 3, templo: 4, posto: 5, roca: 6, carga: 7, obra: 8, arvore: 9, portao: 10, evento: 11, mato: 12, agua: 13 } as const;
 const idOf = (kind: number, n: number) => -(kind * 100_000_000 + n);
 
 /** Atividade (DAY) de cada Behavior Type, para a tela e as contas do dia. */
@@ -231,6 +231,12 @@ export const mindPart = {
     if (this.jobKind[i] && busy?.context.behavior.behaviorType !== 'CortarLenha') this.dropJob(i);
     const type = busy?.context.behavior.behaviorType ?? '';
     this.sampleDay(i, v, working, WORK.has(type) || this.carry[i] > 0, !busy || type === 'IrParaCasa');
+    return this.walkGoal(m, dt);
+  },
+
+  /** Para onde andar agora rumo ao destino da mente (`goal`): perto, em linha reta; longe, pelo caminho. */
+  walkGoal(this: Ecosystem, m: Mente, dt: number): { x: number; y: number } | null {
+    const i = m.i;
     if (!m.goal) return null;
     const w = this.map.width;
     const dx = wrapDx(m.goal.x - this.x[i], w);
@@ -261,10 +267,10 @@ export const mindPart = {
   },
 
   /** A mente da pessoa: cria na primeira vez e troca o cérebro quando a fase da vida muda. */
-  mindOf(this: Ecosystem, i: number, working: boolean): Mente {
+  mindOf(this: Ecosystem, i: number, working: boolean, forced?: number): Mente {
     const s = stateOf(this);
     const uid = this.uid[i];
-    const seed = this.role[i] === CHILD ? CEREBRO_DA_ALDEIA.crianca : working ? CEREBRO_DA_ALDEIA.adulto : CEREBRO_DA_ALDEIA.idoso;
+    const seed = forced ?? (this.role[i] === CHILD ? CEREBRO_DA_ALDEIA.crianca : working ? CEREBRO_DA_ALDEIA.adulto : CEREBRO_DA_ALDEIA.idoso);
     let m = s.minds.get(uid);
     if (m && m.seed === seed) {
       m.i = i;
@@ -323,6 +329,26 @@ export const mindPart = {
   feel(this: Ecosystem, m: Mente, v: Village, working: boolean): void {
     const i = m.i;
     const p = m.pessoa;
+    this.feelSelf(m);
+    // A carga na mão: `carga` (tem alguma), `cheio` (quanto pesa para levar já: comida e o que não se junta contam
+    // cheio; a lenha, o quanto encheu) e `espacoLenha` (quanto cabe de lenha ainda: o lenhador corta mais de uma
+    // árvore antes de ir ao celeiro).
+    const g = this.carry[i] && this.carryAmt[i] > 0 ? CARGO_GOOD(this.carry[i]) : null;
+    const fill = g ? Math.min(1, this.carryAmt[i] / this.loadCap(v)) : 0;
+    p.setStat('carga', g ? 1 : 0);
+    p.setStat('cheio', !g ? 0 : g === 'wood' ? fill : 1);
+    p.setStat('espacoLenha', !g ? 1 : g === 'wood' ? 1 - fill : 0);
+    p.setStat('trabalha', working ? 1 : 0);
+    p.setStat('semCasa', this.homeTile(i, v) < 0 ? 1 : 0);
+    p.setStat('semComida', 1 - this.foodFor(m, v));
+    p.setStat('alarme', (v.alarmUntil ?? -1) > this.year ? 1 : 0);
+    p.setStat('enterro', v.funeral && v.funeral.until > this.year && this.family[i] === v.funeral.family ? 1 : 0);
+  },
+
+  /** O que a pessoa sente em si, com ou sem lugar: fome, hora do dia, sono, companhia, fé, rotina e traços. */
+  feelSelf(this: Ecosystem, m: Mente): void {
+    const i = m.i;
+    const p = m.pessoa;
     p.position = { x: this.x[i], y: this.y[i] };
     p.setStat('fome', Math.max(0, Math.min(1, (0.85 - this.energy[i]) / 0.6)));
     // A hora do dia (ver `hourOf`): de noite dá sono e o trabalho para; no fim da tarde dá vontade de conversar.
@@ -339,19 +365,6 @@ export const mindPart = {
     for (const [tipo, sec] of m.rotina) p.setStat(`rotina.${tipo}`, Math.min(1, sec / (tipo.startsWith('n:') ? MIND.routineName : MIND.routine)));
     p.setStat('solidao', this.needSocial[i]);
     p.setStat('fe', this.needFaith[i]);
-    // A carga na mão: `carga` (tem alguma), `cheio` (quanto pesa para levar já: comida e o que não se junta contam
-    // cheio; a lenha, o quanto encheu) e `espacoLenha` (quanto cabe de lenha ainda: o lenhador corta mais de uma
-    // árvore antes de ir ao celeiro).
-    const g = this.carry[i] && this.carryAmt[i] > 0 ? CARGO_GOOD(this.carry[i]) : null;
-    const fill = g ? Math.min(1, this.carryAmt[i] / this.loadCap(v)) : 0;
-    p.setStat('carga', g ? 1 : 0);
-    p.setStat('cheio', !g ? 0 : g === 'wood' ? fill : 1);
-    p.setStat('espacoLenha', !g ? 1 : g === 'wood' ? 1 - fill : 0);
-    p.setStat('trabalha', working ? 1 : 0);
-    p.setStat('semCasa', this.homeTile(i, v) < 0 ? 1 : 0);
-    p.setStat('semComida', 1 - this.foodFor(m, v));
-    p.setStat('alarme', (v.alarmUntil ?? -1) > this.year ? 1 : 0);
-    p.setStat('enterro', v.funeral && v.funeral.until > this.year && this.family[i] === v.funeral.family ? 1 : 0);
     for (let k = 0; k < TRAIT_COUNT; k++) p.setStat(`tr.${TRAITS[k]}`, this.traits[i * TRAIT_COUNT + k] / 10);
   },
 
@@ -387,7 +400,7 @@ export const mindPart = {
     const i = m.i;
     const vi = this.village[i];
     const v = vi >= 0 ? this.villages[vi] : null;
-    if (!v) return [];
+    if (!v) return this.perceiveAlone(m);
     const w = this.map.width;
     const out: AiEntity[] = [];
     const x0 = this.x[i];
@@ -578,7 +591,6 @@ export const mindPart = {
     const i = m.i;
     const vi = this.village[i];
     const v = vi >= 0 ? this.villages[vi] : null;
-    if (!v) return 'falhou';
     if (m.ctx !== ctx) {
       m.ctx = ctx;
       m.at = 0;
@@ -591,6 +603,7 @@ export const mindPart = {
       m.did = 0;
       m.spot = null;
     }
+    if (!v) return this.lonerAct(m, acao, ctx, dt);
     const a = ctx.target instanceof Alvo ? ctx.target : null;
     this.day[i] = ACTIVITY[acao] ?? DAY.none;
     const tx = a ? (a.tile % this.map.width) + (a.house || a.type === WOT.casa || a.type === WOT.templo ? 1 : 0.5) : this.x[i];
@@ -864,6 +877,193 @@ export const mindPart = {
     return 'feito';
   },
 
+  /**
+   * O andarilho (quem vive sem lugar) tem mente quando está perto da tela: a vista mais a margem das jornadas. Longe
+   * dela, segue só a regra de procurar o povo (`loner`, founding.ts), como antes.
+   */
+  lonerMinded(this: Ecosystem, i: number): boolean {
+    const f = this.focus;
+    if (!f) return false;
+    const dx = wrapDx(this.x[i] - f.x, this.map.width);
+    const dy = this.y[i] - f.y;
+    const r = f.r + B.JOURNEY_MARGIN;
+    return dx * dx + dy * dy <= r * r;
+  },
+
+  /**
+   * Um passo do andarilho com mente (pacote ANDARILHO, src/IAUS/npc/aldeia/andarilho.ts): sente, pensa e age, e
+   * devolve para onde andar. Entre as ações está seguir o rumo do povo, que pode juntá-lo a um lugar ou fundar um.
+   */
+  lonerStep(this: Ecosystem, i: number, dt: number): { x: number; y: number } | null {
+    const slow = dt / MIND.needPace;
+    this.needRest[i] = Math.min(1, this.needRest[i] + B.NEED_REST * slow * 0.8);
+    this.needSocial[i] = Math.min(1, this.needSocial[i] + B.NEED_SOCIAL * slow);
+    this.needFaith[i] = Math.min(1, this.needFaith[i] + B.NEED_FAITH * slow);
+    const m = this.mindOf(i, true, CEREBRO_DA_ALDEIA.andarilho);
+    this.feelAlone(m);
+    m.brain.update(dt);
+    // Chegou a um lugar do povo (ou fundou um) no meio da ação: a partir do próximo passo, a mente é a da aldeia.
+    if (this.village[i] >= 0) return null;
+    const busy = m.brain.currentDecision;
+    this.routineStep(m, busy ? [busy.context.behavior.behaviorType, `n:${busy.context.behavior.name}`] : [], dt);
+    if (!busy) {
+      m.goal = null;
+      this.gesture[i] = GESTURE.none;
+      this.day[i] = DAY.none;
+    }
+    return this.walkGoal(m, dt);
+  },
+
+  /** O que o andarilho sente: o mesmo de todos (`feelSelf`), mais se sabe onde está o povo e quantos andam com ele. */
+  feelAlone(this: Ecosystem, m: Mente): void {
+    const i = m.i;
+    this.feelSelf(m);
+    m.pessoa.setStat('povo', this.wanderGoal(i).village >= 0 ? 1 : 0);
+    let mates = 0;
+    this.forEachNear(this.x[i], this.y[i], B.LONER_MEET, (j) => {
+      if (j !== i && this.kind[j] === this.kind[i] && this.village[j] < 0) mates++;
+    });
+    m.pessoa.setStat('grupo', Math.min(1, mates / Math.max(1, B.LONER_GROUP_MIN - 1)));
+    m.pessoa.setStat('carga', 0);
+  },
+
+  /** O que o andarilho conhece: o mato mais verde por perto, a beira d'água mais perto e outros andarilhos. */
+  perceiveAlone(this: Ecosystem, m: Mente): AiEntity[] {
+    const i = m.i;
+    const w = this.map.width;
+    const out: AiEntity[] = [];
+    const x0 = this.x[i];
+    const y0 = this.y[i];
+    const add = (kind: number, type: string, t: number, stats: Record<string, number>) => {
+      const a = new Alvo({ id: idOf(kind, 0), name: type, type, position: { x: x0 + wrapDx((t % w) + 0.5 - x0, w), y: Math.floor(t / w) + 0.5 }, stats });
+      a.tile = t;
+      out.push(a);
+    };
+    const f = this.bestForage(i);
+    const ft = this.tileAt(f.x, Math.floor(f.y));
+    if (ft >= 0) add(ID.mato, WOT.arbusto, ft, { verde: this.map.vegetation[ft] });
+    // A beira d'água mais perto, a até 10 tiles (um chão firme com água do lado).
+    let water = -1;
+    let wd = Infinity;
+    for (let dy = -10; dy <= 10; dy++)
+      for (let dx = -10; dx <= 10; dx++) {
+        const d = dx * dx + dy * dy;
+        if (d >= wd || d > 100) continue;
+        const t = this.tileAt(x0 + dx, Math.floor(y0) + dy);
+        if (t < 0 || !this.canStand(this.kind[i], t) || !this.nearWater(t)) continue;
+        water = t;
+        wd = d;
+      }
+    if (water >= 0) add(ID.agua, WOT.agua, water, {});
+    let people = 0;
+    this.forEachNear(x0, y0, MIND.sight, (j, dx, dy) => {
+      if (j === i || people >= 3 || this.village[j] >= 0 || this.species[this.kind[j]].kind !== 'sapient') return;
+      people++;
+      const bond = bondWith(this.bonds, this.uid[i], this.uid[j]);
+      const a = new Alvo({ id: this.uid[j], name: 'pessoa', type: WOT.pessoa, position: { x: x0 + dx, y: y0 + dy }, stats: { laco: ((bond?.value ?? 0) + 100) / 200, livre: 1, sozinho: this.needSocial[j] } });
+      a.j = j;
+      out.push(a);
+    });
+    return out;
+  },
+
+  /**
+   * O corpo do andarilho: as ações simples (os params de rotina.ts) sem celeiro nem casa. `rumo` segue a regra de
+   * procurar o povo por `fica` segundos; `mato` come do verde onde está; dormir vai até descansar.
+   */
+  lonerAct(this: Ecosystem, m: Mente, acao: string, ctx: ContextInfo, dt: number): Resultado {
+    const i = m.i;
+    const p = ctx.behavior.params;
+    const n = (k: string) => (typeof p[k] === 'number' ? (p[k] as number) : 0);
+    const w = this.map.width;
+    const a = ctx.target instanceof Alvo ? ctx.target : null;
+    this.day[i] = typeof p.dia === 'string' && p.dia in DAY ? DAY[p.dia as keyof typeof DAY] : ACTIVITY[acao] ?? DAY.none;
+    if (m.stall > MIND.stall || m.walked > MIND.walkTimeout) return 'falhou';
+    const j = a?.j ?? -1;
+    if (j >= 0 && (!this.alive[j] || this.uid[j] !== a!.id)) return 'falhou';
+    if (n('rumo') > 0) {
+      m.at += dt;
+      const dir = this.loner(m.i, dt);
+      if (this.village[i] >= 0) return 'feito';
+      if (dir) {
+        // Um trecho de até 8 tiles na direção do povo (o caminho a pé é achado até ali).
+        const d = Math.hypot(dir.x, dir.y) || 1;
+        const k = Math.min(1, 8 / d);
+        m.goal = { x: this.x[i] + dir.x * k, y: this.y[i] + dir.y * k, reach: 0.5 };
+        this.gesture[i] = GESTURE.none;
+      } else {
+        m.goal = null;
+        this.gesture[i] = GESTURE.rest;
+      }
+      return m.at >= n('fica') ? 'feito' : 'continua';
+    }
+    if (acao === 'Dormir') {
+      m.goal = null;
+      m.at += dt;
+      this.gesture[i] = GESTURE.rest;
+      this.needRest[i] = Math.max(0, this.needRest[i] - MIND.sleep * dt);
+      return this.needRest[i] <= 0.05 && dayPhase(this.hourOf()).noite < 0.5 ? 'feito' : 'continua';
+    }
+    let gx = this.x[i];
+    let gy = this.y[i];
+    let reach = 1.6;
+    if (j >= 0) {
+      gx = this.x[j];
+      gy = this.y[j];
+      reach = 1.8;
+    } else if (a) {
+      gx = (a.tile % w) + 0.5;
+      gy = Math.floor(a.tile / w) + 0.5;
+      reach = 1.2;
+    } else if (n('anda') > 0) {
+      // Um ponto sorteado de 4 a 8 tiles, em chão firme, uma vez por ação.
+      if (!m.spot) {
+        m.spot = { x: this.x[i], y: this.y[i] };
+        for (let k = 0; k < 8; k++) {
+          const ang = this.mindRnd() * Math.PI * 2;
+          const r = 4 + this.mindRnd() * 4;
+          const x = this.x[i] + Math.cos(ang) * r;
+          const y = this.y[i] + Math.sin(ang) * r;
+          const t = this.tileAt(x, Math.floor(y));
+          if (t < 0 || !this.canStand(this.kind[i], t)) continue;
+          m.spot = { x: Math.floor(x) + 0.5, y: Math.floor(y) + 0.5 };
+          break;
+        }
+      }
+      gx = m.spot.x;
+      gy = m.spot.y;
+      reach = 1.5;
+    }
+    if (j >= 0 || a || n('anda') > 0) {
+      if (!this.reach(m, gx, gy, reach, dt)) return 'continua';
+    } else m.goal = null;
+    m.at += dt;
+    const g = typeof p.gesto === 'string' && p.gesto in GESTURE ? GESTURE[p.gesto as keyof typeof GESTURE] : GESTURE.none;
+    this.gesture[i] = g;
+    if (j >= 0 && n('outro') > 0 && this.gesture[j] === GESTURE.none) this.gesture[j] = g;
+    if (n('mato') > 0) {
+      const veg = this.map.vegetation[this.tileOf(i)];
+      this.energy[i] = Math.min(1, this.energy[i] + B.FORAGE_WILD * n('mato') * Math.max(0.1, veg) * dt);
+    }
+    if (m.at < n('fica')) return 'continua';
+    this.needSocial[i] = Math.max(0, this.needSocial[i] - n('social'));
+    this.needFaith[i] = Math.max(0, this.needFaith[i] - n('fe'));
+    this.needRest[i] = Math.max(0, this.needRest[i] - n('descanso'));
+    if (j >= 0) {
+      this.needSocial[j] = Math.max(0, this.needSocial[j] - n('outro'));
+      if (n('laco')) {
+        for (const [x, y] of [
+          [i, j],
+          [j, i],
+        ]) {
+          const b = touch(this.bonds, this.uid[x], this.uid[y]);
+          b.value = Math.max(-100, Math.min(100, b.value + n('laco')));
+        }
+      }
+    }
+    return 'feito';
+  },
+
   /** A hora do dia na tela, de 0 a 1 (0 é meia-noite, 0,5 é meio-dia), tirada do relógio do mundo. */
   hourOf(this: Ecosystem): number {
     const t = (this.year * this.yearSpan) / MIND.day;
@@ -988,7 +1188,7 @@ export const mindPart = {
       const i = m.i;
       const alive = this.alive[i] === 1 && this.uid[i] === uid;
       const vi = alive ? this.village[i] : -1;
-      if (alive && vi >= 0 && this.full(this.villages[vi])) continue;
+      if (alive && (vi >= 0 ? this.full(this.villages[vi]) : this.lonerMinded(i))) continue;
       if (alive) {
         if (this.jobKind[i]) this.dropJob(i);
         this.dropDay(i, vi >= 0 ? this.villages[vi] : null);
@@ -1110,7 +1310,12 @@ export const mindPart = {
     const carry = this.carry[i] ? `${constantsModule.CARGO_NAMES[CARGO_GOOD(this.carry[i]) ?? ''] ?? 'carga'} (${f(this.carryAmt[i])})` : '';
     const vi = this.village[i];
     const v = vi >= 0 ? this.villages[vi] : null;
-    if (!v) return { task: 'sem lugar', why: 'vive solto, sem assentamento', others: [], carry, note: null };
+    if (!v) {
+      // O andarilho perto da tela tem mente (ver `lonerStep`); longe dela, só a regra de procurar o povo.
+      const cur = this.mindNow(i)?.brain.currentDecision;
+      if (cur && n) return { task: n.label, why: n.why, others: n.others.map((o) => `${o.label} (${f(o.score)})`), carry, note: n };
+      return { task: 'sem lugar', why: 'vive solto, sem assentamento', others: [], carry, note: null };
+    }
     if (!this.full(v)) return { task: 'rotina do lugar', why: 'o lugar está fora da tela: a produção corre no modo agregado', others: [], carry, note: null };
     const m = this.mindNow(i);
     const cur = m?.brain.currentDecision;

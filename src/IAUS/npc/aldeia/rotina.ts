@@ -27,7 +27,7 @@ export const FOCO_ALDEIA = 1.5;
 type Gesto = 'none' | 'dig' | 'reap' | 'chop' | 'hammer' | 'row' | 'pray' | 'pick' | 'carry' | 'talk' | 'rest' | 'cheer';
 type Dia = 'social' | 'rest' | 'pray' | 'eat' | 'water' | 'curious' | 'festival';
 
-interface Rotina {
+export interface Rotina {
   nome: string;
   descricao: string;
   tipo: string;
@@ -48,12 +48,18 @@ interface Rotina {
   aliviar?: number;
   alimenta?: number;
   laco?: number;
+  /** Come do mato onde está (fração do forrageio FORAGE_WILD por segundo, vezes o verde do lugar): quem vive sem celeiro. */
+  mato?: number;
+  /** Segue o rumo do povo (o lugar mais perto do seu povo, ou outros solitários): ver `loner` em founding.ts. */
+  rumo?: boolean;
 }
 
-function r(x: Rotina): ComportamentoDef {
+/** Um comportamento do corpo simples (também usado pelo andarilho, andarilho.ts). */
+export function r(x: Rotina): ComportamentoDef {
   const params: Record<string, number | string | boolean> = { fica: x.fica, gesto: x.gesto ?? 'none', dia: x.dia ?? 'social' };
-  for (const k of ['social', 'fe', 'descanso', 'come', 'outro', 'aliviar', 'alimenta', 'laco'] as const) if (x[k]) params[k] = x[k]!;
+  for (const k of ['social', 'fe', 'descanso', 'come', 'outro', 'aliviar', 'alimenta', 'laco', 'mato'] as const) if (x[k]) params[k] = x[k]!;
   if (x.anda) params.anda = 1;
+  if (x.rumo) params.rumo = 1;
   const contexto: Contexto = x.alvo ? 'alvo' : 'eu';
   return {
     nome: x.nome,

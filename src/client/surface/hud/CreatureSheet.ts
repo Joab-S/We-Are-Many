@@ -107,6 +107,12 @@ const FACTOR: Record<string, { icon: string; pro: string; con: string; trait?: T
   'celeiro tem': { icon: 'cake', pro: 'o celeiro tem comida', con: 'o celeiro está vazio' },
   'sem falta de gente': { icon: 'chat', pro: 'não sente falta de ninguém', con: 'sente falta de gente' },
   'sem sono': { icon: 'eye', pro: 'está sem sono', con: 'está com sono' },
+  // O andarilho (src/IAUS/npc/aldeia/andarilho.ts).
+  'vontade de gente': { icon: 'chat', pro: 'sente falta do seu povo', con: 'não sente falta de gente' },
+  'sabe onde ir': { icon: 'flag', pro: 'sabe onde fica o seu povo', con: 'não sabe onde fica o seu povo' },
+  'não sabe onde ir': { icon: 'flag', pro: 'não sabe onde fica o seu povo', con: 'já sabe para onde ir' },
+  'calor e cansaço': { icon: 'rest', pro: 'está cansado da caminhada', con: 'está bem disposto' },
+  verde: { icon: 'leaf', pro: 'o mato ali está verde', con: 'o mato ali está seco' },
   amigo: { icon: 'smile', pro: 'é um amigo', con: 'não é amigo' },
   rival: { icon: 'angry', pro: 'é um rival', con: 'não é rival' },
   parceiro: { icon: 'heart', pro: 'é o seu par', con: 'não é o seu par' },
@@ -234,6 +240,8 @@ const TARGET: Record<string, { name: string }> = {
   carga: { name: 'a carga do pátio' },
   obra: { name: 'a obra' },
   arvore: { name: 'uma árvore' },
+  arbusto: { name: 'o mato' },
+  agua: { name: 'a beira d\'água' },
   animal: { name: 'a caça' },
   pessoa: { name: 'uma pessoa' },
   portao: { name: 'o portão' },
@@ -728,7 +736,9 @@ export class CreatureSheet extends HudComponent {
     const v = homeOf(eco, i);
     const name = personFullName(eco, i).first;
     const r = doing(eco, i);
-    if (!v) {
+    // Sem lugar e longe da tela: só a regra de procurar o povo. Perto da tela, o andarilho tem mente e a ficha mostra
+    // a decisão como a de qualquer um.
+    if (!v && !r.d.note) {
       const g = eco.wanderGoal(i);
       const to = g.village >= 0 ? eco.villages[g.village] : null;
       return `${this.hero(r.act, '', null, null, '')}
@@ -739,11 +749,11 @@ export class CreatureSheet extends HudComponent {
               ? `<button class="cs-link" data-village="${to.id}">${eco.tierName(to)} ${esc(to.name)}</button> fica a ${Math.round(g.distance)} tiles; ao chegar, entra e recebe uma profissão.`
               : 'não há lugar do seu povo a menos de 40 tiles: procura outros solitários e só funda um lugar em grupo.'
           }</p>
-          <p class="cs-fine">Quem vive solto ainda não tem a mente da aldeia: a ida para um lugar é decidida uma vez por ano, no modo agregado.</p></div>`;
+          <p class="cs-fine">Longe da tela, quem vive solto só procura o seu povo. Perto da câmera, ele decide o que fazer como qualquer pessoa: comer do mato, dormir ao relento, fazer fogo, procurar o povo.</p></div>`;
     }
     const { d, act, live, past } = r;
     const needs = needsOf(eco, i);
-    const full = eco.full(v);
+    const full = !v || eco.full(v);
     const needsHtml = needs ? `${section('Como está')}${this.needGrid(needs)}` : '';
     const offscreen = full ? '' : '<div class="cs-note">O lugar está fora da tela: as decisões só são tomadas uma a uma nos lugares perto da câmera ou de quem está aberto na ficha.</div>';
     // A decisão mostrada: a atual ou uma do histórico escolhida pelo jogador.

@@ -280,6 +280,7 @@ Quem mora num lugar perto da câmera tem um cérebro próprio, com estes pacotes
 | Aldeão | Necessidades na aldeia, Trabalho na aldeia, Convívio na aldeia, Ócio na aldeia, Gente da aldeia, Família na aldeia, Lugares da aldeia, Ofício e passatempos |
 | Criança da aldeia | Necessidades na aldeia, Convívio na aldeia, Infância na aldeia, Brincadeiras |
 | Idoso da aldeia | Necessidades na aldeia, Convívio na aldeia, Ócio na aldeia, Gente da aldeia, Família na aldeia, Lugares da aldeia |
+| Andarilho (sem lugar) | Vida sem lugar |
 
 ### 35. Necessidades na aldeia
 
@@ -475,6 +476,26 @@ Correr, esconder, imitar os adultos, ouvir histórias e fazer travessuras.
 | 4409 | **Pedir comida aos pais**<br>Com fome, vai pedir comida ao pai ou à mãe. | Seguir | alvo: pessoa | contínuo | 2.2 | fome · pai ou mãe · celeiro tem · perto · variar |
 | 4410 | **Cochilar depois de brincar**<br>Cansada de brincar, tira um cochilo em casa. | Dormir | alvo: casa | contínuo | 2 | cansaço · de dia · perto · variar |
 
+### 45. Vida sem lugar
+
+Quem anda sozinho: comer do mato, dormir ao relento, fazer fogo e procurar o seu povo.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 4501 | **Procurar o seu povo**<br>Anda na direção do lugar do seu povo mais perto ou de outros que andam sozinhos, para viver junto. | JuntarSe | eu | contínuo | 2.2 | de dia · vontade de gente · sabe onde ir · alimentado · descansado · variar |
+| 4502 | **Colher frutos no mato**<br>Com fome e sem celeiro, procura frutos e raízes no mato mais verde por perto. | Coletar | alvo: arbusto | contínuo | 2.6 | fome · verde · perto · variar |
+| 4503 | **Beber água no rio**<br>Vai até a beira da água beber e se lavar (e acha alguma coisa para comer na margem). | Beber | alvo: agua | contínuo | 1.5 | de dia · calor e cansaço · perto · variar |
+| 4504 | **Dormir ao relento**<br>Com sono, deita onde está e dorme até descansar (de noite, até o dia nascer). | Dormir | eu | contínuo | 3 | sono · variar |
+| 4505 | **Acender uma fogueira**<br>Ao escurecer, junta gravetos e acende um fogo para passar a noite. | Aquecer | eu | contínuo | 1.9 | anoitecer · jeitoso · variar |
+| 4506 | **Descansar à sombra**<br>Cansado da caminhada, senta à sombra um pouco. | FicarParado | eu | contínuo | 1.7 | cansaço · de dia · variar |
+| 4507 | **Explorar os arredores**<br>Vai ver o que tem ali perto: um vale, uma mata, um rastro. | Explorar | eu | contínuo | 1.4 | de dia · curioso · alimentado · descansado · variar |
+| 4508 | **Subir num alto para olhar longe**<br>Sem saber onde está o seu povo, sobe num lugar alto e olha o horizonte. | Explorar | eu | contínuo | 1.5 | de dia · não sabe onde ir · paciente · alimentado · descansado · variar |
+| 4509 | **Rezar sozinho**<br>A fé pede: ajoelha onde está e reza. | Rezar | eu | contínuo | 1.6 | acordado · fé · devoto · variar |
+| 4510 | **Contemplar as estrelas**<br>De noite, sem sono, fica olhando o céu. | FicarParado | eu | contínuo | 1.2 | à noite · sem sono · curioso · variar |
+| 4511 | **Conversar com outro andarilho**<br>Encontra outro que anda sozinho e conversa um pouco. | Conversar | alvo: pessoa | contínuo | 2.2 | acordado · vontade de conversar · perto · variar |
+| 4512 | **Talhar uma ferramenta**<br>O jeitoso lasca uma pedra ou talha um pau para ter com que se virar. | Produzir | eu | contínuo | 1.2 | de dia · jeitoso · alimentado · descansado · variar |
+| 4513 | **Cantar para si mesmo**<br>No fim da tarde, canta baixinho para espantar a solidão. | Festejar | eu | contínuo | 1.1 | fim de tarde · carismático · sociável · variar |
+
 ## O mundo agregado
 
 O Ecosystem decide uma vez por ano, sem corpo: estes pacotes são pontuados pelo mesmo `Brain` (src/IAUS/npc/mundo).
@@ -587,4 +608,4 @@ Mundo agregado: cada família compara ficar, migrar para um lugar conhecido e fu
 | PerceberTag | Passa a crer que o alvo tem uma tag (ou as tags de ofício que o alvo mostra). (Tagging System) |
 | EsquecerTag | Deixa de crer numa tag do alvo. (Tagging System) |
 
-Total: 235 comportamentos em 30 pacotes e 16 pacotes de habilidade.
+Total: 248 comportamentos em 31 pacotes e 16 pacotes de habilidade.
