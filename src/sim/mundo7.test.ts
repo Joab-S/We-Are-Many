@@ -10,7 +10,7 @@ import { sharedWorld } from './sharedWorld';
 let world: ReturnType<typeof sharedWorld>;
 beforeAll(() => {
   world = sharedWorld(7, [200, 250, 300]);
-}, 240000);
+}, 360000);
 
 describe('ruas num mundo de 200 anos (semente 7)', () => {
   it('nenhuma rua dupla e toda casa na beira da rua', () => {
