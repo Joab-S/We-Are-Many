@@ -807,6 +807,7 @@ export class CreatureSheet extends HudComponent {
     const all: Row[] = [{ label: task, score, target: n.target, chosen: true }, ...rivals.map((o) => ({ ...o, chosen: false }))].sort((p, q) => q.score - p.score);
     const twice = new Set(all.filter((o, k) => all.findIndex((x) => x.label === o.label) !== k).map((o) => o.label));
     const cutAt = (cut / best) * 100;
+    const seenTarget = new Set<string>();
     const rank = all
       .map((o, k) => {
         const inBand = o.score >= cut;
@@ -815,11 +816,20 @@ export class CreatureSheet extends HudComponent {
         const open = !o.chosen && this.open.has(key);
         const con = o.low ? FACTOR[o.low]?.con ?? o.low : '';
         const why = o.chosen ? '' : inBand ? 'Estava na faixa do sorteio, mas o sorteio escolheu outra.' : con ? `Ficou de fora porque ${con}.` : 'Ficou de fora: a nota foi mais baixa.';
-        const where = o.target && (twice.has(o.label) || o.target.type === WOT_PESSOA) ? ` <small>${this.targetName(eco, r, o.target)}${twice.has(o.label) && o.target.dist >= 1 ? ` · ${Math.round(o.target.dist)} tiles` : ''}</small>` : '';
+        // A mesma ação aparece uma vez por alvo (cada presa, cada roça, cada pessoa à vista): o alvo vai numa linha
+        // própria, inteiro, com a distância; dois alvos iguais à mesma distância ganham "outro".
+        let where = '';
+        if (o.target && (twice.has(o.label) || o.target.type === WOT_PESSOA)) {
+          const dist = o.target.dist >= 1 ? ` · a ${Math.round(o.target.dist)} tiles` : ' · aqui';
+          const text = `${this.targetName(eco, r, o.target)}${dist}`;
+          const again = seenTarget.has(o.label + text);
+          seenTarget.add(o.label + text);
+          where = `<small>${again ? 'outro: ' : ''}${text}</small>`;
+        }
         const detail = open
           ? `<div class="cs-rank-more"><p>${why}</p>${o.factors?.length ? `<div class="cs-cons">${o.factors.slice().sort((p, q) => p.value - q.value).map((c, j) => this.consRow(eco, i, c, j === 0 && c.value < 0.6)).join('')}</div>` : o.low ? `<div class="cs-cons">${this.consRow(eco, i, { name: o.low, value: 0 }, true)}</div>` : ''}</div>`
           : '';
-        const head = `<span class="cs-rank-n">${k + 1}</span><b>${esc(cap(o.label))}${where}</b><span class="cs-rank-bar"><i style="width:${pct(o.score / best)}"></i><s style="left:${cutAt.toFixed(1)}%"></s></span><code>${num(o.score)}</code><span class="cs-tag ${o.chosen ? 'on' : inBand ? 'mid' : ''}">${tag}</span>`;
+        const head = `<span class="cs-rank-n">${k + 1}</span><b><span>${esc(cap(o.label))}</span>${where}</b><span class="cs-rank-bar"><i style="width:${pct(o.score / best)}"></i><s style="left:${cutAt.toFixed(1)}%"></s></span><code>${num(o.score)}</code><span class="cs-tag ${o.chosen ? 'on' : inBand ? 'mid' : ''}">${tag}</span>`;
         return o.chosen
           ? `<div class="cs-rank chosen"><div class="cs-rank-row">${head}</div></div>`
           : `<div class="cs-rank ${inBand ? 'band' : ''} ${open ? 'open' : ''}"><button class="cs-rank-row" data-cs-x="${esc(key)}" aria-expanded="${open}" title="${esc(why)} Clique para ver a conta.">${head}</button>${detail}</div>`;
