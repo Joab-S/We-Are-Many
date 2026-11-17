@@ -95,6 +95,9 @@ it('sonda da mente da aldeia', () => {
     console.log(`Adulto ${String(k * 3).padStart(2, '0')}h-${String(k * 3 + 3).padStart(2, '0')}h: ${top}`);
   });
   const t = e.mindTally();
+  const vistos = Object.keys(t.started).length;
+  const feitos = Object.keys(t.done).length;
+  console.log(`Comportamentos que começaram ao menos uma vez: ${vistos}; que terminaram: ${feitos}`);
   for (const k of Object.keys(t.started).sort((a, b) => t.started[b] - t.started[a])) {
     console.log(`${k}: começou ${t.started[k]}, terminou ${t.done[k] ?? 0}, falhou ${t.failed[k] ?? 0}, trocou ${t.switched[k] ?? 0}`);
   }

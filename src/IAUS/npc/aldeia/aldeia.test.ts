@@ -112,7 +112,7 @@ describe('mente da aldeia (IAUS, ações atômicas)', () => {
   it('a criança brinca na praça com gente e procura os pais quando sente falta', () => {
     const praca: Alvo = { id: -5, type: WOT.praca, x: 5, stats: { gente: 1 } };
     const pai: Alvo = { id: 7, type: WOT.pessoa, x: 8, stats: { parente: 1, laco: 1, livre: 1 } };
-    expect(mente({}, [praca, pai], CEREBRO_DA_ALDEIA.crianca).escolha()).toBe('Brincar na praça');
+    expect(['Brincar na praça', 'Brincar de esconde-esconde']).toContain(mente({}, [praca, pai], CEREBRO_DA_ALDEIA.crianca).escolha());
     expect(mente({ solidao: 1 }, [{ ...praca, stats: { gente: 0 } }, pai], CEREBRO_DA_ALDEIA.crianca).escolha()).toBe('Ficar perto dos pais');
   });
 });

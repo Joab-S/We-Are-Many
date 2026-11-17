@@ -35,8 +35,9 @@ import { curva } from '../curvas';
 import { E } from '../entradas';
 import { WOT } from '../vocab';
 
-/** Momentum das ações da aldeia: a ação em andamento vale 50% a mais (o pensamento é a cada segundo). */
-export const FOCO_ALDEIA = 1.5;
+import { BRINCADEIRAS_DA_ALDEIA, FAMILIA_DA_ALDEIA, FOCO_ALDEIA, GENTE_DA_ALDEIA, LUGARES_DA_ALDEIA, OCIO_DA_ALDEIA, PASSATEMPOS_DA_ALDEIA, ROTINA_DA_ALDEIA } from './rotina';
+
+export { FOCO_ALDEIA };
 
 /** Considerações que quase toda ação de trabalho tem: quem está com fome, cansado ou carregando para antes. */
 const corpoEmOrdem = () => [
@@ -47,6 +48,8 @@ const corpoEmOrdem = () => [
 const turno = (piso = 0.1) => c('de dia', E.eu, curva.sim(piso), { stat: 'dia' });
 /** Quem faz a mesma coisa há muito tempo quer variar: o fator cai até `piso` com a rotina cheia (MIND.routine). */
 const variar = (tipo: string, piso = 0.55) => c('variar', E.eu, curva.desce(1, piso), { stat: `rotina.${tipo}` });
+/** Cansa de fazer a mesma ação (pelo nome), como as da rotina (rotina.ts). */
+const jaFez = (nome: string, piso = 0.3) => c('variar', E.eu, curva.desce(1, piso), { stat: `rotina.n:${nome}` });
 const semCarga = () => c('mãos livres', E.eu, curva.nao(0), { stat: 'carga' });
 const perto = (longe: number, piso: number) => c('perto', E.DistanceToTarget, curva.perto(longe, piso));
 const trabalho = (b: Omit<ComportamentoDef, 'continuo' | 'foco'>): ComportamentoDef => ({ ...b, continuo: true, foco: FOCO_ALDEIA });
@@ -208,8 +211,9 @@ export const CONVIVIO_DA_ALDEIA = pacote(
       tipo: 'Conversar',
       contexto: 'alvo',
       alvos: [WOT.pessoa],
-      peso: 2.5,
+      peso: 2.1,
       considera: [
+        jaFez('Conversar com alguém'),
         c('vontade de conversar', E.eu, curva.limiar(0.55, 8), { stat: 'conversa' }),
         c('sociável', E.eu, curva.traco(0.6), { stat: 'tr.sociability' }),
         c('laço', E.alvo, curva.sobe(0.5, 1), { stat: 'laco' }),
@@ -223,8 +227,8 @@ export const CONVIVIO_DA_ALDEIA = pacote(
       tipo: 'Passear',
       contexto: 'alvo',
       alvos: [WOT.praca],
-      peso: 2.5,
-      considera: [c('vontade de conversar', E.eu, curva.limiar(0.62, 8), { stat: 'conversa' }), c('sociável', E.eu, curva.traco(0.5), { stat: 'tr.sociability' }), c('gente', E.alvo, curva.sobe(0.4, 1), { stat: 'gente' }), perto(40, 0.2)],
+      peso: 2.1,
+      considera: [jaFez('Ir à praça encontrar gente'), c('vontade de conversar', E.eu, curva.limiar(0.62, 8), { stat: 'conversa' }), c('sociável', E.eu, curva.traco(0.5), { stat: 'tr.sociability' }), c('gente', E.alvo, curva.sobe(0.4, 1), { stat: 'gente' }), perto(40, 0.2)],
     }),
     trabalho({
       nome: 'Rezar no templo',
@@ -299,15 +303,15 @@ export const INFANCIA_DA_ALDEIA = pacote(
   ],
 );
 
-export const PACOTES_DA_ALDEIA = [NECESSIDADES_DA_ALDEIA, TRABALHO_DA_ALDEIA, CONVIVIO_DA_ALDEIA, INFANCIA_DA_ALDEIA];
+export const PACOTES_DA_ALDEIA = [NECESSIDADES_DA_ALDEIA, TRABALHO_DA_ALDEIA, CONVIVIO_DA_ALDEIA, INFANCIA_DA_ALDEIA, ...ROTINA_DA_ALDEIA];
 
 /** Cérebros de nascença da aldeia: adulto que trabalha, criança e idoso. */
 export const CEREBRO_DA_ALDEIA = { adulto: 11, crianca: 12, idoso: 13 } as const;
 const ids = (...p: { id: number }[]) => p.map((x) => x.id);
 for (const [id, name, packs] of [
-  [CEREBRO_DA_ALDEIA.adulto, 'Aldeão', ids(NECESSIDADES_DA_ALDEIA, TRABALHO_DA_ALDEIA, CONVIVIO_DA_ALDEIA)],
-  [CEREBRO_DA_ALDEIA.crianca, 'Criança da aldeia', ids(NECESSIDADES_DA_ALDEIA, CONVIVIO_DA_ALDEIA, INFANCIA_DA_ALDEIA)],
-  [CEREBRO_DA_ALDEIA.idoso, 'Idoso da aldeia', ids(NECESSIDADES_DA_ALDEIA, CONVIVIO_DA_ALDEIA)],
+  [CEREBRO_DA_ALDEIA.adulto, 'Aldeão', ids(NECESSIDADES_DA_ALDEIA, TRABALHO_DA_ALDEIA, CONVIVIO_DA_ALDEIA, OCIO_DA_ALDEIA, GENTE_DA_ALDEIA, FAMILIA_DA_ALDEIA, LUGARES_DA_ALDEIA, PASSATEMPOS_DA_ALDEIA)],
+  [CEREBRO_DA_ALDEIA.crianca, 'Criança da aldeia', ids(NECESSIDADES_DA_ALDEIA, CONVIVIO_DA_ALDEIA, INFANCIA_DA_ALDEIA, BRINCADEIRAS_DA_ALDEIA)],
+  [CEREBRO_DA_ALDEIA.idoso, 'Idoso da aldeia', ids(NECESSIDADES_DA_ALDEIA, CONVIVIO_DA_ALDEIA, OCIO_DA_ALDEIA, GENTE_DA_ALDEIA, FAMILIA_DA_ALDEIA, LUGARES_DA_ALDEIA)],
 ] as const) {
   if (!BrainLibrary.brains.has(id)) BrainLibrary.brains.set(id, { id, name, behaviorPackIds: [...packs], abilityPackIds: [] });
 }
