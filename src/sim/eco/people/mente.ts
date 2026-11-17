@@ -57,7 +57,7 @@ export const MIND = {
   /** E andando por tanto tempo, mesmo chegando mais perto, também (o destino está longe demais). */
   walkTimeout: 180,
   /** Fração do tempo que um trabalhador saudável passa trabalhando (o resto é comer, dormir, conviver e andar). */
-  laborNorm: 0.45,
+  laborNorm: 0.35,
   /** Segundos para a produção acompanhar o trabalho feito (média móvel). */
   laborTau: 6,
   /** Alcance da percepção de pessoas e caça (tiles). */
@@ -77,11 +77,17 @@ export const MIND = {
    * reza umas vezes por minuto de tela, e o resto do dia continua sendo trabalho.
    */
   needPace: 15,
+  /** Um dia na tela (segundos): manhã e tarde de trabalho, o fim de tarde de convívio e a noite em casa. */
+  day: 60,
+  /** Segundos seguidos no mesmo tipo de ação para a rotina pesar inteira (ver `rotina`). */
+  routine: 45,
+  /** Quanto a rotina de uma ação esquece por segundo fazendo outra coisa. */
+  routineFade: 0.04,
   /**
    * Quantas cargas do modo agregado cabem numa carga na tela: uma ida ao celeiro leva anos do mundo, então cada
    * uma leva o que o lugar produziu nesse tempo.
    */
-  load: 4,
+  load: 5,
 };
 
 /** Um alvo percebido: o AiEntity do IAUS mais o que o corpo precisa para agir sobre ele. */
@@ -116,6 +122,8 @@ interface Mente {
   walked: number;
   tick: number;
   did: number;
+  /** Segundos recentes em cada tipo de ação (some devagar quando a pessoa faz outra coisa): a rotina que cansa. */
+  rotina: Map<string, number>;
 }
 
 /** Como terminaram as ações, por nome do comportamento (para a sonda e o painel de depuração). */
@@ -183,6 +191,17 @@ const ACTIVITY: Record<string, DayKind> = {
 /** Ações que são trabalho (para a conta de quem está ocupado). */
 const WORK = new Set(['Trabalhar', 'Colher', 'PegarCarga', 'Entregar', 'Construir', 'CortarLenha', 'Cacar', 'Defender', 'Patrulhar']);
 
+/**
+ * As fases do dia pela hora `h` (0 a 1): `noite` vale 1 das 23h às 3h, com uma hora de rampa de cada lado; `tarde` é
+ * o fim da tarde, das 16h30 às 20h, com o pico às 18h; `trabalho` é o resto (o turno acaba no fim da tarde).
+ */
+export function dayPhase(h: number): { noite: number; tarde: number; trabalho: number } {
+  const hr = h * 24;
+  const noite = hr >= 23 || hr < 3 ? 1 : hr < 4 ? 4 - hr : hr > 22 ? hr - 22 : 0;
+  const tarde = hr < 16.5 || hr > 20 ? 0 : hr < 18 ? (hr - 16.5) / 1.5 : 1 - (hr - 18) / 2;
+  return { noite, tarde, trabalho: Math.max(0, 1 - noite - 0.85 * tarde) };
+}
+
 export const mindPart = {
   /**
    * Um passo da pessoa `i` com mente (modo completo): atualiza o que ela sente, deixa o cérebro pensar e agir,
@@ -197,6 +216,7 @@ export const mindPart = {
     this.feel(m, v, working);
     m.brain.update(dt);
     const busy = m.brain.currentDecision;
+    this.routineStep(m, busy?.context.behavior.behaviorType ?? '', dt);
     if (!busy) {
       m.goal = null;
       this.gesture[i] = this.carry[i] ? GESTURE.carry : GESTURE.none;
@@ -256,7 +276,7 @@ export const mindPart = {
       selection: { mode: SelectionMode.WeightedRandomTop, withinFractionOfBest: 0.85, topN: 3, stickWhenBest: true },
       perceive: () => eco.perceive(m!),
     });
-    m = { uid, i, seed, pessoa, brain, goal: null, ctx: null, path: null, pathGoal: -1, pathAge: 0, edge: -1, best: Infinity, stall: 0, at: 0, walked: 0, tick: 0, did: 0 };
+    m = { uid, i, seed, pessoa, brain, goal: null, ctx: null, path: null, pathGoal: -1, pathAge: 0, edge: -1, best: Infinity, stall: 0, at: 0, walked: 0, tick: 0, did: 0, rotina: new Map() };
     const mind = m;
     const tally = s.tally;
     const bump = (r: Record<string, number>, k: string) => (r[k] = (r[k] ?? 0) + 1);
@@ -300,9 +320,18 @@ export const mindPart = {
     const p = m.pessoa;
     p.position = { x: this.x[i], y: this.y[i] };
     p.setStat('fome', Math.max(0, Math.min(1, (0.85 - this.energy[i]) / 0.6)));
-    // Quem já dorme sente o cansaço até descansar de verdade (sem isso, acordaria na metade e voltaria a deitar logo).
-    const sleeping = m.brain?.currentDecision?.context.behavior.behaviorType === 'Dormir' && this.needRest[i] > 0.05;
+    // A hora do dia (ver `hourOf`): de noite dá sono e o trabalho para; no fim da tarde dá vontade de conversar.
+    const { noite, tarde, trabalho } = dayPhase(this.hourOf());
+    p.setStat('noite', noite);
+    p.setStat('dia', trabalho);
+    p.setStat('tarde', tarde);
+    // Quem já dorme sente o cansaço até descansar de verdade e, de noite, até o dia nascer (sem isso, acordaria na
+    // metade e voltaria a deitar logo).
+    const sleeping = m.brain?.currentDecision?.context.behavior.behaviorType === 'Dormir' && (this.needRest[i] > 0.05 || noite > 0.5);
     p.setStat('cansaco', sleeping ? Math.max(this.needRest[i], 0.75) : this.needRest[i]);
+    p.setStat('sono', sleeping ? 1 : Math.min(1, this.needRest[i] + 0.55 * noite));
+    p.setStat('conversa', Math.min(1, this.needSocial[i] + 0.6 * tarde));
+    for (const [tipo, sec] of m.rotina) p.setStat(`rotina.${tipo}`, Math.min(1, sec / MIND.routine));
     p.setStat('solidao', this.needSocial[i]);
     p.setStat('fe', this.needFaith[i]);
     // A carga na mão: `carga` (tem alguma), `cheio` (quanto pesa para levar já: comida e o que não se junta contam
@@ -574,7 +603,7 @@ export const mindPart = {
         if (!a) m.goal = null;
         stay(GESTURE.rest);
         this.needRest[i] = Math.max(0, this.needRest[i] - MIND.sleep * dt);
-        return this.needRest[i] <= 0.02 ? 'feito' : 'continua';
+        return this.needRest[i] <= 0.02 && dayPhase(this.hourOf()).noite < 0.5 ? 'feito' : 'continua';
       }
       case 'Abrigar':
       case 'Defender': {
@@ -723,6 +752,26 @@ export const mindPart = {
    * celeiro quase vazio, cada entrega e cada refeição ligariam e desligariam a vontade de ir comer lá, e a pessoa
    * ficaria indo e voltando entre o celeiro e o mato.
    */
+  /** A hora do dia na tela, de 0 a 1 (0 é meia-noite, 0,5 é meio-dia), tirada do relógio do mundo. */
+  hourOf(this: Ecosystem): number {
+    const t = (this.year * this.yearSpan) / MIND.day;
+    return t - Math.floor(t);
+  },
+
+  /** A rotina: soma o tempo no tipo de ação de agora e deixa os outros esquecerem aos poucos. */
+  routineStep(this: Ecosystem, m: Mente, tipo: string, dt: number): void {
+    const fade = Math.exp(-MIND.routineFade * dt);
+    for (const [k, v] of m.rotina) {
+      if (k === tipo) continue;
+      const w = v * fade;
+      if (w < 0.5) {
+        m.rotina.delete(k);
+        m.pessoa.setStat(`rotina.${k}`, 0);
+      } else m.rotina.set(k, w);
+    }
+    if (tipo) m.rotina.set(tipo, Math.min(MIND.routine * 2, (m.rotina.get(tipo) ?? 0) + dt));
+  },
+
   /**
    * A comida do celeiro como a pessoa a vê, com folga para não ficar indo e voltando: quem já vai comer continua
    * enquanto houver qualquer coisa lá (os outros comem antes e o celeiro baixa de uma refeição), e quem está no

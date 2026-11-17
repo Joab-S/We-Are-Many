@@ -486,3 +486,7 @@ button.cs-rank-row:hover { background: rgba(255, 255, 255, 0.4); }
 /* Prévia do mouse: o que pensa, com o motivo em linha menor. */
 .cs-now.think > span { display: flex; flex-direction: column; line-height: 1.2; padding: 4px 0; }
 .cs-now.think em { font-style: normal; font-size: 13px; color: var(--cs-dim); }
+/* A hora do dia no cartão do pensamento, acima do estado. */
+.cs-hero-r { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.cs-clock { display: inline-flex; align-items: center; gap: 4px; font-family: var(--cs-num); font-size: 13px; color: #e3d6b4; }
+.cs-clock .pxi { width: 14px; height: 14px; }

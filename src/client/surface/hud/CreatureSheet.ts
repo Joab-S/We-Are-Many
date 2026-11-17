@@ -93,6 +93,10 @@ const FACTOR: Record<string, { icon: string; pro: string; con: string; trait?: T
   'à toa': { icon: 'hourglass', pro: 'não tem nada melhor a fazer', con: 'tem coisa melhor a fazer' },
   'vontade de brincar': { icon: 'child', pro: 'quer brincar', con: 'não quer brincar' },
   'pai ou mãe': { icon: 'person', pro: 'é o pai ou a mãe', con: 'não é da família' },
+  'de dia': { icon: 'hourglass', pro: 'é hora de trabalhar', con: 'já é noite' },
+  variar: { icon: 'sparkle', pro: 'faz tempo que não faz isso', con: 'já faz isso há muito tempo e quer variar' },
+  sono: { icon: 'rest', pro: 'está com sono', con: 'não está com sono' },
+  'vontade de conversar': { icon: 'chat', pro: 'quer companhia', con: 'não quer companhia agora' },
 };
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -150,8 +154,14 @@ function thought(eco: Ecosystem, i: number): string {
   return `<div class="cs-now think">${pixelIcon('thought')}<span><b>${esc(cap(act))}</b>${why ? `<em>porque ${esc(why)}</em>` : ''}</span></div>`;
 }
 /** O que a pessoa faz agora e a decisão por trás, lidos juntos (a mente da ficha e o resumo usam os dois). */
-const doing = (eco: Ecosystem, i: number) => ({ d: eco.dayOf(i), act: eco.activityOf(i), live: eco.mindLive(i), past: eco.mindHistory(i), year: eco.year, span: eco.yearSpan, find: (u: number) => eco.findUid(u), kindName: (j: number) => eco.species[eco.kind[j]].name });
+const doing = (eco: Ecosystem, i: number) => ({ d: eco.dayOf(i), act: eco.activityOf(i), live: eco.mindLive(i), past: eco.mindHistory(i), hour: eco.hourOf(), year: eco.year, span: eco.yearSpan, find: (u: number) => eco.findUid(u), kindName: (j: number) => eco.species[eco.kind[j]].name });
 type Doing = ReturnType<typeof doing>;
+/** A hora do dia na tela, com o que ela pede (o cérebro vê o mesmo: noite em casa, fim de tarde de conversa). */
+const clock = (h: number) => {
+  const hr = Math.floor(h * 24);
+  const [ic, what] = hr >= 21 || hr < 4 ? ['rest', 'noite'] : hr >= 17 ? ['chat', 'fim de tarde'] : hr < 6 ? ['sparkle', 'amanhecer'] : ['hammer', 'hora de trabalhar'];
+  return `<span class="cs-clock" title="Hora do dia na aldeia: ${what}. De noite quase todos dormem; no fim da tarde o trabalho para e a conversa sobe.">${pixelIcon(ic)}${String(hr).padStart(2, '0')}h</span>`;
+};
 /** Tempo de jogo curto: "12 s", "2 min". */
 const secs = (s: number) => (s < 60 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`);
 /** Alvos das ações da aldeia (os tipos de src/IAUS/npc/vocab.ts) em palavras. */
@@ -681,7 +691,7 @@ export class CreatureSheet extends HudComponent {
     const chosen = this.pickAt !== null ? past.find((p) => p.at === this.pickAt) : undefined;
     if (this.pickAt !== null && !chosen) this.pickAt = null;
     const n = chosen ?? d.note;
-    const hero = this.hero(act, d.carry, chosen ? null : d.note, chosen ? null : live, chosen ? '' : this.targetText(eco, r, d.note?.target, live), live?.rivals[0]?.target ? this.targetName(eco, r, live.rivals[0].target) : '');
+    const hero = this.hero(act, d.carry, chosen ? null : d.note, chosen ? null : live, chosen ? '' : this.targetText(eco, r, d.note?.target, live), live?.rivals[0]?.target ? this.targetName(eco, r, live.rivals[0].target) : '', chosen ? -1 : r.hour);
     const history = this.historyList(eco, r, past);
 
     // Sem nota da IAUS: uma ordem do quadro ou um evento do lugar passou na frente da escolha.
@@ -774,7 +784,7 @@ export class CreatureSheet extends HudComponent {
    * O pensamento de agora, no alto da tela: a ação, o estado (a caminho, no lugar), o alvo, há quanto tempo e, ao
    * vivo, se a ação ainda está na frente das outras ideias com o foco (momentum) ou se já vai perder a vez.
    */
-  private hero(act: string, carry: string, note: DayNote | null | undefined, live: MindLive | null, target: string, rivalWhere = ''): string {
+  private hero(act: string, carry: string, note: DayNote | null | undefined, live: MindLive | null, target: string, rivalWhere = '', hour = -1): string {
     const state = !live ? '' : live.arrived ? `<span class="cs-pill ok">${pixelIcon('pin')}no lugar</span>` : `<span class="cs-pill go">${pixelIcon('play')}a caminho · ${Math.round(live.dist)} tiles</span>`;
     const rows = [
       target ? `<div class="cs-hrow"><i>${pixelIcon('target')}</i><span>Alvo</span><b>${target}</b></div>` : '',
@@ -801,7 +811,7 @@ export class CreatureSheet extends HudComponent {
     }
     const title = note?.label ?? act;
     return `<div class="cs-hero">
-        <div class="cs-hero-top">${pixelIcon('thought')}<span><em>Pensando em</em><b>${esc(cap(title))}</b>${act && act !== title ? `<small>${esc(cap(act))}</small>` : ''}</span>${state}</div>
+        <div class="cs-hero-top">${pixelIcon('thought')}<span><em>Pensando em</em><b>${esc(cap(title))}</b>${act && act !== title ? `<small>${esc(cap(act))}</small>` : ''}</span><span class="cs-hero-r">${hour >= 0 ? clock(hour) : ''}${state}</span></div>
         ${rows ? `<div class="cs-hrows">${rows}</div>` : ''}
         ${pulse}
       </div>`;

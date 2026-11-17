@@ -289,9 +289,9 @@ Comer, dormir e correr para o abrigo, cada um com um lugar e um fim.
 |---|---|---|---|---|---|---|
 | 3501 | **Comer no celeiro**<br>Com fome, vai ao celeiro e come até ficar satisfeito (se houver comida). | Comer | alvo: celeiro | contínuo | 4 | fome · tem comida · perto |
 | 3502 | **Comer em casa**<br>Com fome, come em casa da comida da família (que vem do celeiro do lugar). | Comer | alvo: casa | contínuo | 4 | fome · tem comida · perto |
-| 3503 | **Procurar comida no mato**<br>Com fome e o celeiro vazio, colhe o que acha no mato perto. | Coletar | eu | contínuo | 4 | fome · celeiro vazio |
-| 3504 | **Dormir em casa**<br>Cansado, vai para casa e dorme até descansar; o preguiçoso deita antes. | Dormir | alvo: casa | contínuo | 4 | cansaço · disposição · perto |
-| 3505 | **Dormir ao relento**<br>Sem casa, dorme onde está quando o cansaço aperta. | Dormir | eu | contínuo | 4 | cansaço · sem casa |
+| 3503 | **Procurar comida no mato**<br>Com fome e o celeiro vazio, colhe o que acha no mato perto. | Coletar | eu | contínuo | 4 | fome · celeiro vazio · de dia |
+| 3504 | **Dormir em casa**<br>Cansado, vai para casa e dorme até descansar; o preguiçoso deita antes. | Dormir | alvo: casa | contínuo | 4 | sono · disposição · perto |
+| 3505 | **Dormir ao relento**<br>Sem casa, dorme onde está quando o cansaço aperta. | Dormir | eu | contínuo | 4 | sono · sem casa |
 | 3506 | **Correr para o abrigo**<br>O alarme tocou: quem não luta (ou tem medo) corre para a praça. | Abrigar | alvo: praca | contínuo | 5 | alarme · medo |
 
 ### 36. Trabalho na aldeia
@@ -300,15 +300,15 @@ O que o lugar precisa, visto por quem trabalha: cada tarefa é uma ação com al
 
 | Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
 |---|---|---|---|---|---|---|
-| 3601 | **Trabalhar no posto do ofício**<br>Vai ao posto do ofício (roça, mina, porto, oficina) e trabalha um turno; o que sai fica no pátio ou na mão. | Trabalhar | alvo: posto | contínuo | 3 | falta · diligente · mãos livres · alimentado · descansado · perto |
-| 3602 | **Colher a roça**<br>Na safra, colhe a roça madura; o agricultor sempre, os outros quando falta comida. | Colher | alvo: roca | contínuo | 3 | safra · ofício · falta · mãos livres · alimentado · descansado · perto |
-| 3603 | **Pegar a carga do pátio**<br>Há carga parada no pátio: pega uma para levar ao celeiro, mais se faz falta lá. | PegarCarga | alvo: carga | contínuo | 3 | carga cheia · falta · diligente · mãos livres · alimentado · descansado · perto |
+| 3601 | **Trabalhar no posto do ofício**<br>Vai ao posto do ofício (roça, mina, porto, oficina) e trabalha um turno; o que sai fica no pátio ou na mão. | Trabalhar | alvo: posto | contínuo | 3 | falta · diligente · mãos livres · alimentado · descansado · perto · de dia · variar |
+| 3602 | **Colher a roça**<br>Na safra, colhe a roça madura; o agricultor sempre, os outros quando falta comida. | Colher | alvo: roca | contínuo | 3 | safra · ofício · falta · mãos livres · alimentado · descansado · perto · de dia · variar |
+| 3603 | **Pegar a carga do pátio**<br>Há carga parada no pátio: pega uma para levar ao celeiro, mais se faz falta lá. | PegarCarga | alvo: carga | contínuo | 3 | carga cheia · falta · diligente · mãos livres · alimentado · descansado · perto · de dia · variar |
 | 3604 | **Levar a carga ao celeiro**<br>Com a carga na mão, leva ao celeiro. | Entregar | alvo: celeiro | contínuo | 3.5 | carga · mão cheia · perto |
-| 3605 | **Bater na obra**<br>Trabalha na obra aberta: o construtor sempre; os outros no mutirão (obra grande ou sem construtor). | Construir | alvo: obra | contínuo | 3 | ofício · vaga · urgente · diligente · mãos livres · alimentado · descansado · perto |
-| 3606 | **Derrubar uma árvore**<br>O lenhador escolhe uma árvore livre, derruba e sai com a madeira na mão. | CortarLenha | alvo: arvore | contínuo | 3 | falta · cabe no armazém · cabe na mão · alimentado · descansado · perto |
-| 3607 | **Caçar**<br>O caçador persegue um bicho onde a caça sobra; a carne vai na mão para o celeiro. | Cacar | alvo: animal | contínuo | 3 | ofício · caça sobrando · mãos livres · alimentado · descansado · perto |
+| 3605 | **Bater na obra**<br>Trabalha na obra aberta: o construtor sempre; os outros no mutirão (obra grande ou sem construtor). | Construir | alvo: obra | contínuo | 3 | ofício · vaga · urgente · diligente · mãos livres · alimentado · descansado · perto · de dia · variar |
+| 3606 | **Derrubar uma árvore**<br>O lenhador escolhe uma árvore livre, derruba e sai com a madeira na mão. | CortarLenha | alvo: arvore | contínuo | 3 | falta · cabe no armazém · cabe na mão · alimentado · descansado · perto · de dia · variar |
+| 3607 | **Caçar**<br>O caçador persegue um bicho onde a caça sobra; a carne vai na mão para o celeiro. | Cacar | alvo: animal | contínuo | 3 | ofício · caça sobrando · mãos livres · alimentado · descansado · perto · de dia · variar |
 | 3608 | **Defender o lugar**<br>O alarme tocou: o corajoso pega a lança e vai ao portão. | Defender | alvo: portao | contínuo | 5 | alarme · coragem |
-| 3609 | **Patrulhar**<br>Guarda e soldado rondam o portão quando não há outra coisa a fazer. | Patrulhar | alvo: portao | contínuo | 2 | ofício · alimentado · descansado · perto |
+| 3609 | **Patrulhar**<br>Guarda e soldado rondam o portão quando não há outra coisa a fazer. | Patrulhar | alvo: portao | contínuo | 2 | ofício · alimentado · descansado · perto · de dia · variar |
 
 ### 37. Convívio na aldeia
 
@@ -316,13 +316,13 @@ Conversar, rezar, a festa, o enterro, a caravana e ficar em casa.
 
 | Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
 |---|---|---|---|---|---|---|
-| 3701 | **Conversar com alguém**<br>Sozinho há tempo, procura alguém de quem gosta que esteja livre por perto. | Conversar | alvo: pessoa | contínuo | 2.5 | solidão · sociável · laço · livre · perto |
-| 3702 | **Ir à praça encontrar gente**<br>Sozinho há tempo, vai à praça, mais se há gente lá. | Passear | alvo: praca | contínuo | 2.5 | solidão · sociável · gente · perto |
+| 3701 | **Conversar com alguém**<br>Sozinho há tempo, procura alguém de quem gosta que esteja livre por perto. | Conversar | alvo: pessoa | contínuo | 2.5 | vontade de conversar · sociável · laço · livre · perto |
+| 3702 | **Ir à praça encontrar gente**<br>Sozinho há tempo, vai à praça, mais se há gente lá. | Passear | alvo: praca | contínuo | 2.5 | vontade de conversar · sociável · gente · perto |
 | 3703 | **Rezar no templo**<br>A fé chama: vai ao templo, mais cedo o devoto. | Rezar | alvo: templo | contínuo | 2.5 | fé · devoto · perto |
 | 3704 | **Ir à festa**<br>Há festa na praça e dá tempo de chegar: o sociável vai, quem está com fome come antes. | Festejar | alvo: praca | contínuo | 3 | festa · sociável · alimentado |
 | 3705 | **Ir ao enterro**<br>Morreu alguém da família: vai ao enterro. | Rezar | alvo: evento | contínuo | 3.5 | enterro |
 | 3706 | **Ver a caravana**<br>Chegou uma caravana à praça: o curioso vai ver. | Passear | alvo: praca | contínuo | 2 | caravana · curioso · alimentado · descansado |
-| 3707 | **Ficar em casa**<br>Nada pede a pessoa: fica em casa (o caseiro mais). | IrParaCasa | alvo: casa | contínuo | 1 | à toa · caseiro · perto |
+| 3707 | **Ficar em casa**<br>Nada pede a pessoa: fica em casa (o caseiro mais). | IrParaCasa | alvo: casa | contínuo | 1 | à toa · caseiro · variar · perto |
 
 ### 38. Infância na aldeia
 
@@ -330,7 +330,7 @@ Brincar na praça e ficar perto dos pais.
 
 | Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
 |---|---|---|---|---|---|---|
-| 3801 | **Brincar na praça**<br>Brinca na praça com as outras crianças. | Brincar | alvo: praca | contínuo | 2 | vontade de brincar · gente · alimentado · descansado · perto |
+| 3801 | **Brincar na praça**<br>Brinca na praça com as outras crianças. | Brincar | alvo: praca | contínuo | 2 | vontade de brincar · gente · alimentado · descansado · de dia · variar · perto |
 | 3802 | **Ficar perto dos pais**<br>Sente falta dos pais e vai para perto deles. | Seguir | alvo: pessoa | contínuo | 2 | pai ou mãe · solidão · perto |
 
 ## O mundo agregado

@@ -10,7 +10,7 @@
  *
  * | Quem | Stats |
  * |---|---|
- * | A pessoa (`eu`) | `fome`, `cansaco`, `solidao`, `fe` (0 a 1), `semComida` (quanto falta no celeiro, 0 a 1), `cheio` e `espacoLenha` (a carga na mão, 0 a 1), `carga`, `trabalha`, `semCasa`, `alarme`, `enterro` (0 ou 1) e os traços `tr.*` (−1 a 1) |
+ * | A pessoa (`eu`) | `fome`, `cansaco`, `solidao`, `fe` (0 a 1), `semComida` (quanto falta no celeiro, 0 a 1), `cheio` e `espacoLenha` (a carga na mão, 0 a 1), `carga`, `trabalha`, `semCasa`, `alarme`, `enterro` (0 ou 1) os traços `tr.*` (−1 a 1), a hora do dia (`dia` é o turno de trabalho, `noite`, `tarde` o fim da tarde, de 0 a 1), `sono` (cansaço mais a noite), `conversa` (solidão mais o fim da tarde) e `rotina.<Tipo>` (quanto já fez daquele tipo de ação, 0 a 1) |
  * | Celeiro e casa | `comida` (há o que comer) |
  * | Praça | `gente` (quantos estão lá, 0 a 1), `festa` e `caravana` (1 se há e a pessoa chega a tempo) |
  * | Posto, roça, carga, árvore | `falta` (quanto o lugar precisa do que sai dali, 0 a 1) |
@@ -25,6 +25,9 @@
  * Os pesos seguem a ordem do IAUS: 1 ócio, 2 a 2,5 convívio e fé, 3 trabalho, 4 necessidades do corpo, 5
  * emergência. Uma ação em andamento vale `FOCO_ALDEIA` vezes mais, então só troca no meio quem tem algo bem
  * mais urgente (o momentum; o Curvature usa 25%).
+ *
+ * A variedade vem do dia e da rotina: o trabalho só vale de dia (`turno`), quem faz a mesma coisa há tempo quer
+ * variar (`variar`), de noite dá sono e no fim da tarde dá vontade de conversar.
  */
 import { BrainLibrary } from '../../brain';
 import { c, pacote, type ComportamentoDef } from '../dsl';
@@ -40,6 +43,10 @@ const corpoEmOrdem = () => [
   c('alimentado', E.eu, curva.desce(1, 0.08), { stat: 'fome' }),
   c('descansado', E.eu, curva.desce(1, 0.08), { stat: 'cansaco' }),
 ];
+/** O trabalho é de dia: de noite quase ninguém sai para trabalhar (o turno). */
+const turno = (piso = 0.1) => c('de dia', E.eu, curva.sim(piso), { stat: 'dia' });
+/** Quem faz a mesma coisa há muito tempo quer variar: o fator cai até `piso` com a rotina cheia (MIND.routine). */
+const variar = (tipo: string, piso = 0.55) => c('variar', E.eu, curva.desce(1, piso), { stat: `rotina.${tipo}` });
 const semCarga = () => c('mãos livres', E.eu, curva.nao(0), { stat: 'carga' });
 const perto = (longe: number, piso: number) => c('perto', E.DistanceToTarget, curva.perto(longe, piso));
 const trabalho = (b: Omit<ComportamentoDef, 'continuo' | 'foco'>): ComportamentoDef => ({ ...b, continuo: true, foco: FOCO_ALDEIA });
@@ -72,7 +79,7 @@ export const NECESSIDADES_DA_ALDEIA = pacote(
       tipo: 'Coletar',
       contexto: 'eu',
       peso: 4,
-      considera: [c('fome', E.eu, curva.limiar(0.45, 9), { stat: 'fome' }), c('celeiro vazio', E.eu, curva.limiar(0.6, 14), { stat: 'semComida' })],
+      considera: [c('fome', E.eu, curva.limiar(0.45, 9), { stat: 'fome' }), c('celeiro vazio', E.eu, curva.limiar(0.6, 14), { stat: 'semComida' }), turno(0.4)],
     }),
     trabalho({
       nome: 'Dormir em casa',
@@ -81,7 +88,7 @@ export const NECESSIDADES_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.casa],
       peso: 4,
-      considera: [c('cansaço', E.eu, curva.limiar(0.62, 9), { stat: 'cansaco' }), c('disposição', E.eu, curva.traco(-0.3), { stat: 'tr.diligence' }), perto(60, 0.3)],
+      considera: [c('sono', E.eu, curva.limiar(0.62, 9), { stat: 'sono' }), c('disposição', E.eu, curva.traco(-0.3), { stat: 'tr.diligence' }), perto(60, 0.3)],
     }),
     trabalho({
       nome: 'Dormir ao relento',
@@ -89,7 +96,7 @@ export const NECESSIDADES_DA_ALDEIA = pacote(
       tipo: 'Dormir',
       contexto: 'eu',
       peso: 4,
-      considera: [c('cansaço', E.eu, curva.limiar(0.7, 9), { stat: 'cansaco' }), c('sem casa', E.eu, curva.sim(0), { stat: 'semCasa' })],
+      considera: [c('sono', E.eu, curva.limiar(0.7, 9), { stat: 'sono' }), c('sem casa', E.eu, curva.sim(0), { stat: 'semCasa' })],
     }),
     trabalho({
       nome: 'Correr para o abrigo',
@@ -114,7 +121,7 @@ export const TRABALHO_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.posto],
       peso: 3,
-      considera: [c('falta', E.alvo, curva.sobe(0.35, 1), { stat: 'falta' }), c('diligente', E.eu, curva.traco(0.5), { stat: 'tr.diligence' }), semCarga(), ...corpoEmOrdem(), perto(40, 0.15)],
+      considera: [c('falta', E.alvo, curva.sobe(0.35, 1), { stat: 'falta' }), c('diligente', E.eu, curva.traco(0.5), { stat: 'tr.diligence' }), semCarga(), ...corpoEmOrdem(), perto(40, 0.15), turno(), variar('Trabalhar')],
     }),
     trabalho({
       nome: 'Colher a roça',
@@ -123,7 +130,7 @@ export const TRABALHO_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.roca],
       peso: 3,
-      considera: [c('safra', E.alvo, curva.sobe(0, 1), { stat: 'safra' }), c('ofício', E.alvo, curva.sobe(0.3, 1), { stat: 'oficio' }), c('falta', E.alvo, curva.sobe(0.4, 1), { stat: 'falta' }), semCarga(), ...corpoEmOrdem(), perto(40, 0.15)],
+      considera: [c('safra', E.alvo, curva.sobe(0, 1), { stat: 'safra' }), c('ofício', E.alvo, curva.sobe(0.3, 1), { stat: 'oficio' }), c('falta', E.alvo, curva.sobe(0.4, 1), { stat: 'falta' }), semCarga(), ...corpoEmOrdem(), perto(40, 0.15), turno(), variar('Colher')],
     }),
     trabalho({
       nome: 'Pegar a carga do pátio',
@@ -132,7 +139,7 @@ export const TRABALHO_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.carga],
       peso: 3,
-      considera: [c('carga cheia', E.alvo, curva.limiar(0.5, 10), { stat: 'quantidade' }), c('falta', E.alvo, curva.sobe(0.4, 1), { stat: 'falta' }), c('diligente', E.eu, curva.traco(0.3), { stat: 'tr.diligence' }), semCarga(), ...corpoEmOrdem(), perto(40, 0.15)],
+      considera: [c('carga cheia', E.alvo, curva.limiar(0.5, 10), { stat: 'quantidade' }), c('falta', E.alvo, curva.sobe(0.4, 1), { stat: 'falta' }), c('diligente', E.eu, curva.traco(0.3), { stat: 'tr.diligence' }), semCarga(), ...corpoEmOrdem(), perto(40, 0.15), turno(), variar('PegarCarga')],
     }),
     trabalho({
       nome: 'Levar a carga ao celeiro',
@@ -150,7 +157,7 @@ export const TRABALHO_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.obra],
       peso: 3,
-      considera: [c('ofício', E.alvo, curva.sobe(0, 1), { stat: 'oficio' }), c('vaga', E.alvo, curva.sim(0), { stat: 'vaga' }), c('urgente', E.alvo, curva.sobe(0.6, 1), { stat: 'urgente' }), c('diligente', E.eu, curva.traco(0.4), { stat: 'tr.diligence' }), semCarga(), ...corpoEmOrdem(), perto(40, 0.15)],
+      considera: [c('ofício', E.alvo, curva.sobe(0, 1), { stat: 'oficio' }), c('vaga', E.alvo, curva.sim(0), { stat: 'vaga' }), c('urgente', E.alvo, curva.sobe(0.6, 1), { stat: 'urgente' }), c('diligente', E.eu, curva.traco(0.4), { stat: 'tr.diligence' }), semCarga(), ...corpoEmOrdem(), perto(40, 0.15), turno(), variar('Construir')],
     }),
     trabalho({
       nome: 'Derrubar uma árvore',
@@ -159,7 +166,7 @@ export const TRABALHO_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.arvore],
       peso: 3,
-      considera: [c('falta', E.alvo, curva.sobe(0.3, 1), { stat: 'falta' }), c('cabe no armazém', E.alvo, curva.sim(0), { stat: 'cabe' }), c('cabe na mão', E.eu, curva.sobe(0, 1), { stat: 'espacoLenha' }), ...corpoEmOrdem(), perto(40, 0.15)],
+      considera: [c('falta', E.alvo, curva.sobe(0.3, 1), { stat: 'falta' }), c('cabe no armazém', E.alvo, curva.sim(0), { stat: 'cabe' }), c('cabe na mão', E.eu, curva.sobe(0, 1), { stat: 'espacoLenha' }), ...corpoEmOrdem(), perto(40, 0.15), turno(), variar('CortarLenha')],
     }),
     trabalho({
       nome: 'Caçar',
@@ -168,7 +175,7 @@ export const TRABALHO_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.animal],
       peso: 3,
-      considera: [c('ofício', E.alvo, curva.sobe(0, 1), { stat: 'oficio' }), c('caça sobrando', E.alvo, curva.sim(0), { stat: 'abundante' }), semCarga(), ...corpoEmOrdem(), perto(24, 0.6)],
+      considera: [c('ofício', E.alvo, curva.sobe(0, 1), { stat: 'oficio' }), c('caça sobrando', E.alvo, curva.sim(0), { stat: 'abundante' }), semCarga(), ...corpoEmOrdem(), perto(24, 0.6), turno(), variar('Cacar')],
     }),
     trabalho({
       nome: 'Defender o lugar',
@@ -186,7 +193,7 @@ export const TRABALHO_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.portao],
       peso: 2,
-      considera: [c('ofício', E.alvo, curva.sim(0), { stat: 'oficio' }), ...corpoEmOrdem(), perto(40, 0.2)],
+      considera: [c('ofício', E.alvo, curva.sim(0), { stat: 'oficio' }), ...corpoEmOrdem(), perto(40, 0.2), turno(), variar('Patrulhar')],
     }),
   ],
 );
@@ -203,7 +210,7 @@ export const CONVIVIO_DA_ALDEIA = pacote(
       alvos: [WOT.pessoa],
       peso: 2.5,
       considera: [
-        c('solidão', E.eu, curva.limiar(0.55, 8), { stat: 'solidao' }),
+        c('vontade de conversar', E.eu, curva.limiar(0.55, 8), { stat: 'conversa' }),
         c('sociável', E.eu, curva.traco(0.6), { stat: 'tr.sociability' }),
         c('laço', E.alvo, curva.sobe(0.5, 1), { stat: 'laco' }),
         c('livre', E.alvo, curva.sim(0.3), { stat: 'livre' }),
@@ -217,7 +224,7 @@ export const CONVIVIO_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.praca],
       peso: 2.5,
-      considera: [c('solidão', E.eu, curva.limiar(0.62, 8), { stat: 'solidao' }), c('sociável', E.eu, curva.traco(0.5), { stat: 'tr.sociability' }), c('gente', E.alvo, curva.sobe(0.4, 1), { stat: 'gente' }), perto(40, 0.2)],
+      considera: [c('vontade de conversar', E.eu, curva.limiar(0.62, 8), { stat: 'conversa' }), c('sociável', E.eu, curva.traco(0.5), { stat: 'tr.sociability' }), c('gente', E.alvo, curva.sobe(0.4, 1), { stat: 'gente' }), perto(40, 0.2)],
     }),
     trabalho({
       nome: 'Rezar no templo',
@@ -262,7 +269,7 @@ export const CONVIVIO_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.casa],
       peso: 1,
-      considera: [c('à toa', E.Constant, curva.sempre(0.25)), c('caseiro', E.eu, curva.traco(0.4), { stat: 'tr.familism' }), perto(60, 0.3)],
+      considera: [c('à toa', E.Constant, curva.sempre(0.25)), c('caseiro', E.eu, curva.traco(0.4), { stat: 'tr.familism' }), variar('IrParaCasa', 0.3), perto(60, 0.3)],
     }),
   ],
 );
@@ -278,7 +285,7 @@ export const INFANCIA_DA_ALDEIA = pacote(
       contexto: 'alvo',
       alvos: [WOT.praca],
       peso: 2,
-      considera: [c('vontade de brincar', E.Constant, curva.sempre(0.6)), c('gente', E.alvo, curva.sobe(0.5, 1), { stat: 'gente' }), ...corpoEmOrdem(), perto(40, 0.2)],
+      considera: [c('vontade de brincar', E.Constant, curva.sempre(0.6)), c('gente', E.alvo, curva.sobe(0.5, 1), { stat: 'gente' }), ...corpoEmOrdem(), turno(), variar('Brincar', 0.5), perto(40, 0.2)],
     }),
     trabalho({
       nome: 'Ficar perto dos pais',
