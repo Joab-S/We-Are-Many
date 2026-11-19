@@ -37,6 +37,9 @@ import { productionPart, type ProductionPart } from './eco/economy/production';
 import { savePart, type SavePart } from './eco/core/save';
 import { journeysPart, type JourneysPart } from './eco/community/journeys';
 import { mindPart, type MindPart } from './eco/people/mente';
+import { genFisicaPart, type GenFisicaPart } from './generativa/fisica';
+import { genMentePart, type GenMentePart } from './generativa/mente';
+import type { MundoGen } from './generativa/tipos';
 import { pathPart, type PathPart } from './eco/people/caminho';
 import { wearPart, type WearPart } from './eco/community/wear';
 import { relationsPart, type RelationsPart } from './eco/community/relations';
@@ -111,6 +114,8 @@ export interface Ecosystem
     SavePart,
     JourneysPart,
     MindPart,
+    GenFisicaPart,
+    GenMentePart,
     PathPart,
     WearPart,
     RelationsPart,
@@ -750,6 +755,10 @@ export class Ecosystem {
       }
     }
     if (probe) probe.lap(STEP.creatures);
+    if (this.gen) {
+      this.genFisica(dt);
+      this.genEsquecerMentes();
+    }
     this.updateWildlife(yr);
     if (probe) probe.lap(STEP.wildlife);
     this.updateSites(yr);
@@ -806,6 +815,14 @@ export class Ecosystem {
    * Só leitura para a ficha; não vai no save.
    */
   dayNotes = new Map<number, DayNote>();
+
+  // ---- Mente generativa (src/sim/generativa) ----
+
+  /**
+   * O modelo generativo, quando o mundo o usa (null no mundo de vilas semeadas): o que cada pessoa sabe, as coisas
+   * postas no mundo e o mato colhido. Dado puro, vai no save. Não guarda grupo, tipo nem estágio de nada.
+   */
+  gen: MundoGen | null = null;
   /** Roças de cada assentamento (tiles), refeitas no máximo uma vez por ano. */
   fieldCache = new Map<number, { year: number; tiles: number[] }>();
 
@@ -906,6 +923,8 @@ for (const part of [
   savePart,
   journeysPart,
   mindPart,
+  genFisicaPart,
+  genMentePart,
   pathPart,
   wearPart,
   relationsPart,

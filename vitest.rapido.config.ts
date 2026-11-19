@@ -8,6 +8,7 @@ import base from './vite.config.ts';
  */
 const SIMULATED_WORLDS = [
   'src/sim/lifeTrial.test.ts',
+  'src/sim/generativa/mundo.test.ts',
   'src/client/surface/replay.test.ts',
   'src/client/surface/catchUp.test.ts',
   'src/client/space/BackgroundWorlds.test.ts',
