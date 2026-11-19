@@ -8,6 +8,9 @@ import type { Species, SpeciesKind } from './species';
  * quem não tem nenhum dos dois usa os padrões do tipo.
  */
 
+/** O que uma espécie é para outra: a tabela de relações, lida pela IA da fauna (`preysOn`, `relationOf` em species.ts). */
+export type Relation = 'presa' | 'predador' | 'domestica' | 'evita' | 'neutro';
+
 /** Papel no ecossistema. */
 export type Guild =
   | 'pastador'
@@ -27,8 +30,9 @@ export interface Ecology {
   guild: Guild;
   /** Massa do adulto (kg): define densidade, ração e quem pode caçá-lo. */
   mass: number;
-  /** Pesos de cada comida (0 a 1). */
+  /** Pesos de cada comida (0 a 1): erva, ramagem e fruto da mata, carne, carniça, peixe, insetos, plâncton. */
   forage: number;
+  fruit: number;
   meat: number;
   carrion: number;
   fish: number;
@@ -51,6 +55,10 @@ export interface Ecology {
   /** Faixas de umidade e de altitude (0 a 1) onde vive bem. */
   moist: [number, number];
   alt: [number, number];
+  /** Umidade extrema: fora dela, não vive (sem isto, a umidade errada só atrapalha). */
+  moistExtreme?: readonly [number, number];
+  /** O que um caçador faz com cada guilda; a guilda ausente vale a regra geral (quem não caça é presa, se couber). */
+  relations?: Partial<Record<Guild, Relation>>;
   /** Afinidade por bioma (0 a 1); bioma ausente vale `open`. */
   biomes: Partial<Record<Biome, number>>;
   open: number;
@@ -60,6 +68,8 @@ export interface Ecology {
   engineer: boolean;
   /** Dorme no inverno: gasta pouco e não procura comida. */
   hibernate: boolean;
+  /** Bravo demais para o curral, mesmo comendo capim e vivendo em manada (a zebra morde, escoiceia e não se deixa laçar). */
+  untamed: boolean;
   /** Parasita típico, mostrado na ficha. */
   parasite: string;
 }
@@ -81,31 +91,33 @@ type Row = Partial<Ecology> & Pick<Ecology, 'guild' | 'mass'>;
 /** Ecologia das espécies da Terra, pelo desenho (o sprite identifica a espécie). */
 const EARTH: Record<string, Row> = {
   rabbit: { guild: 'pastador', mass: 2, herd: 6, range: 6, roam: 30, litter: 3, fear: 0.9, biomes: { ...OPEN, [B.Forest]: 0.6 }, parasite: 'pulgas' },
-  deer: { guild: 'ramoneador', mass: 80, herd: 8, range: 10, roam: 55, litter: 0.9, fear: 0.8, biomes: FOREST, parasite: 'carrapatos' },
+  deer: { guild: 'ramoneador', mass: 80, forage: 0.6, fruit: 1, herd: 8, range: 10, roam: 55, litter: 0.9, fear: 0.8, biomes: FOREST, parasite: 'carrapatos' },
   bison: { guild: 'pastador', mass: 700, herd: 12, range: 18, roam: 70, litter: 0.45, fear: 0.3, biomes: OPEN, moist: [0.2, 0.8], parasite: 'vermes' },
   camel: { guild: 'pastador', mass: 500, herd: 6, range: 18, roam: 60, litter: 0.35, fear: 0.4, biomes: DRY, moist: [0, 0.5], parasite: 'carrapatos' },
-  zebra: { guild: 'pastador', mass: 250, herd: 10, range: 20, roam: 80, litter: 0.5, fear: 0.7, biomes: SAVANNA, parasite: 'carrapatos' },
-  elephant: { guild: 'pastador', mass: 4000, herd: 6, range: 22, roam: 70, litter: 0.2, fear: 0.1, biomes: SAVANNA, engineer: true, parasite: 'vermes' },
+  zebra: { guild: 'pastador', mass: 250, herd: 10, range: 20, roam: 80, litter: 0.5, fear: 0.7, untamed: true, biomes: SAVANNA, parasite: 'carrapatos' },
+  // Cavalo selvagem das estepes (tarpã, cavalo-de-przewalski): o antepassado do cavalo de montaria e de tração.
+  horse: { guild: 'pastador', mass: 350, herd: 10, range: 22, roam: 90, litter: 0.5, fear: 0.6, biomes: { [B.Grass]: 1, [B.Savanna]: 0.8, [B.Tundra]: 0.6, [B.Desert]: 0.4, [B.Forest]: 0.3, [B.Barren]: 0.3 }, moist: [0.1, 0.7], parasite: 'carrapatos' },
+  elephant: { guild: 'pastador', mass: 4000, fruit: 0.4, herd: 6, range: 22, roam: 70, litter: 0.2, fear: 0.1, biomes: SAVANNA, engineer: true, parasite: 'vermes' },
   mammoth: { guild: 'pastador', mass: 5000, herd: 6, range: 22, roam: 60, litter: 0.2, fear: 0.1, biomes: COLD, engineer: true, parasite: 'vermes' },
   reindeer: { guild: 'pastador', mass: 100, herd: 10, range: 22, roam: 90, litter: 0.8, fear: 0.7, biomes: COLD, parasite: 'moscas-do-berne' },
   ibex: { guild: 'pastador', mass: 70, herd: 8, range: 10, roam: 45, litter: 0.8, fear: 0.6, biomes: HIGH, alt: [0.3, 0.75], parasite: 'carrapatos' },
-  goat: { guild: 'pastador', mass: 50, herd: 8, range: 10, roam: 45, litter: 1, fear: 0.6, biomes: HIGH, alt: [0.15, 0.75], parasite: 'carrapatos' },
+  goat: { guild: 'pastador', mass: 50, fruit: 0.4, herd: 8, range: 10, roam: 45, litter: 1, fear: 0.6, biomes: HIGH, alt: [0.15, 0.75], parasite: 'carrapatos' },
   sheep: { guild: 'pastador', mass: 60, herd: 10, range: 10, roam: 40, litter: 1, fear: 0.8, biomes: OPEN, parasite: 'vermes' },
   llama: { guild: 'pastador', mass: 120, herd: 8, range: 12, roam: 45, litter: 0.6, fear: 0.5, biomes: HIGH, parasite: 'carrapatos' },
   chicken: { guild: 'onívoro', mass: 2, herd: 8, range: 4, roam: 20, litter: 4, fear: 0.9, insects: 0.6, biomes: OPEN, parasite: 'piolhos' },
-  monkey: { guild: 'frugívoro', mass: 10, herd: 8, range: 8, roam: 40, litter: 0.5, fear: 0.7, biomes: HOT_WET, parasite: 'vermes' },
-  boar: { guild: 'onívoro', mass: 80, herd: 8, range: 10, roam: 45, litter: 2.5, fear: 0.4, insects: 0.4, carrion: 0.3, biomes: { ...FOREST, [B.Swamp]: 0.9 }, parasite: 'triquina' },
+  monkey: { guild: 'frugívoro', mass: 10, forage: 0.3, fruit: 1, insects: 0.3, herd: 8, range: 8, roam: 40, litter: 0.5, fear: 0.7, biomes: HOT_WET, parasite: 'vermes' },
+  boar: { guild: 'onívoro', mass: 80, forage: 0.7, fruit: 0.6, herd: 8, range: 10, roam: 45, litter: 2.5, fear: 0.4, insects: 0.4, carrion: 0.3, biomes: { ...FOREST, [B.Swamp]: 0.9 }, parasite: 'triquina' },
   turtle: { guild: 'pastador', mass: 20, herd: 4, range: 4, roam: 12, litter: 2, fear: 0.5, plankton: 0.6, biomes: COAST, parasite: 'sanguessugas' },
   frog: { guild: 'insetívoro', mass: 0.2, herd: 8, range: 3, roam: 15, litter: 6, fear: 0.9, forage: 0, insects: 1, biomes: WET, moist: [0.45, 1], parasite: 'fungo quitrídio' },
   crab: { guild: 'detritívoro', mass: 0.5, herd: 8, range: 3, roam: 12, litter: 6, fear: 0.8, forage: 0.3, carrion: 1, plankton: 0.6, biomes: COAST, parasite: 'cracas' },
   penguin: { guild: 'piscívoro', mass: 20, herd: 10, range: 6, roam: 25, litter: 1, fear: 0.6, forage: 0, fish: 1, plankton: 0.4, biomes: COAST, parasite: 'piolhos' },
   fox: { guild: 'predador', mass: 6, herd: 2, range: 10, roam: 60, litter: 3, fear: 0.6, forage: 0.25, meat: 1, carrion: 0.7, insects: 0.4, maxPrey: 6, biomes: ANY, parasite: 'sarna' },
-  wolf: { guild: 'predador', mass: 40, herd: 5, range: 20, roam: 110, litter: 2, fear: 0.2, forage: 0, meat: 1, carrion: 0.5, maxPrey: 90, pack: true, biomes: { ...FOREST, [B.Tundra]: 0.8, [B.Grass]: 0.7 }, parasite: 'sarna' },
-  bear: { guild: 'onívoro', mass: 300, herd: 2, range: 18, roam: 70, litter: 0.8, fear: 0.1, forage: 0.8, meat: 0.3, carrion: 0.6, fish: 0.8, maxPrey: 80, hibernate: true, biomes: { ...FOREST, [B.Tundra]: 0.6 }, parasite: 'vermes' },
+  wolf: { guild: 'predador', mass: 40, herd: 5, range: 20, roam: 110, litter: 3, fear: 0.2, forage: 0, meat: 1, carrion: 0.5, maxPrey: 90, pack: true, biomes: { ...FOREST, [B.Tundra]: 0.8, [B.Grass]: 0.7 }, parasite: 'sarna' },
+  bear: { guild: 'onívoro', mass: 300, herd: 2, range: 18, roam: 70, litter: 0.8, fear: 0.1, forage: 0.5, fruit: 0.6, meat: 0.3, carrion: 0.6, fish: 0.8, maxPrey: 80, hibernate: true, biomes: { ...FOREST, [B.Tundra]: 0.6 }, parasite: 'vermes' },
   jaguar: { guild: 'predador', mass: 90, herd: 1, range: 16, roam: 90, litter: 1.3, seasonal: false, fear: 0.2, forage: 0, meat: 1, fish: 0.4, maxPrey: 150, biomes: HOT_WET, parasite: 'carrapatos' },
-  lion: { guild: 'predador', mass: 180, herd: 4, range: 22, roam: 100, litter: 1.4, seasonal: false, fear: 0.1, forage: 0, meat: 1, carrion: 0.6, maxPrey: 300, pack: true, biomes: SAVANNA, parasite: 'carrapatos' },
+  lion: { guild: 'predador', mass: 180, herd: 4, range: 22, roam: 100, litter: 3, seasonal: false, fear: 0.1, forage: 0, meat: 1, carrion: 0.6, maxPrey: 300, pack: true, biomes: SAVANNA, parasite: 'carrapatos' },
   hyena: { guild: 'necrófago', mass: 55, herd: 5, range: 18, roam: 90, litter: 1.4, seasonal: false, fear: 0.4, forage: 0, meat: 0.6, carrion: 1, maxPrey: 60, pack: true, biomes: SAVANNA, parasite: 'sarna' },
-  vulture: { guild: 'necrófago', mass: 8, herd: 6, range: 30, roam: 220, litter: 0.6, fear: 0.5, forage: 0, carrion: 1, biomes: { ...SAVANNA, ...OPEN, [B.Rock]: 0.7 }, parasite: 'piolhos' },
+  vulture: { guild: 'necrófago', mass: 8, herd: 6, range: 30, roam: 220, litter: 1, fear: 0.5, forage: 0, carrion: 1, biomes: { ...SAVANNA, ...OPEN, [B.Rock]: 0.7 }, parasite: 'piolhos' },
   snake: { guild: 'predador', mass: 5, herd: 1, range: 5, roam: 25, litter: 4, fear: 0.5, forage: 0, meat: 1, insects: 0.3, maxPrey: 3, biomes: { ...HOT_WET, ...DRY }, parasite: 'ácaros' },
   crocodile: { guild: 'predador', mass: 400, herd: 4, range: 8, roam: 30, litter: 4, fear: 0.1, forage: 0, meat: 1, fish: 1, carrion: 0.6, maxPrey: 250, biomes: WET, parasite: 'sanguessugas' },
 };
@@ -131,6 +143,7 @@ const DEFAULTS: Ecology = {
   guild: 'pastador',
   mass: 50,
   forage: 1,
+  fruit: 0,
   meat: 0,
   carrion: 0,
   fish: 0,
@@ -150,6 +163,7 @@ const DEFAULTS: Ecology = {
   fear: 0.6,
   engineer: false,
   hibernate: false,
+  untamed: false,
   parasite: 'carrapatos',
 };
 
@@ -168,6 +182,11 @@ export function ecologyOf(sp: Species): Ecology {
   return e;
 }
 
+/** Esquece a ecologia guardada da espécie (depois de ajustar `sp.eco`, como na checagem de viabilidade). */
+export function refreshEcology(sp: Species): void {
+  cache.delete(sp);
+}
+
 /** Bicho de terra que entra na conta de capacidade por célula (não peixe, não inteligente). */
 export function isLandAnimal(sp: Species): boolean {
   return sp.kind === 'herbivore' || sp.kind === 'predator';
@@ -178,14 +197,41 @@ export function hunts(e: Ecology): boolean {
   return e.meat > 0 && e.maxPrey > 0;
 }
 
+/** O caçador `h` considera `p` comida: a tabela, sem contar o tamanho. */
+export function preysOn(h: Ecology, p: Ecology): boolean {
+  return hunts(h) && !hunts(p) && h.relations?.[p.guild] !== 'evita';
+}
+
+/** `p` adulto cabe no que `h` caça: nem grande demais (em bando, o dobro) nem pequeno demais para valer a caçada. */
+export function preyInReach(h: Ecology, p: Ecology): boolean {
+  return p.mass <= h.maxPrey * (h.pack ? 2 : 1) && p.mass >= h.mass * 0.015;
+}
+
+/** Quanto a temperatura serve à espécie, já dentro da faixa extrema: sobe a partir dela até 1 na faixa ideal. */
+export function tempFit(sp: Species, temp: number): number {
+  const ideal = sp.tempIdeal;
+  if (!ideal) return Math.min(1, 0.35 + Math.min(temp - sp.tempMin, sp.tempMax - temp) / 8);
+  return 0.35 + 0.65 * Math.min(1, (temp - sp.tempMin) / (ideal[0] - sp.tempMin), (sp.tempMax - temp) / (sp.tempMax - ideal[1]));
+}
+
+/** Quanto a umidade serve: 1 na faixa boa, 0 fora da extrema, e pouco no resto. */
+export function moistFit(e: Ecology, moisture: number): number {
+  if (moisture >= e.moist[0] && moisture <= e.moist[1]) return 1;
+  return e.moistExtreme && (moisture < e.moistExtreme[0] || moisture > e.moistExtreme[1]) ? 0 : 0.35;
+}
+
 /** Peso metabólico (massa^0,75, regra de Kleiber): quantos kg de carne enchem o tanque do bicho. */
 export function metabolic(e: Ecology): number {
   return Math.pow(Math.max(0.05, e.mass), 0.75);
 }
 
-/** Fração da ração gasta por ano: carnívoros vivem de banquete e jejum e gastam menos entre uma caçada e outra. */
+/**
+ * Fração da ração gasta por ano: carnívoros vivem de banquete e jejum e gastam menos entre uma caçada e outra.
+ * O necrófago puro (urubu) também: plana sem gastar quase nada até achar a próxima carcaça.
+ */
 export function appetite(e: Ecology): number {
-  return hunts(e) ? 0.35 : 1;
+  const scavenger = e.carrion >= 0.8 && e.forage + e.fruit + e.insects + e.fish + e.plankton === 0;
+  return hunts(e) || scavenger ? 0.22 : 1;
 }
 
 /**
@@ -224,6 +270,8 @@ export const FORAGE_USE = 0.5;
 export const GRAZE_COST = 0.6;
 /** Tanques por ano que cada tile de inseto (vegetação × umidade) e de costa rasa sustentam. */
 export const INSECT_YIELD = 0.05;
+/** Ramagem e fruto por tile lenhoso, em relação à erva: a mata dá menos comida ao alcance do chão que o campo. */
+export const BROWSE_YIELD = 0.25;
 export const COAST_YIELD = 0.12;
 /** Lado da célula ecológica, em tiles. */
 export const ECO_CELL = 16;
@@ -236,7 +284,7 @@ export const CARRION_RATIO = 0.1;
 /** Carne aproveitável por kg de presa, kg de carne por tanque (por massa^0,75) e duração da carcaça (anos). */
 export const EDIBLE = 0.6;
 export const TANK_KG = 0.75;
-export const CARCASS_YEARS = 0.6;
+export const CARCASS_YEARS = 1.5;
 /** Chance base de a caçada dar certo; refúgio (mata, pedra) corta para bichos pequenos. */
 export const HUNT_SUCCESS = 0.65;
 export const REFUGE = 0.4;
@@ -255,6 +303,7 @@ export const ROAM_SCALE = 2;
 
 const FOODS: [keyof Ecology, string][] = [
   ['forage', 'pasto e folhas'],
+  ['fruit', 'frutos e brotos da mata'],
   ['meat', 'carne'],
   ['carrion', 'carniça'],
   ['fish', 'peixe'],

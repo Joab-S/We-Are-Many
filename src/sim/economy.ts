@@ -1,4 +1,5 @@
 import { Biome, isRockyBiome, type SurfaceMap } from '../procgen/surface';
+import { buildingType, type BuildCost } from './buildingTypes';
 
 /**
  * Economia dos povos inteligentes (REQUISITOS-VIDA.md, seções 11 e 11.1):
@@ -248,16 +249,14 @@ export function forge(stock: Stock, era: number, techs?: ReadonlySet<string>): {
   return null;
 }
 
-/** Custo de cada construção em madeira, pedra e ouro. */
-export function buildCost(kind: string, era: number): { wood: number; stone: number; gold: number } {
-  if (kind === 'house') return era >= 3 ? { wood: 1, stone: 4, gold: 0 } : { wood: 4, stone: 0, gold: 0 };
+/**
+ * Custo de cada obra em madeira, pedra e ouro. As construções leem o custo da tabela dos tipos
+ * (`BUILDING_TYPES`, buildingTypes.ts); reforma (um andar a mais na casa) e mina não são construções.
+ */
+export function buildCost(kind: string, era: number): BuildCost {
   if (kind === 'reform') return era >= 3 ? { wood: 1, stone: 3, gold: 0 } : { wood: 3, stone: era >= 2 ? 1 : 0, gold: 0 };
-  if (kind === 'aqueduct') return { wood: 6, stone: 30, gold: 2 };
-  if (kind === 'port') return { wood: 12, stone: 0, gold: 0 };
   if (kind === 'mine') return { wood: 6, stone: 0, gold: 0 };
-  if (kind === 'wonder') return { wood: 40, stone: 120, gold: 8 };
-  if (kind === 'statue') return { wood: 0, stone: 30, gold: 3 };
-  return { wood: 10, stone: era >= 2 ? 8 : 2, gold: 0 };
+  return buildingType(kind).cost(era);
 }
 
 /** Nome da grande obra de cada povo, pelo valor da cultura. */

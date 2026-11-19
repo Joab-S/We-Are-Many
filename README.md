@@ -5,23 +5,69 @@ Jogo de navegador de exploração espacial, replicação de sondas e terraforma�
 - Requisitos e plano de desenvolvimento: [docs/REQUISITOS.md](docs/REQUISITOS.md) e vida nos planetas: [docs/REQUISITOS-VIDA.md](docs/REQUISITOS-VIDA.md). Cada requisito tem a sua situação (feito, parcial, a fazer).
 - Estado atual: **Fase 0** concluída e ampliada (navegação com o GUIA, sondas e quase toda a vida nos planetas já existem); próximos passos na [seção 8.1](docs/REQUISITOS.md#81-backlog-revisado-em-20102026-próximos-passos).
 - Regra do projeto: nada que já foi implementado é removido sem necessidade ou pedido, e toda remoção é registrada com o motivo ([seção 0](docs/REQUISITOS.md#0-como-manter-este-documento)).
+- Arquitetura: camadas (motor, plataforma e cliente), protocolo de comandos e eventos, regras de determinismo e os padrões do *Game Programming Patterns* no código em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+- Ajuste automático das constantes de equilíbrio por CMA-ES (`npm run calibrar:ajustar -- <plano.json>`) em [docs/AJUSTE-AUTOMATICO.md](docs/AJUSTE-AUTOMATICO.md).
+- Estudos: separar o motor da tela em [docs/SEPARACAO-MOTOR.md](docs/SEPARACAO-MOTOR.md); como os jogos de referência tratam cada problema, a exploração de outros planetas e a visão 3D ao chegar perto do planeta em [docs/REFERENCIAS-E-PLANETAS.md](docs/REFERENCIAS-E-PLANETAS.md), com a lista de tarefas e as estratégias em [docs/TODO-PLANETAS-E-3D.md](docs/TODO-PLANETAS-E-3D.md).
 
 ## Rodando
 
 ```bash
 npm install
 npm run dev        # abre em http://localhost:5173
-npm test           # testes do núcleo (vitest)
+npm test           # a suíte inteira (vitest); ver "Testando"
 npm run build      # checagem de tipos + build de produção em dist/
 ```
 
-Sem WebGL (aceleração de hardware desligada ou GPU bloqueada), o jogo usa sozinho um renderizador por software em Canvas 2D, com visual simplificado. Para testar esse modo, abra com `?soft` no endereço.
+Sem WebGL (aceleração de hardware desligada ou GPU bloqueada), o jogo usa sozinho um renderizador por software em Canvas 2D (a descida livre não existe nele: a nave para a 1,6 raio do planeta, e dali se entra no mapa com F), com visual simplificado. Para testar esse modo, abra com `?soft` no endereço.
 
 Os chunks de estrelas já estão versionados em `public/universe/v1/`. Para gerá-los de novo a partir do catálogo HYG (só biblioteca padrão do Python):
 
 ```bash
 npm run data
 ```
+
+## Testando
+
+| Comando | O que faz | Tempo |
+|---|---|---|
+| `npm run test:rapido` | Tudo menos os testes que rodam um mundo simulado por anos (a lista está em `vitest.rapido.config.ts`). Para usar enquanto se trabalha | 15 a 20 s |
+| `npm test` | A suíte inteira. É ela que vale antes de abrir um PR | cerca de 3 min |
+| `npm run test:jogo` | Teste de fumaça: compila, serve o `dist` e abre o jogo de verdade num Chromium sem placa de vídeo, no WebGL e no `?soft` | cerca de 2 min |
+| `npm run typecheck` | Os tipos, inclusive os dos testes em `tests/` | alguns segundos |
+
+O `test:jogo` precisa do navegador do Playwright, instalado uma vez:
+
+```bash
+npx playwright install chromium
+```
+
+Ele joga como o jogador, pelas teclas: abre, aperta `1` (salta para a Terra, já em órbita), `F` (desce à superfície), espera e aperta `Esc` (volta). Confere que a superfície abriu de verdade, que "EM ÓRBITA" está na tela antes e depois, que a cortina `#fade` saiu, que algo foi desenhado no meio da tela e que o console não tem erro. As capturas ficam em `test-results/<teste>/`, com o rastro de quem falhou (`npx playwright show-trace <arquivo>`). Para rodar uma parte: `npx playwright test -g "software"`.
+
+**Depuração no console.** Com `?debug` no endereço:
+
+| Alça | O que é |
+|---|---|
+| `window.space` | O modo espaço aberto agora: `ship` (a nave), `systems` (o `SystemManager`), `state` |
+| `space.goToPlanet('Saturno', 3)` | Leva a nave, parada, a 3 raios do planeta (nome ou id), olhando para ele. Órbita é a menos de 4 raios. Com `{ x, y }` no terceiro argumento, fica de frente para esse tile do mapa |
+| `window.surface` | O modo superfície aberto agora, com o mundo em `eco` |
+| `debugEarth()` | Desce direto à superfície da Terra |
+
+`space` e `surface` só existem enquanto o modo está aberto. Sem `?debug`, nada disso existe.
+
+**Cenas prontas.** Com `?cena=nome` no endereço, o jogo abre num estado conhecido, sempre o mesmo para a mesma versão do jogo e do navegador. Uma cena não lê nem grava o save de verdade (nem mostra a barra de salvar). Combina com `?debug` e `?soft`.
+
+| Cena | Como abre |
+|---|---|
+| `?cena=terra-cidade` | Superfície da Terra, parada, com a câmera numa Cidade (o mundo é simulado antes de abrir, cerca de 40 s). O `Esc` volta à órbita da Terra, com as ruas na esfera |
+| `?cena=saturno` | Em órbita de Saturno, a 3 raios, com os anéis à vista |
+
+Para uma cena nova, acrescente uma função em `src/client/cenas.ts`.
+
+**CI.** Cada PR para a `development` roda, em `.github/workflows/ci.yml`, os tipos, o build, a suíte inteira e o `test:jogo`. As capturas ficam como artefato (`capturas`) na página da rodada.
+
+**Mundos longos.** Os testes que rodam um mundo de 200 ou 300 anos dividem a rodada por semente, em `src/sim/mundo42.test.ts` e `src/sim/mundo7.test.ts`: o mundo roda uma vez e cada teste recebe uma cópia dele no ano que precisa (`src/sim/sharedWorld.ts`).
+
+**Antes de um PR.** A skill [`testar-pr`](.claude/skills/testar-pr/SKILL.md) reúne o que rodar para cada tipo de mudança, o que olhar nas capturas e o que fazer quando algo falha. O Claude Code a usa sozinho, e ela também serve de roteiro para ler.
 
 ## Controles
 
@@ -36,8 +82,10 @@ npm run data
 | Tab | Turbo (energia limitada, recarrega sozinha) |
 | Roda do mouse | Potência do motor |
 | C | Cruzeiro: mantém a velocidade sem segurar W |
-| F | Observar a superfície (em órbita de um planeta rochoso) |
+| F | Observar a superfície (em órbita de um planeta rochoso): o 3D se funde com o mapa, no ponto sob a nave |
+| W a prumo, perto do chão | Pousa: abaixo de 0,05 raio, a menos de 20° do prumo, o mesmo que o F |
 | G | Painel do GUIA: sugestões, sistema atual, estrelas, pontos de interesse, marcadores, busca e diário de bordo |
+| Ctrl K | Busca do GUIA (a mesma lista do G), em qualquer lugar do espaço |
 | T | Trava como alvo o que estiver na mira |
 | N | Aceita a próxima sugestão do GUIA como alvo |
 | J | Liga ou desliga o piloto automático até o alvo (qualquer comando manual desliga) |
@@ -51,16 +99,17 @@ npm run data
 |---|---|
 | Botão esquerdo | Usa a ferramenta selecionada |
 | Botão direito ou meio, WASD | Move o mapa |
-| Roda do mouse | Zoom (com zoom alto aparecem árvores, casas e criaturas em pixel art) |
+| Roda do mouse | Zoom (com zoom alto aparecem árvores, casas e criaturas em pixel art). No zoom mínimo, um novo giro para trás sobe de volta ao espaço |
 | Abas Terreno / Vida / Civilização | Ferramentas de terraformação, espécies e aldeias |
 | Espaço | Pausa ou retoma o tempo (painel da direita: pausa, 1x, 2x, 5x) |
 | Nome de uma aldeia no painel | Leva a câmera até ela |
-| Esc | Volta à órbita |
+| F3 (só com `?debug` no endereço) | Painel de depuração: indicadores contra as metas, o lugar e a família selecionados, os eventos do motor, o desempenho e o tempo passo a passo, com o caso copiável para reproduzir |
+| Esc | Fecha o que abriu por último; sem nada aberto, volta à órbita |
 
 ## O que a Fase 0 prova
 
 1. **Campo de estrelas real:** 109 mil estrelas do HYG, convertidas para coordenadas galácticas e divididas em 116 chunks numa octree, carregados conforme a posição da nave e guardados em cache no IndexedDB.
-2. **Escala contínua:** origem flutuante (a câmera fica sempre na origem), depth buffer logarítmico e velocidade adaptativa. O voo vai do espaço interestelar até a órbita da Terra sem tela de carregamento.
+2. **Escala contínua:** origem flutuante (a câmera fica sempre na origem), depth buffer logarítmico e velocidade adaptativa. O voo vai do espaço interestelar até a órbita da Terra sem tela de carregamento. A descida também: com WebGL, a nave voa até perto do chão de um planeta rochoso e o 3D se funde com o mapa da superfície.
 3. **Sistema Solar:** planetas reais em escala visual comprimida, menu orbital e distância mínima de aproximação.
 4. **Superfície estilo WorldBox:** mapa de um pixel por elemento, com tamanho proporcional ao planeta (Terra = 1024×512, até 2048×1024), cilíndrico, gerado num Web Worker, com ferramentas de terraformação e vegetação que se espalha. A cena 3D é descartada ao entrar e reconstruída ao sair.
 5. **Vida na superfície:** peixes, herbívoros, predadores e uma espécie inteligente, cada criatura um ponto no mapa e um sprite em pixel art no zoom. As espécies dependem do clima e do terreno, se reproduzem, caçam e morrem. A espécie inteligente funda assentamentos (aldeia, vila, cidade) com praça, ruas em grade e casas em lotes, cada um com sua área; cidades formam reinos ligados por estradas. As casas mudam de estilo a cada era (Pedra, Bronze, Ferro...). Requisitos completos da vida em [docs/REQUISITOS-VIDA.md](docs/REQUISITOS-VIDA.md). Espécies conhecidas podem ser levadas a outros planetas.
@@ -68,14 +117,33 @@ npm run data
 ## Estrutura
 
 ```
-src/core/       Núcleo sem three.js: unidades, PRNG determinístico, voo, astrofísica
-src/procgen/    Geração procedural determinística (ruído, superfícies)
-src/sim/        Simulação sem three.js: espécies, ecossistema e aldeias
-src/universe/   Manifesto da octree, seleção e carregamento de chunks
-src/client/     three.js: modo espaço (3D), modo superfície (2D), HUD
-tools/pipeline/ Pipeline Python que gera os chunks a partir do catálogo
-public/universe Chunks gerados
+src/core/                 Núcleo sem three.js: unidades, PRNG determinístico, voo, astrofísica
+src/procgen/              Geração procedural determinística (ruído, superfícies)
+src/sim/                  Simulação sem three.js: espécies, ecossistema e aldeias
+src/sim/ecosystem.ts      Classe Ecosystem: estado, construtor, crônica, fila de eventos e escalonador (step, yearly)
+src/sim/api/              Fronteira do motor: comandos (entrada), eventos (saída) e a fachada Engine
+src/sim/eco/              Tipos, constantes, funções puras, tiles e células ecológicas do ecossistema
+src/sim/eco/core/         Partes do Ecosystem: criaturas (nascer, morrer, andar), save e consultas da interface
+src/sim/eco/people/       Pessoas: decisão, migração, sociedade, vocação e rebanhos
+src/sim/eco/fauna/        Bichos de terra: células ecológicas, comida, decisão e espaço
+src/sim/eco/flora/        Vegetação e matas
+src/sim/eco/settlements/  Assentamentos: fundação, planta, prédios, ruas, ciclo de vida, colônias, política e forma
+src/sim/eco/economy/      Economia: o ano, estoque, técnicas e produção
+src/sim/eco/community/    Jornadas do modo completo, desgaste das ruas e relações entre lugares
+src/sim/eco/work/         Ações presenciais e recursos do mapa (árvores, pedra, minas)
+src/sim/eco/war/          Guerras
+src/sim/eco/politics/     Diplomacia entre reinos
+src/sim/eco/naval/        Portos, jangadas e barcos
+src/sim/eco/trade/        Mercados e caravanas
+src/sim/eco/world/        Eventos do mundo e ferramentas do jogador
+src/universe/             Manifesto da octree, seleção e carregamento de chunks
+src/save/                 Save: retrato do mundo (motor) e armazenamento no IndexedDB (plataforma)
+src/client/               three.js: modo espaço (3D), modo superfície (2D), HUD
+tools/pipeline/           Pipeline Python que gera os chunks a partir do catálogo
+public/universe           Chunks gerados
 ```
+
+O `Ecosystem` é uma classe parcial: cada arquivo em `src/sim/eco/<domínio>/` exporta um objeto com métodos `this: Ecosystem`, que `ecosystem.ts` instala no protótipo (não enumeráveis, fora do save). O cliente fala com ele pela fachada `src/sim/api/engine.ts` (comandos que entram, eventos que saem, vista de leitura); o teste `src/core/purity.test.ts` garante que o motor não alcança three.js, o DOM nem `src/client`. A impressão digital do mundo (`src/sim/fingerprint.ts`) protege refatorações: `npx vitest run --config vitest.calib.config.ts src/sim/fingerprint.calib.ts` compara três mundos fixos com o baseline.
 
 ## Créditos dos dados
 

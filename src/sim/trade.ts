@@ -5,7 +5,7 @@
  * o Ecosystem aplica.
  */
 
-import * as B from './balance';
+import { B } from './live';
 import type { Good } from './economy';
 import type { Need, Needs } from './needs';
 
@@ -112,6 +112,30 @@ export function price(good: Good | 'food', have: number, cap: number, needs?: Ne
   return BASE_VALUE[good] * (0.4 + 1.6 * (1 - fill) ** 1.5) * (1 + want);
 }
 
+/**
+ * Utilidade de um bem para quem compra, pelas técnicas que domina (preço por utilidade na era, RF-VIDA-272):
+ * minério que ninguém ali sabe fundir, carvão sem siderurgia, barro sem forno e lã sem tear valem
+ * USELESS_GOOD do preço; o cobre e o estanho perdem para o ferro depois da siderurgia (BRONZE_AFTER_IRON), e o
+ * carvão vale mais com o vapor (STEAM_COAL). O resto vale o mesmo em qualquer era.
+ */
+export function usefulness(good: Good | 'food', techs: ReadonlySet<string>): number {
+  switch (good) {
+    case 'copper':
+    case 'tin':
+      return !techs.has('fundicao') ? B.USELESS_GOOD : techs.has('siderurgia') ? B.BRONZE_AFTER_IRON : 1;
+    case 'iron':
+      return techs.has('siderurgia') ? 1 : B.USELESS_GOOD;
+    case 'coal':
+      return !techs.has('siderurgia') ? B.USELESS_GOOD : techs.has('vapor') ? B.STEAM_COAL : 1;
+    case 'clay':
+      return techs.has('ceramica') ? 1 : B.USELESS_GOOD;
+    case 'wool':
+      return techs.has('tecelagem') ? 1 : B.USELESS_GOOD;
+    default:
+      return 1;
+  }
+}
+
 /** Bens que andam nas caravanas: tudo menos o ouro (que é o pagamento) e os cavalos (que puxam). */
 export function tradable(g: Good | 'food'): boolean {
   return g !== 'gold';
@@ -150,13 +174,18 @@ export interface Cargo {
 export interface Crew {
   age: number;
   role: number;
+  /** Quem viaja continua no mapa (caravana, rebanho, comitiva): a caravana anda com ele, pelo `who.uid`. */
+  live?: boolean;
   who?: { uid: number; parent: number; family: number; bornAt: number; bornYear: number; movedAt: number };
 }
 
 export interface Caravan {
   id: number;
-  /** Comércio, tributo pedido pela capital (RF-VIDA-289) ou rebanho rumo ao pasto alto (RF-VIDA-293). */
-  kind: 'trade' | 'tribute' | 'flock';
+  /**
+   * Comércio, tributo pedido pela capital (RF-VIDA-289), rebanho rumo ao pasto alto (RF-VIDA-293), enxoval
+   * de colonos (RF-AS-03), ajuda a um vizinho com fome (RF-AS-45) ou visita a parentes (RF-AS-42).
+   */
+  kind: 'trade' | 'tribute' | 'flock' | 'settlers' | 'aid' | 'visit';
   home: number;
   /** Assentamento de destino; -1 no pasto. */
   target: number;
@@ -181,8 +210,6 @@ export interface Caravan {
   speed: number;
   /** Segundos parado (neve, pasto, feira). */
   wait: number;
-  /** Reinos a quem já pagou pedágio nesta viagem. */
-  tolls: number[];
   /** Era de quem mandou (calçamento por uso, RF-VIDA-233). */
   era: number;
 }

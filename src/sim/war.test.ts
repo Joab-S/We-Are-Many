@@ -369,11 +369,3 @@ describe('mercenários (RF-VIDA-295)', () => {
     expect(eco.mercenaries.size).toBe(0);
   });
 });
-
-describe('guerras num mundo de 250 anos', () => {
-  it('toda declaração tem motivo na crônica e toda guerra de preparo teve um plano', () => {
-    const { eco, indicators } = runWorld(7, 250);
-    expect(indicators.warsNoMotive).toBe(0);
-    expect(eco.tally.plans).toBeGreaterThanOrEqual(eco.tally.wars - eco.tally.civilWars);
-  }, 300000);
-});

@@ -1,3 +1,6 @@
+import { seasonLabel } from './calendar';
+import { TIER_NAMES_NEW } from '../../sim/community';
+import { TIER_POPULATION_NEW } from '../../sim/balance';
 /**
  * Janela do assentamento (REQUISITOS-VIDA.md, 19.17, RF-VIDA-341 a 349b):
  * abas Resumo, Economia, Pessoas, Construções, Relações e História, e a
@@ -7,10 +10,9 @@
 
 import { BUILDING_NAMES, ERAS, HERD_NAMES, type Ecosystem, type Ledger, type Village } from '../../sim/ecosystem';
 import { GOODS, ORE_NAMES, STOCK_NAMES, WONDER_NAMES, type Good } from '../../sim/economy';
-import { NEED_NAMES, NEEDS, SEASONS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../sim/needs';
+import { NEED_NAMES, NEEDS, VOCATION_ICONS, VOCATION_NAMES, welfare } from '../../sim/needs';
 import { DEATH_CAUSES, emptyVital, familyName, personName, type DeathCause, type Vital } from '../../sim/people';
 import { CHILD, ROLE_NAMES, ROLES, type Role } from '../../sim/roles';
-import { TIER_NAMES } from '../../sim/settlement';
 import { MATERIAL_NAMES } from '../../sim/architecture';
 import { CURRENCY_NAMES, LUXURY_NAMES } from '../../sim/trade';
 import { elderAge } from '../../sim/ecosystem';
@@ -159,18 +161,19 @@ function summaryHtml(eco: Ecosystem, v: Village): string {
   const c = v.culture;
   const era = Math.floor(v.tech);
   const need = eco.eraNeed(v);
-  const leader = v.leader >= 0 && eco.alive[v.leader] ? v.leader : -1;
+  const leader = eco.leaderOf(v);
   const st = economicState(v);
   const w = v.needs ? welfare(v.needs) : 1;
   const next = era < ERAS.length - 1 ? `rumo à ${ERAS[era + 1]}` : 'última era';
   return `
-    <div class="wb-kv"><span>Nível</span><b>${TIER_NAMES[v.tier]}${v.vocation ? ` · ${VOCATION_ICONS[v.vocation]} ${VOCATION_NAMES[v.vocation]}` : ''}</b></div>
+    <div class="wb-kv"><span>Nível</span><b>${eco.tierName(v)}${v.vocation ? ` · ${VOCATION_ICONS[v.vocation]} ${VOCATION_NAMES[v.vocation]}` : ''}</b></div>
     <div class="wb-kv"><span>Era</span><b>${ERAS[era]}</b></div>
     <div class="wb-kv"><span>Progresso</span>${bar(v.tech - era, `${Math.floor((v.tech - era) * 100)}% ${next}`, '')}</div>
     ${need ? `<div class="wb-kv"><span>Próximo passo</span><b>${need}</b></div>` : ''}
+    ${tierNeed(eco, v)}
     <div class="wb-kv"><span>População</span><b>${v.population} moradores${trend(v)}</b></div>
     <div class="wb-kv"><span>Líder</span><b>${leader >= 0 ? `${fullName(eco, leader)}, ${Math.floor(eco.age[leader])} anos` : 'nenhum'}</b></div>
-    <div class="wb-kv"><span>Reino</span><b>${capital === v ? (eco.kingdomSize(v) > 1 ? 'capital do reino' : 'independente') : `Reino de ${capital.name}`}</b></div>
+    <div class="wb-kv"><span>Reino</span><b>${capital === v ? (eco.kingdomSize(v) > 1 ? `capital · ${eco.polityName(v)}` : 'aldeia livre') : eco.polityName(v)}</b></div>
     <div class="wb-kv"><span>Povo</span><b>${c.name} · valoriza ${c.value} · crê em ${c.belief}</b></div>
     <div class="wb-kv"><span>Estabilidade</span>${bar(v.stability ?? 1, pct(v.stability ?? 1))}</div>
     <div class="wb-kv"><span>Economia</span><b class="${st.tone}">${st.label}</b><span class="wb-dim">necessidades ${pct(w)}</span></div>
@@ -234,7 +237,7 @@ function economyHtml(eco: Ecosystem, v: Village, span: PeriodSpan): string {
     <div class="wb-kv"><span>Caixa</span><b>${Math.floor(v.stock.gold)} de ouro</b></div>
     ${v.herd ? `<div class="wb-kv"><span>Rebanho</span><b>${v.herd.head} ${HERD_NAMES[v.herd.kind]}${(v.herd.plague ?? 0) > eco.year ? ' · <span class="bad">com praga</span>' : ''}</b></div>` : ''}
     ${v.soil !== undefined ? `<div class="wb-kv"><span>Solo</span>${bar(v.soil, `fertilidade ${pct(v.soil)}`)}</div>` : ''}
-    <div class="wb-kv"><span>Estação</span><b>${SEASONS[eco.season()]}</b></div>
+    <div class="wb-kv"><span>Estação</span><b>${seasonLabel(eco.season(), eco.map.params)}</b></div>
     ${tradeHtml(eco, v)}
     <div class="wb-note">Tudo sai do mapa: a madeira de árvores cortadas, que demoram a crescer de novo; a pedra da rocha e das pedras soltas, que acabam; a comida da coleta, da caça, das roças, do rebanho e da pesca. O que não cabe no estoque se perde. O preço sobe com a falta que o bem faz; as caravanas levam o que vale mais lá do que aqui.</div>`;
 }
@@ -378,6 +381,45 @@ function buildingsHtml(eco: Ecosystem, v: Village): string {
     ${mines ? `<div class="wb-section">Minas</div><div class="wb-list">${mines}</div>` : ''}`;
 }
 
+/**
+ * Relações do lugar (plano novo dos assentamentos, RF-AS-43, 44, 45 e 49): cidade de referência, lealdade
+ * ao centro, dívidas de ajuda e a afinidade com os lugares vizinhos, de −100 a +100.
+ */
+function placeRelations(eco: Ecosystem, v: Village): string {
+  const w = eco.map.width;
+  const dist = (o: Village) => Math.hypot(((o.x - v.x + w * 1.5) % w) - w / 2, o.y - v.y);
+  const ref = v.ref !== undefined && v.ref !== v.id ? eco.villages[v.ref] : null;
+  const clients = eco.villages.filter((o) => !o.abandoned && o.ref === v.id && o !== v).length;
+  const debts = [...eco.debts.values()].filter((d) => d.debtor === v.id || d.creditor === v.id);
+  const near = eco.villages
+    .filter((o) => !o.abandoned && o !== v && dist(o) <= 60)
+    .sort((a, b) => eco.affinity(v.id, b.id) - eco.affinity(v.id, a.id))
+    .slice(0, 6);
+  const rows = near
+    .map((o) => {
+      const a = eco.affinity(v.id, o.id);
+      const tone = a < -20 ? 'bad' : a < 10 ? 'warn' : 'good';
+      return `<div class="wb-kv"><button class="wb-goto" data-village="${o.id}"><i style="background:rgb(${o.color.join(',')})"></i>${o.name}</button>${bar((a + 100) / 200, `${a > 0 ? '+' : ''}${Math.round(a)}`, tone)}</div>`;
+    })
+    .join('');
+  return `
+    <div class="wb-kv"><span>Vende e compra em</span><b>${ref ? `<button class="wb-link" data-village="${ref.id}">${ref.name}</button>` : 'aqui mesmo'}${clients ? ` · mercado de ${clients} lugar${clients > 1 ? 'es' : ''}` : ''}</b></div>
+    ${v.kingdom !== v.id && v.loyalty !== undefined ? `<div class="wb-kv"><span>Lealdade</span>${bar(v.loyalty, pct(v.loyalty), v.loyalty < 0.3 ? 'bad' : v.loyalty < 0.5 ? 'warn' : 'good')}</div>` : ''}
+    ${debts.map((d) => `<div class="wb-kv"><span>Dívida</span><b>${d.debtor === v.id ? `deve ajuda a ${eco.villages[d.creditor].name}` : `${eco.villages[d.debtor].name} deve ajuda`}</b></div>`).join('')}
+    <div class="wb-section">Lugares vizinhos (afinidade de −100 a +100)</div>
+    ${rows || '<div class="wb-empty">Nenhum lugar a menos de 60 tiles.</div>'}`;
+}
+
+/** O que falta para o próximo degrau (RF-AS seção 4): gente e funções. */
+function tierNeed(eco: Ecosystem, v: Village): string {
+  const miss = eco.nextTierMissing(v);
+  if (v.tier >= 3) return '';
+  const want = TIER_POPULATION_NEW[v.tier + 1];
+  const people = v.population < want ? [`${want - v.population} moradores`] : [];
+  const all = [...people, ...miss];
+  return all.length ? `<div class="wb-kv"><span>Para virar ${TIER_NAMES_NEW[v.tier + 1].toLowerCase()}</span><b>falta ${all.join(', ')}</b></div>` : '';
+}
+
 function relationsHtml(eco: Ecosystem, v: Village): string {
   const k = v.kingdom;
   const me = eco.villages[k];
@@ -399,9 +441,10 @@ function relationsHtml(eco: Ecosystem, v: Village): string {
     })
     .join('');
   return `
-    <div class="wb-kv"><span>Reino</span><b>${eco.kingdomSize(v) > 1 || me.tier >= 2 ? `Reino de ${me.name}` : `${me.name} (independente)`}</b></div>
+    <div class="wb-kv"><span>Reino</span><b>${eco.kingdomSize(v) > 1 ? eco.polityName(v) : `${me.name} (aldeia livre)`}</b></div>
     ${members.length ? `<div class="wb-kv"><span>Do mesmo reino</span><b>${members.map((o) => o.name).join(', ')}</b></div>` : ''}
-    <div class="wb-section">Vizinhos (relação de −100 a +100)</div>
+    ${placeRelations(eco, v)}
+    <div class="wb-section">Reinos vizinhos (relação de −100 a +100)</div>
     ${rows || '<div class="wb-empty">Nenhum outro reino por perto.</div>'}`;
 }
 
@@ -413,10 +456,19 @@ function spark(values: number[], label: string, color: string): string {
   return `<div class="wb-spark"><span>${label}: ${values[values.length - 1]} (máximo ${max})</span><svg viewBox="0 0 200 40" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5"/></svg></div>`;
 }
 
+/**
+ * A linha da crônica é deste lugar: pelo id que o motor guarda na linha (`villages`) ou, nas linhas de saves
+ * antigos (sem ids), pelo nome no texto; e, nas duas, por ter acontecido dentro da área dele.
+ */
+export function aboutVillage(e: Ecosystem['chronicle'][number], v: Village, width: number, r: number): boolean {
+  const named = e.villages ? e.villages.includes(v.id) : e.text.includes(v.name);
+  return named || (e.x >= 0 && Math.hypot(((e.x - v.x + width * 1.5) % width) - width / 2, e.y - v.y) <= r);
+}
+
 function historyHtml(eco: Ecosystem, v: Village, describe: (e: Ecosystem['chronicle'][number]) => string): string {
   const w = eco.map.width;
   const r = eco.radius(v) + 2;
-  const mine = eco.chronicle.filter((e) => e.text.includes(v.name) || (e.x >= 0 && Math.hypot(((e.x - v.x + w * 1.5) % w) - w / 2, e.y - v.y) <= r)).slice(0, 60);
+  const mine = eco.chronicle.filter((e) => aboutVillage(e, v, w, r)).slice(0, 60);
   const h = v.history ?? [];
   const years = h.length ? `dos anos ${h[0].year} a ${h[h.length - 1].year}` : '';
   return `
@@ -475,7 +527,7 @@ export function compareHtml(eco: Ecosystem, key: CompareKey, desc: boolean): str
   const rows = sorted
     .map(
       (v) => `<tr data-village="${v.id}" class="wb-click">
-        <td><i class="wb-swatch" style="background:rgb(${v.color.join(',')})"></i>${TIER_NAMES[v.tier]} ${v.name}</td>
+        <td><i class="wb-swatch" style="background:rgb(${v.color.join(',')})"></i>${eco.tierName(v)} ${v.name}</td>
         <td>${v.population}</td>
         <td>${ERAS[Math.floor(v.tech)]}</td>
         <td>${v.vocation ? `${VOCATION_ICONS[v.vocation]} ${VOCATION_NAMES[v.vocation]}` : '—'}</td>

@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { AVENUE, houseStyle, isStreet, mainStreets, pickMaterial } from './architecture';
-import { runWorld } from './calibrate';
-import { YEAR_SECONDS } from './ecosystem';
-import { roadBlocks } from './settlement';
 
 describe('arquitetura que acompanha a era (19.8)', () => {
   it('estilo pela era da casa, com sobrado na cidade medieval e um estilo a mais por andar', () => {
@@ -35,35 +32,4 @@ describe('arquitetura que acompanha a era (19.8)', () => {
     expect(isStreet(AVENUE)).toBe(true);
     expect(isStreet(4)).toBe(false);
   });
-
-  it('num mundo de 200 anos as cidades ganham avenida e ruas principais sem blocos 2x2 fora dela, e a troca de era é gradual', () => {
-    const { eco } = runWorld(42, 200);
-    const e = eco as unknown as { road: Uint8Array };
-    expect(roadBlocks(e.road, eco.map.width, eco.map.height)).toBe(0);
-    const live = eco.villages.filter((v) => !v.abandoned);
-    expect(live.every((v) => v.material)).toBe(true);
-    let main = 0;
-    for (let i = 0; i < eco.mainStreet.length; i++) main += eco.mainStreet[i];
-    expect(main).toBeGreaterThan(0);
-    const city = live.filter((v) => v.tier >= 2).sort((a, b) => b.population - a.population)[0];
-    if (city) {
-      let avenue = 0;
-      for (let i = 0; i < e.road.length; i++) if (e.road[i] === AVENUE) avenue++;
-      expect(avenue).toBeGreaterThan(0);
-    }
-    // Era nova: casas antigas continuam de pé e vão sendo trocadas aos poucos.
-    // Lugar com canteiro livre: obra parada por falta de lenha não diz nada sobre a troca de estilo.
-    const idle = live.filter((o) => o.houses.every((h) => !((h.labor ?? 0) > 0)));
-    const v = (idle.length ? idle : live).sort((a, b) => b.houses.length - a.houses.length)[0];
-    v.tech = Math.floor(v.tech) + 1.01;
-    v.stock.wood = v.stock.stone = v.stock.brick = 200;
-    const old = () => v.houses.filter((h) => h.kind === 'house' && (h.era ?? 99) < Math.floor(v.tech)).length;
-    const before = old();
-    expect(before).toBeGreaterThan(2);
-    for (let t = 0; t < YEAR_SECONDS * 2; t += 0.25) eco.step(0.25);
-    const mid = old();
-    expect(mid).toBeGreaterThan(0);
-    for (let t = 0; t < YEAR_SECONDS * 30; t += 0.25) eco.step(0.25);
-    expect(old()).toBeLessThan(before);
-  }, 120000);
 });

@@ -1,5 +1,5 @@
 import { mulberry32 } from '../core/rng';
-import { CoarseField, type PerlinNoise3 } from './noise';
+import { CoarseField, latitudeOf, type PerlinNoise3 } from './noise';
 
 /**
  * Etapas 1 e 2 do gerador: placas tectônicas (Voronoi com pesos e bordas
@@ -173,11 +173,11 @@ export interface TectonicInput {
   width: number;
   height: number;
   step: number;
-  /** Coordenadas no cilindro (para o ruído encaixar na borda), por coluna. */
+  /** A longitude de cada coluna, em cosseno e seno, vezes `radius` (o ruído é amostrado na esfera). */
   cosA: Float32Array;
   sinA: Float32Array;
-  /** Escala do ruído: pixels do mapa completo por unidade. */
-  featureScale: number;
+  /** Raio da esfera onde o ruído é amostrado, em unidades do ruído. */
+  radius: number;
   terrain: PerlinNoise3;
   warp: PerlinNoise3;
 }
@@ -190,7 +190,7 @@ export interface TectonicInput {
  * borda diz se as placas se chocam, se afastam ou deslizam.
  */
 export function tectonicStage(inp: TectonicInput): TectonicField {
-  const { plates, fullWidth: W, width, height, step, cosA, sinA, featureScale, terrain, warp } = inp;
+  const { plates, fullWidth: W, fullHeight: H, width, height, step, cosA, sinA, radius, terrain, warp } = inp;
   const n = width * height;
   const plate = new Uint8Array(n);
   const boundary = new Uint8Array(n);
@@ -212,9 +212,10 @@ export function tectonicStage(inp: TectonicInput): TectonicField {
   // Desvios de baixa frequência (bordas das placas e do relevo) numa grade grossa de ~4 px do mapa completo.
   // O canal 4 guarda as duas oitavas graves do relevo continental (as agudas são por tile).
   const smooth = new CoarseField(width, height, 4 / step, 5, (x, y, out) => {
-    const cx = cosA[x];
-    const cz = sinA[x];
-    const cy = (y * step) / featureScale;
+    const lat = latitudeOf(y, step, H);
+    const cx = cosA[x] * Math.cos(lat);
+    const cz = sinA[x] * Math.cos(lat);
+    const cy = radius * Math.sin(lat);
     out[0] = warpAmp * warp.fbm(cx * 1.6 + 3, cy * 1.6, cz * 1.6 + 5, 3);
     out[1] = warpAmp * warp.fbm(cx * 1.6 + 19, cy * 1.6 + 7, cz * 1.6 + 23, 3);
     out[2] = terrain.sample(cx * 0.75 + 11, cy * 0.75, cz * 0.75 + 17) * 0.35;
@@ -227,11 +228,13 @@ export function tectonicStage(inp: TectonicInput): TectonicField {
   for (let y = 0; y < height; y++) {
     const fy = y * step;
     const candRow = Math.min(cand.rows - 1, Math.floor(fy / CELL)) * cand.cols;
-    const cy = fy / featureScale;
+    const lat = latitudeOf(y, step, H);
+    const cosLat = Math.cos(lat);
+    const cy = radius * Math.sin(lat);
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
-      const cx = cosA[x];
-      const cz = sinA[x];
+      const cx = cosA[x] * cosLat;
+      const cz = sinA[x] * cosLat;
 
       // Etapa 1: Voronoi com bordas tortas.
       let qx = x * step + smooth.get(0, x, y);

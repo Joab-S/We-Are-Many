@@ -1,0 +1,288 @@
+import { EventBus } from './EventBus';
+
+/**
+ * Relógio da simulação da superfície (Game Loop com passo fixo, Game
+ * Programming Patterns): o tempo real do quadro, vezes a velocidade, entra
+ * num acumulador e sai em passos sempre do mesmo tamanho. Quem desenha usa
+ * `alpha` (a fração do próximo passo já passada) para interpolar as
+ * criaturas entre o passo anterior e o atual.
+ *
+ * As ações do jogador (e a vista da câmera) chegam como comandos numa fila e
+ * são aplicadas na fronteira entre dois passos: antes do próximo passo, ou no
+ * fim do quadro quando nenhum passo roda (pausa ou velocidade baixa). Cada
+ * comando entra num log com o número do passo (base para replay: a semente
+ * mais esse log refazem o mesmo mundo).
+ *
+ * Depois dos passos de cada quadro, os eventos do motor são drenados e
+ * entregues pelo despachante `bus` (Observer do lado do cliente) a quem
+ * assinou: avisos, janelas.
+ *
+ * O painel de depuração também avança à mão (`stepBy`), pelo mesmo caminho:
+ * fronteira, log, eventos e medidas.
+ */
+
+/** As posições das criaturas que o relógio lê do mundo para interpolar. */
+export interface SimView {
+  readonly count: number;
+  readonly x: Float32Array;
+  readonly y: Float32Array;
+  readonly uid: Uint32Array;
+  /** Ano do mundo: se mudou sem o relógio saber (passos dados por fora), não interpola. */
+  readonly year: number;
+}
+
+/** O que o relógio precisa do motor (a fachada `Engine` cumpre): dar um passo, a vista e a fila de eventos. */
+export interface SimTarget<E = never> {
+  step(h: number): void;
+  readonly view: SimView;
+  drainEvents?(): E[];
+}
+
+/**
+ * Passo fixo, em segundos de jogo: o mesmo `dt` com que a calibração
+ * (`src/sim/calibrate.ts`) e os testes longos chamam `eco.step`, para o jogo
+ * rodar a mesma simulação calibrada em qualquer velocidade.
+ */
+export const SIM_STEP = 0.25;
+/** Velocidades do jogo (multiplicam o tempo real); a primeira é a pausa. */
+export const SPEEDS = [0, 1, 2, 5];
+/**
+ * Teto de passos por quadro. Se o quadro pede mais (computador lento, aba que
+ * voltou do fundo), o tempo de jogo que sobra é descartado: o jogo desacelera,
+ * o passo não aumenta.
+ */
+export const MAX_STEPS_PER_FRAME = 3;
+/** Comandos guardados no log (os mais antigos saem): o log vai no save, e dá horas de jogo com a câmera andando. */
+export const LOG_LIMIT = 65536;
+/** Acima disso (tiles num passo) a criatura saltou (barco, mudança): desenha onde está, sem deslizar. */
+const JUMP = 3;
+
+export interface LoggedCommand<C> {
+  tick: number;
+  cmd: C;
+}
+
+/**
+ * O relógio e o log de um mundo: passam de uma visita para a outra e vão no save, porque um relógio novo a cada visita não
+ * refaria o mundo. `fromStart` diz se o log vem do passo 0 (falso num mundo de um save de antes deste registro).
+ */
+export interface CommandRecord<C> {
+  tick: number;
+  log: LoggedCommand<C>[];
+  fromStart: boolean;
+}
+
+export class SimDriver<C, E extends { kind: string } = never> {
+  /** Índice em SPEEDS. */
+  speed = 1;
+  /** O relógio e o log (de `opts.record`, ou novos). */
+  readonly record: CommandRecord<C>;
+  /** Tempo de jogo acumulado que ainda não virou passo (sempre menor que um passo, salvo no teto). */
+  private acc = 0;
+  private readonly queue: C[] = [];
+  // Posições do passo anterior, para interpolar.
+  private prevX = new Float32Array(0);
+  private prevY = new Float32Array(0);
+  private prevUid = new Uint32Array(0);
+  private prevCount = 0;
+  /** Ano do mundo logo depois do último passo dado aqui (ver SimView.year). */
+  private stamp = NaN;
+  /** Medidas do último quadro: passos, tempo deles (ms), tempo de jogo descartado pelo teto e eventos entregues. */
+  readonly stats = { steps: 0, stepMs: 0, dropped: 0, totalSteps: 0, totalMs: 0, events: 0, totalEvents: 0 };
+  /** Despachante dos eventos do motor (drenados a cada quadro, depois dos passos). */
+  readonly bus = new EventBus<E>();
+  /** Chamado depois de cada passo, com o número dele: o único lugar em que dá para olhar o mundo num passo exato. */
+  afterStep: ((tick: number) => void) | null = null;
+
+  constructor(
+    private readonly target: SimTarget<E>,
+    private readonly apply: (cmd: C) => void,
+    readonly opts: { step?: number; maxSteps?: number; logLimit?: number; wrapWidth?: number; now?: () => number; record?: CommandRecord<C> } = {},
+  ) {
+    this.record = opts.record ?? { tick: 0, log: [], fromStart: true };
+  }
+
+  /** Passos dados desde o começo do mundo (o relógio do log). */
+  get tick(): number {
+    return this.record.tick;
+  }
+
+  /** Log dos comandos aplicados, com o passo em que entraram (no máximo `logLimit`). */
+  get log(): LoggedCommand<C>[] {
+    return this.record.log;
+  }
+
+  get h(): number {
+    return this.opts.step ?? SIM_STEP;
+  }
+
+  get paused(): boolean {
+    return SPEEDS[this.speed] === 0;
+  }
+
+  /** Multiplicador da velocidade atual (0 na pausa). */
+  get factor(): number {
+    return SPEEDS[this.speed];
+  }
+
+  /** Fração do próximo passo já decorrida (0 a 1), para interpolar o desenho. */
+  get alpha(): number {
+    return Math.min(1, this.acc / this.h);
+  }
+
+  /** Comandos esperando a próxima fronteira de passo. */
+  get pending(): number {
+    return this.queue.length;
+  }
+
+  setSpeed(index: number): void {
+    this.speed = Math.min(Math.max(0, Math.floor(index)), SPEEDS.length - 1);
+  }
+
+  enqueue(cmd: C): void {
+    this.queue.push(cmd);
+  }
+
+  /**
+   * Um quadro: `dt` segundos reais. Roda os passos que couberem (até o
+   * teto) e aplica os comandos na fronteira. Devolve quantos passos deu.
+   */
+  update(dt: number): number {
+    const h = this.h;
+    const max = this.opts.maxSteps ?? MAX_STEPS_PER_FRAME;
+    this.begin();
+    this.acc += Math.max(0, dt) * SPEEDS[this.speed];
+    let n = 0;
+    while (this.acc >= h && n < max) {
+      this.advance();
+      this.acc -= h;
+      n++;
+    }
+    if (this.acc >= h) {
+      // Estourou o teto: o tempo que sobra é descartado (o jogo desacelera); fica só a fração do próximo passo.
+      const keep = this.acc % h;
+      this.stats.dropped = this.acc - keep;
+      this.acc = keep;
+    }
+    this.end(n);
+    return n;
+  }
+
+  /**
+   * Avança `n` passos agora, fora do relógio, em qualquer velocidade (inclusive na pausa): os botões Avançar 1
+   * passo e Avançar 1 ano do painel de depuração. É o mesmo caminho do `update`: cada passo começa na fronteira
+   * (aplica a fila e guarda no log com o número do passo), os eventos saem pelo `bus` no fim, e as medidas do
+   * quadro passam a ser as destes passos (sem descarte), com os totais contando-os. O acumulador não muda: a
+   * fração do próximo passo (`alpha`) continua a mesma, então o desenho, interpolado entre os dois últimos
+   * passos, anda exatamente `n` passos. Devolve quantos passos deu.
+   */
+  stepBy(n: number): number {
+    const count = Math.max(0, Math.floor(n));
+    this.begin();
+    for (let k = 0; k < count; k++) this.advance();
+    this.end(count);
+    return count;
+  }
+
+  /** Zera as medidas do quadro (do `update` ou do `stepBy`). */
+  private begin(): void {
+    this.stats.steps = 0;
+    this.stats.stepMs = 0;
+    this.stats.dropped = 0;
+  }
+
+  /** Um passo na fronteira: aplica a fila, guarda as posições para interpolar, dá o passo e o mede. */
+  private advance(): void {
+    const now = this.opts.now ?? (() => performance.now());
+    this.flush();
+    this.snapshot();
+    const t0 = now();
+    this.target.step(this.h);
+    this.stats.stepMs += now() - t0;
+    this.stamp = this.target.view.year;
+    this.record.tick++;
+    this.afterStep?.(this.record.tick);
+  }
+
+  /** Fim do quadro com `n` passos: os comandos de um quadro sem passo, as medidas e a entrega dos eventos. */
+  private end(n: number): void {
+    // Sem passo neste quadro, os comandos entram no fim dele (ainda entre dois passos).
+    if (!n) this.flush();
+    this.stats.steps = n;
+    this.stats.totalSteps += n;
+    this.stats.totalMs += this.stats.stepMs;
+    this.dispatch();
+  }
+
+  /** Drena os eventos do motor (dos passos e dos comandos deste quadro) e os entrega pelo `bus`. */
+  private dispatch(): void {
+    const events = this.target.drainEvents?.() ?? [];
+    this.stats.events = events.length;
+    this.stats.totalEvents += events.length;
+    for (const e of events) this.bus.emit(e);
+  }
+
+  /** Aplica os comandos da fila agora (fronteira de passo) e os guarda no log. */
+  flush(): void {
+    if (!this.queue.length) return;
+    const limit = this.opts.logLimit ?? LOG_LIMIT;
+    // A fila pode crescer enquanto aplica (um comando que gera outro): vale para o mesmo passo.
+    for (let k = 0; k < this.queue.length; k++) {
+      const cmd = this.queue[k];
+      this.apply(cmd);
+      this.log.push({ tick: this.tick, cmd });
+    }
+    this.queue.length = 0;
+    if (this.log.length > limit) this.log.splice(0, this.log.length - limit);
+  }
+
+  /** Copia as posições de agora para o passo anterior (antes de cada passo). */
+  private snapshot(): void {
+    const t = this.target.view;
+    const n = t.count;
+    if (this.prevX.length < n) {
+      const cap = Math.max(n, this.prevX.length * 2, 256);
+      this.prevX = new Float32Array(cap);
+      this.prevY = new Float32Array(cap);
+      this.prevUid = new Uint32Array(cap);
+    }
+    this.prevX.set(t.x.subarray(0, n));
+    this.prevY.set(t.y.subarray(0, n));
+    this.prevUid.set(t.uid.subarray(0, n));
+    this.prevCount = n;
+  }
+
+  /** Vale interpolar a criatura `i`: o slot é o mesmo indivíduo do passo anterior e o mundo não andou por fora. */
+  private interpolates(i: number): boolean {
+    const t = this.target.view;
+    return i < this.prevCount && this.prevUid[i] === t.uid[i] && t.year === this.stamp;
+  }
+
+  /** Coluna para desenhar a criatura `i`, entre o passo anterior e o atual. */
+  x(i: number): number {
+    const t = this.target.view;
+    const x = t.x[i];
+    if (!this.interpolates(i)) return x;
+    const px = this.prevX[i];
+    let d = x - px;
+    // Atravessou a borda leste-oeste: interpola pelo lado curto.
+    const w = this.opts.wrapWidth;
+    if (w && Math.abs(d) > w / 2) d -= Math.sign(d) * w;
+    if (Math.abs(d) > JUMP || Math.abs(t.y[i] - this.prevY[i]) > JUMP) return x;
+    const v = px + d * this.alpha;
+    return w ? ((v % w) + w) % w : v;
+  }
+
+  /** Linha para desenhar a criatura `i`. */
+  y(i: number): number {
+    const t = this.target.view;
+    const y = t.y[i];
+    if (!this.interpolates(i)) return y;
+    const py = this.prevY[i];
+    let dx = t.x[i] - this.prevX[i];
+    const w = this.opts.wrapWidth;
+    if (w && Math.abs(dx) > w / 2) dx -= Math.sign(dx) * w;
+    if (Math.abs(dx) > JUMP || Math.abs(y - py) > JUMP) return y;
+    return py + (y - py) * this.alpha;
+  }
+}

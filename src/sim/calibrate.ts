@@ -4,13 +4,14 @@
  * Usado pelos testes (poucas sementes) e por `npm run calibrar` (muitas).
  */
 
-import { generateSurface, type PlanetParams } from '../procgen/surface';
-import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
+import { generateSurface, temperatureAt, type PlanetParams, type SurfaceMap } from '../procgen/surface';
+import { B } from './live';
+import { Ecosystem, isLand, YEAR_SECONDS, type Village } from './ecosystem';
 import { isStreet } from './architecture';
 import { GOODS } from './economy';
 import { welfare } from './needs';
 import { roadBlocks } from './settlement';
-import { nativeSpecies } from './species';
+import { EARTH_ID, nativeSpecies, type Species } from './species';
 
 export interface Indicators {
   seed: number;
@@ -63,8 +64,6 @@ export interface Indicators {
   routeTiles: number;
   /** Assentamentos que produzem algum luxo (RF-VIDA-282). */
   luxuries: number;
-  /** Postos de pedágio (RF-VIDA-286). */
-  tolls: number;
   /** Seção 19.19: moradores no fim e a razão entre o fim e 60% da rodada (boom acima de 1, declínio abaixo). */
   people: number;
   peopleTrend: number;
@@ -108,6 +107,43 @@ export interface Indicators {
   mercenaries: number;
   retreats: number;
   cavalry: number;
+  /** Plano novo dos assentamentos (RF-AS, seção 7 do plano): nascimento e tamanho. */
+  realms: number;
+  smallShare: number;
+  soloShare: number;
+  shortLived: number;
+  colonies: number;
+  farmsteads: number;
+  merged: number;
+  tierDowns: number;
+  /** Visual: densidade do núcleo de cidades, árvores nativas no núcleo de vilas em diante, roças perto das casas. */
+  coreDensity: number;
+  coreTrees: number;
+  fieldsNear: number;
+  /** Comportamento (lugares no modo completo): tarefa reservada, tempo parado e passos sobre rua ou trilha. */
+  taskShare: number;
+  idleShare: number;
+  onStreet: number;
+  /** Relações: casamentos entre lugares, aldeias e vilas com cidade de referência, anexações pacíficas, povos novos, ajudas e rivalidades. */
+  interMarriage: number;
+  refCoverage: number;
+  annexations: number;
+  newPeoples: number;
+  aid: number;
+  rivalries: number;
+  /**
+   * Quando sair e fissão (agente 3B): parte das fundações por pressão (social ou da terra) contra as por fome
+   * (as por recurso não entram na conta), quantas foram pela pressão da terra e quantas por fome, fissões (pela
+   * pressão social) e o tamanho médio da origem na hora da fissão (alvo 100 a 300).
+   */
+  pressureShare: number;
+  landFounds: number;
+  famineFounds: number;
+  fissions: number;
+  fissionPop: number;
+  /** Lugares que chegaram a ficar circunscritos (CIRCUM_NOTE anos sem sítio livre) e guerras por terra que nasceram disso. */
+  circumscribed: number;
+  landHungerWars: number;
 }
 
 /** Terra do tamanho dos testes; `radius` 1 é a Terra do jogo (1024×512). */
@@ -115,15 +151,16 @@ export function earthParams(radius = 0.4): PlanetParams {
   return { id: 'sol-3', name: 'Terra', radiusEarth: radius, temperatureK: 288, water: 0.6, life: 0.85 };
 }
 
-/**
- * Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, rodando
- * `years` anos em passos de 0,25 s.
- */
-export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecosystem; indicators: Indicators } {
-  const params = earthParams(radius);
+/** Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, ainda sem rodar (`placed` é quantas couberam). */
+export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: ReturnType<typeof generateSurface>; placed: number } {
+  return seedPlanet(earthParams(radius), seed);
+}
+
+/** O mesmo em qualquer planeta com povo inteligente; num planeta seco, sem vegetação boa, vale a terra que houver. */
+export function seedPlanet(params: PlanetParams, seed: number, species = nativeSpecies(params)): { eco: Ecosystem; map: ReturnType<typeof generateSurface>; placed: number } {
   const map = generateSurface(params);
   const eco = new Ecosystem(map, seed);
-  for (const sp of nativeSpecies(params)) eco.addSpecies(sp);
+  for (const sp of species) eco.addSpecies(sp);
   eco.populate();
   const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
   // Aldeias semeadas com um gerador próprio, para não mexer nos sorteios do mundo.
@@ -139,6 +176,40 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       placed++;
     }
   }
+  for (let t = 0; t < 4000 && !placed && s >= 0; t++) {
+    const x = Math.floor(rnd() * map.width);
+    const y = Math.floor(map.height * (0.2 + 0.6 * rnd()));
+    if (isLand(map, y * map.width + x) && eco.canFound(x, y) && eco.introduceOne(s, x + 0.5, y + 0.5) >= 0) {
+      eco.foundVillage(s, x, y, 8);
+      placed++;
+    }
+  }
+  return { eco, map, placed };
+}
+
+/**
+ * Um mundo com a fauna da Terra e 6 aldeias semeadas em terra boa, rodando
+ * `years` anos em passos de 0,25 s.
+ *
+ * `yearSpan` é a duração do ano de calendário em segundos (eco/core/clock.ts). O padrão é o ano de ação
+ * (`YEAR_SECONDS`), em que os dois relógios coincidem e toda a calibração foi feita; com o ano do jogo
+ * (`REAL_YEAR_SECONDS`, 12 s) mede o que o jogador vê: `years` anos exibidos, cada um com dois anos de ação.
+ * Nos scripts de calibração, pela variável de ambiente YEAR_SPAN.
+ *
+ * `onYear`, se vier, é chamado no fim de cada ano (1, 2, ...) com o mundo vivo: serve para fotografar o mesmo mundo
+ * em vários anos sem rodar de novo (src/sim/sharedWorld.ts).
+ */
+export function runWorld(
+  seed: number,
+  years: number,
+  radius = 0.4,
+  yearSpan = YEAR_SECONDS,
+  options: { planet?: PlanetParams; species?: Species[]; onYear?: (year: number, eco: Ecosystem) => void } = {},
+): { eco: Ecosystem; indicators: Indicators } {
+  const { planet, species, onYear } = options;
+  const { eco, map, placed } = planet ? seedPlanet(planet, seed, species) : seedWorld(seed, radius);
+  // Como no jogo: o ano da tela é definido depois de povoar o mundo.
+  eco.yearSpan = yearSpan;
   let wars = 0;
   let cavalry = 0;
   let caravans = 0;
@@ -150,18 +221,73 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
     return n;
   };
   const trees0 = countTrees();
-  const sapient = () => eco.villages.reduce((n, v) => n + (v.abandoned ? 0 : v.population), 0);
+  // Os 3 maiores lugares rodam no modo completo (jornadas), revistos todo ano, para medir o comportamento (seção 7.3).
+  const watch = () => {
+    const top = eco.villages.filter((v) => !v.abandoned).sort((p, q) => q.population - p.population).slice(0, 3);
+    eco.watch(top.map((v) => v.id));
+  };
   for (let y = 0; y < years; y++) {
-    for (let t = 0; t < YEAR_SECONDS; t += 0.25) eco.step(0.25);
-    if (y === Math.floor(years * 0.6)) mid = sapient();
+    watch();
+    for (let t = 0; t < yearSpan; t += 0.25) eco.step(0.25);
+    if (y === Math.floor(years * 0.6)) mid = sapientPeople(eco);
     wars += eco.wars.length;
     for (let i = 0; i < eco.count; i++) if (eco.alive[i] && eco.mounted(i)) cavalry++;
-    const moving = eco.caravans.filter((c) => c.kind !== 'flock').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
+    const moving = eco.caravans.filter((c) => c.kind === 'trade' || c.kind === 'tribute').length + eco.boats.filter((b) => b.purpose === 'trade' && b.sunk < 0).length;
     caravans += moving;
     caravansMax = Math.max(caravansMax, moving);
+    onYear?.(y + 1, eco);
   }
-  const live = eco.villages.filter((v) => !v.abandoned);
-  const e = eco as unknown as { road: Uint8Array };
+  return { eco, indicators: indicatorsOf(eco, seed, { years, villages: placed }, { wars, cavalry, caravans, caravansMax, mid, trees0, trees: countTrees() }) };
+}
+
+/**
+ * De onde contam os indicadores: o começo da rodada da calibração, ou o ano em que o motor adotou o mundo (a vista
+ * de depuração, src/sim/api/debugView.ts). As contas do mundo (`tally`, as árvores cortadas e plantadas e as amostras
+ * do comportamento) contam a partir das que havia ali; sem elas, do zero (a rodada da calibração nasce com o mundo).
+ */
+export interface IndicatorBase {
+  /** Anos desde o começo: o divisor das taxas por ano (no mínimo 1). */
+  years: number;
+  /** Assentamentos que já existiam no começo (as aldeias semeadas): não contam como fundados. */
+  villages: number;
+  tally?: Readonly<Ecosystem['tally']>;
+  treesCut?: number;
+  treesPlanted?: number;
+  dayStats?: Readonly<Ecosystem['dayStats']>;
+}
+
+/** O que só quem roda o mundo ano a ano sabe. A vista de depuração não tem: passa NaN e tira esses indicadores. */
+export interface RunSamples {
+  /** Somas de uma amostra por ano (guerras ao mesmo tempo, soldados montados, caravanas e barcos mercantes) e o máximo das caravanas. */
+  wars: number;
+  cavalry: number;
+  caravans: number;
+  caravansMax: number;
+  /** Moradores aos 60% da rodada (0: sem a amostra). */
+  mid: number;
+  /** Árvores de pé no começo e agora. */
+  trees0: number;
+  trees: number;
+}
+
+/** Assentamentos vivos (não abandonados). */
+export function liveVillages(eco: Ecosystem): Village[] {
+  return eco.villages.filter((v) => !v.abandoned);
+}
+
+/** Moradores de todos os assentamentos vivos. */
+export function sapientPeople(eco: Ecosystem): number {
+  return eco.villages.reduce((n, v) => n + (v.abandoned ? 0 : v.population), 0);
+}
+
+/** Mediana de moradores dos lugares vivos (a do meio, arredondando para cima numa lista par). */
+export function medianPop(live: Village[]): number {
+  return live.length ? [...live].sort((p, q) => p.population - q.population)[live.length >> 1].population : 0;
+}
+
+/** Casas sem nenhuma rua ou trilha a até 2 tiles. */
+export function housesOffStreet(eco: Ecosystem, live: Village[]): number {
+  const map = eco.map;
   let off = 0;
   for (const v of live) {
     for (const h of v.houses) {
@@ -171,13 +297,18 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
         for (let dx = -2; dx <= 3 && !near; dx++) {
           const ty = h.y + dy;
           if (ty < 0 || ty >= map.height) continue;
-          const r = e.road[ty * map.width + (((h.x + dx) % map.width) + map.width) % map.width];
+          const r = eco.road[ty * map.width + (((h.x + dx) % map.width) + map.width) % map.width];
           if (isStreet(r)) near = true;
         }
       }
       if (!near) off++;
     }
   }
+  return off;
+}
+
+/** Preenchimento médio dos estoques do que sobra no ano (feito > gasto) e quantos recursos estão acima do teto. */
+export function stockFill(eco: Ecosystem, live: Village[]): { fill: number; overCap: number } {
   let fill = 0;
   let fills = 0;
   let over = 0;
@@ -194,78 +325,179 @@ export function runWorld(seed: number, years: number, radius = 0.4): { eco: Ecos
       }
     }
   }
+  return { fill: fills ? fill / fills : 0, overCap: over };
+}
+
+/** Contas que somam desde o começo, menos as que havia na base (sem base, as próprias). */
+function since<T extends object>(now: T, base: Readonly<T> | undefined): T {
+  if (!base) return now;
+  const out = { ...now } as Record<string, number>;
+  for (const k of Object.keys(out)) out[k] -= (base as Record<string, number>)[k] ?? 0;
+  return out as T;
+}
+
+/**
+ * Os indicadores do mundo agora (as definições da calibração, num lugar só): o que depende só do estado e da base
+ * sai daqui, e o que só a rodada amostra vem em `run`. Só lê: não sorteia nem muda o mundo (os caches que as
+ * consultas preenchem, como a pegada, são de quem chama guardar, como faz a vista de depuração).
+ */
+export function indicatorsOf(eco: Ecosystem, seed: number, base: IndicatorBase, run: RunSamples): Indicators {
+  const years = base.years;
+  const map = eco.map;
+  const live = liveVillages(eco);
+  const people = sapientPeople(eco);
+  const t = since(eco.tally, base.tally);
+  const day = since(eco.dayStats, base.dayStats);
+  const cut = eco.treesCut - (base.treesCut ?? 0);
+  const planted = eco.treesPlanted - (base.treesPlanted ?? 0);
+  const founded = eco.villages.length - base.villages;
+  const ring = settlementForm(eco, live);
+  const stock = stockFill(eco, live);
   return {
-    eco,
-    indicators: {
-      seed,
-      years,
-      extinct: eco.species.filter((_, k) => eco.population[k] === 0).length,
-      settlements: live.length,
-      cities: live.filter((v) => v.tier >= 2).length,
-      biggest: Math.max(0, ...live.map((v) => v.population)),
-      kingdoms: live.filter((v) => v.kingdom === v.id).length,
-      medianPop: live.length ? [...live].sort((p, q) => p.population - q.population)[live.length >> 1].population : 0,
-      cityShare: live.reduce((n, v) => n + (v.tier >= 2 ? v.population : 0), 0) / Math.max(1, sapient()),
-      metropoles: live.filter((v) => v.tier >= 3).length,
-      bigKingdoms: live.filter((v) => v.kingdom === v.id && eco.kingdomSize(v) >= 3).length,
-      founded: eco.villages.length - placed,
-      wars: wars / Math.max(1, years),
-      era: Math.max(0, ...live.map((v) => v.tech)),
-      techs: live.length ? live.reduce((n, v) => n + (v.techs?.length ?? 0), 0) / live.length : 0,
-      eraSpread: live.length ? Math.max(...live.map((v) => v.tech)) - Math.min(...live.map((v) => v.tech)) : 0,
-      roadBlocks: roadBlocks(e.road, map.width, map.height),
-      droughts: eco.chronicle.filter((c) => c.text.startsWith('Uma seca')).reduce((n, c) => n + (c.count ?? 1), 0),
-      housesOffStreet: off,
-      completeness: live.reduce((n, v) => n + (v.completeness ?? 1), 0) / Math.max(1, live.length),
-      reformed: live.reduce((n, v) => n + v.houses.filter((h) => (h.level ?? 0) > 0).length, 0),
-      vocations: new Set(live.map((v) => v.vocation)).size,
-      herds: live.filter((v) => v.herd && v.herd.head > 0).length,
-      welfare: live.reduce((n, v) => n + (v.needs ? welfare(v.needs) : 1), 0) / Math.max(1, live.length),
-      stockFill: fills ? fill / fills : 0,
-      overCap: over,
-      stability: live.reduce((n, v) => n + (v.stability ?? 1), 0) / Math.max(1, live.length),
-      caravans: caravans / Math.max(1, years),
-      caravansMax,
-      agreements: eco.agreements.length,
-      routeTiles: eco.routeTiles,
-      luxuries: live.filter((v) => v.luxury && Math.floor(v.tech) >= 0).filter((v) => (v.ledger?.[v.luxury!]?.[0] ?? 0) > 0).length,
-      tolls: eco.tolls.size,
-      people: sapient(),
-      peopleTrend: mid ? sapient() / mid : 0,
-      foodNeed: live.reduce((n, v) => n + (v.needs?.food ?? 1), 0) / Math.max(1, live.length),
-      fuelNeed: live.reduce((n, v) => n + (v.needs?.fuel ?? 1), 0) / Math.max(1, live.length),
-      hunger: (eco.tally.hunger / Math.max(1, years)) * (100 / Math.max(1, sapient())),
-      cold: (eco.tally.cold / Math.max(1, years)) * (100 / Math.max(1, sapient())),
-      collapsed: eco.tally.collapsed / Math.max(1, years),
-      greedWars: eco.tally.greedWars,
-      exodus: eco.tally.exodus,
-      migrants: eco.tally.migrants / Math.max(1, years),
-      familyMoves: eco.tally.familyMoves / Math.max(1, years),
-      supplied: eco.tally.supplied / Math.max(1, years),
-      treesCut: eco.treesCut / Math.max(1, years),
-      replanted: eco.treesCut ? eco.treesPlanted / eco.treesCut : 0,
-      forestry: live.filter((v) => v.forestry).length,
-      worldTrees: countTrees() / Math.max(1, trees0),
-      lootWars: eco.tally.lootWars,
-      landWars: eco.tally.landWars,
-      exterminations: eco.tally.exterminations,
-      civilWars: eco.tally.civilWars,
-      warsPeak: eco.tally.warsPeak,
-      plans: eco.tally.plans,
-      plansDropped: eco.tally.plansDropped,
-      prepYears: eco.tally.wars ? eco.tally.prepYears / eco.tally.wars : 0,
-      warsDeclared: eco.tally.wars,
-      // Toda declaração de guerra na crônica diz o motivo (RF-VIDA-244): "para tomar", "para arrasar" ou guerra civil.
-      warsNoMotive: eco.chronicle.filter((c) => c.kind === 'guerra' && /^Guerra!|atacou/.test(c.text) && !/para tomar|para arrasar|para dominar|por vingança|em nome da fé/.test(c.text)).length,
-      looted: eco.tally.looted,
-      burned: eco.tally.burned,
-      refugees: eco.tally.refugees,
-      mercenaries: eco.tally.mercenaries,
-      retreats: eco.tally.retreats,
-      cavalry: cavalry / Math.max(1, years),
-      forestLeft: live.reduce((n, v) => n + (v.treesStart ? (v.trees ?? 0) / v.treesStart : 1), 0) / Math.max(1, live.length),
-    },
+    seed,
+    years,
+    extinct: eco.species.filter((_, k) => eco.population[k] === 0).length,
+    settlements: live.length,
+    cities: live.filter((v) => v.tier >= 2).length,
+    biggest: Math.max(0, ...live.map((v) => v.population)),
+    kingdoms: live.filter((v) => v.kingdom === v.id).length,
+    medianPop: medianPop(live),
+    cityShare: live.reduce((n, v) => n + (v.tier >= 2 ? v.population : 0), 0) / Math.max(1, people),
+    metropoles: live.filter((v) => v.tier >= 3).length,
+    bigKingdoms: live.filter((v) => v.kingdom === v.id && eco.kingdomSize(v) >= 3).length,
+    founded,
+    wars: run.wars / Math.max(1, years),
+    era: Math.max(0, ...live.map((v) => v.tech)),
+    techs: live.length ? live.reduce((n, v) => n + (v.techs?.length ?? 0), 0) / live.length : 0,
+    eraSpread: live.length ? Math.max(...live.map((v) => v.tech)) - Math.min(...live.map((v) => v.tech)) : 0,
+    roadBlocks: roadBlocks(eco.road, map.width, map.height),
+    droughts: eco.chronicle.filter((c) => c.text.startsWith('Uma seca')).reduce((n, c) => n + (c.count ?? 1), 0),
+    housesOffStreet: housesOffStreet(eco, live),
+    completeness: live.reduce((n, v) => n + (v.completeness ?? 1), 0) / Math.max(1, live.length),
+    reformed: live.reduce((n, v) => n + v.houses.filter((h) => (h.level ?? 0) > 0).length, 0),
+    vocations: new Set(live.map((v) => v.vocation)).size,
+    herds: live.filter((v) => v.herd && v.herd.head > 0).length,
+    welfare: live.reduce((n, v) => n + (v.needs ? welfare(v.needs) : 1), 0) / Math.max(1, live.length),
+    stockFill: stock.fill,
+    overCap: stock.overCap,
+    stability: live.reduce((n, v) => n + (v.stability ?? 1), 0) / Math.max(1, live.length),
+    caravans: run.caravans / Math.max(1, years),
+    caravansMax: run.caravansMax,
+    agreements: eco.agreements.length,
+    routeTiles: eco.routeTiles,
+    luxuries: live.filter((v) => v.luxury && Math.floor(v.tech) >= 0).filter((v) => (v.ledger?.[v.luxury!]?.[0] ?? 0) > 0).length,
+    people,
+    peopleTrend: run.mid ? people / run.mid : 0,
+    foodNeed: live.reduce((n, v) => n + (v.needs?.food ?? 1), 0) / Math.max(1, live.length),
+    fuelNeed: live.reduce((n, v) => n + (v.needs?.fuel ?? 1), 0) / Math.max(1, live.length),
+    hunger: (t.hunger / Math.max(1, years)) * (100 / Math.max(1, people)),
+    cold: (t.cold / Math.max(1, years)) * (100 / Math.max(1, people)),
+    collapsed: t.collapsed / Math.max(1, years),
+    greedWars: t.greedWars,
+    exodus: t.exodus,
+    migrants: t.migrants / Math.max(1, years),
+    familyMoves: t.familyMoves / Math.max(1, years),
+    supplied: t.supplied / Math.max(1, years),
+    treesCut: cut / Math.max(1, years),
+    replanted: cut ? planted / cut : 0,
+    forestry: live.filter((v) => v.forestry).length,
+    worldTrees: run.trees / Math.max(1, run.trees0),
+    lootWars: t.lootWars,
+    landWars: t.landWars,
+    exterminations: t.exterminations,
+    civilWars: t.civilWars,
+    warsPeak: t.warsPeak,
+    plans: t.plans,
+    plansDropped: t.plansDropped,
+    prepYears: t.wars ? t.prepYears / t.wars : 0,
+    warsDeclared: t.wars,
+    // Toda declaração de guerra na crônica diz o motivo (RF-VIDA-244): "para tomar", "para arrasar" ou guerra civil.
+    warsNoMotive: eco.chronicle.filter((c) => c.kind === 'guerra' && /^Guerra!|atacou/.test(c.text) && !/para tomar|para arrasar|para dominar|por vingança|em nome da fé/.test(c.text)).length,
+    looted: t.looted,
+    burned: t.burned,
+    refugees: t.refugees,
+    mercenaries: t.mercenaries,
+    retreats: t.retreats,
+    cavalry: run.cavalry / Math.max(1, years),
+    forestLeft: live.reduce((n, v) => n + (v.treesStart ? (v.trees ?? 0) / v.treesStart : 1), 0) / Math.max(1, live.length),
+    realms: live.filter((v) => eco.isRealm(v)).length,
+    smallShare: live.filter((v) => v.population < 15).length / Math.max(1, live.length),
+    soloShare: t.soloFounds / Math.max(1, founded),
+    shortLived: t.shortLived / Math.max(1, eco.villages.length),
+    colonies: t.colonies,
+    farmsteads: t.farmsteads,
+    merged: t.merged,
+    tierDowns: t.tierDowns,
+    coreDensity: ring.density,
+    coreTrees: ring.trees,
+    fieldsNear: ring.fieldsNear,
+    taskShare: day.samples ? day.tasked / day.samples : 0,
+    idleShare: day.samples ? day.idle / day.samples : 0,
+    onStreet: day.steps ? day.streetSteps / day.steps : 0,
+    interMarriage: t.interMarriages / Math.max(1, t.marriages),
+    refCoverage: (() => {
+      const small = live.filter((v) => v.tier <= 1 && !eco.isMarket(v));
+      return small.filter((v) => v.ref !== undefined && !eco.villages[v.ref]?.abandoned).length / Math.max(1, small.length);
+    })(),
+    annexations: t.annexations,
+    newPeoples: t.newPeoples,
+    aid: t.aid,
+    rivalries: t.rivalries,
+    pressureShare: (t.foundPressure + t.foundLand) / Math.max(1, t.foundPressure + t.foundLand + t.foundFamine),
+    landFounds: t.foundLand,
+    famineFounds: t.foundFamine,
+    fissions: t.fissions,
+    fissionPop: t.fissions ? t.fissionPop / t.fissions : 0,
+    circumscribed: t.circumscribed,
+    landHungerWars: t.landHunger,
   };
+}
+
+/**
+ * Forma dos lugares no fim (seção 7.2 do plano): parte da metade interna da pegada de cidades e
+ * metrópoles ocupada (casa, prédio, rua ou praça), árvores nativas no núcleo de vilas em diante
+ * e parte das roças a até `FIELD_RING` tiles de uma casa.
+ */
+export function settlementForm(eco: Ecosystem, live: Village[]): { density: number; trees: number; fieldsNear: number } {
+  const map = eco.map;
+  const w = map.width;
+  const e = eco as unknown as { road: Uint8Array; built: Uint8Array };
+  let filled = 0;
+  let cells = 0;
+  let trees = 0;
+  for (const v of live) {
+    if (v.tier < 1) continue;
+    const r = eco.footprint(v) / 2;
+    for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) {
+      for (let dx = -Math.ceil(r); dx <= Math.ceil(r); dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const ty = Math.floor(v.y) + dy;
+        if (ty < 0 || ty >= map.height) continue;
+        const t = ty * w + ((((Math.floor(v.x) + dx) % w) + w) % w);
+        if (!isLand(map, t)) continue;
+        if (eco.standingTree(t)) trees++;
+        if (v.tier < 2) continue;
+        cells++;
+        if (e.built[t] || (e.road[t] && e.road[t] !== 4 && e.road[t] !== 5)) filled++;
+      }
+    }
+  }
+  let fields = 0;
+  let near = 0;
+  for (let t = 0; t < w * map.height; t++) {
+    if (e.road[t] !== 4) continue;
+    fields++;
+    const x = t % w;
+    const y = Math.floor(t / w);
+    let hit = false;
+    for (let dy = -B.FIELD_RING; dy <= B.FIELD_RING && !hit; dy++) {
+      const ty = y + dy;
+      if (ty < 0 || ty >= map.height) continue;
+      for (let dx = -B.FIELD_RING; dx <= B.FIELD_RING && !hit; dx++) if (e.built[ty * w + ((((x + dx) % w) + w) % w)]) hit = true;
+    }
+    if (hit) near++;
+  }
+  return { density: cells ? filled / cells : 1, trees, fieldsNear: fields ? near / fields : 1 };
 }
 
 /** Faixas-alvo da tabela de 19.15 que já podem ser medidas. */
@@ -299,14 +531,68 @@ export const TARGETS: { key: keyof Indicators; label: string; min: number; max: 
  * concentra em cidades com o tempo, em vez de se espalhar em aldeias pequenas (evolução dos povos, etapa 0).
  */
 export const LONG_TARGETS: { key: keyof Indicators; label: string; min: number; max: number }[] = [
-  { key: 'medianPop', label: 'Mediana de moradores por assentamento', min: 30, max: 9999 },
+  // Seção 7.1 do plano novo dos assentamentos (RF-AS): menos fundações, lugares maiores e reino só com cidade.
+  { key: 'founded', label: 'Assentamentos fundados na rodada', min: 60, max: 110 },
+  { key: 'settlements', label: 'Assentamentos vivos', min: 40, max: 90 },
+  { key: 'medianPop', label: 'Mediana de moradores por assentamento', min: 50, max: 99999 },
+  { key: 'biggest', label: 'Maior assentamento (moradores)', min: 400, max: 99999 },
+  { key: 'metropoles', label: 'Metrópoles (400 ou mais)', min: 1, max: 4 },
+  { key: 'smallShare', label: 'Parte dos lugares com menos de 15 moradores', min: 0, max: 0.2 },
+  { key: 'soloShare', label: 'Parte das fundações feitas por uma família sozinha', min: 0, max: 0.15 },
+  { key: 'shortLived', label: 'Parte dos lugares que morreram antes de 50 anos', min: 0, max: 0.15 },
+  { key: 'realms', label: 'Reinos (com cidade como capital)', min: 5, max: 25 },
   { key: 'cityShare', label: 'Parte do povo em cidades e metrópoles', min: 0.2, max: 0.6 },
-  { key: 'metropoles', label: 'Metrópoles', min: 1, max: 6 },
-  { key: 'bigKingdoms', label: 'Reinos com 3 ou mais assentamentos', min: 3, max: 25 },
-  { key: 'kingdoms', label: 'Reinos', min: 5, max: 40 },
   { key: 'hunger', label: 'Mortes de fome por ano, por 100 moradores', min: 0, max: 0.5 },
   { key: 'peopleTrend', label: 'Moradores: fim ÷ 60% da rodada', min: 1, max: 3 },
+  // Seção 7.2: forma.
+  { key: 'coreDensity', label: 'Metade interna da pegada das cidades ocupada', min: 0.6, max: 1 },
+  { key: 'coreTrees', label: 'Árvores nativas no núcleo de vilas em diante', min: 0, max: 0 },
+  { key: 'fieldsNear', label: 'Roças a até 6 tiles de uma casa', min: 0.8, max: 1 },
+  { key: 'housesOffStreet', label: 'Casas longe de rua ou trilha', min: 0, max: 0 },
+  { key: 'roadBlocks', label: 'Blocos 2x2 de rua fora das praças', min: 0, max: 0 },
+  // Seção 7.3: comportamento nos lugares em modo completo.
+  { key: 'taskShare', label: 'Adultos que trabalham com tarefa reservada', min: 0.8, max: 1 },
+  { key: 'idleShare', label: 'Tempo dos adultos parado sem tarefa nem necessidade', min: 0, max: 0.1 },
+  { key: 'onStreet', label: 'Passos dentro da pegada sobre rua ou trilha', min: 0.7, max: 1 },
+  // Seção 7.4: relações.
+  { key: 'interMarriage', label: 'Casamentos entre pessoas de lugares diferentes', min: 0.1, max: 0.3 },
+  { key: 'refCoverage', label: 'Aldeias e vilas com cidade de referência', min: 0.95, max: 1 },
+  { key: 'annexations', label: 'Anexações pacíficas na rodada', min: 5, max: 9999 },
+  { key: 'newPeoples', label: 'Povos novos por deriva cultural', min: 1, max: 9999 },
 ];
+
+/** As metas que são contagens: crescem com a terra onde dá para viver. As de proporção, como a fome, valem em todo planeta. */
+const COUNT_TARGETS: ReadonlySet<keyof Indicators> = new Set<keyof Indicators>(['founded', 'settlements', 'metropoles', 'realms', 'annexations', 'newPeoples']);
+/** Umidade mínima para uma terra contar como habitável. */
+const HABITABLE_MOISTURE = 0.1;
+/** Largura da faixa de temperatura de um povo (`TEMPLATES` em species.ts), de cada lado da temperatura do planeta. */
+const HABITABLE_SPREAD_K = 31.5;
+/** `habitableTiles` na Terra do jogo. Quem muda o gerador atualiza: um teste compara. */
+export const EARTH_HABITABLE_TILES = 138716;
+
+/** Tiles onde um povo do planeta consegue viver: terra, na faixa de temperatura dele e com um mínimo de umidade. */
+export function habitableTiles(map: SurfaceMap): number {
+  const mid = map.params.temperatureK;
+  let n = 0;
+  for (let i = 0; i < map.width * map.height; i++) {
+    if (map.elevation[i] < 0 || map.moisture[i] < HABITABLE_MOISTURE) continue;
+    if (Math.abs(temperatureAt(map, i) - mid) <= HABITABLE_SPREAD_K) n++;
+  }
+  return n;
+}
+
+/**
+ * Metas do planeta: as contagens de `LONG_TARGETS` vêm da Terra do jogo e escalam com a terra habitável, arredondando
+ * para fora, para a faixa não fechar num planeta pequeno. Na Terra (qualquer raio, como nas rodadas da calibração) são as
+ * de sempre. Num planeta sem terra habitável, ninguém precisa fundar nada.
+ */
+export function scaledTargets(map: SurfaceMap): typeof LONG_TARGETS {
+  if (map.params.id === EARTH_ID) return LONG_TARGETS;
+  const k = habitableTiles(map) / EARTH_HABITABLE_TILES;
+  return LONG_TARGETS.map((t) =>
+    COUNT_TARGETS.has(t.key) ? { ...t, min: Math.floor(t.min * k), max: t.max >= 9999 ? t.max : Math.ceil(t.max * k) } : t,
+  );
+}
 
 /** Nome de cada indicador no relatório. */
 export const LABELS: Partial<Record<keyof Indicators, string>> = {
@@ -331,7 +617,6 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   agreements: 'Acordos comerciais no fim',
   routeTiles: 'Tiles de estrada nascidos do uso',
   luxuries: 'Assentamentos que produzem luxo',
-  tolls: 'Postos de pedágio',
   people: 'Moradores no fim',
   peopleTrend: 'Moradores: fim ÷ 60% da rodada',
   foodNeed: 'Atendimento médio de comida',
@@ -364,6 +649,13 @@ export const LABELS: Partial<Record<keyof Indicators, string>> = {
   mercenaries: 'Mercenários contratados',
   retreats: 'Exércitos que voltaram sem comida',
   cavalry: 'Soldados montados (média por ano)',
+  pressureShare: 'Parte das fundações por pressão, social ou da terra (contra as por fome)',
+  landFounds: 'Fundações pela pressão da terra',
+  famineFounds: 'Fundações por fome',
+  fissions: 'Fissões por pressão',
+  fissionPop: 'Tamanho médio da origem na fissão (alvo 100 a 300)',
+  circumscribed: 'Lugares que ficaram circunscritos (sem terra livre para a fissão)',
+  landHungerWars: 'Guerras por terra de reinos circunscritos',
 };
 
 /** Linhas da tabela do relatório: média, mediana, faixa de 10% a 90% e, quando há meta, se ficou dentro. */

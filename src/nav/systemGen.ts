@@ -1,8 +1,9 @@
 import { bvToTemperature, stellarRadius } from '../core/astro';
+import { LruCache } from '../core/lru';
 import { mulberry32, seedFor } from '../core/rng';
 import { KM_PER_AU } from '../core/units';
 import { alienName, nativeLifeTier, type LifeTier } from '../sim/species';
-import { compressOrbit, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData } from '../client/space/bodies';
+import { compressOrbit, SOL_PLANETS, SUN_VISUAL_RADIUS, type PlanetData } from './planets';
 
 /**
  * Sistemas planetários de todas as estrelas (RF-SYS-01). O Sistema Solar é
@@ -48,8 +49,16 @@ export interface SystemData {
 
 export const SOL_ID = 0;
 
+/** Estrela do catálogo (id, magnitude absoluta e índice de cor), com ou sem nome. */
+export type StarRef = Pick<StarInfo, 'id' | 'absmag' | 'ci'>;
+
+/** Dados da estrela com o nome do catálogo; sem nome próprio, "Sol" ou "HYG <id>". */
+export function starInfo(s: StarRef, names: ReadonlyMap<number, string>): StarInfo {
+  return { id: s.id, name: names.get(s.id) ?? (s.id === SOL_ID ? 'Sol' : `HYG ${s.id}`), absmag: s.absmag, ci: s.ci };
+}
+
 /** Raio visual da estrela, em UA (mesma regra de createStarBody). */
-export function starVisualRadius(star: StarInfo): number {
+export function starVisualRadius(star: StarRef): number {
   if (star.id === SOL_ID) return SUN_VISUAL_RADIUS;
   return SUN_VISUAL_RADIUS * Math.min(Math.max(stellarRadius(star.absmag, star.ci), 0.15), 30);
 }
@@ -118,7 +127,39 @@ function rockyColor(rnd: () => number, temperatureK: number, water: number): num
   return pick(rnd, ROCKY_COLORS);
 }
 
-const cache = new Map<number, SystemData>();
+/** Mais perto da estrela do que isto, em UA para uma estrela de 1 massa solar, o planeta fica travado por maré. */
+const TIDAL_LOCK_AU = 0.4;
+const HOURS_PER_YEAR = 8766;
+
+/**
+ * Eixo, dia e atmosfera de um planeta fora do Sistema Solar. Sorteio próprio, por planeta: tirar números do fluxo de
+ * `build` deslocaria tudo o que vem depois dele, e os mesmos ids deixariam de dar os mesmos planetas.
+ */
+function planetPhysics(p: PlanetData, lum: number, mass: number, kelvin: number): Pick<PlanetData, 'star' | 'axialTilt' | 'dayHours' | 'air'> {
+  const rnd = mulberry32(seedFor(`${p.id}:physics`));
+  const locked = p.aAu < TIDAL_LOCK_AU * Math.cbrt(mass);
+  const giant = p.kind !== 'rocky';
+  // Quem tem halo no desenho tem atmosfera de verdade.
+  const thick = p.atmosphere !== undefined;
+  // Um em dez planetas tem o eixo bem deitado ou virado, como Urano e Vênus.
+  const tilt = rnd() < 0.1 ? 0.8 + rnd() * (Math.PI - 0.8) : rnd() ** 2 * 0.8;
+  const day = giant ? 8 + rnd() * 10 : 10 * 2 ** (rnd() * 3);
+  const pressure = giant ? 1 : !thick ? rnd() * 0.02 : p.temperatureK > 500 ? 20 + rnd() * 80 : 0.3 + rnd() * 2.7;
+  return {
+    star: { luminosity: lum, kelvin },
+    axialTilt: locked ? 0 : tilt,
+    dayHours: locked ? p.periodYears * HOURS_PER_YEAR : day,
+    air: { pressure, greenhouse: thick ? Math.max(0, Math.round(p.temperatureK - equilibriumTemperature(lum, p.aAu))) : 0 },
+  };
+}
+
+/**
+ * Sistemas já gerados. A varredura gera até 400 de uma vez e o GUIA consulta
+ * as 30 estrelas mais próximas 4 vezes por segundo; 1024 cobre os dois com
+ * folga e não cresce sem limite numa viagem longa.
+ */
+const SYSTEM_CACHE_LIMIT = 1024;
+const cache = new LruCache<number, SystemData>(SYSTEM_CACHE_LIMIT);
 
 /** Sistema da estrela, sempre o mesmo para o mesmo id. */
 export function generateSystem(star: StarInfo): SystemData {
@@ -201,6 +242,9 @@ function build(star: StarInfo): SystemData {
       a *= 1.45 + rnd() * 0.9;
     }
   }
+
+  const kelvin = Math.round(bvToTemperature(star.ci));
+  for (const p of planets) Object.assign(p, planetPhysics(p, lum, mass, kelvin));
 
   const comets: CometData[] = [];
   const cometCount = rnd() < 0.55 ? 1 + Math.floor(rnd() * 2) : 0;

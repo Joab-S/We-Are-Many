@@ -1,22 +1,28 @@
-import * as THREE from 'three';
 import { Ecosystem } from '../sim/ecosystem';
 import type { StatefulRng } from '../core/rng';
-import type { PlanetParams, SurfaceMap } from '../procgen/surface';
+import { withPhysics, type PlanetParams, type SurfaceMap } from '../procgen/surface';
+import type { EngineCommand } from '../sim/api/commands';
 import type { Species } from '../sim/species';
 import type { NavState } from '../nav/guide';
 import type { ProbeState } from '../explore/probes';
-import type { GameState } from '../client/state';
 
 /**
  * Salvamento do jogo (RF-SAV-01 a 03). O instantâneo é um objeto que o
  * `structuredClone` entende (Map, Set, arrays tipados, referências
  * compartilhadas), por isso vai direto para o IndexedDB, sem passar por JSON:
  * o mapa de um planeta tem alguns MB de arrays tipados, bem acima da cota do
- * localStorage (~5 MB). Sem three.js nem DOM no que é testado, para rodar em Node.
+ * localStorage (~5 MB).
+ *
+ * Este arquivo é do motor puro (sem three.js, DOM nem `src/client`, conferido
+ * em `src/core/purity.test.ts`): o formato, a validação e o retrato do
+ * Ecosystem, que a fachada do motor (`src/sim/api/engine.ts`) também usa. O
+ * estado do jogo inteiro (nave em THREE.Vector3, `GameState` do cliente) é
+ * montado em `game.ts`.
  */
 
-/** Sobe quando o formato muda de um jeito que saves antigos não entendem. */
-export const SAVE_VERSION = 1;
+/** Sobe quando o formato muda. Os saves de OLDEST_SAVE em diante carregam: `migrate` os traz para esta versão. */
+export const SAVE_VERSION = 2;
+const OLDEST_SAVE = 1;
 
 /** Onde o jogador estava e como via: a superfície guarda também câmera e velocidade. */
 export type ViewSnapshot = { mode: 'space' } | { mode: 'surface'; params: PlanetParams; center: [number, number]; zoom: number; speed: number };
@@ -31,16 +37,31 @@ export interface EcosystemSnapshot {
   fields: Record<string, unknown>;
 }
 
+/** O relógio e o log de comandos de um mundo (`SimDriver`). */
+export interface WorldRecord {
+  tick: number;
+  log: { tick: number; cmd: EngineCommand }[];
+  fromStart: boolean;
+}
+
 export interface SaveData {
   version: number;
   savedAt: number;
   ship: { pos: [number, number, number]; quat: [number, number, number, number] };
   time: number;
   orbitPlanetId: string | null;
+  /** Nave menos planeta ao descer. Opcional: saves anteriores não têm, e continuam valendo. */
+  orbitOffset?: [number, number, number] | null;
+  /** O giro do planeta quando a nave desceu de perto do chão. */
+  orbitSpin?: number | null;
   surfaces: Map<string, SurfaceMap>;
   ecosystems: Map<string, EcosystemSnapshot>;
+  /** Opcional: saves anteriores não têm, e os mundos deles passam a registrar dali em diante. */
+  replays?: Map<string, WorldRecord>;
   knownSpecies: Map<string, Species>;
   nav: NavState;
+  /** Quando cada planeta foi visto pela última vez. Save de antes disso: nenhum perdeu nada. */
+  leftAt?: Map<string, number>;
   probes: ProbeState;
   view: ViewSnapshot;
 }
@@ -53,7 +74,7 @@ const isRng = (v: unknown): v is StatefulRng => typeof v === 'function' && typeo
  * campo novo no Ecosystem já é salvo. Funções e WeakMaps (caches) ficam de fora;
  * os geradores de sorteio entram pelo estado.
  */
-function snapshotEcosystem(eco: Ecosystem, seed: number): EcosystemSnapshot {
+export function snapshotEcosystem(eco: Ecosystem, seed: number): EcosystemSnapshot {
   const rng: Record<string, number> = {};
   const fields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(eco)) {
@@ -64,46 +85,46 @@ function snapshotEcosystem(eco: Ecosystem, seed: number): EcosystemSnapshot {
   return { seed, rng, fields };
 }
 
-export function snapshotGame(state: GameState, view: ViewSnapshot, seeds: (planetId: string) => number, now = Date.now()): SaveData {
-  return {
-    version: SAVE_VERSION,
-    savedAt: now,
-    ship: { pos: state.shipPos.toArray(), quat: state.shipQuat.toArray() as [number, number, number, number] },
-    time: state.time,
-    orbitPlanetId: state.orbitPlanetId,
-    surfaces: state.surfaces,
-    ecosystems: new Map([...state.ecosystems].map(([id, eco]) => [id, snapshotEcosystem(eco, seeds(id))])),
-    knownSpecies: state.knownSpecies,
-    nav: state.nav,
-    probes: state.probes,
-    view,
-  };
-}
-
 export class SaveFormatError extends Error {}
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const finiteTuple = (v: unknown, n: number): boolean => Array.isArray(v) && v.length === n && v.every(finite);
 
 /** Confere o essencial antes de mexer no jogo; um save adulterado ou de outra versão é recusado inteiro. */
+/**
+ * Traz um save já validado para a versão atual. A versão 1 não tinha a física dos planetas: eles recebem a da Terra,
+ * os valores com que as contas daquele mundo foram feitas.
+ */
+function migrate(d: SaveData): void {
+  if (d.version < 2) {
+    for (const map of d.surfaces.values()) map.params = withPhysics(map.params);
+    if (d.view.mode === 'surface') d.view.params = withPhysics(d.view.params);
+  }
+  d.version = SAVE_VERSION;
+}
+
 export function validateSave(raw: unknown): SaveData {
   const d = raw as Partial<SaveData> | null;
   if (!d || typeof d !== 'object') throw new SaveFormatError('save vazio');
-  if (d.version !== SAVE_VERSION) throw new SaveFormatError(`versão ${String(d.version)} incompatível (esperada ${SAVE_VERSION})`);
+  if (typeof d.version !== 'number' || d.version < OLDEST_SAVE || d.version > SAVE_VERSION) throw new SaveFormatError(`versão ${String(d.version)} incompatível (esperada de ${OLDEST_SAVE} a ${SAVE_VERSION})`);
   if (!finiteTuple(d.ship?.pos, 3) || !finiteTuple(d.ship?.quat, 4)) throw new SaveFormatError('posição da nave inválida');
   if (!finite(d.time) || d.time < 0) throw new SaveFormatError('tempo de jogo inválido');
+  if (d.orbitSpin != null && !Number.isFinite(d.orbitSpin)) throw new SaveFormatError('órbita: o giro do planeta não é um número');
+  if (d.orbitOffset != null && !finiteTuple(d.orbitOffset, 3)) throw new SaveFormatError('órbita da nave inválida');
   if (!(d.surfaces instanceof Map) || !(d.ecosystems instanceof Map) || !(d.knownSpecies instanceof Map)) throw new SaveFormatError('mundo ausente');
+  if (d.replays !== undefined && !(d.replays instanceof Map)) throw new SaveFormatError('registro dos mundos inválido');
   if (!d.nav || !d.probes || !d.view || (d.view.mode !== 'space' && d.view.mode !== 'surface')) throw new SaveFormatError('estado incompleto');
   for (const [id, snap] of d.ecosystems) {
     const map = d.surfaces.get(id);
     if (!map || !(map.elevation instanceof Float32Array) || map.elevation.length !== map.width * map.height) throw new SaveFormatError(`terreno de ${id} ausente ou corrompido`);
     if (!snap || !snap.fields || !snap.rng) throw new SaveFormatError(`ecossistema de ${id} corrompido`);
   }
+  migrate(d as SaveData);
   return d as SaveData;
 }
 
 /** Recria um ecossistema idêntico ao salvo: classe nova (métodos e callbacks) com os campos e o RNG do save. */
-function restoreEcosystem(snap: EcosystemSnapshot, map: SurfaceMap): Ecosystem {
+export function restoreEcosystem(snap: EcosystemSnapshot, map: SurfaceMap): Ecosystem {
   // O construtor zera o mapa de árvores cortadas, que pertence ao terreno e vem no save.
   const felled = map.felled;
   const eco = new Ecosystem(map, snap.seed);
@@ -117,24 +138,4 @@ function restoreEcosystem(snap: EcosystemSnapshot, map: SurfaceMap): Ecosystem {
   }
   eco.fixAfterLoad();
   return eco;
-}
-
-/** Monta o estado do jogo a partir do save; `base` traz o que não é salvo (manifesto e nomes das estrelas). */
-export function restoreGame(raw: unknown, base: Pick<GameState, 'manifest' | 'names'>): { state: GameState; view: ViewSnapshot; savedAt: number } {
-  const d = validateSave(raw);
-  const ecosystems = new Map<string, Ecosystem>();
-  for (const [id, snap] of d.ecosystems) ecosystems.set(id, restoreEcosystem(snap, d.surfaces.get(id)!));
-  const state: GameState = {
-    ...base,
-    shipPos: new THREE.Vector3().fromArray(d.ship.pos),
-    shipQuat: new THREE.Quaternion().fromArray(d.ship.quat),
-    time: d.time,
-    surfaces: d.surfaces,
-    orbitPlanetId: d.orbitPlanetId,
-    ecosystems,
-    knownSpecies: d.knownSpecies,
-    nav: d.nav,
-    probes: d.probes,
-  };
-  return { state, view: d.view, savedAt: d.savedAt };
 }

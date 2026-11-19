@@ -1,0 +1,333 @@
+/**
+ * Camada 7, a sociedade: o povo percebe que precisa de alguém à frente, se candidata, vota, apoia ou protesta,
+ * paga (ou sonega) o imposto e atende ao chamado às armas. Quem é eleito ganha a tag de líder e, com ela, o
+ * pacote do governo: decide imposto, obras públicas (estrada, praça, prefeitura, poço, celeiro, mercado, templo,
+ * muralha, quartel), exército, festas e socorro, cada coisa pela própria personalidade. As obras privadas
+ * continuam vindo da escolha de cada morador (camada Lugar).
+ */
+import { curva } from '../curvas';
+import { c, pacote } from '../dsl';
+import { E } from '../entradas';
+import { S, TAG, WOT } from '../vocab';
+
+const CAMADA = 'Sociedade';
+
+/** Pacote 14: cidadania (todo adulto morador). */
+export const CIDADANIA = pacote({ id: 14, nome: 'Cidadania', camada: CAMADA, descricao: 'Pedir um líder, candidatar-se, votar, apoiar ou protestar, pagar ou sonegar o imposto, alistar-se.' }, [
+  {
+    nome: 'Pedir que o lugar escolha um líder',
+    descricao: 'O lugar cresceu, não tem quem decida e já há brigas ou faltas: chama o povo para escolher um líder.',
+    tipo: 'ConvocarEleicao',
+    contexto: 'eu',
+    peso: 2,
+    considera: [
+      c('mora no lugar', E.MyHasTag, curva.sim(), { tag: TAG.morador }),
+      c('sem líder', E.eu, curva.sim(), { stat: S.locSemLider }),
+      c('sem eleição aberta', E.eu, curva.nao(), { stat: S.locEleicao }),
+      c('gente demais para combinar', E.eu, curva.faixa(5, 14, 0, 1), { stat: S.locPop }),
+      c('brigas ou faltas', E.eu, curva.sobe(0.35, 1), { stat: S.locConflitos }),
+      c('iniciativa', E.eu, curva.traco(0.4), { stat: 'tr.ambition' }),
+    ],
+  },
+  {
+    nome: 'Candidatar-se a líder',
+    descricao: 'Há eleição: quem é ambicioso, carismático e querido se candidata.',
+    tipo: 'Candidatar',
+    contexto: 'eu',
+    peso: 3,
+    considera: [
+      c('eleição aberta', E.eu, curva.sim(), { stat: S.locEleicao }),
+      c('adulto', E.MyHasTag, curva.sim(), { tag: TAG.adulto }),
+      c('ainda não sou candidato', E.MyHasTag, curva.nao(), { tag: TAG.candidato }),
+      c('ambição', E.eu, curva.traco(0.8), { stat: 'tr.ambition' }),
+      c('carisma', E.eu, curva.traco(0.6), { stat: 'tr.charisma' }),
+      c('popularidade', E.eu, curva.sobe(0.15, 1), { stat: S.popularidade }),
+    ],
+  },
+  {
+    nome: 'Votar em um candidato',
+    descricao: 'Há eleição: vota no candidato de quem mais gosta, com quem combina e que tem carisma e fama.',
+    tipo: 'Votar',
+    contexto: 'alvo',
+    alvos: [WOT.pessoa],
+    peso: 2.4,
+    considera: [
+      c('eleição aberta', E.eu, curva.sim(), { stat: S.locEleicao }),
+      c('é candidato', E.TargetHasTag, curva.sim(), { tag: TAG.candidato }),
+      c('ainda não votei', E.MyHasTag, curva.nao(), { tag: TAG.votou }),
+      c('gosto dele', E.laco, curva.faixa(-60, 80, 0.1, 1)),
+      c('combina comigo', E.compatibilidade, curva.faixa(-1, 1, 0.3, 1)),
+      c('carisma dele', E.alvo, curva.traco(0.6), { stat: 'tr.charisma' }),
+      c('fama dele', E.alvo, curva.sobe(0.3, 1), { stat: S.popularidade }),
+    ],
+  },
+  {
+    nome: 'Apoiar o líder',
+    descricao: 'Gosta do trabalho do líder: elogia em público (a aprovação dele sobe).',
+    tipo: 'Apoiar',
+    contexto: 'alvo',
+    alvos: [WOT.pessoa],
+    peso: 1.2,
+    considera: [
+      c('é o líder', E.TargetHasTag, curva.sim(), { tag: TAG.lider }),
+      c('aprovo', E.eu, curva.limiar(0.6, 8), { stat: S.aprovacao }),
+      c('lealdade', E.eu, curva.traco(0.5), { stat: 'tr.loyalty' }),
+      c('não falou agora', E.TimeSinceThisBehavior, curva.faixa(0, 200, 0, 1)),
+    ],
+  },
+  {
+    nome: 'Protestar contra o líder',
+    descricao: 'Não gosta do trabalho do líder (imposto alto, fome, nada feito): protesta; muitos protestos derrubam o líder.',
+    tipo: 'Protestar',
+    contexto: 'alvo',
+    alvos: [WOT.pessoa],
+    peso: 1.6,
+    considera: [
+      c('é o líder', E.TargetHasTag, curva.sim(), { tag: TAG.lider }),
+      c('desaprovo', E.eu, curva.limiarInv(0.35, 9), { stat: S.aprovacao }),
+      c('rebeldia', E.eu, curva.traco(-0.5), { stat: 'tr.loyalty' }),
+      c('agressividade', E.eu, curva.traco(0.3), { stat: 'tr.aggression' }),
+      c('não protestou agora', E.TimeSinceThisBehavior, curva.faixa(0, 200, 0, 1)),
+    ],
+  },
+  {
+    nome: 'Pagar o imposto',
+    descricao: 'O imposto venceu: paga ao tesouro (o leal e quem aprova o líder pagam sem pensar).',
+    tipo: 'PagarImposto',
+    contexto: 'eu',
+    peso: 2.2,
+    considera: [
+      c('imposto devido', E.eu, curva.limiar(0.3, 10), { stat: S.impostoDevido }),
+      c('tenho como', E.eu, curva.faixa(0, 3, 0.1, 1), { stat: S.riqueza }),
+      c('lealdade', E.eu, curva.traco(0.5), { stat: 'tr.loyalty' }),
+      c('aprovo o líder', E.eu, curva.sobe(0.4, 1), { stat: S.aprovacao }),
+    ],
+  },
+  {
+    nome: 'Sonegar o imposto',
+    descricao: 'O imposto venceu, mas é ganancioso e não gosta do líder: não paga.',
+    tipo: 'Sonegar',
+    contexto: 'eu',
+    peso: 1.6,
+    considera: [
+      c('imposto devido', E.eu, curva.limiar(0.3, 10), { stat: S.impostoDevido }),
+      c('ganância', E.eu, curva.traco(0.7), { stat: 'tr.greed' }),
+      c('rebeldia', E.eu, curva.traco(-0.5), { stat: 'tr.loyalty' }),
+      c('desaprovo o líder', E.eu, curva.desce(1, 0.2), { stat: S.aprovacao }),
+    ],
+  },
+  {
+    nome: 'Alistar-se',
+    descricao: 'O líder chamou às armas: o corajoso e leal se alista.',
+    tipo: 'Alistar',
+    contexto: 'eu',
+    peso: 2.4,
+    considera: [
+      c('chamado', E.eu, curva.sim(), { stat: S.locChamado }),
+      c('adulto', E.MyHasTag, curva.sim(), { tag: TAG.adulto }),
+      c('ainda não sou soldado', E.MyHasTag, curva.nao(), { tag: TAG.soldado }),
+      c('não é o líder', E.MyHasTag, curva.nao(), { tag: TAG.lider }),
+      c('coragem', E.eu, curva.traco(0.6), { stat: 'tr.courage' }),
+      c('lealdade', E.eu, curva.traco(0.4), { stat: 'tr.loyalty' }),
+    ],
+  },
+]);
+
+/** Pacote 15: governo (só quem tem a tag de líder). */
+export const GOVERNO = pacote({ id: 15, nome: 'Governo', camada: CAMADA, descricao: 'O líder decide obras públicas, imposto, exército, festas e socorro pela própria personalidade.' }, [
+  {
+    nome: 'Mandar fazer uma obra de serviço',
+    descricao: 'Estrada, praça, prefeitura, poço, celeiro ou mercado que o lugar sente faltar: o líder diligente e gentil manda fazer.',
+    tipo: 'OrdenarObra',
+    contexto: 'alvo',
+    alvos: [WOT.obraPublica],
+    peso: 2.4,
+    considera: [
+      c('sou o líder', E.MyHasTag, curva.sim(), { tag: TAG.lider }),
+      c('é de serviço', E.TargetHasTag, curva.sim(), { tag: 'Serviço' }),
+      c('o lugar precisa', E.alvo, curva.limiar(0.35, 8), { stat: S.valor }),
+      c('o tesouro paga', E.tesouroPaga, curva.faixa(0.6, 1.5, 0, 1)),
+      c('sem obra aberta', E.eu, curva.nao(), { stat: S.locObraAberta }),
+      c('diligência', E.eu, curva.traco(0.4), { stat: 'tr.diligence' }),
+      c('gentileza', E.eu, curva.traco(0.3), { stat: 'tr.kindness' }),
+    ],
+  },
+  {
+    nome: 'Mandar fazer uma obra de fé',
+    descricao: 'O povo sente falta de um templo: o líder devoto manda fazer.',
+    tipo: 'OrdenarObra',
+    contexto: 'alvo',
+    alvos: [WOT.obraPublica],
+    peso: 2.2,
+    considera: [
+      c('sou o líder', E.MyHasTag, curva.sim(), { tag: TAG.lider }),
+      c('é de fé', E.TargetHasTag, curva.sim(), { tag: 'Fé' }),
+      c('o lugar precisa', E.alvo, curva.limiar(0.35, 8), { stat: S.valor }),
+      c('o tesouro paga', E.tesouroPaga, curva.faixa(0.6, 1.5, 0, 1)),
+      c('sem obra aberta', E.eu, curva.nao(), { stat: S.locObraAberta }),
+      c('fé', E.eu, curva.traco(0.8), { stat: 'tr.faith' }),
+    ],
+  },
+  {
+    nome: 'Mandar fazer uma obra de defesa',
+    descricao: 'Há ameaça (ou o líder é belicoso): muralha ou quartel.',
+    tipo: 'OrdenarObra',
+    contexto: 'alvo',
+    alvos: [WOT.obraPublica],
+    peso: 2.2,
+    considera: [
+      c('sou o líder', E.MyHasTag, curva.sim(), { tag: TAG.lider }),
+      c('é de defesa', E.TargetHasTag, curva.sim(), { tag: 'Defesa' }),
+      c('o lugar precisa', E.alvo, curva.limiar(0.35, 8), { stat: S.valor }),
+      c('o tesouro paga', E.tesouroPaga, curva.faixa(0.6, 1.5, 0, 1)),
+      c('sem obra aberta', E.eu, curva.nao(), { stat: S.locObraAberta }),
+      c('belicoso', E.eu, curva.traco(0.6), { stat: 'tr.aggression' }),
+      c('coragem', E.eu, curva.traco(0.3), { stat: 'tr.courage' }),
+    ],
+  },
+  {
+    nome: 'Subir o imposto',
+    descricao: 'O tesouro não dá para o que o lugar precisa: o líder ganancioso ou ambicioso sobe o imposto.',
+    tipo: 'DefinirImposto',
+    contexto: 'alvo',
+    alvos: [WOT.imposto],
+    peso: 1.8,
+    considera: [
+      c('sou o líder', E.MyHasTag, curva.sim(), { tag: TAG.lider }),
+      c('é mais alto', E.alvo, curva.sim(), { stat: 'acima' }),
+      c('um degrau só', E.alvo, curva.sim(), { stat: 'vizinho' }),
+      c('tesouro curto', E.eu, curva.faixa(0, 30, 1, 0.1), { stat: S.locTesouro }),
+      c('o povo aguenta', E.eu, curva.sobe(0.1, 1), { stat: S.aprovacao }),
+      c('ambição', E.eu, curva.traco(0.4), { stat: 'tr.ambition' }),
+      c('ganância', E.eu, curva.traco(0.4), { stat: 'tr.greed' }),
+      c('não mexeu agora', E.TimeSinceBehaviorType, curva.faixa(0, 300, 0, 1), { behaviorType: 'DefinirImposto' }),
+    ],
+  },
+  {
+    nome: 'Baixar o imposto',
+    descricao: 'O povo reclama ou o tesouro sobra: o líder gentil baixa o imposto.',
+    tipo: 'DefinirImposto',
+    contexto: 'alvo',
+    alvos: [WOT.imposto],
+    peso: 1.8,
+    considera: [
+      c('sou o líder', E.MyHasTag, curva.sim(), { tag: TAG.lider }),
+      c('é mais baixo', E.alvo, curva.sim(), { stat: 'abaixo' }),
+      c('um degrau só', E.alvo, curva.sim(), { stat: 'vizinho' }),
+      c('o povo reclama', E.eu, curva.desce(1, 0.15), { stat: S.aprovacao }),
+      c('tesouro sobra', E.eu, curva.faixa(0, 60, 0.3, 1), { stat: S.locTesouro }),
+      c('gentileza', E.eu, curva.traco(0.5), { stat: 'tr.kindness' }),
+      c('não mexeu agora', E.TimeSinceBehaviorType, curva.faixa(0, 300, 0, 1), { behaviorType: 'DefinirImposto' }),
+    ],
+  },
+  {
+    nome: 'Chamar o povo às armas',
+    descricao: 'Há ameaça (ou o líder é belicoso e o lugar cresceu): chama gente para o exército.',
+    tipo: 'Recrutar',
+    contexto: 'eu',
+    peso: 2.2,
+    considera: [
+      c('sou o líder', E.MyHasTag, curva.sim(), { tag: TAG.lider }),
+      c('ameaça', E.eu, curva.sobe(0.15, 1), { stat: S.locAmeaca }),
+      c('gente para isso', E.eu, curva.faixa(8, 30, 0.1, 1), { stat: S.locPop }),
+      c('sem chamado ativo', E.eu, curva.nao(), { stat: S.locChamado }),
+      c('belicoso', E.eu, curva.traco(0.6), { stat: 'tr.aggression' }),
+    ],
+  },
+  {
+    nome: 'Distribuir comida do celeiro',
+    descricao: 'O povo passa fome: o líder gentil abre o celeiro.',
+    tipo: 'Distribuir',
+    contexto: 'eu',
+    peso: 2.4,
+    considera: [
+      c('sou o líder', E.MyHasTag, curva.sim(), { tag: TAG.lider }),
+      c('fome no lugar', E.eu, curva.limiar(0.45, 9), { stat: S.locFaltaComida }),
+      c('gentileza', E.eu, curva.traco(0.7), { stat: 'tr.kindness' }),
+      c('não distribuiu agora', E.TimeSinceThisBehavior, curva.faixa(0, 120, 0, 1)),
+    ],
+  },
+  {
+    nome: 'Dar uma festa na praça',
+    descricao: 'O líder carismático faz festa para comemorar ou para recuperar o apoio do povo.',
+    tipo: 'PromoverFesta',
+    contexto: 'eu',
+    peso: 1.4,
+    considera: [
+      c('sou o líder', E.MyHasTag, curva.sim(), { tag: TAG.lider }),
+      c('o tesouro paga', E.eu, curva.faixa(5, 30, 0, 1), { stat: S.locTesouro }),
+      c('carisma', E.eu, curva.traco(0.7), { stat: 'tr.charisma' }),
+      c('apoio a recuperar ou a festejar', E.eu, { ...curva.lombada(0.5, 0.3, 0.6) }, { stat: S.aprovacao }),
+      c('não festejou agora', E.TimeSinceThisBehavior, curva.faixa(0, 600, 0, 1)),
+    ],
+  },
+  {
+    nome: 'Deixar o cargo',
+    descricao: 'Sem apoio nenhum, velho ou sem vontade: o líder deixa o cargo e o lugar escolhe outro.',
+    tipo: 'Renunciar',
+    contexto: 'eu',
+    peso: 1.5,
+    considera: [
+      c('sou o líder', E.MyHasTag, curva.sim(), { tag: TAG.lider }),
+      c('sem apoio', E.eu, curva.limiarInv(0.2, 12), { stat: S.aprovacao }),
+      c('pouca ambição', E.eu, curva.traco(-0.5), { stat: 'tr.ambition' }),
+    ],
+  },
+]);
+
+/** Pacote 16: defesa. */
+export const DEFESA = pacote({ id: 16, nome: 'Defesa', camada: CAMADA, descricao: 'Defender o lugar, patrulhar, treinar e correr para o abrigo.' }, [
+  {
+    nome: 'Defender o lugar',
+    descricao: 'Algo perigoso se aproxima: o soldado (ou o corajoso) enfrenta.',
+    tipo: 'Atacar',
+    contexto: 'alvo',
+    alvos: [WOT.pessoa, WOT.animal],
+    continuo: true,
+    peso: 4,
+    considera: [
+      c('é perigoso', E.creioQueAlvoE, curva.sim(), { tag: TAG.perigoso }),
+      c('perto', E.DistanceToTarget, curva.perto(25, 0.1)),
+      c('soldado ou corajoso', E.MyHasTag, curva.sim(0.3), { tag: TAG.soldado }),
+      c('coragem', E.eu, curva.traco(0.6), { stat: 'tr.courage' }),
+    ],
+  },
+  {
+    nome: 'Patrulhar',
+    descricao: 'Soldado em dia de serviço ronda o lugar.',
+    tipo: 'Patrulhar',
+    contexto: 'eu',
+    continuo: true,
+    peso: 2,
+    considera: [
+      c('soldado', E.MyHasTag, curva.sim(), { tag: TAG.soldado }),
+      c('ameaça', E.eu, curva.sobe(0.4, 1), { stat: S.locAmeaca }),
+      c('disposição', E.eu, curva.desce(1, 0.2), { stat: S.cansaco }),
+    ],
+  },
+  {
+    nome: 'Treinar',
+    descricao: 'Soldado sem ameaça treina com as armas.',
+    tipo: 'Treinar',
+    contexto: 'eu',
+    continuo: true,
+    peso: 1.6,
+    considera: [c('soldado', E.MyHasTag, curva.sim(), { tag: TAG.soldado }), c('sem ameaça', E.eu, curva.desce(1, 0.2), { stat: S.locAmeaca }), c('diligência', E.eu, curva.traco(0.4), { stat: 'tr.diligence' })],
+  },
+  {
+    nome: 'Correr para o abrigo',
+    descricao: 'Ataque ao lugar: quem não luta corre para a praça ou para dentro da muralha.',
+    tipo: 'Abrigar',
+    contexto: 'eu',
+    continuo: true,
+    peso: 4.5,
+    considera: [
+      c('ameaça', E.eu, curva.limiar(0.6, 10), { stat: S.locAmeaca }),
+      c('não sou soldado', E.MyHasTag, curva.nao(), { tag: TAG.soldado }),
+      c('medo', E.eu, curva.traco(-0.5), { stat: 'tr.courage' }),
+      // A fome e a sede de verdade vencem o medo: ninguém morre escondido.
+      c('não está passando fome', E.eu, curva.limiarInv(0.8, 12), { stat: S.fome }),
+      c('não está com muita sede', E.eu, curva.limiarInv(0.8, 12), { stat: S.sede }),
+    ],
+  },
+]);

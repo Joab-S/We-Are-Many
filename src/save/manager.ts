@@ -1,6 +1,7 @@
 import type { GameState } from '../client/state';
 import type { SaveStore } from './store';
-import { restoreGame, snapshotGame, type ViewSnapshot } from './snapshot';
+import { restoreGame, snapshotGame } from './game';
+import type { ViewSnapshot } from './snapshot';
 
 export const SAVE_KEY = 'atual';
 /** Save recusado ao carregar (corrompido ou de outra versão): fica guardado em vez de ser sobrescrito pelo autosave. */

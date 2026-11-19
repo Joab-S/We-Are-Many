@@ -24,7 +24,7 @@ describe('espécies', () => {
   it('a Terra tem a sua fauna nativa; Marte não tem vida', () => {
     expect(nativeSpecies(earth).map((s) => s.name)).toEqual([
       'Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão', 'Coelho', 'Bisão', 'Javali', 'Camelo', 'Elefante', 'Macaco', 'Urso', 'Raposa', 'Onça', 'Hiena',
-      'Crocodilo', 'Tartaruga', 'Sapo', 'Caranguejo', 'Pinguim', 'Baleia', 'Rena', 'Cabra-montesa', 'Leão', 'Urubu', 'Zebra',
+      'Crocodilo', 'Tartaruga', 'Sapo', 'Caranguejo', 'Pinguim', 'Baleia', 'Rena', 'Cabra-montesa', 'Leão', 'Urubu', 'Zebra', 'Cavalo-selvagem',
     ]);
     expect(nativeSpecies(mars)).toEqual([]);
   });
@@ -56,6 +56,63 @@ describe('espécies', () => {
     expect(light[1].eco!.mass!).toBeGreaterThan(heavy[1].eco!.mass! * 3);
     const cold = nativeSpecies({ ...base, temperatureK: 240 });
     expect(cold[1].tempMin).toBeLessThan(light[1].tempMin - 30);
+  });
+  it('teia segura: todo caçador alienígena tem pelo menos duas presas do seu tamanho', () => {
+    let checked = 0;
+    for (let k = 0; checked < 12; k++) {
+      if (nativeLifeTier(`trappist-${k}`, 0.9) === 'none' || nativeLifeTier(`trappist-${k}`, 0.9) === 'plants') continue;
+      checked++;
+      for (const radiusEarth of [0.4, 1, 2.2]) {
+        const list = nativeSpecies({ ...earth, id: `trappist-${k}`, life: 0.9, radiusEarth });
+        const herbs = list.filter((sp) => sp.kind === 'herbivore').map((sp) => sp.eco!.mass!);
+        for (const sp of list) {
+          const e = sp.eco;
+          if (sp.kind !== 'predator' || !e?.meat || !e.maxPrey) continue;
+          const reach = e.maxPrey * (e.pack ? 2 : 1);
+          expect(herbs.filter((m) => m >= e.mass! * 0.015 && m <= reach).length, sp.name).toBeGreaterThanOrEqual(2);
+        }
+      }
+    }
+  });
+  it('fauna sorteada sem lugar para viver é ajustada ao planeta antes de nascer (sem simular)', () => {
+    let k = 0;
+    while (nativeLifeTier(`tau-${k}`, 0.85) !== 'animals') k++;
+    const params = { ...earth, id: `tau-${k}`, life: 0.85 };
+    const map = generateSurface(params);
+    const eco = new Ecosystem(map, 42);
+    const list = nativeSpecies(params);
+    // Um herbívoro sorteado quente demais para qualquer canto do planeta.
+    const herb = list.find((sp) => sp.kind === 'herbivore')!;
+    herb.tempMin = params.temperatureK + 40;
+    herb.tempMax = params.temperatureK + 90;
+    for (const sp of list) eco.addSpecies(sp);
+    eco.populate();
+    const s = eco.species.findIndex((sp) => sp.name === herb.name);
+    expect(eco.species[s].tempMin).toBeLessThan(params.temperatureK + 40);
+    expect(eco.population[s]).toBeGreaterThan(0);
+  });
+});
+
+describe('faixas de temperatura dos planetas com vida própria', () => {
+  // Um planeta cujo sorteio deu povo inteligente.
+  let id = '';
+  for (let k = 0; !id; k++) if (nativeLifeTier(`centro-${k}`, 0.9) === 'sapient') id = `centro-${k}`;
+  const planet = (temperatureK: number): PlanetParams => ({ id, name: 'X', radiusEarth: 1, temperatureK, water: 0.5, life: 0.9 });
+
+  it('o povo, o peixe e o tubarão nascem com a faixa centrada no planeta', () => {
+    for (const temperatureK of [260, 288, 330]) {
+      const list = nativeSpecies(planet(temperatureK));
+      for (const kind of ['sapient', 'fish', 'shark'] as const) {
+        const sp = list.find((s) => s.kind === kind)!;
+        expect(Math.abs((sp.tempMin + sp.tempMax) / 2 - temperatureK), `${kind} a ${temperatureK} K`).toBeLessThanOrEqual(0.5);
+      }
+    }
+  });
+
+  it('a Terra continua com as faixas conhecidas', () => {
+    const earth = nativeSpecies({ id: 'sol-3', name: 'Terra', radiusEarth: 1, temperatureK: 260, water: 0.7, life: 0.85 });
+    const before = nativeSpecies({ id: 'sol-3', name: 'Terra', radiusEarth: 1, temperatureK: 288, water: 0.7, life: 0.85 });
+    expect(earth).toEqual(before);
   });
 });
 

@@ -12,6 +12,7 @@
 html, body, #app { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
 #app canvas, .wb-terr { display: block; width: 100vw; height: 100vh; }
 #hud { position: fixed; inset: 0; pointer-events: none; }
+.fusion-layer { position: fixed; inset: 0; pointer-events: none; }
 #fade { position: fixed; inset: 0; background: #000; opacity: 0; transition: opacity 0.25s; pointer-events: none; }
 #fade.on { opacity: 1; transition: none; }
 #loading { position: fixed; inset: 0; display: grid; place-items: center; font-size: 18px; color: var(--muted); }
@@ -68,6 +69,7 @@ kbd { display: inline-block; min-width: 20px; text-align: center; border: 1px so
 .turbo-bar i.out { background: #a04040; }
 
 .wb-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #f5e6c8; background: #0b1420; text-shadow: 2px 2px 0 #000; }
+.surface-hud.fusing .wb-loading { background: none; align-items: flex-end; padding-bottom: 22vh; pointer-events: none; }
 .wb-dock { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; }
 .wb-tabs { display: flex; gap: 4px; }
 .wb-tabs button { font-family: inherit; font-size: 12px; color: #d8c8a8; background: #3a281a; border: 3px solid #160d07; border-bottom: none; padding: 5px 12px; cursor: pointer; }

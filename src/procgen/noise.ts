@@ -189,6 +189,15 @@ export class ValueNoise3 {
  * quase igual ao ruído direto e custa uma fração. A grade dá a volta na
  * horizontal, como o mapa.
  */
+/**
+ * Latitude (rad) da linha `y` de uma grade com `step` pixels do mapa completo por tile: as linhas 0 e a última do
+ * mapa completo são os polos. Vale para qualquer resolução mostrar o mesmo planeta; a `CoarseField` pode pedir uma
+ * linha além da última, e fica no polo.
+ */
+export function latitudeOf(y: number, step: number, fullHeight: number): number {
+  return (Math.min(1, (y * step) / (fullHeight - 1)) - 0.5) * Math.PI;
+}
+
 export class CoarseField {
   private readonly data: Float32Array;
   private readonly cols: number;

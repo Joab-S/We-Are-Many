@@ -10,14 +10,20 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:rapido": "vitest run --config vitest.rapido.config.ts",
+    "test:jogo": "playwright test",
     "data": "python3 tools/pipeline/build_hyg_chunks.py",
     "calibrar": "vitest run --config vitest.calib.config.ts src/sim/calibrar.calib.ts",
-    "calibrar:longa": "vitest run --config vitest.calib.config.ts src/sim/longa.calib.ts"
+    "calibrar:longa": "vitest run --config vitest.calib.config.ts src/sim/longa.calib.ts",
+    "calibrar:planetas": "vitest run --config vitest.calib.config.ts src/sim/planetas.calib.ts",
+    "calibrar:ajustar": "node tools/tune.mjs",
+    "replay": "node tools/replay.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/three": "^0.186.0",
     "typescript": "~5.9.3",
     "vite": "^8.3.4",

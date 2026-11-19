@@ -1,6 +1,8 @@
 import { mulberry32, seedFor } from '../core/rng';
 import type { PlanetParams } from '../procgen/surface';
-import type { Ecology } from './fauna';
+import { B } from './live';
+import { ecologyOf, hunts, preyInReach, preysOn, type Ecology, type Relation } from './fauna';
+import type { HerdKind } from './eco/types';
 
 /**
  * Espécies de um planeta (RF-SUP-08). O jogador gerencia e transporta
@@ -23,9 +25,11 @@ export interface Species {
   origin: string;
   /** Cor principal do sprite (RGB 0..255). */
   color: [number, number, number];
-  /** Faixa de temperatura tolerada, em K. */
+  /** Faixa de temperatura tolerada, em K (a extrema: fora dela, não vive). */
   tempMin: number;
   tempMax: number;
+  /** Faixa ideal, dentro da extrema; sem isto, vale até 5 K das pontas. */
+  tempIdeal?: readonly [number, number];
   /** Velocidade em tiles por segundo de jogo. */
   speed: number;
   /** Idade máxima em anos de jogo. */
@@ -112,8 +116,9 @@ const EARTH_BANK: Entry[] = [
   ['Rena', 'herbivore', 'reindeer', [150, 120, 90], 220, 290, { maxAge: 15, maturity: 2, size: 1 }],
   ['Cabra-montesa', 'herbivore', 'ibex', [168, 140, 104], 235, 305, { maxAge: 14, maturity: 2, size: 0.85 }],
   ['Leão', 'predator', 'lion', [212, 168, 96], 285, 325, { maxAge: 14, maturity: 3, size: 1.05 }],
-  ['Urubu', 'predator', 'vulture', [52, 46, 50], 265, 320, { maxAge: 15, maturity: 3, size: 0.6 }],
+  ['Urubu', 'predator', 'vulture', [52, 46, 50], 265, 320, { speed: 5, maxAge: 15, maturity: 3, size: 0.6 }],
   ['Zebra', 'herbivore', 'zebra', [236, 236, 230], 283, 325, { maxAge: 20, maturity: 3, size: 1 }],
+  ['Cavalo-selvagem', 'herbivore', 'horse', [150, 104, 62], 240, 308, { speed: 1.7, maxAge: 25, maturity: 3, size: 1.1 }],
 ];
 
 /**
@@ -124,7 +129,7 @@ const EARTH_BANK: Entry[] = [
 const EARTH_NATIVE = new Set([
   'Peixe', 'Cervo', 'Lobo', 'Humano', 'Tubarão', 'Coelho', 'Bisão', 'Raposa', 'Urso', 'Caranguejo', 'Tartaruga', 'Pinguim', 'Baleia', 'Camelo',
   'Elefante', 'Macaco', 'Javali', 'Onça', 'Hiena', 'Crocodilo', 'Sapo',
-  'Rena', 'Cabra-montesa', 'Leão', 'Urubu', 'Zebra',
+  'Rena', 'Cabra-montesa', 'Leão', 'Urubu', 'Zebra', 'Cavalo-selvagem',
 ]);
 
 const slug = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -138,6 +143,74 @@ function fromEntry([name, kind, sprite, color, tempMin, tempMax, extra]: Entry):
 /** Todo o banco genético da Terra. */
 export function earthCatalog(): Species[] {
   return EARTH_BANK.map(fromEntry);
+}
+
+// Domesticação (Diamond, "Armas, germes e aço") -------------------------------------------------------
+
+/**
+ * O que cada bicho domesticável da Terra vira no curral, pelo desenho (que identifica a espécie): o bisão
+ * faz o papel do auroque, o antepassado do gado; a cabra-montesa, o dos caprinos (cabra e carneiro); o
+ * cavalo selvagem das estepes, o do cavalo; a lhama é camelídea. A rena e o javali passariam pelos
+ * critérios ou quase, mas o jogo não tem curral de rena nem de porco: na tundra se vive de caça e pesca.
+ */
+const DOMESTIC_FORMS: Partial<Record<string, readonly HerdKind[]>> = {
+  bison: ['cattle'],
+  ibex: ['goat', 'sheep'],
+  goat: ['goat'],
+  sheep: ['sheep'],
+  horse: ['horse'],
+  camel: ['camel'],
+  llama: ['camel'],
+};
+
+/**
+ * Passa pelos critérios de Diamond: come capim (dieta barata de dar), tem porte de curral (nem bicho
+ * miúdo que não paga o trabalho, nem gigante como o elefante), cresce depressa, vive em manada com
+ * hierarquia (segue um líder e aceita o pastor), não entra em pânico com facilidade e não é bravo.
+ */
+export function meetsDiamond(sp: Species): boolean {
+  if (sp.kind !== 'herbivore') return false;
+  const e = ecologyOf(sp);
+  return (
+    e.guild === 'pastador' &&
+    e.mass >= B.DOMESTIC_MASS[0] &&
+    e.mass <= B.DOMESTIC_MASS[1] &&
+    sp.maturity <= B.DOMESTIC_MATURITY &&
+    e.herd >= B.DOMESTIC_HERD &&
+    e.fear <= B.DOMESTIC_FEAR &&
+    !e.untamed
+  );
+}
+
+/**
+ * Os rebanhos que a espécie pode dar quando domesticada (vazio: não se domestica). Na Terra, só as formas
+ * conhecidas (`DOMESTIC_FORMS`); um bicho de outro planeta que passa pelos critérios vira gado se for
+ * grande e cabra se for menor.
+ */
+export function herdFormsOf(sp: Species): readonly HerdKind[] {
+  if (!meetsDiamond(sp)) return [];
+  const known = DOMESTIC_FORMS[sp.sprite ?? ''];
+  if (sp.origin === EARTH_ID) return known ?? [];
+  return known ?? (ecologyOf(sp).mass >= B.DOMESTIC_BIG ? ['cattle'] : ['goat']);
+}
+
+/** A espécie pode ser domesticada (vira rebanho). */
+export function domesticable(sp: Species): boolean {
+  return herdFormsOf(sp).length > 0;
+}
+
+/**
+ * A linha da tabela de relações de `a` sobre `b`: o que a IA da fauna e a domesticação leem, para quem quer ver o
+ * mundo como dados. O tamanho aqui é o do adulto; um filhote de bicho grande continua sendo presa na hora da caçada.
+ */
+export function relationOf(a: Species, b: Species): Relation {
+  if (a === b) return 'neutro';
+  if (a.kind === 'sapient') return domesticable(b) ? 'domestica' : 'neutro';
+  const ea = ecologyOf(a);
+  const eb = ecologyOf(b);
+  if (preysOn(ea, eb) && preyInReach(ea, eb)) return 'presa';
+  if (preysOn(eb, ea) && preyInReach(eb, ea)) return 'predador';
+  return hunts(ea) && !hunts(eb) && ea.relations?.[eb.guild] === 'evita' ? 'evita' : 'neutro';
 }
 
 const VARIANTS: [test: (t: number, e: number) => boolean, suffix: string, shift: number][] = [
@@ -161,6 +234,7 @@ export function makeVariant(sp: Species, temp: number, elevation: number, n: num
     color: sp.color.map((c, k) => Math.round(Math.min(255, c * tone + (k === 2 && shift < 0 ? 30 : 0)))) as [number, number, number],
     tempMin: sp.tempMin + shift,
     tempMax: sp.tempMax + shift,
+    tempIdeal: sp.tempIdeal && [sp.tempIdeal[0] + shift, sp.tempIdeal[1] + shift],
     size: (sp.size ?? 1) * (0.9 + rnd() * 0.25),
     parent: sp.id,
   };
@@ -251,6 +325,10 @@ function alienFauna(planet: PlanetParams, rnd: () => number, color: () => [numbe
     };
     const spread = 45 + rnd() * 15;
     const mid = planet.temperatureK + (rnd() - 0.5) * 10;
+    const tempMin = Math.round(mid - spread * 0.55);
+    const tempMax = Math.round(mid + spread * 0.45);
+    // A faixa ideal varia por espécie: uma tolera bem as pontas, outra sofre mais perto delas.
+    const edge = 4 + rnd() * 8;
     out.push({
       ...TEMPLATES[kind],
       id: `${planet.id}:${eco.guild}-${out.length}`,
@@ -258,8 +336,9 @@ function alienFauna(planet: PlanetParams, rnd: () => number, color: () => [numbe
       origin: planet.id,
       color: color(),
       sprite,
-      tempMin: Math.round(mid - spread * 0.55),
-      tempMax: Math.round(mid + spread * 0.45),
+      tempMin,
+      tempMax,
+      tempIdeal: [tempMin + edge, tempMax - edge],
       maxAge: Math.round(TEMPLATES[kind].maxAge * (0.8 + big)),
       speed: TEMPLATES[kind].speed / Math.sqrt(g),
       size: Math.max(0.5, Math.min(1.5, 0.6 + Math.log10(mass + 1) * 0.25)),
@@ -269,22 +348,78 @@ function alienFauna(planet: PlanetParams, rnd: () => number, color: () => [numbe
   return out;
 }
 
-/** Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas. */
-export function nativeSpecies(planet: PlanetParams): Species[] {
+/**
+ * Teia segura (Plano 2), aplicada depois do sorteio: todo caçador tem pelo menos duas presas possíveis
+ * (o tamanho máximo de presa cresce até caber a segunda, sem passar de 1,5 vez o próprio peso, o dobro em
+ * bando) e, se nem assim, o caçador encolhe até as presas caberem. Todo herbívoro já tem parasita.
+ */
+export function safeWeb(list: Species[]): Species[] {
+  const herbs = list.filter((sp) => sp.kind === 'herbivore').map((sp) => sp.eco!.mass!).sort((a, b) => a - b);
+  for (const sp of list) {
+    const e = sp.eco;
+    if (sp.kind !== 'predator' || !e || !(e.meat! > 0) || !(e.maxPrey! > 0)) continue;
+    const reach = e.pack ? 2 : 1;
+    const min = e.mass! * 0.015;
+    const fits = herbs.filter((m) => m >= min);
+    if (fits.length < 2 && herbs.length >= 2) {
+      // Presas pequenas demais para o porte: o caçador encolhe (vira um caçador menor).
+      e.mass = Math.max(0.5, herbs[1] / 0.015 / 1.2);
+      e.maxPrey = Math.max(e.maxPrey!, herbs[1] * 1.05);
+      continue;
+    }
+    if (fits.length < 2) continue;
+    const need = fits[1] * 1.05;
+    if (e.maxPrey! * reach < need) e.maxPrey = Math.min(need, e.mass! * 1.5 * reach);
+    if (e.maxPrey! * reach < need) e.maxPrey = need / reach;
+  }
+  return list;
+}
+
+/** Chance de um caçador alienígena evitar uma guilda (presa venenosa, de gosto ruim) e de um pastador não se deixar domesticar. */
+const AVOID_CHANCE = 0.3;
+const UNTAMED_CHANCE = 0.3;
+
+/**
+ * Relações sorteadas por guilda (Rain World), com um gerador próprio para não mexer nas outras contas do planeta: cada
+ * caçador pode evitar guildas, desde que fique com duas presas de tamanho possível (a regra da teia segura), e parte dos
+ * pastadores não se domestica.
+ */
+export function alienRelations(list: Species[], rnd: () => number): Species[] {
+  const prey = list.filter((sp) => sp.kind === 'herbivore');
+  const guilds = [...new Set(prey.map((sp) => sp.eco!.guild!))];
+  for (const sp of prey) if (sp.eco!.guild === 'pastador' && rnd() < UNTAMED_CHANCE) sp.eco!.untamed = true;
+  for (const sp of list) {
+    const e = sp.eco;
+    if (sp.kind !== 'predator' || !e || !(e.meat! > 0) || !(e.maxPrey! > 0)) continue;
+    const relations: NonNullable<Ecology['relations']> = {};
+    const fits = (mass: number) => mass <= e.maxPrey! * (e.pack ? 2 : 1) && mass >= e.mass! * 0.015;
+    for (const guild of guilds) {
+      const roll = rnd();
+      const left = prey.filter((p) => p.eco!.guild !== guild && relations[p.eco!.guild!] !== 'evita' && fits(p.eco!.mass!));
+      relations[guild] = roll < AVOID_CHANCE && left.length >= 2 ? 'evita' : 'presa';
+    }
+    e.relations = relations;
+  }
+  return list;
+}
+
+/**
+ * Espécies nativas. A Terra tem as conhecidas; os raros planetas com vida própria recebem espécies geradas.
+ * `attempt` anda o sorteio das espécies, sem mudar o nível de vida (a tentativa 0 é o sorteio de sempre), e `tier` força um nível (calibração).
+ */
+export function nativeSpecies(planet: PlanetParams, attempt = 0, tier = nativeLifeTier(planet.id, planet.life)): Species[] {
   if (planet.life <= 0) return [];
-  const make = (kind: SpeciesKind, name: string, color: [number, number, number]): Species => ({
-    ...TEMPLATES[kind],
-    id: `${planet.id}:${kind}`,
-    name,
-    origin: planet.id,
-    color,
-  });
+  const make = (kind: SpeciesKind, name: string, color: [number, number, number]): Species => {
+    const model = TEMPLATES[kind];
+    // A faixa do modelo é a da Terra: aqui ela fica centrada na temperatura do planeta, como a da fauna alienígena.
+    const shift = Math.round(planet.temperatureK - (model.tempMin + model.tempMax) / 2);
+    return { ...model, tempMin: model.tempMin + shift, tempMax: model.tempMax + shift, id: `${planet.id}:${kind}`, name, origin: planet.id, color };
+  };
   if (planet.id === EARTH_ID) return earthCatalog().filter((sp) => EARTH_NATIVE.has(sp.name));
-  const tier = nativeLifeTier(planet.id, planet.life);
   if (tier === 'none' || tier === 'plants') return [];
-  const rnd = mulberry32(seedFor(`${planet.id}:species`));
+  const rnd = mulberry32(seedFor(`${planet.id}:species`, attempt + 1));
   const color = (): [number, number, number] => [60 + rnd() * 190, 60 + rnd() * 190, 60 + rnd() * 190].map(Math.round) as [number, number, number];
-  const list = [make('fish', alienName(rnd), color()), ...alienFauna(planet, rnd, color)];
+  const list = [make('fish', alienName(rnd), color()), ...alienRelations(safeWeb(alienFauna(planet, rnd, color)), mulberry32(seedFor(`${planet.id}:relations`, attempt + 1)))];
   if (tier === 'sapient') list.push({ ...make('sapient', alienName(rnd), color()), body: ALIEN_BODIES[Math.floor(rnd() * ALIEN_BODIES.length)] });
   if (planet.life > 0.4) list.push(make('shark', alienName(rnd), color()));
   return list;

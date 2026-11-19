@@ -1,0 +1,149 @@
+/**
+ * Ofício no mundo agregado: cada ofício que o lugar comporta é um alvo, com a falta que atende, a vaga, o
+ * jeito e a aptidão da pessoa, quão comum é na era e o costume (ficar no atual, seguir a família, a vocação
+ * do lugar). É o mesmo "Escolher um ofício" do pacote Ofício (11), na escala de um ano.
+ */
+import type { Role } from '../../../sim/roles';
+import { c, pacote } from '../dsl';
+import { curva } from '../curvas';
+import { E } from '../entradas';
+import { TRAIT, TRAIT_COUNT, TRAIT_INFO, type Trait } from '../pessoa/traits';
+import { WOT } from '../vocab';
+import { PROFESSION, ROLE_FIT } from './ajustes';
+import { Decisor, type Choice } from './decisor';
+
+export interface ProfessionContext {
+  traits: Int8Array;
+  /** Índice da pessoa no array de traços. */
+  i: number;
+  /** Ofícios que o lugar comporta agora (civis: soldados e guardas são chamados pelo líder). */
+  roles: Role[];
+  /** Falta de 0 (nada) a 1 (tudo) que cada ofício atende no lugar. */
+  demand: (role: Role) => number;
+  /** Parte dos adultos do lugar que já está no ofício. */
+  share: (role: Role) => number;
+  /** Aptidão de 0 a 1 (jeito inato, `aptitudeOf`). */
+  aptitude: (role: Role) => number;
+  /** Quão comum o ofício é na era e no lugar, de 0 a 1: ninguém vira moleiro sem moinho. */
+  common: (role: Role) => number;
+  current?: Role;
+  parent?: Role;
+  vocation?: Role;
+}
+
+/** Quanto os traços da pessoa combinam com o ofício, de −1 a 1. */
+export function roleFit(traits: Int8Array, i: number, role: Role): number {
+  const prof = ROLE_FIT[role];
+  if (!prof) return 0;
+  let s = 0;
+  let w = 0;
+  for (const [t, k] of Object.entries(prof) as [Trait, number][]) {
+    s += (traits[i * TRAIT_COUNT + TRAIT[t]] / 10) * k;
+    w += Math.abs(k);
+  }
+  return w ? s / w : 0;
+}
+
+const traitOf = (c: ProfessionContext, t: Trait) => c.traits[c.i * TRAIT_COUNT + TRAIT[t]] / 10;
+
+/** Pacote 31: o ofício do ano, pontuado por ofício (o alvo é o ofício). */
+export const OFICIO_DO_ANO = pacote(
+  { id: 31, nome: 'Ofício do ano', camada: 'Sustento', descricao: 'Mundo agregado: uma vez por ano, cada adulto escolhe o ofício entre os que o lugar comporta.' },
+  [
+    {
+      nome: 'Seguir um ofício',
+      descricao: 'Pela falta no lugar, pela vaga, pelo jeito e pela aptidão, pela era e pelo costume (o atual, o da família, a vocação do lugar).',
+      tipo: 'EscolherOficio',
+      contexto: 'alvo',
+      alvos: [WOT.oficio],
+      considera: [
+        c('falta', E.alvo, curva.sobe(PROFESSION.demandFloor, 1), { stat: 'falta' }),
+        c('vaga', E.alvo, curva.sobe(0.1, 1), { stat: 'vaga' }),
+        c('jeito', E.alvo, curva.sobe(1 - PROFESSION.fitStrength / 2, 1), { stat: 'jeito' }),
+        c('aptidão', E.alvo, curva.sobe(0.6, 1), { stat: 'aptidao' }),
+        c('era', E.alvo, curva.sobe(PROFESSION.commonFloor, 1), { stat: 'era' }),
+        // 0,55 sem costume nenhum e 1 com bônus cheio; a tradição pode ficar negativa (quem é curioso e pouco
+        // família foge do ofício dos pais).
+        c('costume', E.alvo, curva.faixa(-1, 1, 0.1, 1), { stat: 'costume' }),
+      ],
+    },
+  ],
+);
+
+let decisor: Decisor | null = null;
+
+/** Escolhe o ofício. A faixa vem da paciência: impulsivos variam mais. */
+export function chooseProfession(c: ProfessionContext, rnd: () => number): Choice<Role> | null {
+  const band = 0.75 + 0.15 * traitOf(c, 'patience');
+  decisor ??= new Decisor(OFICIO_DO_ANO);
+  return decisor.decidir(
+    {},
+    c.roles.map((role) => {
+      let costume = 0;
+      if (c.current === role) costume += (PROFESSION.stay * (1 + traitOf(c, 'patience'))) / 2;
+      if (c.parent === role) costume += (PROFESSION.tradition * (1 + traitOf(c, 'familism') - traitOf(c, 'curiosity'))) / 2;
+      if (c.vocation === role) costume += PROFESSION.vocation;
+      return {
+        comportamento: 0,
+        acao: role,
+        rotulo: role,
+        alvo: {
+          falta: c.demand(role),
+          vaga: 1 - c.share(role) / PROFESSION.crowdShare,
+          jeito: (roleFit(c.traits, c.i, role) + 1) / 2,
+          aptidao: c.aptitude(role),
+          era: c.common(role),
+          costume,
+        },
+      };
+    }),
+    rnd,
+    band,
+  );
+}
+
+/** Falta de 0 a 1 a partir do atendimento da necessidade (1 = tudo atendido). */
+export function needDemand(met: number): number {
+  return Math.max(0, Math.min(1, (1 - met) * PROFESSION.needScale));
+}
+
+/** Traço da pessoa que mais combina com o ofício, já como palavra ("corajoso"), se for marcante. */
+function fitWord(traits: Int8Array, i: number, role: Role): string {
+  const prof = ROLE_FIT[role];
+  if (!prof) return '';
+  let best = '';
+  let top = 0.4;
+  for (const [t, k] of Object.entries(prof) as [Trait, number][]) {
+    // Só o lado do traço que ajuda no ofício (força alta para o lenhador, pouca sociabilidade para o pastor).
+    const v = (traits[i * TRAIT_COUNT + TRAIT[t]] / 10) * Math.sign(k);
+    if (v > top) {
+      top = v;
+      best = k > 0 ? TRAIT_INFO[t].high : TRAIT_INFO[t].low;
+    }
+  }
+  return best;
+}
+
+/** Porquê da escolha em português simples: "o lugar precisava de comida, é corajoso e seguiu o ofício da família". */
+export function professionReason(c: ProfessionContext, role: Role, needName?: string): string {
+  const parts: string[] = [];
+  if (needName && c.demand(role) >= 0.4) parts.push(`o lugar precisava de ${needName}`);
+  const word = fitWord(c.traits, c.i, role);
+  if (word) parts.push(`é ${word}`);
+  if (c.aptitude(role) >= 0.8) parts.push('tem jeito para isso');
+  if (c.parent === role) parts.push('seguiu o ofício da família');
+  else if (c.vocation === role) parts.push('é o forte do lugar');
+  if (!parts.length) parts.push(c.share(role) < 0.1 ? 'quase ninguém fazia isso' : 'era o que tinha');
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} e ${parts[parts.length - 1]}` : parts[0];
+}
+
+/**
+ * Vontade de largar o ofício atual por outro que está faltando (o "Trocar de ofício" do pacote 11, num número):
+ * o jeito, quanto os traços combinam mais com o novo que com o atual, a abertura para mudar e há quanto tempo
+ * está no ofício (quem acabou de trocar reluta). Quem tem mais vontade muda primeiro.
+ */
+export function switchWill(traits: Int8Array, i: number, from: Role, to: Role, aptitude: number, yearsInRole = Infinity): number {
+  const t = (k: Trait) => traits[i * TRAIT_COUNT + TRAIT[k]] / 10;
+  const settling = Math.max(0, 1 - yearsInRole / PROFESSION.settleYears);
+  return aptitude + PROFESSION.switchFit * (roleFit(traits, i, to) - roleFit(traits, i, from)) + PROFESSION.switchOpen * (t('curiosity') - t('patience')) - PROFESSION.settle * settling;
+}

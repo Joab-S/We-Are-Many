@@ -1,5 +1,9 @@
 import { CREST_EMBLEMS } from '../../sim/architecture';
 import { ROLES, type Role } from '../../sim/roles';
+import { VEHICLE_PALETTE, VEHICLES } from './vehicleArt';
+import { HUMAN_ICON_PALETTES, HUMAN_ICONS, HUMAN_PALETTES, HUMAN_SPRITES } from './humanArt';
+import { ANIMAL_PALETTES, ANIMAL_SPRITES } from './animalArt';
+import { NATURE_PALETTES, NATURE_SPRITES } from './natureArt';
 import { CREATURE_ART, EFFECT_ART, EXTRA_COLORS, ITEM_ICONS, SAPIENT_BODIES, SAPIENT_CHILDREN } from './art-extra';
 
 /**
@@ -134,6 +138,33 @@ export const ART = {
   shark: ['...K....', '..KMK...', '.KMMmK..', 'KmMMMmmK'],
   dot: ['M'],
 
+  // Tenda do acampamento (plano novo dos assentamentos, seção 4): couro sobre varas, antes das casas fixas.
+  tent: [
+    '................',
+    '................',
+    '.......K........',
+    '......KtK.......',
+    '......KAK.......',
+    '.....KAAaK......',
+    '.....KAAaK......',
+    '....KAAAaaK.....',
+    '....KAAKaaK.....',
+    '...KAAKdKaaK....',
+    '...KAAKdKaaK....',
+    '..KAAAKdKaaaK...',
+    '..KKKKKKKKKKK...',
+    '................',
+    '................',
+    '................',
+  ],
+  // Carga na mão (RF-AS-24): cesto, feixe de lenha, pedra, minério e balde.
+  'load:food': ['KKKK', 'KYyK', 'KyuK', '.KK.'],
+  'load:wood': ['.KKK', 'KPpK', 'KpqK', 'KKK.'],
+  'load:stone': ['.KK.', 'KGgK', 'KgnK', '.KK.'],
+  'load:ore': ['.KK.', 'KgnK', 'KnRK', '.KK.'],
+  'load:water': ['K..K', 'KVvK', 'KvvK', '.KK.'],
+  // Ferramenta do gesto (RF-AS-27): o cabo e a ponta, desenhados ao lado de quem trabalha.
+  tool: ['..G', '.t.', 't..'],
   // Casas, uma por era (16x16).
   hut: [
     '................',
@@ -770,16 +801,6 @@ export const ART = {
     'KKKKKKKKKKKK',
     '.Kp......pK.',
   ],
-  // Posto de pedágio no passo da montanha (RF-VIDA-286): guarita e cancela.
-  toll: [
-    '.KKKK.......',
-    'KMMMMK......',
-    'KWWWWK......',
-    'KWDOWKKKKKKK',
-    'KWDWWKWRWRWK',
-    'KWDWWKKKKKKK',
-    'KKKKKK......',
-  ],
   // Lampião das ruas calçadas da Era Industrial.
   lamp: [
     '.K.',
@@ -1126,8 +1147,36 @@ for (const body of BODY_NAMES) {
   SPRITES[`${body}:elder`] = composeRole(body, 'elder');
   SPRITES[`${body}:child`] = CHILDREN[body];
 }
+/**
+ * Paleta própria de alguns sprites (os humanos de `humanArt.ts`); os demais
+ * usam `COLORS`.
+ */
+export const SPRITE_PALETTES: Record<string, Record<string, string>> = { ...HUMAN_PALETTES };
+Object.assign(SPRITES, HUMAN_SPRITES);
+// Carroça e carroção no estilo novo (e espelhados para a esquerda).
+for (const [name, rows] of Object.entries(VEHICLES)) {
+  SPRITES[name] = rows;
+  SPRITES[`${name}:l`] = flip(rows);
+  SPRITE_PALETTES[name] = VEHICLE_PALETTE;
+  SPRITE_PALETTES[`${name}:l`] = VEHICLE_PALETTE;
+}
+// Bichos no estilo novo (`an:bicho:n|x:quadro`), cada um com a própria paleta, e espelhados para a esquerda.
+for (const [name, rows] of Object.entries(ANIMAL_SPRITES)) {
+  SPRITES[name] = rows;
+  SPRITES[`${name}:l`] = flip(rows);
+  SPRITE_PALETTES[name] = ANIMAL_PALETTES[name];
+  SPRITE_PALETTES[`${name}:l`] = ANIMAL_PALETTES[name];
+}
+// Natureza no estilo novo (`nat:nome`): árvores, arbustos, pedras e o veio de minério.
+Object.assign(SPRITES, NATURE_SPRITES);
+Object.assign(SPRITE_PALETTES, NATURE_PALETTES);
+// Ícones dos humanos (`human:profissão`): o sprite novo parado, com pele e cabelo fixos.
+for (const [role, rows] of Object.entries(HUMAN_ICONS)) {
+  SPRITES[`human:${role}`] = rows;
+  SPRITE_PALETTES[`human:${role}`] = HUMAN_ICON_PALETTES[role];
+}
 /** Barcos e o tubarão também viram para a esquerda (`nome:l`). */
-for (const name of ['canoe', 'rowboat', 'sailboat', 'caravel', 'steamship', 'shark', 'packs', 'cart', 'wagon'] as const) SPRITES[`${name}:l`] = flip(ART[name]);
+for (const name of ['canoe', 'rowboat', 'sailboat', 'caravel', 'steamship', 'shark', 'packs'] as const) SPRITES[`${name}:l`] = flip(ART[name]);
 for (const [name, walls] of Object.entries(WALLS)) {
   const base = ART[name as keyof typeof ART];
   SPRITES[`${name}:1`] = flip(base);

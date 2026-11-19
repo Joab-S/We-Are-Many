@@ -40,6 +40,11 @@ export class ProbeControl {
   /** Onde a nave estava quando cada sonda partiu (só para o desenho). */
   private readonly launchPos = new Map<number, THREE.Vector3>();
   private nearby: MineSource[] = [];
+  /** Último HTML escrito no painel: só toca no DOM quando muda. */
+  private html = '';
+  // Rascunho reaproveitado a cada quadro.
+  private readonly world = new THREE.Vector3();
+  private readonly orbit = new THREE.Vector3();
 
   constructor(
     parent: HTMLElement,
@@ -47,6 +52,7 @@ export class ProbeControl {
     private readonly scene: THREE.Scene,
     private readonly say: (text: string, tone?: 'info' | 'good' | 'warn') => void,
     private readonly log: (text: string) => void,
+    private readonly speciesName: (id: string) => string,
   ) {
     this.panel = document.createElement('div');
     this.panel.className = 'hud-panel probe-panel';
@@ -109,12 +115,12 @@ export class ProbeControl {
       const from = this.launchPos.get(m.id) ?? ship;
       const k = Math.min(1, m.elapsed / 6);
       const ease = k * k * (3 - 2 * k);
-      const world = new THREE.Vector3();
+      const world = this.world;
       if (m.phase === 'travel') world.lerpVectors(from, src.pos, ease);
       else if (m.phase === 'return') world.lerpVectors(src.pos, ship, ease);
       else {
         const a = time * 1.3 + m.id * 2.1;
-        world.copy(src.pos).add(new THREE.Vector3(Math.cos(a), Math.sin(a), Math.sin(a * 0.7) * 0.3).multiplyScalar(src.radius));
+        world.copy(src.pos).add(this.orbit.set(Math.cos(a), Math.sin(a), Math.sin(a * 0.7) * 0.3).multiplyScalar(src.radius));
       }
       sprite.position.subVectors(world, ship);
       sprite.scale.setScalar(Math.max(src.radius * 0.15, world.distanceTo(ship) * 0.006));
@@ -140,6 +146,9 @@ export class ProbeControl {
     const cargo = RESOURCES.filter((r) => s.cargo[r] >= 0.5)
       .map((r) => `<span>${RESOURCE_LABEL[r]}</span><b>${Math.round(s.cargo[r]).toLocaleString('pt-BR')} t</b>`)
       .join('');
+    const living = Object.entries(s.specimens)
+      .map(([id, n]) => `<span>${esc(this.speciesName(id))}</span><b>${n}</b>`)
+      .join('');
     const hints: string[] = [];
     const main = this.pick(false);
     const ring = this.pick(true);
@@ -151,12 +160,16 @@ export class ProbeControl {
     };
     if (main) hints.push(`<div><kbd>M</kbd>Sonda para ${esc(main.name)} <small>(${SOURCE_LABEL[main.kind]}, ${status(main)})</small></div>`);
     if (ring) hints.push(`<div><kbd>R</kbd>Sonda para ${esc(ring.name)} <small>(${status(ring)})</small></div>`);
-    this.panel.innerHTML = `
+    const html = `
       <div class="hud-title">SONDAS · ${freeProbes(s)}/${s.probes} livres</div>
       ${rows || '<div class="probe-empty">Nenhuma sonda em missão.</div>'}
       ${hints.join('') || '<div class="probe-empty">Aproxime-se de um planeta rochoso, anel, cometa ou destroço para enviar uma sonda.</div>'}
       <div class="probe-sec">Porão</div>
-      ${cargo ? `<div class="probe-cargo">${cargo}</div>` : '<div class="probe-empty">Vazio.</div>'}`;
+      ${cargo || living ? `<div class="probe-cargo">${cargo}${living}</div>` : '<div class="probe-empty">Vazio.</div>'}`;
+    // Refeito 10 vezes por segundo: só reescreve o DOM quando algo mudou.
+    if (html === this.html) return;
+    this.html = html;
+    this.panel.innerHTML = html;
   }
 
   /** Recursos do corpo para o menu de órbita: o que restou, se já foi prospectado. */

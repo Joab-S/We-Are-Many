@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { seedFor } from '../core/rng';
+import { seedFor, type StatefulRng } from '../core/rng';
 import { createNavState } from '../nav/guide';
 import { createProbeState } from '../explore/probes';
-import { generateSurface, type PlanetParams } from '../procgen/surface';
-import { Ecosystem } from '../sim/ecosystem';
+import { EARTH_PHYSICS, generateSurface, type PlanetParams } from '../procgen/surface';
+import { SIM_STEP } from '../client/surface/SimDriver';
+import { Ecosystem, YEAR_SECONDS } from '../sim/ecosystem';
+import { worldFingerprint } from '../sim/fingerprint';
 import { nativeSpecies } from '../sim/species';
+import { streams } from '../sim/stochastic';
 import type { GameState } from '../client/state';
 import { REJECTED_KEY, SAVE_KEY, SaveManager } from './manager';
-import { restoreGame, SAVE_VERSION, snapshotGame, type ViewSnapshot } from './snapshot';
+import { restoreGame, snapshotGame } from './game';
+import { SAVE_VERSION, type ViewSnapshot } from './snapshot';
 import { memoryStore } from './store';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
@@ -35,8 +39,12 @@ function game(): GameState {
     shipQuat: new THREE.Quaternion(0.1, 0.2, 0.3, 0.9).normalize(),
     time: 123.5,
     surfaces: new Map([[earth.id, map]]),
+    surfaceArt: new Map(),
     orbitPlanetId: earth.id,
+    orbitOffset: new THREE.Vector3(1e-3, -2e-3, 3e-3),
     ecosystems: new Map([[earth.id, eco]]),
+    replays: new Map(),
+    leftAt: new Map(),
     knownSpecies: known,
     nav,
     probes,
@@ -50,7 +58,29 @@ const run = (eco: Ecosystem, seconds: number) => {
   for (let t = 0; t < seconds; t += 0.1) eco.step(0.1);
 };
 
+describe('quando cada planeta foi visto', () => {
+  it('volta do save, e um save de antes disso não tem planeta nenhum', () => {
+    const s = game();
+    s.leftAt.set('sol-3', 123);
+    expect(roundTrip(s).state.leftAt.get('sol-3')).toBe(123);
+    const old = structuredClone(snapshotGame(s, space, () => 1));
+    delete old.leftAt;
+    expect(restoreGame(old, s).state.leftAt.size).toBe(0);
+  });
+});
+
 describe('save: ida e volta', () => {
+  it('guarda o relógio e o log de cada mundo, e um save sem eles continua valendo', () => {
+    const s = game();
+    const record = { tick: 480, log: [{ tick: 3, cmd: { kind: 'surprise' as const } }], fromStart: true };
+    s.replays.set('sol-3', record);
+    expect(roundTrip(s).state.replays.get('sol-3')).toEqual(record);
+    const old = structuredClone(snapshotGame(s, space, () => 1));
+    delete old.replays;
+    expect(restoreGame(old, s).state.replays.size).toBe(0);
+    expect(() => restoreGame({ ...structuredClone(snapshotGame(s, space, () => 1)), replays: [] }, s)).toThrow(/registro/);
+  });
+
   it('guarda nave, relógio, GUIA e sondas', () => {
     const s = game();
     const { state } = roundTrip(s);
@@ -58,6 +88,7 @@ describe('save: ida e volta', () => {
     expect(state.shipQuat.equals(s.shipQuat)).toBe(true);
     expect(state.time).toBe(123.5);
     expect(state.orbitPlanetId).toBe('sol-3');
+    expect(state.orbitOffset?.toArray()).toEqual(s.orbitOffset?.toArray());
     expect(state.nav.visitedBodies.has('sol-3')).toBe(true);
     expect(state.nav.log).toEqual(s.nav.log);
     expect(state.nav.bookmarks).toEqual(s.nav.bookmarks);
@@ -89,7 +120,7 @@ describe('save: ida e volta', () => {
       if (typeof v === 'function' || v instanceof WeakMap || k === 'map') continue;
       expect((back as unknown as Record<string, unknown>)[k], k).toEqual(v);
     }
-  }, 15000);
+  });
 
   it('as espécies do ecossistema e as conhecidas continuam sendo os mesmos objetos', () => {
     const { state } = roundTrip(game());
@@ -114,6 +145,115 @@ describe('save: ida e volta', () => {
     expect(loaded.map.vegetation).toEqual(original.map.vegetation);
   }, 60000);
 
+  it('save antigo, sem os fluxos da fauna e da flora nem os vetores novos, carrega e segue determinístico', () => {
+    const s = game();
+    const data = structuredClone(snapshotGame(s, space, seeds));
+    const snap = data.ecosystems.get('sol-3')!;
+    // Como um save de antes: sem os fluxos novos, sem os handles da presa e com o cache anual de uid.
+    delete snap.rng.faunaRnd;
+    delete snap.rng.floraRnd;
+    delete snap.fields.chaseUid;
+    delete snap.fields.escaped;
+    snap.fields.uidYear = 3;
+    const load = () => restoreGame(structuredClone(data), base).state.ecosystems.get('sol-3')!;
+    const a = load();
+    const b = load();
+    // Os fluxos novos começam da semente do planeta.
+    const fresh = streams(snap.seed);
+    expect((a.faunaRnd as StatefulRng).state).toBe((fresh.fauna as StatefulRng).state);
+    expect((a.floraRnd as StatefulRng).state).toBe((fresh.flora as StatefulRng).state);
+    // Os vetores que faltavam são refeitos do tamanho dos outros, e o cache anual sai.
+    expect(a.chaseUid.length).toBe(a.x.length);
+    expect(a.escaped.length).toBe(a.x.length);
+    expect('uidYear' in a).toBe(false);
+    for (let k = 0; k < a.count; k++) {
+      const j = a.chase[k];
+      if (a.alive[k] && j >= 0 && a.alive[j]) expect(a.chaseUid[k]).toBe(a.uid[j]);
+    }
+    run(a, 20);
+    run(b, 20);
+    expect(a.x).toEqual(b.x);
+    expect(a.population).toEqual(b.population);
+    expect(a.map.vegetation).toEqual(b.map.vegetation);
+  }, 60000);
+
+  it('save antigo, sem a pressão social nem a circunscrição dos lugares, carrega com zero', () => {
+    const s = game();
+    const data = structuredClone(snapshotGame(s, space, seeds));
+    const villages = data.ecosystems.get('sol-3')!.fields.villages as { pressure?: number; circumscribed?: number }[];
+    expect(villages.length).toBeGreaterThan(0);
+    for (const v of villages) {
+      delete v.pressure;
+      delete v.circumscribed;
+    }
+    const eco = restoreGame(data, base).state.ecosystems.get('sol-3')!;
+    for (const v of eco.villages) {
+      expect(v.pressure).toBe(0);
+      expect(v.circumscribed).toBe(0);
+    }
+    // E o mundo segue: o ano seguinte recalcula a pressão.
+    run(eco, 12);
+    expect(eco.villages.some((v) => !v.abandoned && v.population > 0 && (v.pressure ?? 0) > 0)).toBe(true);
+  }, 60000);
+
+  it('save antigo, sem o modo de vida nem a área dos lugares, carrega sedentário e segue determinístico', () => {
+    const s = game();
+    const data = structuredClone(snapshotGame(s, space, seeds));
+    const snap = data.ecosystems.get('sol-3')!;
+    // Como um save de antes do bioma e sociedade: os lugares não têm `lifeway` nem `area`.
+    const old = snap.fields.villages as { lifeway?: string; area?: unknown }[];
+    expect(old.length).toBeGreaterThan(0);
+    for (const v of old) {
+      delete v.lifeway;
+      delete v.area;
+    }
+    const load = () => restoreGame(structuredClone(data), base).state.ecosystems.get('sol-3')!;
+    const a = load();
+    const b = load();
+    for (const v of a.villages) expect(v.lifeway).toBe('sedentario');
+    run(a, 20);
+    run(b, 20);
+    expect(a.villages).toEqual(b.villages);
+    expect(a.x).toEqual(b.x);
+    expect(a.population).toEqual(b.population);
+  }, 60000);
+
+  it('salvar e carregar não muda o mundo: 20 anos, o save, e mais 20 anos dão a mesma impressão digital', () => {
+    const years = (eco: Ecosystem, n: number) => {
+      for (let s = 0; s < n * (YEAR_SECONDS / SIM_STEP); s++) eco.step(SIM_STEP);
+    };
+    const s = game();
+    const original = s.ecosystems.get('sol-3')!;
+    years(original, 20);
+    const loaded = roundTrip(s).state.ecosystems.get('sol-3')!;
+    expect(worldFingerprint(loaded)).toBe(worldFingerprint(original));
+    // De 5 em 5 anos, para a falha dizer quando os dois mundos se separaram.
+    for (let k = 1; k <= 4; k++) {
+      years(original, 5);
+      years(loaded, 5);
+      expect(worldFingerprint(loaded), `${k * 5} anos depois de carregar`).toBe(worldFingerprint(original));
+    }
+  }, 120000);
+
+  it('save da versão 1, sem a física dos planetas, carrega com a da Terra e fica na versão atual', () => {
+    const view: ViewSnapshot = { mode: 'surface', params: earth, center: [100, 50], zoom: 6, speed: 2 };
+    const data = structuredClone(snapshotGame(game(), view, seeds));
+    data.version = 1;
+    const loaded = restoreGame(data, base);
+    expect(data.version).toBe(SAVE_VERSION);
+    expect(loaded.state.surfaces.get('sol-3')!.params).toEqual({ ...earth, ...EARTH_PHYSICS });
+    if (loaded.view.mode !== 'surface') throw new Error('a vista do save era a superfície');
+    expect(loaded.view.params).toEqual({ ...earth, ...EARTH_PHYSICS });
+  });
+
+  it('save da versão atual guarda a física de cada planeta', () => {
+    const s = game();
+    const mars: PlanetParams = { ...earth, id: 'sol-4', axialTilt: 0.44, dayHours: 24.62, atmosphere: { pressure: 0.006, greenhouse: 5 } };
+    s.surfaces.get('sol-3')!.params = mars;
+    const params = roundTrip(s).state.surfaces.get('sol-3')!.params;
+    expect(params).toEqual(mars);
+  });
+
   it('salvar não altera o jogo em andamento', () => {
     const s = game();
     const eco = s.ecosystems.get('sol-3')!;
@@ -133,10 +273,13 @@ describe('save: gerenciador', () => {
     if (r.status === 'ok') expect(r.state.time).toBe(123.5);
   });
 
-  it('recusa save de outra versão sem derrubar o jogo, e guarda o original', async () => {
+  it.each([
+    ['mais nova', SAVE_VERSION + 1],
+    ['anterior às que carregam', 0],
+  ])('recusa save de versão %s sem derrubar o jogo, e guarda o original', async (_n, version) => {
     const store = memoryStore();
     const data = structuredClone(snapshotGame(game(), space, seeds));
-    data.version = SAVE_VERSION + 1;
+    data.version = version;
     await store.put(SAVE_KEY, data);
     const r = await new SaveManager(store, seeds).load(base);
     expect(r.status).toBe('rejected');

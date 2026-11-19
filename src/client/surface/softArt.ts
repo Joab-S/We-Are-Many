@@ -31,7 +31,8 @@ const fract = (x: number) => x - Math.floor(x);
 const hash = (x: number, y: number) => fract(Math.sin(x * 127.1 + y * 311.7) * 43758.5453);
 
 export class SoftArt {
-  private readonly chunks = new Map<string, Chunk>();
+  /** Blocos pintados, pela chave numérica `cy * cols + cx` (só há um nível de arte). */
+  private readonly chunks = new Map<number, Chunk>();
   private readonly cols: number;
   private readonly rows: number;
 
@@ -49,23 +50,34 @@ export class SoftArt {
     return zoom < 8 ? 0 : ART;
   }
 
-  /** O tile `i` mudou (linha da textura, y para baixo): marca o bloco dele e os vizinhos que o enxergam. */
+  /**
+   * O tile `i` mudou (linha da textura, y para baixo): marca o bloco dele e os
+   * vizinhos que o enxergam (a fronteira ondulada lê até 2 tiles em volta).
+   * Chaves numéricas e sem coleções: é chamado para cada tile repintado.
+   */
   invalidate(i: number): void {
+    if (!this.chunks.size) return;
     const x = i % this.width;
     const y = (i - x) / this.width;
-    const seen = new Set<string>();
-    for (const [ox, oy] of [[0, 0], [-2, 0], [2, 0], [0, -2], [0, 2]]) {
-      const cx = (((Math.floor((x + ox) / CHUNK)) % this.cols) + this.cols) % this.cols;
-      const cy = Math.floor((y + oy) / CHUNK);
-      if (cy < 0 || cy >= this.rows) continue;
-      const k = `${cx},${cy}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      for (const level of [ART]) {
-        const c = this.chunks.get(`${level}:${k}`);
-        if (c) c.dirty = true;
-      }
-    }
+    const cols = this.cols;
+    // Colunas de bloco de x-2, x e x+2 (com a volta) e linhas de y-2, y e y+2: no máximo duas de cada.
+    const ca = ((Math.floor((x - 2) / CHUNK) % cols) + cols) % cols;
+    const cb = ((Math.floor((x + 2) / CHUNK) % cols) + cols) % cols;
+    const cx = Math.floor(x / CHUNK) % cols;
+    const ra = Math.floor((y - 2) / CHUNK);
+    const rb = Math.floor((y + 2) / CHUNK);
+    const cy = Math.floor(y / CHUNK);
+    this.mark(cx, cy);
+    if (ca !== cx) this.mark(ca, cy);
+    if (cb !== cx) this.mark(cb, cy);
+    if (ra !== cy) this.mark(cx, ra);
+    if (rb !== cy) this.mark(cx, rb);
+  }
+
+  private mark(cx: number, cy: number): void {
+    if (cy < 0 || cy >= this.rows) return;
+    const c = this.chunks.get(cy * this.cols + cx);
+    if (c) c.dirty = true;
   }
 
   /**
@@ -82,7 +94,7 @@ export class SoftArt {
     for (let cy = Math.max(0, Math.floor(r0 / CHUNK)); cy <= Math.min(this.rows - 1, Math.floor(r1 / CHUNK)); cy++) {
       for (let gx = Math.floor(x0 / CHUNK); gx <= Math.floor(x1 / CHUNK); gx++) {
         const cx = ((gx % this.cols) + this.cols) % this.cols;
-        const key = `${level}:${cx},${cy}`;
+        const key = cy * this.cols + cx;
         let c = this.chunks.get(key);
         const stale = !c || (c.dirty && now - c.drawnAt > 1500);
         if (stale && performance.now() - start < BUDGET) {
@@ -95,15 +107,15 @@ export class SoftArt {
         ctx.drawImage(c.canvas, Math.floor(dx), Math.floor(top + cy * size), Math.ceil(size) + 1, Math.ceil(size) + 1);
       }
     }
-    this.trim(level);
+    this.trim();
     return complete;
   }
 
-  private trim(level: number): void {
-    const mine = [...this.chunks.entries()].filter(([k]) => k.startsWith(`${level}:`));
-    if (mine.length <= KEEP) return;
-    mine.sort((a, b) => a[1].usedAt - b[1].usedAt);
-    for (let k = 0; k < mine.length - KEEP; k++) this.chunks.delete(mine[k][0]);
+  /** Esquece os blocos menos usados além de KEEP (só quando passa do limite: nada é criado no caso comum). */
+  private trim(): void {
+    if (this.chunks.size <= KEEP) return;
+    const old = [...this.chunks.entries()].sort((a, b) => a[1].usedAt - b[1].usedAt);
+    for (let k = 0; k < old.length - KEEP; k++) this.chunks.delete(old[k][0]);
   }
 
   // Leitura da textura ----------------------------------------------------

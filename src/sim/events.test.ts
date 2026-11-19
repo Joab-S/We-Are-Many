@@ -4,6 +4,7 @@ import { Ecosystem, isLand, YEAR_SECONDS } from './ecosystem';
 import { planetSeismicity, quakeMagnitude, runEvent, seismicAt } from './events';
 import { ITEMS, pickItem } from './items';
 import { nativeSpecies } from './species';
+import * as B from './balance';
 
 const earth: PlanetParams = { id: 'sol-3', name: 'Terra', radiusEarth: 0.4, temperatureK: 288, water: 0.6, life: 0.85 };
 
@@ -106,33 +107,45 @@ describe('itens', () => {
     const { eco } = world();
     years(eco, 40);
     expect(eco.crafted.size).toBeGreaterThan(0);
-  });
+  }, 60000); // 40 anos de mapa: passa dos 5 s padrão
 });
 
 describe('soltar uma criatura', () => {
+  // Longe de todos os assentamentos, contando a volta do mapa (o leste encosta no oeste).
   const landFar = (eco: Ecosystem, map: ReturnType<typeof generateSurface>, s: number) => {
     for (let i = 0; i < map.width * map.height; i++) {
       const x = (i % map.width) + 0.5;
       const y = Math.floor(i / map.width) + 0.5;
-      if (y > map.height * 0.3 && y < map.height * 0.7 && eco.habitable(s, i) && eco.villages.every((v) => Math.hypot(v.x - x, v.y - y) > 60) && (eco.species[s].kind !== 'sapient' || !eco.siteProblem(s, Math.floor(x), Math.floor(y)))) return { x, y };
+      if (y > map.height * 0.3 && y < map.height * 0.7 && eco.habitable(s, i) && eco.villages.every((v) => Math.hypot(Math.min(Math.abs(v.x - x), map.width - Math.abs(v.x - x)), v.y - y) > 60) && (eco.species[s].kind !== 'sapient' || !eco.siteProblem(s, Math.floor(x), Math.floor(y)))) return { x, y };
     }
     throw new Error('sem lugar');
   };
 
-  it('um inteligente sozinho e longe de todos funda um assentamento só com ele', () => {
+  it('um inteligente sozinho e longe de todos não funda vila de uma pessoa: procura outros', () => {
+    const { map, eco } = world();
+    const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
+    const { x, y } = landFar(eco, map, s);
+    const i = eco.introduceOne(s, x, y);
+    expect(i).toBeGreaterThanOrEqual(0);
+    years(eco, 4);
+    expect(eco.alive[i] ? eco.village[i] : -1).toBe(-1);
+  });
+
+  it('solitários longe de todos se juntam e fundam um assentamento com o grupo mínimo', () => {
     const { map, eco } = world();
     const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
     const { x, y } = landFar(eco, map, s);
     const villages = eco.villages.length;
-    const i = eco.introduceOne(s, x, y);
-    expect(i).toBeGreaterThanOrEqual(0);
-    expect(eco.village[i]).toBe(-1);
-    // Ele anda até achar um lugar bom e funda quando decide (sorteio), dentro de alguns anos.
-    // (Outros assentamentos também podem nascer no meio tempo, de colonos ou de êxodo: vale o dele.)
-    for (let k = 0; k < 20 && eco.village[i] < 0; k++) years(eco, 1);
-    expect(eco.village[i]).toBeGreaterThanOrEqual(villages);
-    const v = eco.villages[eco.village[i]];
-    expect(v.population).toBeGreaterThanOrEqual(1);
+    const group: number[] = [];
+    for (let k = 0; k < B.LONER_GROUP_MIN; k++) group.push(eco.introduceOne(s, x + k * 0.6, y));
+    expect(group.every((i) => i >= 0 && eco.village[i] === -1)).toBe(true);
+    // Eles andam juntos até achar um lugar bom e fundam quando decidem (taxa por ano), dentro de alguns anos.
+    // (Outros assentamentos também podem nascer no meio tempo, de colonos ou de êxodo: vale o deles.)
+    for (let k = 0; k < 20 && eco.village[group[0]] < 0; k++) years(eco, 1);
+    const id = eco.village[group[0]];
+    expect(id).toBeGreaterThanOrEqual(villages);
+    expect(group.every((i) => eco.village[i] === id)).toBe(true);
+    expect(eco.villages[id].population).toBeGreaterThanOrEqual(B.LONER_GROUP_MIN);
   });
 
   it('um inteligente solto perto de um assentamento do seu povo se junta a ele', () => {
@@ -154,12 +167,13 @@ describe('soltar uma criatura', () => {
     years(eco, 6);
     expect(eco.population[s]).toBeLessThanOrEqual(1);
   });
-  it('o fundador sozinho escolhe um lugar onde consegue viver e não morre de fome', () => {
+  it('o grupo de solitários escolhe um lugar onde consegue viver e não morre de fome', () => {
     const { map, eco } = world(44);
     const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
     const { x, y } = landFar(eco, map, s);
     const villages = eco.villages.length;
     const i = eco.introduceOne(s, x, y);
+    for (let k = 1; k < B.LONER_GROUP_MIN; k++) eco.introduceOne(s, x + k * 0.6, y);
     years(eco, 15);
     expect(eco.alive[i]).toBe(1);
     expect(eco.village[i]).toBeGreaterThanOrEqual(villages);
@@ -198,10 +212,13 @@ describe('ruínas', () => {
     const { eco } = world();
     const old = emptied(eco);
     // O lugar ao lado das ruínas pode ser água ou pedra, conforme o mundo: tenta alguns pontos a uns 8 tiles.
+    // Chega um grupo (ninguém refunda sozinho).
     let i = -1;
     for (const [ox, oy] of [[8, 0], [-8, 0], [0, 8], [0, -8], [6, 6], [-6, -6]]) {
       i = eco.introduceOne(old.species, old.x + ox, old.y + oy);
-      if (i >= 0) break;
+      if (i < 0) continue;
+      for (let k = 1; k < B.LONER_GROUP_MIN; k++) eco.introduceOne(old.species, eco.x[i], eco.y[i]);
+      break;
     }
     expect(i).toBeGreaterThanOrEqual(0);
     // A pé, no passo calmo, os 8 tiles levam uns dois anos.
@@ -237,15 +254,20 @@ describe('sobrevivência', () => {
     years(eco, 25);
     expect(eco.population[s]).toBeGreaterThan(caps[s] * 0.3);
     expect(eco.population[s]).toBeLessThan(caps[s] * 0.95);
-  });
+  }, 30000);
 
   it('em 80 anos, as presas de base ficam e somem no máximo três espécies (os ciclos de predador ainda oscilam)', () => {
     const { eco } = world();
     // Num planeta pequeno algumas espécies já começam com dois ou três bichos: conta só as que começam viáveis.
     const viable = eco.species.map((_, s) => eco.population[s] >= 10);
+    // Presa de base é a que começa farta: num planeta pequeno o bisão começa com uma dúzia e some ou não pela caça,
+    // conforme a história da semente (antes ele entrava na lista de qualquer jeito).
+    const index = (name: string) => eco.species.findIndex((sp) => sp.name === name);
+    const start = eco.species.map((_, s) => eco.population[s]);
     years(eco, 80);
     expect([...eco.extinct].filter((s) => viable[s]).length).toBeLessThanOrEqual(3);
-    for (const name of ['Cervo', 'Coelho', 'Bisão', 'Javali']) expect(eco.population[eco.species.findIndex((sp) => sp.name === name)], name).toBeGreaterThan(0);
+    for (const name of ['Cervo', 'Coelho', 'Javali']) expect(eco.population[index(name)], name).toBeGreaterThan(0);
+    if (start[index('Bisão')] >= 30) expect(eco.population[index('Bisão')], 'Bisão').toBeGreaterThan(0);
   }, 60000);
 
   it('uma aldeia quase vazia recebe andarilhos do seu povo', () => {

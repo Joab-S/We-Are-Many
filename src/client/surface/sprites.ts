@@ -1,17 +1,20 @@
 import * as THREE from 'three';
-import { COLORS, SPRITES, type SpriteName } from './art';
+import { COLORS, SPRITE_PALETTES, SPRITES, type SpriteName } from './art';
+import { MARK } from './humanArt';
 
 export type { SpriteName };
 
 /**
  * Atlas e camada de sprites da superfície. A arte fica em `art.ts`; as cores
- * marcadoras (`M`, `m`, `+` e a pele `$`, `%`) são trocadas no shader pela
- * cor de cada instância.
+ * marcadoras (`M`, `m`, `+`, a pele `$`, `%` e, nos humanos, a pele e o
+ * cabelo de `humanArt.ts`) são trocadas no shader pela cor de cada instância.
  */
 
 const CELL = 24;
 
 export interface SpriteFrame {
+  /** Posição do sprite no atlas (chave numérica do cache de cores). */
+  index: number;
   /** Retângulo no atlas, em UV (x, y, largura, altura). */
   uv: [number, number, number, number];
   /** Tamanho em pixels de arte. */
@@ -19,26 +22,53 @@ export interface SpriteFrame {
   h: number;
 }
 
+/** Cor RGB (0 a 255) num inteiro de 24 bits, para chave de cache sem texto. */
+export function packRgb(c: readonly number[]): number {
+  const r = Math.min(255, Math.max(0, c[0] | 0));
+  const g = Math.min(255, Math.max(0, c[1] | 0));
+  const b = Math.min(255, Math.max(0, c[2] | 0));
+  return (r << 16) | (g << 8) | b;
+}
+
 export class SpriteAtlas {
   readonly texture: THREE.CanvasTexture;
   readonly frames = {} as Record<SpriteName, SpriteFrame>;
+  private readonly names: string[];
 
   constructor() {
     const names = Object.keys(SPRITES);
-    const cols = 8;
-    const rows = Math.ceil(names.length / cols);
+    // Prateleiras: lado a lado numa faixa de 32 células de largura; a faixa tem a altura do mais alto
+    // (quase tudo cabe em 24x24; as árvores são mais altas).
+    const width = 32 * CELL;
+    const spots: [number, number][] = [];
+    let sx = 0;
+    let sy = 0;
+    let shelf = CELL;
+    for (const name of names) {
+      const art = SPRITES[name];
+      const w = Math.max(CELL, art[0].length);
+      const h = Math.max(CELL, art.length);
+      if (sx + w > width) {
+        sx = 0;
+        sy += shelf;
+        shelf = CELL;
+      }
+      spots.push([sx, sy]);
+      sx += w;
+      shelf = Math.max(shelf, h);
+    }
     const canvas = document.createElement('canvas');
-    canvas.width = cols * CELL;
-    canvas.height = rows * CELL;
+    canvas.width = width;
+    canvas.height = sy + shelf;
     const g = canvas.getContext('2d')!;
     names.forEach((name, k) => {
       const art = SPRITES[name];
-      const ox = (k % cols) * CELL;
-      const oy = Math.floor(k / cols) * CELL;
+      const palette = SPRITE_PALETTES[name] ?? COLORS;
+      const [ox, oy] = spots[k];
       art.forEach((row, y) => {
         [...row].forEach((ch, x) => {
-          const c = COLORS[ch];
-          if (!c) return;
+          const c = palette[ch];
+          if (!c || c === 'shadow') return;
           g.fillStyle = c;
           g.fillRect(ox + x, oy + y, 1, 1);
         });
@@ -47,40 +77,63 @@ export class SpriteAtlas {
       const h = art.length;
       // UV com origem embaixo (flipY da textura).
       this.frames[name] = {
+        index: k,
         uv: [ox / canvas.width, 1 - (oy + h) / canvas.height, w / canvas.width, h / canvas.height],
         w,
         h,
       };
     });
+    this.names = names;
     this.texture = new THREE.CanvasTexture(canvas);
     this.texture.magFilter = THREE.NearestFilter;
     this.texture.minFilter = THREE.NearestFilter;
     this.texture.generateMipmaps = false;
   }
 
-  private readonly tintCache = new Map<string, HTMLCanvasElement>();
+  /** Sprites já pintados: sprite e roupa numa chave numérica, e pele e cabelo dentro dela (Flyweight). */
+  private readonly tintCache = new Map<number, Map<number, HTMLCanvasElement>>();
 
   /** Sprite já pintado com a cor da instância (para o renderizador por software). */
-  tinted(name: SpriteName, tint: readonly number[], skin: readonly number[] = tint): HTMLCanvasElement {
-    const key = `${name}:${tint.map((v) => v | 0).join(',')}:${skin.map((v) => v | 0).join(',')}`;
-    let c = this.tintCache.get(key);
+  tinted(name: SpriteName, tint: readonly number[], skin: readonly number[] = tint, hair: readonly number[] = skin): HTMLCanvasElement {
+    return this.tintedKey(this.frames[name].index, packRgb(tint), packRgb(skin), packRgb(hair));
+  }
+
+  /** O mesmo, pelas chaves numéricas (sem criar texto por sprite por quadro). */
+  tintedKey(index: number, tint: number, skin: number, hair = skin): HTMLCanvasElement {
+    const outer = index * 16777216 + tint;
+    let bySkin = this.tintCache.get(outer);
+    if (!bySkin) this.tintCache.set(outer, (bySkin = new Map()));
+    const inner = skin * 16777216 + hair;
+    let c = bySkin.get(inner);
     if (!c) {
+      const name = this.names[index];
       const art = SPRITES[name];
+      const palette = SPRITE_PALETTES[name] ?? COLORS;
       c = document.createElement('canvas');
       c.width = art[0].length;
       c.height = art.length;
       const g = c.getContext('2d')!;
-      const rgb = (c: readonly number[], k: number) => `rgb(${c.map((v) => Math.min(255, v * k) | 0).join(',')})`;
-      const marks: Record<string, string> = { M: rgb(tint, 1), m: rgb(tint, 0.62), '+': rgb(tint, 1.3), $: rgb(skin, 1), '%': rgb(skin, 0.62) };
+      const rgb = (p: number, k: number) => `rgb(${Math.min(255, ((p >> 16) & 255) * k) | 0},${Math.min(255, ((p >> 8) & 255) * k) | 0},${Math.min(255, (p & 255) * k) | 0})`;
+      // As marcadoras são achadas pela cor, como no shader.
+      const marks: Record<string, string> = {
+        [COLORS.M]: rgb(tint, 1),
+        [COLORS.m]: rgb(tint, 0.62),
+        [COLORS['+']]: rgb(tint, 1.3),
+        [COLORS.$]: rgb(skin, 1),
+        [COLORS['%']]: rgb(skin, 0.62),
+        [MARK.skinShade]: rgb(skin, 0.8),
+        [MARK.hair]: rgb(hair, 1),
+        [MARK.hairShade]: rgb(hair, 0.65),
+      };
       art.forEach((row, y) => {
         [...row].forEach((ch, x) => {
-          const color = marks[ch] ?? COLORS[ch];
-          if (!color) return;
-          g.fillStyle = color;
+          const base = palette[ch];
+          if (!base || base === 'shadow') return;
+          g.fillStyle = marks[base] ?? base;
           g.fillRect(x, y, 1, 1);
         });
       });
-      this.tintCache.set(key, c);
+      bySkin.set(inner, c);
     }
     return c;
   }
@@ -96,14 +149,17 @@ const vertexShader = /* glsl */ `
   attribute vec4 iUv;
   attribute vec3 iTint;
   attribute vec3 iSkin;
+  attribute vec3 iHair;
   uniform vec2 uResolution;
   varying vec2 vUv;
   varying vec3 vTint;
   varying vec3 vSkin;
+  varying vec3 vHair;
   void main() {
     vUv = iUv.xy + uv * iUv.zw;
     vTint = iTint;
     vSkin = iSkin;
+    vHair = iHair;
     vec2 p = iOffset + position.xy * iSize;
     gl_Position = vec4(p / uResolution * 2.0 - 1.0, 0.0, 1.0);
   }
@@ -114,6 +170,7 @@ const fragmentShader = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vTint;
   varying vec3 vSkin;
+  varying vec3 vHair;
   bool near(vec3 a, vec3 b) { return all(lessThan(abs(a - b), vec3(0.04))); }
   void main() {
     vec4 c = texture2D(uAtlas, vUv);
@@ -123,6 +180,9 @@ const fragmentShader = /* glsl */ `
     else if (near(c.rgb, vec3(1.0, 0.502, 1.0))) c.rgb = min(vTint * 1.3, vec3(1.0));
     else if (near(c.rgb, vec3(0.0, 1.0, 1.0))) c.rgb = vSkin;
     else if (near(c.rgb, vec3(0.0, 0.502, 0.502))) c.rgb = vSkin * 0.62;
+    else if (near(c.rgb, vec3(0.0, 0.8, 0.8))) c.rgb = vSkin * 0.8;
+    else if (near(c.rgb, vec3(1.0, 1.0, 0.0))) c.rgb = vHair;
+    else if (near(c.rgb, vec3(0.6, 0.6, 0.0))) c.rgb = vHair * 0.65;
     gl_FragColor = vec4(c.rgb, 1.0);
   }
 `;
@@ -139,10 +199,19 @@ export class SpriteLayer {
   private readonly uv: Float32Array;
   private readonly tint: Float32Array;
   private readonly skin: Float32Array;
+  private readonly hair: Float32Array;
   private n = 0;
-  private readonly names: SpriteName[] = [];
-  private readonly tints: (readonly number[])[] = [];
-  private readonly skins: (readonly number[])[] = [];
+  // Por instância, em números: o sprite e as cores empacotadas (o desenho por software lê daqui).
+  private readonly frame: Int32Array;
+  private readonly tintKey: Int32Array;
+  private readonly skinKey: Int32Array;
+  private readonly hairKey: Int32Array;
+  /** Profundidade de cada instância (maior = mais ao fundo), para `sortFrom`. */
+  private readonly key: Float32Array;
+  /** Profundidade das próximas instâncias (`push` guarda esta). */
+  depth = 0;
+  private readonly dotIndex: number;
+  private readonly dotFill = new Map<number, string>();
 
   constructor(
     readonly atlas: SpriteAtlas,
@@ -159,6 +228,13 @@ export class SpriteLayer {
     this.uv = new Float32Array(max * 4);
     this.tint = new Float32Array(max * 3);
     this.skin = new Float32Array(max * 3);
+    this.hair = new Float32Array(max * 3);
+    this.frame = new Int32Array(max);
+    this.tintKey = new Int32Array(max);
+    this.skinKey = new Int32Array(max);
+    this.hairKey = new Int32Array(max);
+    this.key = new Float32Array(max);
+    this.dotIndex = atlas.frames.dot?.index ?? -1;
     const attr = (name: string, arr: Float32Array, k: number) => {
       const a = new THREE.InstancedBufferAttribute(arr, k);
       a.setUsage(THREE.DynamicDrawUsage);
@@ -169,6 +245,7 @@ export class SpriteLayer {
     attr('iUv', this.uv, 4);
     attr('iTint', this.tint, 3);
     attr('iSkin', this.skin, 3);
+    attr('iHair', this.hair, 3);
     this.mesh = new THREE.Mesh(
       this.geometry,
       new THREE.ShaderMaterial({
@@ -184,20 +261,24 @@ export class SpriteLayer {
 
   begin(width: number, height: number): void {
     this.n = 0;
+    this.depth = 0;
     ((this.mesh.material as THREE.ShaderMaterial).uniforms.uResolution.value as THREE.Vector2).set(width, height);
   }
 
   /**
    * Adiciona um sprite centrado em x, com a base em y (pixels) e altura `h`
-   * pixels. `tint` pinta a roupa ou o telhado; `skin`, a pele da espécie.
+   * pixels. `tint` pinta a roupa ou o telhado; `skin`, a pele da espécie
+   * (ou de cada humano); `hair`, o cabelo dos humanos.
    */
-  push(name: SpriteName, x: number, y: number, h: number, tint: readonly number[], skin: readonly number[] = tint): void {
+  push(name: SpriteName, x: number, y: number, h: number, tint: readonly number[], skin: readonly number[] = tint, hair: readonly number[] = skin): void {
     if (this.n >= this.max) return;
     const f = this.atlas.frames[name];
     const k = this.n++;
-    this.names[k] = name;
-    this.tints[k] = tint;
-    this.skins[k] = skin;
+    this.frame[k] = f.index;
+    this.key[k] = this.depth;
+    this.tintKey[k] = packRgb(tint);
+    this.skinKey[k] = skin === tint ? this.tintKey[k] : packRgb(skin);
+    this.hairKey[k] = hair === skin ? this.skinKey[k] : packRgb(hair);
     const w = (h * f.w) / f.h;
     this.offset[k * 2] = Math.round(x - w / 2);
     this.offset[k * 2 + 1] = Math.round(y);
@@ -210,11 +291,53 @@ export class SpriteLayer {
     this.skin[k * 3] = skin[0] / 255;
     this.skin[k * 3 + 1] = skin[1] / 255;
     this.skin[k * 3 + 2] = skin[2] / 255;
+    this.hair[k * 3] = hair[0] / 255;
+    this.hair[k * 3 + 1] = hair[1] / 255;
+    this.hair[k * 3 + 2] = hair[2] / 255;
   }
+
+  /**
+   * Ordena as instâncias de `start` até o fim pela profundidade, do fundo
+   * para a frente: quem está mais atrás é desenhado antes e fica coberto.
+   * Empates mantêm a ordem de chegada (o soldado continua por cima do cavalo).
+   */
+  sortFrom(start: number): void {
+    const n = this.n - start;
+    if (n < 2) return;
+    const key = this.key;
+    const order = this.sortOrder.length >= n ? this.sortOrder : (this.sortOrder = new Int32Array(n * 2));
+    for (let k = 0; k < n; k++) order[k] = start + k;
+    const idx = order.subarray(0, n);
+    idx.sort((a, b) => key[b] - key[a] || a - b);
+    let sorted = true;
+    for (let k = 0; k < n && sorted; k++) sorted = idx[k] === start + k;
+    if (sorted) return;
+    const move = (arr: Float32Array | Int32Array, size: number) => {
+      const copy = arr.slice(start * size, this.n * size);
+      for (let k = 0; k < n; k++) {
+        const from = (idx[k] - start) * size;
+        const to = (start + k) * size;
+        for (let c = 0; c < size; c++) arr[to + c] = copy[from + c];
+      }
+    };
+    move(this.offset, 2);
+    move(this.size, 2);
+    move(this.uv, 4);
+    move(this.tint, 3);
+    move(this.skin, 3);
+    move(this.hair, 3);
+    move(this.frame, 1);
+    move(this.tintKey, 1);
+    move(this.skinKey, 1);
+    move(this.hairKey, 1);
+    move(this.key, 1);
+  }
+
+  private sortOrder = new Int32Array(0);
 
   end(): void {
     this.geometry.instanceCount = this.n;
-    for (const name of ['iOffset', 'iSize', 'iUv', 'iTint', 'iSkin']) {
+    for (const name of ['iOffset', 'iSize', 'iUv', 'iTint', 'iSkin', 'iHair']) {
       const a = this.geometry.getAttribute(name) as THREE.InstancedBufferAttribute;
       a.clearUpdateRanges();
       a.addUpdateRange(0, this.n * a.itemSize);
@@ -230,12 +353,13 @@ export class SpriteLayer {
       const h = this.size[k * 2 + 1];
       const x = this.offset[k * 2];
       const y = height - this.offset[k * 2 + 1] - h;
-      const name = this.names[k];
-      if (name === 'dot') {
-        const t = this.tints[k];
-        ctx.fillStyle = `rgb(${t[0] | 0},${t[1] | 0},${t[2] | 0})`;
+      if (this.frame[k] === this.dotIndex) {
+        const t = this.tintKey[k];
+        let fill = this.dotFill.get(t);
+        if (!fill) this.dotFill.set(t, (fill = `rgb(${(t >> 16) & 255},${(t >> 8) & 255},${t & 255})`));
+        ctx.fillStyle = fill;
         ctx.fillRect(x, y, w, h);
-      } else ctx.drawImage(this.atlas.tinted(name, this.tints[k], this.skins[k]), x, y, w, h);
+      } else ctx.drawImage(this.atlas.tintedKey(this.frame[k], this.tintKey[k], this.skinKey[k], this.hairKey[k]), x, y, w, h);
     }
   }
 

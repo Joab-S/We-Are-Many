@@ -110,6 +110,8 @@ export interface ProbeState {
   probes: number;
   missions: Mission[];
   cargo: Amounts;
+  /** Criaturas vivas no porão, pelo id da espécie (coletadas numa superfície, para soltar em outra). */
+  specimens: Record<string, number>;
   /** Quanto já foi extraído de cada corpo. */
   mined: Record<string, Partial<Amounts>>;
   /** Corpos já prospectados, com o que foi encontrado no total. */
@@ -118,7 +120,26 @@ export interface ProbeState {
 }
 
 export function createProbeState(probes = 3): ProbeState {
-  return { probes, missions: [], cargo: zero(), mined: {}, surveyed: {}, nextId: 1 };
+  return { probes, missions: [], cargo: zero(), specimens: {}, mined: {}, surveyed: {}, nextId: 1 };
+}
+
+/** Quantas criaturas cabem no porão: é pouco de propósito, levar vida de um planeta a outro é escolha. */
+export const SPECIMEN_HOLD = 12;
+
+export function specimensAboard(s: ProbeState): number {
+  return Object.values(s.specimens).reduce((n, k) => n + k, 0);
+}
+
+/** Guarda uma criatura no porão. */
+export function storeSpecimen(s: ProbeState, species: string): void {
+  s.specimens[species] = (s.specimens[species] ?? 0) + 1;
+}
+
+/** Tira uma criatura do porão; a espécie sem nenhuma some da lista. */
+export function takeSpecimen(s: ProbeState, species: string): void {
+  const left = (s.specimens[species] ?? 0) - 1;
+  if (left > 0) s.specimens[species] = left;
+  else delete s.specimens[species];
 }
 
 export const freeProbes = (s: ProbeState): number => s.probes - s.missions.length;

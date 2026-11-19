@@ -30,6 +30,8 @@ Itens marcados com **Implementado (Fase 0)** já existem no jogo (branch `develo
 17. [Questões em aberto](#17-questões-em-aberto)
 18. [Registro de decisões](#18-registro-de-decisões)
 19. [Crescimento controlado, vocação e economia viva](#19-crescimento-controlado-vocação-e-economia-viva)
+20. [Comunidade, assentamentos e relações (RF-AS)](#20-comunidade-assentamentos-e-relações-rf-as)
+21. [Bioma e sociedade](#21-bioma-e-sociedade)
 
 ---
 
@@ -173,20 +175,22 @@ O jogador nunca cria espécies. A evolução modifica espécies existentes de fo
 
 ### 9.2 Eras tecnológicas
 
-As eras atuais do código (`ERAS` em `src/sim/ecosystem.ts`):
+As eras do código (`ERAS` em `src/sim/eco/constants.ts`). Não há relógio de séculos (o antigo `ERA_YEARS` saiu do código em 31/10/2026): a era de cada assentamento é calculada por `organicTech` (`src/sim/progress.ts`) a partir das técnicas que o lugar conhece e das peças que forjou (`v.made`), e nunca volta. A tabela diz o que o código faz hoje.
 
-| Era | Desbloqueia | Condição para sair dela |
+| Era | O que muda no lugar | Condição para entrar nela (`organicTech`) |
 |---|---|---|
-| Idade da Pedra | Cabanas de palha, coleta, caça com lança, fogo, aldeias pequenas, canoas | Fazer 5 peças de bronze (cobre + estanho numa ferraria) |
-| Idade do Bronze | Casas de madeira com telhado, agricultura, ferramentas melhores, comércio de troca, vilas, fundição de ferro | Fazer 8 peças de ferro |
-| Idade do Ferro | Casas de pedra, armas de ferro, exércitos organizados, estradas, cidades, deserto colonizável | Extrair 120 de pedra e fazer 30 peças de ferro |
-| Era Medieval | Castelos, reinos, religião organizada, caravelas, aço (ferro + carvão) | Extrair 60 de carvão e fazer 10 peças de aço |
-| Era Industrial | Fábricas, navios a vapor, cidades densas. Última era: os povos não vão ao espaço | — |
+| Idade da Pedra | Tendas e cabanas, coleta, caça, roças pequenas (uma a cada quatro casas), ferramentas de pedra e madeira, canoas, escambo | — (começo; sobe de 0 a 0,95 com ferramentas, roça, porto, rebanho e as primeiras técnicas) |
+| Idade do Bronze | Uma roça a cada duas casas, celeiro e ferraria, barco a remo, lingotes como moeda, soldados entre os ofícios, rendimento da roça ×1,2 (`ERA_YIELD`) | Fundição de cobre e bronze, ou uma peça de bronze forjada, ou cerâmica com domesticação, tecelagem ou roda e já com roça, rebanho ou vila |
+| Idade do Ferro | Construções especiais pedem mais pedra, templo, quartel, estátua, veleiro, moeda de prata, sobrado na vila, rendimento ×1,45 | Fundição de ferro, ou uma peça de ferro forjada, ou fundição com duas peças de bronze e escrita, moinho, cavalaria ou cidade |
+| Era Medieval | Casas de pedra, grande obra na capital, caravela, rotação de culturas (o solo cansa pela metade), moeda cunhada, rendimento ×1,75 | Aço e alvenaria, ou fundição de ferro com 3 peças de ferro e moeda, cavalaria, imprensa ou cidade com 20 de pedra extraída |
+| Era Industrial | Fábrica (dobra a ferraria), navio a vapor, papel-moeda, rendimento ×2,4. Última era: os povos não vão ao espaço | Vapor, com uma peça de aço, 5 de carvão ou 4 peças de ferro |
+
+O avanço emprestado (`advance`: comércio que ensina e a ajuda do jogador) só passa de era com a técnica da porta (fundição, siderurgia, aço ou vapor) ou com as peças de `ERA_NEEDS` (`src/sim/economy.ts`: 2 de bronze; 4 de ferro; 40 de pedra e 12 de ferro; 20 de carvão e 4 de aço) e os pontos de desenvolvimento da era (`ERA_POINTS`). As peças são do próprio lugar (trava local, 31/10/2026): as forjadas ali (`v.made`) e as que o comércio trouxe (cada ferramenta, arma ou armadura de metal que chega de quem a forjou conta `TRADED_PIECES` de uma peça do metal mais nobre do vendedor). Antes contavam o máximo entre o lugar e a capital, e a capital somava o que as colônias mineravam e forjavam: a vila sem minério acompanhava a era do reino minerador.
 
 | ID | Requisito | Situação |
 |---|---|---|
 | RF-VIDA-73 | Cada assentamento tem progresso tecnológico próprio; a etapa aparece no painel e muda a arte das casas. **Evolução orgânica (reformulado em 24/10/2026):** em vez de um relógio fixo de séculos que travava em 99%, o avanço (`v.tech`, `organicTech`) nasce das técnicas e materiais realmente dominados pelo assentamento, respeitando a sequência física dos materiais (ferramentas iniciais de pedra e madeira → fornos de cerâmica → fundição de metais macios como cobre, estanho ou bronze → siderurgia do ferro → aço com carvão → vapor). O painel do assentamento mostra o próximo passo lógico (`nextStepText`). Povos que valorizam conhecimento descobrem e ensinam mais rápido. | Implementado (reformulado em 24/10/2026) |
-| RF-VIDA-74 | Tecnologia se espalha: assentamentos vizinhos e parceiros comerciais avançam mais rápido; um reino compartilha a era da capital com atraso. | Implementado: difusão pelo reino, acordos comerciais, caravanas e feiras |
+| RF-VIDA-74 | Tecnologia se espalha: assentamentos vizinhos e parceiros comerciais avançam mais rápido; um reino compartilha a era da capital com atraso. | Implementado: difusão pelo reino, acordos comerciais, caravanas e feiras. Desde 31/10/2026, aprender com o vizinho (e com os mercadores) pede a condição material do próprio lugar (`t.use`), e a era sobe pelas peças do lugar, não as do reino |
 | RF-VIDA-75 | ~~O jogador pode **ensinar** (adiantar o progresso), com custo e com risco: ensinar demais causa instabilidade (ver RF-VIDA-131).~~ **Pausado na interface em 24/10/2026 a pedido do Joab:** o botão "📜 Ensinar" saiu da barra Civilização para ser repensado no futuro de forma menos vaga e menos automática (métodos internos mantidos para testes). | Pausado na interface (24/10/2026) |
 | RF-VIDA-76 | **Os povos não vão ao espaço por conta própria.** A Era Industrial é a última era; depois dela a história continua no planeta (crescimento das cidades, colonização pelo mar, relações entre povos). | Decidido |
 | RF-VIDA-77 | A Era Industrial polui: aumenta a temperatura média e reduz vegetação ao redor das cidades, criando tensão com a terraformação do jogador. | Fase 6 |
@@ -270,9 +274,9 @@ A economia faz parte do crescimento: o povo junta recursos, constrói com eles, 
 | ID | Requisito | Situação |
 |---|---|---|
 | RF-VIDA-120 | **Plantação:** a partir do Bronze, agricultores criam campos (tiles marcados, com sprite de lavoura que muda com a estação) em solo fértil perto das casas. Campos produzem comida e reduzem a necessidade de caça. | Parcial: campos de trigo, sem estação. Só se planta o que os agricultores dão conta, mais duas roças; roça sobrando volta a ser campo (`FIELD_FALLOW_RATE` 0,5 por ano) (v1.2.1; antes: uma roça a cada duas casas, trabalhada ou não) |
-| RF-VIDA-121 | Colheita sazonal; secas, pragas e frio reduzem a produção e podem causar fome. | Fase 5 |
-| RF-VIDA-122 | Irrigação (Ferro em diante) permite campos mais longe da água. | Parcial: deserto colonizável a partir do Ferro |
-| RF-VIDA-123 | **Domesticação:** herbívoros próximos podem ser domesticados; viram rebanho (sprites seguindo pastores), fornecem comida e tração. Rebanhos atraem predadores. | Fase 5 |
+| RF-VIDA-121 | Colheita sazonal; secas, pragas e frio reduzem a produção e podem causar fome. | Implementado: a colheita vem pela estação (`SEASON_HARVEST`), com a amplitude que cresce com a latitude e o bioma; a seca do clima do ano e a água no solo cortam a safra; o frio encurta a estação de crescimento (seção 21) |
+| RF-VIDA-122 | Irrigação (Ferro em diante) permite campos mais longe da água. | Parcial: deserto colonizável a partir do Ferro; com a técnica `irrigacao`, a roça rende a roça irrigada do bioma (o oásis no deserto, o arrozal no pântano; seção 21) |
+| RF-VIDA-123 | **Domesticação:** herbívoros próximos podem ser domesticados; viram rebanho (sprites seguindo pastores), fornecem comida e tração. Rebanhos atraem predadores. | Implementado: só os domesticáveis pelos critérios de Diamond, da região do lugar, e o rebanho é o que a fauna local dá (seção 21.4) |
 | RF-VIDA-124 | **Estoque do reino** (guardado na capital, usado por todos os assentamentos do reino): madeira, pedra, cobre, estanho, ferro, carvão, ouro, ferramentas e armas, mais a comida dos barcos de pesca. Madeira e pedra têm limite de armazém (200 + 20 por habitante). O painel do assentamento (mouse sobre a área) mostra o estoque. | **Substituído na Etapa C** pelo estoque próprio de cada assentamento (RF-VIDA-212, decisão do Joab de 20/10/2026); a janela de reinos mostra a soma dos estoques do reino. Registrado no Registro de remoções |
 | RF-VIDA-124a | **Lenha:** lenhadores produzem madeira conforme a floresta em volta; o corte desbasta a vegetação perto do assentamento. | Implementado (Fase 0) |
 | RF-VIDA-124b | **Pedra:** mineradores sem mina e construtores tiram pedra, quatro vezes mais onde há rocha ou colina por perto. | Implementado (Fase 0) |
@@ -493,6 +497,7 @@ O que falta, juntando os itens **Parcial** e **Fase N** acima e os requisitos no
 | 20/10/2026 | Ícone da vocação no rótulo, de forma simples, e no painel. Requisitos de seleção de criaturas (realce, escolha entre amontoadas, marcador, seguir, nome, ficha completa, grupo) e da janela do assentamento com abas (seção 19.17). |
 | 21/10/2026 | Etapa F implementada (seção 19.7). Visual do mapa no estilo das referências do Joab (organizado e bonito, sem poluição): terreiro limpo em volta de casas, prédios, ruas, roças e pastos dentro da área (a madeira vai para o estoque; o mato volta quando as ruínas somem); ruas de terra com três quartos do tile e de pedra com quase o tile todo; casas alinhadas na beira da rua, à mesma distância dela; o véu e a borda do território somem aos poucos bem de perto (continuam de longe e na tecla T). |
 | 21/10/2026 | Pedidos do Joab: guerra sem limite e sem trégua fixa, decidida por preparo e vantagem percebida (RF-VIDA-245 a 251); jogador influencia os povos com animação (RF-VIDA-252, 253); região orgânica do assentamento (RF-VIDA-379); casas deixam de desabar em massa (RF-VIDA-378). Removidos por pedido dele: `WARS_MAX`/`WARS_PER_KINGDOMS`, `WAR_COOLDOWN` e o texto de moderação do RF-VIDA-241. |
+| 30/10/2026 | Plano novo de comunidade, assentamentos e relações (seção 20), todas as fases: degraus por funções com limiares novos (vila 40, cidade 120, metrópole 400, além das funções), com o porte econômico pelos limiares antigos; produção só por entrega no lugar na tela; ruas pelo uso; lealdade no lugar da independência só por distância. |
 
 ---
 
@@ -561,7 +566,7 @@ Cada assentamento passa a ter uma **estrutura de referência** por nível: a lis
 | RF-VIDA-201 | **Completude:** cada assentamento calcula de 0 a 100% o quanto tem da estrutura do seu nível. O painel mostra "Planta: 70%, falta celeiro e poço". | Implementado (Fase 0): painel mostra "Planta 71% · falta roças para as casas e celeiro" |
 | RF-VIDA-202 | **Ordem de crescimento:** (1) **preencher** os lotes livres dentro da área; (2) **reformar** o que existe (RF-VIDA-203) e construir o que falta da estrutura; (3) **adensar** (casas maiores, sobrados, mais gente por casa) quando os lotes acabam; (4) **expandir**: subir de nível, crescer a área e mandar colonos. Cada passo só domina quando o anterior está satisfeito, mas nenhum é proibido. | Implementado (Fase 0) |
 | RF-VIDA-203 | **Reformas internas:** casa que melhora de padrão (palha → madeira → pedra → tijolo), rua de terra que vira cascalho e depois pedra, praça que ganha poço e depois fonte, prédio velho que é refeito. Cada reforma custa material e trabalho de construtores, leva tempo e aparece no mapa como obra (andaime) enquanto dura. | Parcial: casas ganham andar (sobrado) com andaime durante a obra, e construções novas também mostram andaime; calçamento gradual e poço que vira fonte entram na Etapa D |
-| RF-VIDA-204 | **Expansão mais lenta, não proibida.** A chance anual de mandar colonos passa a ser `COLONY_RATE × f(completude) × pressão`, onde `f` é baixo com a planta incompleta (`COLONY_MIN_FACTOR`, 0,2) e 1 com ela completa, e a pressão sobe com lotação, fome ou falta de um recurso que só existe fora (terra fértil, pasto, jazida, porto). Uma aldeia apertada numa ilha ainda manda colonos. (Antes: 5% por ano com mais de 26 pessoas, RF-VIDA-110, que continua valendo até a Etapa B.) | Implementado (Fase 0): `COLONY_MIN_FACTOR`, `COLONY_MIN_POP` (40) e `COLONY_PRESSURE_*`. Mais lenta ainda (v1.2.2, pedido do Joab): só manda colonos quem já esgotou lotes, reformas e ruas (lotado), de vila em diante (`COLONY_MIN_TIER`), a `COLONY_RATE` 0,03 (antes: 0,05, mesmo com espaço e a partir de 40 moradores); o povo evolui o assentamento inicial primeiro. Rotas comerciais e navios de colonos continuam fundando lugares novos, raramente |
+| RF-VIDA-204 | **Expansão mais lenta, não proibida.** A chance anual de mandar colonos passa a ser `COLONY_RATE × f(completude) × pressão`, onde `f` é baixo com a planta incompleta (`COLONY_MIN_FACTOR`, 0,2) e 1 com ela completa, e a pressão sobe com lotação, fome ou falta de um recurso que só existe fora (terra fértil, pasto, jazida, porto). Uma aldeia apertada numa ilha ainda manda colonos. (Antes: 5% por ano com mais de 26 pessoas, RF-VIDA-110, que continua valendo até a Etapa B.) | Implementado. Mais lenta ainda (v1.2.2, pedido do Joab): só manda colonos quem já esgotou lotes, reformas e ruas (lotado, o predicado único `crowded`), a `COLONY_RATE` 0,03 com peso `COLONY_PRESSURE_CROWDED` (antes: 0,05, mesmo com espaço e a partir de 40 moradores); o povo evolui o assentamento inicial primeiro. Rotas comerciais e navios de colonos continuam fundando lugares novos, raramente. Desde a onda 3B, a fissão por pressão social (`socialPressure`, `PRESSURE_FISSION`) e a decisão de cada família (`src/IAUS/npc/mundo/mudanca.ts`) também mandam colonos; `COLONY_MIN_FACTOR`, `COLONY_MIN_POP`, `COLONY_MIN_TIER` e `COLONY_PRESSURE_ROOM` não eram lidos e saíram |
 | RF-VIDA-205 | **Subir de nível exige planta.** Além da população (RF-VIDA-90), subir exige completude mínima do nível atual (`TIER_UP_COMPLETENESS`, 70%). Sem ela, o assentamento fica "vila cheia" e adensa. | Implementado (Fase 0) |
 | RF-VIDA-206 | **Área que cresce aos poucos.** O raio cresce com a população dentro do intervalo do nível (por exemplo, a vila vai de 12 a 15 tiles antes de virar cidade com 18), em vez de saltar só na troca de nível. Os limites de RF-VIDA-94 a 96 continuam valendo. | Implementado (Fase 0): o raio cresce junto com as ruas sob demanda, sem engolir vizinhos |
 | RF-VIDA-207 | **Ruas sob demanda, bloco a bloco** (pedido do Joab, 20/10/2026). A planta de ruas do nível é calculada inteira, mas só é aberta aos poucos: a aldeia nasce com `STREET_START` (10) tiles de rua em volta da praça e, quando faltam lotes para casa ou para a planta, abre mais um trecho de `STREET_BLOCK` (6) tiles, andando pelas próprias ruas a partir da praça (`STREET_BLOCK_RATE`, 3 trechos por ano no máximo). Subir de nível não abre ruas: só aumenta a planta disponível. Com a planta toda aberta, ela cresce rumo ao nível seguinte (RF-VIDA-206). (Antes: a planta inteira do nível era aberta de uma vez, ao fundar e a cada nível.) | Implementado (Fase 0) |
@@ -754,7 +759,7 @@ Todos ficam em `src/sim/balance.ts` (RF-VIDA-208). Os valores são o ponto de pa
 | `STREET_GAP` | Distância mínima entre ruas diferentes | 3 tiles |
 | `ROAD_COST_EXISTING` / `ROAD_COST_BESIDE` | Custo do A* sobre rua existente / ao lado de uma rua | 0,3 / 4 |
 | `COLONY_RATE` | Chance anual base de mandar colonos (já existe) | 5% |
-| `COLONY_MIN_FACTOR` | Fração dessa chance com a planta incompleta | 0,2 |
+| `COLONY_PRESSURE_CROWDED` | Peso dessa chance com o lugar lotado (`COLONY_MIN_FACTOR`, com a planta incompleta, saiu) | 2 |
 | `TIER_UP_COMPLETENESS` | Completude mínima para subir de nível | 70% |
 | `REFORM_RATE` | Reformas por ano por construtor | 0,5 |
 | `LABOR_SHIFT` | Fração dos adultos que podem mudar de setor por ano | 15% |
@@ -1152,3 +1157,148 @@ Cada etapa fecha com `npm test` e uma rodada de `npm run calibrar`, e não deixa
 - **Sem a trava da ferramenta,** o desmatamento depende de presença, tempo de gesto, viagem, corte seletivo e `WOOD_TARGET`; se a calibração mostrar mata acabando, o primeiro ajuste é `FELL_SECONDS`, não uma exigência nova.
 - **Muitos NPCs em poucos tiles:** reserva e `JOB_SLOTS` evitam fila infinita numa árvore, mas lenhadores sem ordem ficam ociosos; `WOOD_TARGET` os redireciona.
 - **Determinismo e save:** o quadro de serviços precisa iterar em ordem estável (sem `Set`/`Map` de ordem de inserção variável) para o teste de RF-VIDA-382 passar.
+
+---
+
+## 20. Comunidade, assentamentos e relações (RF-AS)
+
+> Pedido do Joab em 30/10/2026: "ainda não gosto do visual e progressão dos assentamentos, preciso que eles façam as coisas de forma mais inteligente e fluida". O plano completo (diagnóstico, princípios e metas) está no documento [Plano novo: comunidade, assentamentos e relações](https://claude.ai/artifact/FH44FCN2N3m9SBwMVPjYvj). Depois o Joab pediu todas as fases. **Situação: fases 0 a 6 implementadas** (branch `claude/project-thread-21kgi1`). Todas as constantes novas ficam em `src/sim/balance.ts`, nos blocos "Fase 1" a "Fase 5", e os pesos da jornada em `DAY_W` (`src/ai/tuning.ts`).
+
+**Princípios**
+
+1. **Cada coisa no mapa tem um motivo.** Lugar novo nasce de batedores que avaliam o sítio; rua nasce do passo; casa nasce de família; muralha segue as casas.
+2. **Degrau é função, não só gente.** Um lugar só é vila, cidade ou metrópole quando tem as funções do degrau (celeiro, ferraria, mercado, templo, capital ou mercado regional).
+3. **Gente faz, gente leva.** No lugar que está na tela nada entra no estoque sem alguém carregar; o modo agregado, fora da tela, produz o mesmo por pessoa.
+4. **Relações nascem de convivência.** Afinidade, lealdade, reino e cultura vêm de casamentos, trocas, ajudas, rivalidades e distância, não de sorteio.
+5. **Todo porquê na ficha.** A pessoa mostra a tarefa, o motivo e as alternativas que perderam.
+
+### 20.1 Fase 0: medir antes de mudar
+
+- **Indicadores novos** em `src/sim/calibrate.ts`: reinos, fração de lugares pequenos e de uma família só, lugares de vida curta, colônias, sítios, fusões, quedas de degrau, densidade e árvores no núcleo, roças perto das casas, fração com tarefa e parada, passos na rua, casamentos entre lugares, cobertura de cidade de referência, anexações, povos novos, ajudas e rivalidades. `settlementForm` mede a forma de um lugar.
+- **Metas** em `LONG_TARGETS`, conferidas pela calibragem longa (`npm run calibrar:longa`, [CALIBRACAO-LONGA.md](CALIBRACAO-LONGA.md)).
+- **Captura de telas** por degrau, de perto e de longe: `node tools/capture-settlements.mjs [url] [anos] [pasta]` com `npm run dev` aberto. Usa o atalho `?debug` (`window.debugEarth`) e o Playwright instalado na máquina.
+
+### 20.2 Fase 1: nascimento e espaçamento
+
+| Requisito | Descrição |
+|---|---|
+| RF-AS-01 | Família sem lugar melhor conhecido tenta sítio, colônia ou refúgio; só funda sozinha longe de tudo (`LONE_FOUND_DIST`). |
+| RF-AS-02 | Sítio rural: uma casa e uma roça a 6 a 15 tiles do núcleo, ligada por trilha; sítios que juntam gente viram aldeia. |
+| RF-AS-03 | Colônia com motivo: só de quem tem gente de sobra (`COLONY_SOURCE_POP`), com intervalo (`COLONY_COOLDOWN`); batedores visitam sítios e a colônia parte com enxoval visível. |
+| RF-AS-04 | Nota do sítio (`siteValue`): água, terra boa, mata, pedra, plano, costa, ruína, defesa, rota, motivo e distância ideal da origem. |
+| RF-AS-05 | Espaçamento pela hierarquia: 14 tiles de uma aldeia, 22 de uma vila, 30 de uma cidade. |
+| RF-AS-06 | Fusão: aldeia encostada no núcleo de uma cidade do mesmo reino vira bairro. |
+| RF-AS-08 | Abandono com destino: lugar minúsculo e em falta se muda inteiro, e a crônica diz para onde. |
+
+### 20.3 Fase 2: degraus por funções e forma
+
+| Requisito | Descrição |
+|---|---|
+| RF-AS-10 | Pegada orgânica: a área do lugar é a das casas com folga, não um círculo fixo. |
+| RF-AS-11 e 12 | Casa no melhor lote pelo valor do solo (distância da praça, vizinhos, água, frente de rua); núcleo denso. |
+| RF-AS-16 | Roças e cercados num anel em volta das casas, que anda para fora quando o núcleo cresce. |
+| RF-AS-17 | Casa por família; casa vazia por `IDLE_HOUSE_YEARS` começa a cair. |
+| RF-AS-18 | Muralha que segue a pegada: paliçada na vila, pedra na cidade, com portões nas ruas. |
+| Degraus | Acampamento (tendas, menos de `CAMP_POP`), aldeia, vila, cidade e metrópole por `TIER_POPULATION_NEW` e funções (`tierAllowed`, `missingFunctions`); cai abaixo de `TIER_DOWN_SHARE` por `TIER_DOWN_YEARS`. A janela do lugar mostra o que falta. O porte econômico (`scale`) continua pelos limiares antigos (`SCALE_POPULATION`). |
+
+### 20.4 Fase 3: jornadas e produção por entrega
+
+| Requisito | Descrição |
+|---|---|
+| RF-AS-20 e 21 | Quadro de tarefas do lugar (trabalho, colheita, carga, obra, água, baldes, milícia) com prioridade e vagas. |
+| RF-AS-22 e 25 | A pessoa escolhe a próxima jornada pelo quadro e pelas necessidades (fome, descanso, convívio, fé), com o ofício pesando muito e a urgência abrindo para todos (`chooseDay`, `src/ai/decisions/day.ts`). Tarefa cheia não é escolhida. |
+| RF-AS-23 e 24 | Produção só por entrega: o que é colhido vai ao pátio e alguém leva ao celeiro com a carga na mão (`CARRY_LOAD`, carroça da vila em diante). Na virada do ano o pátio vai ao celeiro. |
+| RF-AS-26 | Caminho por custo: rua e trilha baratas, roça e mato caros, casa evitada. |
+| RF-AS-27 | Gesto no lugar da tarefa, com ferramenta e carga visíveis. |
+| RF-AS-28 e 29 | Eventos que juntam gente: colheita coletiva, festa, enterro, alarme (milícia e abrigo), curiosos na caravana. |
+| RF-AS-30 | Ficha com o porquê: tarefa, motivo e as duas alternativas que perderam. |
+| RF-AS-31 | Nível de detalhe: só os lugares na tela (e o da pessoa aberta) rodam as jornadas; os outros ficam no modo agregado, que produz quase o mesmo por pessoa (teste de 60 anos, diferença menor que 5%). |
+
+### 20.5 Fase 4: ruas pelo uso
+
+| Requisito | Descrição |
+|---|---|
+| RF-AS-13 | O passo gasta o chão (`STEP_WEAR`; no modo agregado, o tráfego anual de casa à praça e de roça ao celeiro). Desgaste acima de `TRAIL_WEAR` vira trilha, acima de `ROAD_WEAR` vira rua; sem uso por `ROAD_FORGET_YEARS` some. Trilha nunca fecha bloco 2×2 de rua. |
+| RF-AS-14 | Calçamento acompanha a era nas ruas que o uso abriu. |
+
+### 20.6 Fase 5: relações entre lugares
+
+| Requisito | Descrição |
+|---|---|
+| RF-AS-40 | Casamento entre lugares vizinhos quando não há par em casa. |
+| RF-AS-41 | Memória de origem: quem se muda guarda o laço com o lugar de onde veio. |
+| RF-AS-42 | Visitas visíveis de parentes, mascates e peregrinos. |
+| RF-AS-43 | Afinidade entre pares de lugares, de −100 a 100, de parentes, trocas, fé, povo, rivalidade, rancor, ajuda e festas. |
+| RF-AS-44 | Cidade de referência de cada aldeia e vila, por distância, tamanho e afinidade. |
+| RF-AS-45 | Ajuda na fome e dívida: quem ajuda ganha afinidade e cobra depois; quem recusa perde. |
+| RF-AS-46 | Rivalidade por mata, pasto ou jazida comum. |
+| RF-AS-47 | Casamento de líderes e festas com convidados aproximam os reinos. |
+| RF-AS-48 | Degrau político: livre, chefia, reino (cidade capital e 3 leais) e império (`polityOf`). |
+| RF-AS-49 e 50 | Lealdade por afinidade, comércio, proteção, distância, carga e cultura; lugar desleal muda de lado ou se revolta (substitui a independência só por distância). |
+| RF-AS-51 | Capital que se move para a cidade bem maior por muitos anos. |
+| RF-AS-52 | Deriva cultural de lugares isolados até um povo novo. |
+| RF-AS-53 | A diplomacia puxa a relação entre reinos para a média das afinidades entre os lugares deles. |
+
+### 20.7 Fase 6: visual
+
+Tendas no acampamento, muralhas e portões, trilhas de desejo meio apagadas, cargas na mão (cesto, feixe, pedra, minério, balde), gesto com ferramenta, caravanas de visita e de colonos, nome do degrau e do degrau político no rótulo e na janela, aba de relações (cidade de referência, lealdade, dívidas e afinidades) e a linha da jornada na ficha (🧭).
+
+### 20.8 Resultado medido e metas fora
+
+Ver [CALIBRACAO-LONGA.md](CALIBRACAO-LONGA.md) (3 sementes, 1000 anos). Pontos que ficaram fora da meta estão listados lá, com o que mexer.
+
+---
+
+## 21. Bioma e sociedade
+
+> 31/10/2026. O bioma em volta de cada lugar decide o que a terra dá, quando dá, quanto do que se guarda estraga, que bicho vira rebanho e como o povo vive. O código: a tabela `BIOME_YIELD` e o modo de vida em `src/sim/biomeYield.ts`, a parte `eco/economy/biome.ts` do `Ecosystem`, a domesticação em `src/sim/species.ts` (`meetsDiamond`, `herdFormsOf`) e os números em `src/sim/balance.ts`, seção "Bioma e modo de vida".
+
+### 21.1 Como o bioma entra na economia
+
+- **Média da área.** Uma vez por ano, cada lugar refaz a média da tabela sobre o território (`Village.area`, `areaYield`, um tile a cada dois, sem sorteio). A mata cortada vira planície e passa a render como ela, então o desmatamento muda a média com o tempo.
+- **Roça.** A colheita multiplica pela roça média da área; com irrigação, pela roça irrigada (o oásis no deserto, o arrozal no pântano). Cada tile ainda leva a estação de crescimento pela temperatura (`growingSeason`: plena acima de 9 °C, quase nada abaixo de −7 °C), o que encurta a roça na tundra e na taiga desmatada.
+- **Rebanho, pesca e lenha.** O leite, a carne e a lã de cada cabeça multiplicam pelo pasto médio; cada peixe da rede, pela pesca da beira; cada árvore derrubada, pela lenha da mata (a média só conta os tiles com mata).
+- **Estações.** A colheita, a coleta e a lenha do inverno seguem uma amplitude que cresce com a latitude (0,8 no equador a 1,6 no polo, até 1,25) e com o bioma. Com amplitude 1 vale o vetor de base (`SEASON_HARVEST`, `SEASON_FUEL`), que é o que acontece perto da latitude 0,25; mais perto do polo a safra se concentra no outono e o inverno queima mais lenha. O ano soma o mesmo: muda a época.
+- **Perecimento.** A comida guardada estraga pela média do bioma (o frio e o seco conservam; nenhum bioma estraga mais que a base) e, no inverno abaixo de 0 °C, o celeiro congela (`FROZEN_SPOIL`). É o motivo de armazenar no frio.
+- **Escala.** 1 é a terra comum, onde vive quase todo o povo da Terra do jogo (mata e campo do clima quente ou temperado): o bioma redistribui a comida em vez de cortá-la.
+
+### 21.2 O que cada bioma dá
+
+| Bioma | Roça (irrigada) | Pasto | Pesca | Estação | Perecimento | Lenha | Cultivo | Modo de vida típico |
+|---|---|---|---|---|---|---|---|---|
+| Planície | 1,45 (1,6) | 1,35 | 1 | 1 | 1 | 0,7 | trigo | Sedentário; intensivo com técnica e gente apertada (a melhor roça e o melhor pasto) |
+| Savana | 1,15 (1,3) | 1,25 | 0,9 | 1 | 1 | 0,8 | sorgo e milhete | Sedentário, de pasto e roça; intensivo com irrigação |
+| Floresta temperada | 1,05 (1,15) | 1 | 1 | 1 | 1 | 1,25 | cevada | Sedentário, de lenha farta; a roça melhora com o desmatamento |
+| Floresta tropical | 1 (1,1) | 0,95 | 1,1 | 0,8 | 1 | 1,1 | mandioca | Sedentário, a terra comum |
+| Pântano | 0,95 (1,4) | 0,85 | 1,25 | 0,8 | 1 | 0,9 | arroz | Sedentário de pesca; irrigado, vira arrozal |
+| Praia | 0,7 (0,85) | 0,75 | 1,25 | 0,8 | 1 | 0,6 | coco e mandioca | Sedentário de pesca; o porto adensa a costa |
+| Taiga | 0,6 (0,65) | 0,7 | 1,15 | 1,15 | 0,75 | 1,15 | centeio | Sedentário de lenha e pesca, com roça curta pelo frio |
+| Manguezal | 0,45 (0,65) | 0,4 | 1,45 | 0,8 | 1 | 0,8 | arroz | Pesca; nômade quando a roça da área não basta |
+| Rocha | 0,4 (0,45) | 0,7 | 0,9 | 1,1 | 0,85 | 0,7 | centeio | Pedreira e minas; no limite entre nômade e sedentário |
+| Montanha | 0,25 (0,35) | 0,6 | 0,85 | 1,15 | 0,7 | 0,9 | batata nos terraços | Minas e cabras; pouca roça; defende quem mora no alto |
+| Tundra | 0,2 (0,2) | 0,75 | 1,25 | 1,25 | 0,55 | 0,5 | — | Nômade de caça e pesca, estação curta, guarda o que tem |
+| Deserto | 0,15 (1) | 0,55 | 0,85 | 0,8 | 0,75 | 0,4 | tâmara | Nômade de pasto (camelo, cabra); só o oásis irrigado planta |
+| Penhasco | 0,2 (0,25) | 0,45 | 0,9 | 1 | 0,85 | 0,6 | — | Pouca roça; quase sempre é a borda de uma área maior |
+| Solo estéril | 0,05 (0,5) | 0,25 | 0,75 | 0,9 | 0,85 | 0,4 | — | Nômade |
+| Geleira, gelo, mar e lava | 0 | 0 a 0,1 | 0,5 a 1,2 | 1 a 1,25 | 0,4 a 1 | 0 | — | — |
+
+A roça da tabela ainda é cortada pela estação de crescimento de cada tile, e a coluna "modo de vida típico" é o que `lifewayFor` costuma dar com a roça do bioma; quem decide de fato é a média da área, a técnica e a densidade.
+
+### 21.3 Modo de vida (`Village.lifeway`)
+
+| Modo | Quando (`lifewayFor`, com histerese) | O que muda |
+|---|---|---|
+| Nômade | Roça da área abaixo de 0,4 (`NOMAD_FARM`) e menos de 4,5 moradores por 100 tiles do território (`NOMAD_DENSITY`) | Não planta: as roças que tinha voltam a ser campo. Quando a vegetação da área cai abaixo de 45% do que ela aguenta (`NOMAD_FORAGE`), a coleta esgotada entra na falta (`scarcity`) e as famílias mudam o acampamento pelo caminho de sempre (migração, êxodo e última leva). Capta 1,5 vez mais longe |
+| Sedentário | O resto | Roças, rebanho e pesca como sempre |
+| Intensivo | Arado, irrigação ou moinho, roça da área a partir de 0,7 e 5 ou mais moradores por 100 tiles | Cada roça leva 1,5 vez mais braços (`INTENSIVE_HANDS`) e rende 15% mais (`INTENSIVE_YIELD`). Capta 0,8 do alcance |
+
+O lugar nasce sedentário e o modo é refeito uma vez por ano; a mudança vai para a crônica. `lifewayOf(v)` e `catchmentOf(v)` são os getters para a nota do sítio. Saves antigos carregam todos os lugares como sedentários.
+
+### 21.4 Técnica, rebanho, comércio e guerra
+
+- **Boserup.** A fome puxa a descoberta das técnicas que intensificam (domesticação, arado, irrigação, moinho e moinho d'água): a taxa multiplica por 1 + 2 × (1 − parte dos moradores que comeu bem). Só a fome extrema (menos de 15% comendo bem) trava. As outras técnicas continuam paradas com o atendimento de comida abaixo de 0,4.
+- **Trava local.** Aprender com o vizinho ou com os mercadores pede a condição material do próprio lugar. A era e a experiência de forja contam as peças do lugar; o comércio traz peças (cada ferramenta, arma ou armadura de metal que chega conta meia peça do metal de quem a forjou). Ver a tabela 9.2.
+- **Domesticação (Diamond).** Só vira rebanho quem come capim, tem porte de curral (25 a 1.200 kg), fica adulto em até 4 anos, vive em manada de 6 ou mais, não entra em pânico com facilidade e não é bravo. Na Terra: o bisão vira gado, a cabra-montesa cabra ou carneiro, o camelo e a lhama camelo, o cavalo selvagem das estepes cavalo; a zebra, o elefante, o cervo, o javali e a rena ficam de fora. O lugar só domestica o que vive na sua região (o território mais 20 tiles), e o tipo do rebanho é o que a fauna local dá: a vocação e o clima preferem, mas não inventam o bicho. Sem o bicho selvagem por perto, o rebanho vem do vizinho que já cria (o parceiro do reino ou de um acordo, a até 90 tiles e a pé, com 5 cabeças ou mais, cede 2), como os domesticados que se espalharam pela Eurásia.
+- **Preço por utilidade.** O minério que o lugar não sabe fundir, o carvão sem siderurgia, o barro sem cerâmica e a lã sem tear valem 40% do preço; o bronze perde para o ferro depois da siderurgia, e o carvão vale mais com o vapor.
+- **Defesa e densidade.** Quem luta no próprio território vale mais no alto e no acidentado (até +50% na serra). O porto abriga 3 + era moradores, e a costa com porto fica mais densa.
+- **Vocação.** A amostra do lugar para a vocação conta só as jazidas que o reino conhece.
