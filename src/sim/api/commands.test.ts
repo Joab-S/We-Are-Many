@@ -203,6 +203,23 @@ describe('comandos do jogador (src/sim/api/commands.ts)', () => {
     expect([...b.eco.watched]).toEqual([...a.eco.watched]);
   });
 
+  it('sem foco, nenhum lugar fica no modo completo, e o mundo anda igual a partir de um retrato', () => {
+    const a = world();
+    const v = a.eco.villages.find((q) => !q.abandoned)!;
+    applyCommand(a.eco, a.map, viewCommand(v.x, v.y, 30, -1));
+    for (let t = 0; t < 8; t++) a.eco.step(0.25);
+    expect(a.eco.full(v)).toBe(true);
+    applyCommand(a.eco, a.map, { kind: 'view', focus: null, pinned: -1 });
+    expect(a.eco.watched.size).toBe(0);
+    // As mentes dos lugares na tela não vão no retrato: se algum lugar seguisse no modo completo, os dois divergiam.
+    const b = restoreEcosystem(structuredClone(snapshotEcosystem(a.eco, 42)), structuredClone(a.map));
+    for (let t = 0; t < 24; t++) {
+      a.eco.step(0.25);
+      b.step(0.25);
+    }
+    expect(worldFingerprint(b)).toBe(worldFingerprint(a.eco));
+  });
+
   it('não importa nada do cliente nem do three.js', () => {
     const imports = [...source.matchAll(/from '([^']+)'/g)].map((m) => m[1]);
     expect(imports.length).toBeGreaterThan(0);
