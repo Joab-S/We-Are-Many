@@ -1,3 +1,5 @@
+import type { MenteDebug } from '../../../sim/api/debug';
+import { fichaGenerativaHtml } from '../debugMente';
 import type { Ecosystem } from '../../../sim/ecosystem';
 import { ROLE_NAMES, ROLES } from '../../../sim/roles';
 import { aptitudeOf, bestCraft, TECH_BY_ID } from '../../../sim/progress';
@@ -165,7 +167,7 @@ export class CreatureSheet extends HudComponent {
     private readonly el: HTMLElement,
     private readonly sel: Selection,
     private readonly icons: IconCache,
-    private readonly host: { say(text: string): void },
+    private readonly host: { say(text: string): void; mente?(i: number): MenteDebug | null },
   ) {
     super(250);
     installPixelArt();
@@ -505,6 +507,9 @@ export class CreatureSheet extends HudComponent {
     const v = homeOf(eco, i);
     const name = personFullName(eco, i).first;
     if (!v) {
+      // Mundo generativo: a pessoa não tem lista de comportamentos; a ficha mostra o que ela gerou e escolheu agora.
+      const mente = this.host.mente?.(i);
+      if (mente) return `<div class="cs-now">${pixelIcon('play')}<span>Agora: <b>${esc(mente.agora || 'pensando no que fazer')}</b></span></div>${fichaGenerativaHtml(mente)}`;
       const g = eco.wanderGoal(i);
       const to = g.village >= 0 ? eco.villages[g.village] : null;
       return `${now(eco, i)}

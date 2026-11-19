@@ -749,23 +749,56 @@ export const genMentePart = {
     const mao = p.mao?.que ?? null;
     const ops: Opcao[] = [];
     const medo = p.nec[NI.medo];
+    // Cada verbo que cabe em cada coisa percebida é uma ideia. As que a pessoa não tem como avaliar (nunca fez
+    // aquilo naquele tipo de coisa, nem ouviu falar) valem todas o mesmo, o gosto pelo novo: em vez de fazer a conta
+    // de cada uma, ficam numa lista e só umas poucas entram na disputa (as mais à mão, variando a cada pensamento).
+    type Ideia = { v: Verbo; a: Percepto; r: ReturnType<typeof avaliar> };
+    const ideias: Ideia[] = [];
+    const novas: { v: Verbo; a: Percepto }[] = [];
+    const comLente = new Set(p.lentes.map((l) => l.v));
+    const tagDaMao = mao ? TAG_DO_MATERIAL[mao] : '';
     for (const a of perceptos) {
+      const ts = (a.ts ??= principais(a.tags));
+      for (const v of VERBOS) {
+        if (!this.genCabe(i, p, v, a, mao)) continue;
+        const mv = idx.get(v);
+        let sabe = v === 'andar' || (v === 'olhar' && !!a.tags.desconhecido) || comLente.has(v);
+        if (!sabe && mv) {
+          if (tagDaMao && mv.has(tagDaMao) && (v === 'largar' || v === 'empilhar' || v === 'dar')) sabe = true;
+          else for (const [t] of ts) if (mv.has(t)) {
+            sabe = true;
+            break;
+          }
+        }
+        if (sabe) ideias.push({ v, a, r: avaliar(v, a, mao, 0) });
+        else novas.push({ v, a });
+      }
+    }
+    if (novas.length) {
+      const giro = m.pensou;
+      novas.sort((x, y) => ((VI[x.v] * 7 + giro) % 23) - ((VI[y.v] * 7 + giro) % 23) || x.a.dist - y.a.dist || y.a.id - x.a.id);
+      for (const { v, a } of novas.slice(0, 3)) ideias.push({ v, a, r: avaliar(v, a, mao, 0) });
+    }
+    m.geradas += ideias.length + Math.max(0, novas.length - 3);
+    // O corte barato pelo benefício: a conta inteira (custo, risco, o benefício aberto por necessidade) só para as que ficam.
+    ideias.sort((x, y) => y.r.total - x.r.total || VI[x.v] - VI[y.v] || y.a.id - x.a.id);
+    const limite = (m.detalhe ? GEN.K : GEN.KLonge) + 10;
+    const emCurso = m.brain.currentKey;
+    for (let k = 0; k < ideias.length; k++) {
+      const { v, a, r } = ideias[k];
+      if (k >= limite && `${9000 + VI[v]}:${a.id}` !== emCurso) continue;
       // O perigo em volta do alvo (o próprio alvo não conta quando a ideia é fugir dele ou enfrentá-lo).
       let perigo = 0;
       for (const b of perceptos) if (b.tags.perigoso && b !== a && Math.hypot(b.x - a.x, b.y - a.y) < 4) perigo = Math.max(perigo, b.tags.perigoso);
-      for (const v of VERBOS) {
-        if (!this.genCabe(i, p, v, a, mao)) continue;
-        const r = avaliar(v, a, mao, 0);
-        let lente = 0;
-        const porNec = zeros();
-        for (let n = 0; n < N; n++) {
-          porNec[n] = -u[n] * Math.max(r.prev.e[n], -nec[n]);
-          lente -= u[n] * r.prev.lente[n];
-        }
-        const custo = lim(a.dist / (GEN.vista * 2.2) + VERBO[v].tempo / 25 + (p.colo || p.gravida ? a.dist / 30 : 0));
-        const risco = v === 'fugir' ? 0 : lim(Math.max(perigo, v === 'bater' ? (a.tags.perigoso ?? 0) * 0.8 + (a.tags.forte ?? 0) * 0.5 : 0) * (0.4 + medo) * (1 - 0.4 * coragem));
-        ops.push({ v, a, habito: null, tags: r.tags, prev: r.prev, porNec, lente, adiante: r.adiante, cadeia: r.cadeia, beneficio: r.total, conf: r.prev.c, custo, risco, cortada: false, behavior: null, chave: `${v}|${r.prev.tag}` });
+      let lente = 0;
+      const porNec = zeros();
+      for (let n = 0; n < N; n++) {
+        porNec[n] = -u[n] * Math.max(r.prev.e[n], -nec[n]);
+        lente -= u[n] * r.prev.lente[n];
       }
+      const custo = lim(a.dist / (GEN.vista * 2.2) + VERBO[v].tempo / 25 + (p.colo || p.gravida ? a.dist / 30 : 0));
+      const risco = v === 'fugir' ? 0 : lim(Math.max(perigo, v === 'bater' ? (a.tags.perigoso ?? 0) * 0.8 + (a.tags.forte ?? 0) * 0.5 : 0) * (0.4 + medo) * (1 - 0.4 * coragem));
+      ops.push({ v, a, habito: null, tags: r.tags, prev: r.prev, porNec, lente, adiante: r.adiante, cadeia: r.cadeia, beneficio: r.total, conf: r.prev.c, custo, risco, cortada: false, behavior: null, chave: `${v}|${r.prev.tag}` });
     }
     // Hábitos: a sequência que já rendeu é uma opção só, se o primeiro passo cabe agora.
     for (const h of p.habitos) {
@@ -777,7 +810,6 @@ export const genMentePart = {
       const ben = vale(h.e);
       ops.push({ v, a, habito: h, tags: this.genTagsDoAto(v, a, mao), prev: { e: h.e.slice(), lente: zeros(), c: Math.min(1, h.n / 5), tag }, porNec, lente: 0, adiante: 0, cadeia: h.passos.slice(1).join(' → '), beneficio: ben, conf: Math.min(1, h.n / 5), custo: lim(a.dist / (GEN.vista * 2.2) + 0.15 * h.passos.length), risco: 0, cortada: false, behavior: null, chave: h.passos.join('>') });
     }
-    m.geradas += ops.length;
     m.pensou++;
     // O corte barato: as K melhores pelo benefício vão ao IAUS; as outras ficam (esmaecidas) só para o debug.
     ops.sort((x, y) => y.beneficio - x.beneficio || VI[x.v] - VI[y.v] || y.a.id - x.a.id);

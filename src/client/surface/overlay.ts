@@ -1,3 +1,4 @@
+import type { MenteDebug } from '../../sim/api/debug';
 import type { Ecosystem, Village } from '../../sim/ecosystem';
 import { VOCATION_COLORS, welfare } from '../../sim/needs';
 import type { BrushFx } from './fx';
@@ -15,6 +16,23 @@ import type { WeatherView } from './weatherView';
  * animação das ferramentas, as setas das mudanças de lugar e o território de
  * cada assentamento na cor do seu reino.
  */
+/** A cor da linha até o alvo, pela necessidade que o ato atende (debug da mente generativa). */
+const COR_DA_NEC: Record<string, string> = {
+  fome: '#ffb347',
+  sede: '#5ec8ff',
+  sono: '#b39ddb',
+  cansaco: '#b39ddb',
+  frio: '#9be7ff',
+  calor: '#ff8a65',
+  dor: '#ef5350',
+  medo: '#ef5350',
+  solidao: '#f8bbd0',
+  tedio: '#fff176',
+  apego: '#f48fb1',
+  respeito: '#ffd54f',
+  sentido: '#e0e0e0',
+};
+
 export class MapOverlay {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly pts: Float32Array = new Float32Array(256);
@@ -31,6 +49,58 @@ export class MapOverlay {
     private readonly trails: Trails,
   ) {
     this.ctx = canvas.getContext('2d')!;
+  }
+
+  /**
+   * Debug da mente generativa sobre o mundo (só com `?debug` e uma pessoa fixada): o raio de percepção, um ponto em
+   * cada coisa percebida com as tags dela, e a linha até o alvo na cor da necessidade que o ato atende.
+   */
+  drawMente(m: MenteDebug): void {
+    const { ctx, view } = this;
+    const z = view.zoom;
+    const X = (x: number) => view.screenX(x);
+    const Y = (y: number) => view.canvasY(y);
+    const sx = X(m.x);
+    const sy = Y(m.y);
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.beginPath();
+    ctx.arc(sx, sy, Math.max(1, m.vista) * z, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = '10px monospace';
+    ctx.textBaseline = 'bottom';
+    for (const a of m.percebe) {
+      if (a.tipo === 'aqui' || a.tipo === 'mao') continue;
+      const px = X(a.x);
+      const py = Y(a.y);
+      ctx.fillStyle = a.tipo === 'lugar' ? 'rgba(170,200,255,0.9)' : a.tipo === 'pessoa' ? 'rgba(255,220,150,0.95)' : a.tipo === 'animal' ? 'rgba(255,130,110,0.95)' : 'rgba(255,255,255,0.9)';
+      ctx.fillRect(px - 2, py - 2, 4, 4);
+      // As tags, só de perto (de longe viram borrão).
+      if (z >= 8) {
+        const texto = a.tags.slice(0, 3).join(', ');
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(px + 4, py - 12, ctx.measureText(texto).width + 4, 12);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(texto, px + 6, py);
+      }
+    }
+    if (m.alvo) {
+      const cor = COR_DA_NEC[m.alvo.nec] ?? 'rgba(255,255,255,0.9)';
+      ctx.strokeStyle = cor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(X(m.alvo.x), Y(m.alvo.y));
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(sx + 8, sy - 24, ctx.measureText(m.agora).width + 6, 13);
+      ctx.fillStyle = cor;
+      ctx.fillText(m.agora, sx + 11, sy - 12);
+    }
+    ctx.restore();
   }
 
   /**

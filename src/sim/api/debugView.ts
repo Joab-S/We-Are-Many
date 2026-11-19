@@ -1,3 +1,6 @@
+import { exportarMundo, menteDebug, type MenteDebug } from '../observador/pessoa';
+import { conhecimentos, difusao, primeirasVezes, resumoDoMundo, retrato, type Difusao } from '../observador/retrato';
+import type { ColetivoDebug } from './debug';
 import { B } from '../live';
 import type { SurfaceMap } from '../../procgen/surface';
 import { indicatorsOf, scaledTargets, type IndicatorBase, type Indicators, type RunSamples } from '../calibrate';
@@ -315,6 +318,25 @@ export class EngineDebug implements DebugView {
       out.push(structuredClone(d));
     }
     return out;
+  }
+
+  // A mente generativa: tudo aqui vem do observador (src/sim/observador), que só lê o mundo.
+
+  mente(i: number): MenteDebug | null {
+    return i >= 0 && i < this.eco.count ? menteDebug(this.eco, i) : null;
+  }
+
+  coletivo(): ColetivoDebug | null {
+    if (!this.eco.gen) return null;
+    return { resumo: resumoDoMundo(this.eco), grupos: retrato(this.eco), primeiras: primeirasVezes(this.eco).slice(), sabem: conhecimentos(this.eco) };
+  }
+
+  difusao(chave: string): Difusao | null {
+    return this.eco.gen ? difusao(this.eco, chave) : null;
+  }
+
+  exportarMentes(uids?: number[]): unknown {
+    return this.eco.gen ? exportarMundo(this.eco, uids) : null;
   }
 
   fingerprint(): string {

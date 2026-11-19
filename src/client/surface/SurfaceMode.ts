@@ -47,6 +47,7 @@ import { clearSignals } from '../../nav/guide';
 import { downloadLegends } from './hud/legends';
 import { SPECIMEN_HOLD, specimensAboard, storeSpecimen, takeSpecimen } from '../../explore/probes';
 import { EARTH_ID } from '../../sim/species';
+import { GENERATIVA, GENERATIVA_GENTE } from '../debug';
 import { buildTools, DEBUG, plain, REAL_YEAR_SECONDS, SETTLEMENT_TAB_ICONS, TAB_ICONS, TABS, WINDOW_ICONS, WINDOWS, type FxKind, type Tab, type Tool, type ToolContext, type Win } from './tools';
 
 /** Folga (tiles) do recorte das criaturas pela grade: o desenho interpolado fica a até 3 tiles da posição atual. */
@@ -227,7 +228,7 @@ export class SurfaceMode {
     const natives = saved ? [] : nativeSpecies(this.params, map.life?.attempt ?? 0);
     if (DEBUG && !saved) for (const line of map.life?.notes ?? []) console.info(line);
     for (const sp of natives) state.knownSpecies.set(sp.id, sp);
-    this.engine = createEngine(map, saved ? { seed, eco: saved, yearSpan: REAL_YEAR_SECONDS } : { seed, species: natives, yearSpan: REAL_YEAR_SECONDS, notes: map.life?.notes });
+    this.engine = createEngine(map, saved ? { seed, eco: saved, yearSpan: REAL_YEAR_SECONDS } : { seed, species: natives, yearSpan: REAL_YEAR_SECONDS, notes: map.life?.notes, generativa: GENERATIVA ? GENERATIVA_GENTE : undefined });
     const eco = ecosystemOf(this.engine);
     if (!saved) state.ecosystems.set(this.params.id, eco);
     this.eco = eco;
@@ -481,7 +482,7 @@ export class SurfaceMode {
           else this.sel.setHighlight(null);
         }),
     });
-    this.sheet = new CreatureSheet(q('[data-sheet]'), this.sel, this.icons, { say: (t) => this.toast.say(t) });
+    this.sheet = new CreatureSheet(q('[data-sheet]'), this.sel, this.icons, { say: (t) => this.toast.say(t), mente: (i) => this.engine.debug.mente(i) });
     this.info = new InfoCard(q('[data-i]'), view, this.sel, this.weather, this.sites, this.sheet);
     this.panel = new SidePanel(root, this.settings, () => this.driver.speed, () => this.raster.version);
     this.minimap = new Minimap(q<HTMLCanvasElement>('[data-mini]'), view, () => this.raster.canvas());
@@ -1001,6 +1002,9 @@ export class SurfaceMode {
     }
     this.labels.update(eco, view, this.settings.showLabels && view.zoom >= 2.5, this.vwin.id);
     this.overlay.draw(this.vwin.id, this.driver, this.toolbar.brush);
+    // Debug da mente generativa: o que a pessoa fixada percebe e para onde vai (só com ?debug).
+    const mente = DEBUG && this.sel.creature >= 0 ? this.engine.debug.mente(this.sel.creature) : null;
+    if (mente) this.overlay.drawMente(mente);
     view.center.x = cx;
     view.center.y = cy;
   }

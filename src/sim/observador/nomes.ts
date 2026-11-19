@@ -76,10 +76,42 @@ const TAG: Record<string, string> = {
 
 export const nomeDaTag = (t: string): string => TAG[t] ?? t;
 
-/** "comer o que dá para comer", "largar semente". */
+/** A preposição que cada verbo pede antes da coisa ("andar até", "falar com", "fugir de"). */
+const PREP: Record<string, string> = {
+  andar: 'até',
+  falar: 'com',
+  acasalar: 'com',
+  fugir: 'de',
+  cuidar: 'de',
+  bater: 'em',
+  dormir: 'em',
+  descansar: 'em',
+  pedir: 'a',
+  mostrar: 'a',
+  olhar: 'para',
+};
+
+/** Junta a preposição com o artigo da coisa: "em" + "o chão" = "no chão", "de" + "um bebê" = "de um bebê". */
+function contrai(prep: string, coisa: string): string {
+  const m = /^(o|a|um|uma) (.*)$/.exec(coisa);
+  if (!m) return `${prep} ${coisa}`;
+  const [, art, resto] = m;
+  const juntos: Record<string, Record<string, string>> = {
+    em: { o: 'no', a: 'na', um: 'num', uma: 'numa' },
+    de: { o: 'do', a: 'da', um: 'de um', uma: 'de uma' },
+    a: { o: 'ao', a: 'à', um: 'a um', uma: 'a uma' },
+  };
+  return `${juntos[prep]?.[art] ?? `${prep} ${art}`} ${resto}`;
+}
+
+/** "comer o que dá para comer", "andar até água", "dormir no chão", "largar semente". */
 export function nomeDoAto(chave: string): string {
   const [v, t] = chave.split('|');
-  return t ? `${v} ${nomeDaTag(t)}` : v;
+  if (!t) return v;
+  if (v === 'cavar') return 'cavar o chão';
+  if (v === 'abrigar') return `abrigar-se ${contrai('em', nomeDaTag(t))}`;
+  const prep = PREP[v];
+  return prep ? `${v} ${contrai(prep, nomeDaTag(t))}` : `${v} ${nomeDaTag(t)}`;
 }
 
 /** O efeito por extenso: "alivia a fome e o medo", "aumenta a dor". Só o que pesa. */

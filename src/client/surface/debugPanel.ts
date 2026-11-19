@@ -26,12 +26,14 @@ import { SPEEDS, type LoggedCommand } from './SimDriver';
  * dizem o porquê; Eventos, Desempenho e Tempo não dependem dela.
  */
 
-export type DebugTab = 'world' | 'place' | 'family' | 'events' | 'perf' | 'time' | 'tune';
+export type DebugTab = 'world' | 'place' | 'family' | 'mind' | 'collective' | 'events' | 'perf' | 'time' | 'tune';
 
 export const DEBUG_TABS: [DebugTab, string][] = [
   ['world', 'Mundo'],
   ['place', 'Lugar'],
   ['family', 'Família'],
+  ['mind', 'Mente'],
+  ['collective', 'Coletivo'],
   ['events', 'Eventos'],
   ['perf', 'Desempenho'],
   ['time', 'Tempo'],

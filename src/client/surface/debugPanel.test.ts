@@ -185,6 +185,10 @@ function fakeDebug(): DebugView {
     profile: () => (on ? PROFILE : null),
     fingerprint: () => 'abcd1234',
     constants: () => [],
+    mente: () => null,
+    coletivo: () => null,
+    difusao: () => null,
+    exportarMentes: () => null,
   };
 }
 

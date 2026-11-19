@@ -225,6 +225,7 @@ Partes que valem conhecer além dos domínios:
 | `eco/core/probe.ts` | Gancho da vista de depuração: as partes do passo (`STEP_PARTS`) e o que o motor entrega com a gravação ligada |
 | `eco/settlements/siteField.ts` | Campo de notas dos sítios (mapa de influência): uma célula de 16×16 tiles, com Double Buffer (`raw`/`rawNext`) e Dirty Flag por fundação, abandono e terreno mudado; `siteRing`, `chooseSite` (melhor de N), `siteFilter` (veto único) e `catchRadius` |
 | `src/IAUS/npc/mundo/mudanca.ts` | Utility AI de ficar, migrar ou fundar, por família, com histerese por `movedAt`, laços, apego e pressão social |
+| `src/sim/generativa` e `src/sim/observador` | A mente generativa (atrás da opção `generativa`): a pessoa gera as opções combinando verbo × coisa percebida e aprende pelo resultado. O observador descreve e dá nome, só lendo; a simulação não pode importá-lo. Ver [`MENTE-GENERATIVA.md`](MENTE-GENERATIVA.md) |
 
 ## A troca de modo
 

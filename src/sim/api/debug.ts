@@ -1,3 +1,5 @@
+import type { MenteDebug } from '../observador/pessoa';
+import type { Agrupamento, Difusao, Primeira } from '../observador/retrato';
 import type { Lifeway } from '../biomeYield';
 import type { LiveConstant } from '../live';
 
@@ -111,6 +113,9 @@ export interface ProfileDebug {
   parts: DebugFactor[];
 }
 
+export type { MenteDebug, OpcaoDebug } from '../observador/pessoa';
+export type { Agrupamento, Difusao, Primeira } from '../observador/retrato';
+
 export interface DebugView {
   /** Liga ou desliga a gravação das decisões, a série dos indicadores e a medição do passo (começa desligada). */
   setRecording(on: boolean): void;
@@ -132,6 +137,26 @@ export interface DebugView {
   fingerprint(): string;
   /** As constantes ajustáveis e os valores de agora (aba Ajustes). */
   constants(): LiveConstant[];
+  /**
+   * A mente generativa da criatura de índice `i` (src/sim/observador/pessoa.ts): as opções geradas agora com a conta
+   * de cada uma, as necessidades, as crenças com a origem, as lentes, os hábitos e a linha do tempo. Null se ela não
+   * pensa pelo modelo generativo.
+   */
+  mente(i: number): MenteDebug | null;
+  /** O coletivo do mundo generativo, sem rótulo: os agrupamentos de agora com as suas medidas, as primeiras vezes e o que se sabe. Null fora dele. */
+  coletivo(): ColetivoDebug | null;
+  /** Quem tem uma crença (`verbo|tag`) ou uma lente (`lente:verbo|tag`), e quando cada um passou a ter. */
+  difusao(chave: string): Difusao | null;
+  /** O estado do modelo generativo em dado puro (para exportar em JSON); `uids` restringe às pessoas pedidas. */
+  exportarMentes(uids?: number[]): unknown;
+}
+
+/** O retrato do coletivo para o painel: medidas contínuas, nenhuma palavra de categoria. */
+export interface ColetivoDebug {
+  resumo: string;
+  grupos: Agrupamento[];
+  primeiras: Primeira[];
+  sabem: { chave: string; nome: string; quantos: number }[];
 }
 
 /** Amostras da série dos indicadores guardadas (uma por ano de jogo). */
@@ -149,4 +174,8 @@ export const EMPTY_DEBUG: DebugView = {
   profile: () => null,
   fingerprint: () => '',
   constants: () => [],
+  mente: () => null,
+  coletivo: () => null,
+  difusao: () => null,
+  exportarMentes: () => null,
 };

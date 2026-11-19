@@ -61,6 +61,8 @@ Ele joga como o jogador, pelas teclas: abre, aperta `1` (salta para a Terra, já
 | `?cena=terra-cidade` | Superfície da Terra, parada, com a câmera numa Cidade (o mundo é simulado antes de abrir, cerca de 40 s). O `Esc` volta à órbita da Terra, com as ruas na esfera |
 | `?cena=saturno` | Em órbita de Saturno, a 3 raios, com os anéis à vista |
 
+**Mente generativa.** Com `?mente=generativa` no endereço, um planeta novo começa com pessoas espalhadas, só com o instinto, sem vila nenhuma: cada uma gera o que pensa em fazer (verbo × coisa percebida) e aprende vivendo, vendo e ouvindo. Com `?debug` junto, o painel F3 ganha as abas Mente e Coletivo. O que está feito e o que falta está em [`docs/MENTE-GENERATIVA.md`](docs/MENTE-GENERATIVA.md).
+
 Para uma cena nova, acrescente uma função em `src/client/cenas.ts`.
 
 **CI.** Cada PR para a `development` roda, em `.github/workflows/ci.yml`, os tipos, o build, a suíte inteira e o `test:jogo`. As capturas ficam como artefato (`capturas`) na página da rodada.
