@@ -25,6 +25,8 @@ it('sonda do mundo generativo', () => {
     const vistos = new Set<number>();
     for (let y = 1; y <= anos; y++) {
       for (let t = 0; t < eco.yearSpan; t += 0.25) eco.step(0.25);
+      // O retrato lido todo ano: é dele que sai o quanto cada um andou (a memória é do observador).
+      retrato(eco);
       primeirasVezes(eco);
       if (y === 100 || y === 30) {
         const gs = pessoasGen(eco);
@@ -71,6 +73,21 @@ it('sonda do mundo generativo', () => {
     }
     console.log(`  atos: ${Object.entries(atos).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ')}`);
     console.log(`  sentem: ${NEC.map((n, k) => `${n} ${nec[k].toFixed(2)}`).join(', ')}`);
+    // Longe da tela, parte dos atos sai da fila do último pensamento: quantos pensamentos isso poupou.
+    let pensou = 0;
+    let poupou = 0;
+    let travessias = 0;
+    let tomaram = 0;
+    let comLugar = 0;
+    for (const { i, p } of gente) {
+      const m = eco.genMenteDe(i);
+      pensou += m?.pensou ?? 0;
+      poupou += m?.poupou ?? 0;
+      travessias += p.conta.travessias;
+      tomaram += p.conta.tomou;
+      if (p.lugares.some((l) => l.bem >= 3)) comLugar++;
+    }
+    console.log(`  dos vivos: ${pensou} pensamentos, ${poupou} poupados pela fila; ${travessias} travessias, ${tomaram} vezes tomaram da mão de alguém, ${comLugar} têm um lugar onde viveram bem muitas vezes`);
     for (const g of retrato(eco).slice(0, 4)) console.log('  ' + g.texto);
     for (const f of primeirasVezes(eco).slice(0, 14)) console.log(`  primeira vez (visto no ano ${f.ano.toFixed(0)}): ${f.oque}`);
   }

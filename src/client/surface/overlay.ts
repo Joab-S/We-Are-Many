@@ -1,4 +1,4 @@
-import type { MenteDebug } from '../../sim/api/debug';
+import type { MapaDoColetivo, MenteDebug } from '../../sim/api/debug';
 import type { Ecosystem, Village } from '../../sim/ecosystem';
 import { VOCATION_COLORS, welfare } from '../../sim/needs';
 import type { BrushFx } from './fx';
@@ -49,6 +49,78 @@ export class MapOverlay {
     private readonly trails: Trails,
   ) {
     this.ctx = canvas.getContext('2d')!;
+  }
+
+  /**
+   * Debug do coletivo sobre o mundo (aba Coletivo do painel aberta): o contorno de cada agrupamento de agora, uma
+   * seta de quem segue para quem é seguido, a trilha de cada pessoa nos últimos anos e, se uma crença ou lente foi
+   * escolhida, um ponto em quem a tem (a primeira pessoa com um anel).
+   */
+  drawColetivo(c: MapaDoColetivo): void {
+    const { ctx, view } = this;
+    const z = view.zoom;
+    const X = (x: number) => view.screenX(x);
+    const Y = (y: number) => view.canvasY(y);
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    for (const pts of c.trilhas) {
+      ctx.beginPath();
+      for (let k = 0; k + 1 < pts.length; k += 2) {
+        // A volta do mapa: um salto maior que meio mundo não é um passo, é a emenda.
+        if (k && Math.abs(pts[k] - pts[k - 2]) > view.mapWidth / 2) ctx.moveTo(X(pts[k]), Y(pts[k + 1]));
+        else if (k) ctx.lineTo(X(pts[k]), Y(pts[k + 1]));
+        else ctx.moveTo(X(pts[k]), Y(pts[k + 1]));
+      }
+      ctx.stroke();
+    }
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = 'rgba(255,236,170,0.8)';
+    ctx.font = '11px monospace';
+    ctx.textBaseline = 'bottom';
+    for (const g of c.grupos) {
+      ctx.beginPath();
+      ctx.arc(X(g.x), Y(g.y), g.raio * z, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,236,170,0.95)';
+      ctx.fillText(String(g.quantos), X(g.x) + g.raio * z * 0.7, Y(g.y) - g.raio * z * 0.7);
+    }
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(120,220,255,0.9)';
+    ctx.fillStyle = 'rgba(120,220,255,0.9)';
+    ctx.lineWidth = 1.5;
+    for (const s of c.segue) {
+      const x1 = X(s.x1);
+      const y1 = Y(s.y1);
+      const x2 = X(s.x2);
+      const y2 = Y(s.y2);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      const a = Math.atan2(y2 - y1, x2 - x1);
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - 7 * Math.cos(a - 0.4), y2 - 7 * Math.sin(a - 0.4));
+      ctx.lineTo(x2 - 7 * Math.cos(a + 0.4), y2 - 7 * Math.sin(a + 0.4));
+      ctx.fill();
+    }
+    for (const d of c.difusao) {
+      const px = X(d.x);
+      const py = Y(d.y);
+      ctx.fillStyle = d.origem === 'vivido' ? '#ffd54f' : d.origem === 'visto' ? '#81d4fa' : d.origem === 'ouvido' ? '#ce93d8' : '#a5d6a7';
+      ctx.beginPath();
+      ctx.arc(px, py, 4, 0, Math.PI * 2);
+      ctx.fill();
+      if (d.primeiro) {
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, py, 9, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   /**

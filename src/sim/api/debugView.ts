@@ -1,5 +1,5 @@
 import { exportarMundo, menteDebug, type MenteDebug } from '../observador/pessoa';
-import { conhecimentos, difusao, primeirasVezes, resumoDoMundo, retrato, type Difusao } from '../observador/retrato';
+import { conhecimentos, difusao, mapaDoColetivo, primeirasVezes, resumoDoMundo, retrato, type Difusao, type MapaDoColetivo } from '../observador/retrato';
 import type { ColetivoDebug } from './debug';
 import { B } from '../live';
 import type { SurfaceMap } from '../../procgen/surface';
@@ -333,6 +333,10 @@ export class EngineDebug implements DebugView {
 
   difusao(chave: string): Difusao | null {
     return this.eco.gen ? difusao(this.eco, chave) : null;
+  }
+
+  mapa(chave = ''): MapaDoColetivo | null {
+    return this.eco.gen ? mapaDoColetivo(this.eco, chave) : null;
   }
 
   exportarMentes(uids?: number[]): unknown {

@@ -29,7 +29,8 @@ import { elderAge } from '../eco/helpers';
 import { GESTURE } from '../eco/constants';
 import { tileHash } from '../../procgen/surface';
 import { aprender, contextualizar, creditar, encadear, esperaTer, esquecer, falharHabito, lembrarAto, lembrarLugar, porVerbo, prever, principais, valor, vencer, type Previsao } from './crencas';
-import type { Efeito, Percepto } from './fisica';
+import { novoMundoGen, type Efeito, type Percepto } from './fisica';
+import { isWater } from '../eco/tiles';
 import { GEN, MATERIAIS, N, NI, TAG_DO_MATERIAL, VERBO, VERBOS, VI, zeros, type Habito, type Material, type PessoaGen, type Verbo } from './tipos';
 
 const TIPO = 'VerboGen';
@@ -104,6 +105,15 @@ export interface MenteGen {
   perigo: number;
   fogo: number;
   detalhe: number;
+  /** Longe da tela: as opções do último pensamento que ainda não foram feitas, quando ele foi, e o que havia na mão. */
+  fila: Opcao[];
+  pensouEm: number;
+  maoNoPensar: string;
+  /** A chave da última ação terminada (não se repete da fila) e quantas vezes a fila poupou um pensamento. */
+  feita: string;
+  poupou: number;
+  /** Segundos seguidos dentro da água (para contar a travessia ao sair). */
+  naAgua: number;
   /** Quantas vezes pensou e quantas opções gerou (para medir o custo). */
   pensou: number;
   geradas: number;
@@ -160,7 +170,7 @@ const constante = (nome: string, x: number, lo: number, hi: number): Considerati
 export const genMentePart = {
   /** Liga o modelo generativo neste mundo (as pessoas sem lugar passam a pensar por ele). */
   genLigar(this: Ecosystem): void {
-    if (!this.gen) this.gen = { versao: 1, pessoas: new Map(), coisas: [], proxCoisa: 1, proxHabito: 1, colhido: new Map(), relogio: 0, conta: { nascidos: 0, mortos: 0, concepcoes: 0 } };
+    if (!this.gen) this.gen = novoMundoGen();
   },
 
   /** A mente em execução da pessoa `i` (criada na primeira vez). */
@@ -186,7 +196,7 @@ export const genMentePart = {
         return [];
       },
     });
-    m = { uid, i, pessoa, brain, perceptos: [], ctx: {}, u: zeros(), opcoes: [], porChave: new Map(), ato: null, goal: null, path: null, pathGoal: -1, pathAge: 0, best: Infinity, stall: 0, walked: 0, gente: 0, perigo: 0, fogo: 0, detalhe: 0, pensou: 0, geradas: 0, pool: new Map() };
+    m = { uid, i, pessoa, brain, perceptos: [], ctx: {}, u: zeros(), opcoes: [], porChave: new Map(), ato: null, goal: null, path: null, pathGoal: -1, pathAge: 0, best: Infinity, stall: 0, walked: 0, gente: 0, perigo: 0, fogo: 0, detalhe: 0, fila: [], pensouEm: -Infinity, maoNoPensar: '', feita: '', poupou: 0, naAgua: 0, pensou: 0, geradas: 0, pool: new Map() };
     const mente = m;
     pessoa.corpo = { agir: (_acao, ctx, dt) => eco.genAgir(mente, ctx, dt) };
     brain.onDecisionChanged = (_b, _from, to) => {
@@ -220,7 +230,15 @@ export const genMentePart = {
     const p = this.genDe(i);
     const m = this.genMente(i);
     // O corpo vive `ritmo` vezes mais devagar que o dos bichos (a pessoa come umas vezes por minuto).
-    const gasto = (this.energy[i] - e) / GEN.ritmo;
+    let gasto = (this.energy[i] - e) / GEN.ritmo;
+    // Na água: quem segura um tronco boia (o motor cobra de quem está fora do habitat; de quem boia, não).
+    const agua = isWater(this.map, this.tileOf(i));
+    if (agua && p.mao?.que === 'tronco') gasto = Math.max(0, gasto - (0.6 * dt) / GEN.ritmo);
+    if (agua) m.naAgua += dt;
+    else {
+      if (m.naAgua > 1.5) p.conta.travessias++;
+      m.naAgua = 0;
+    }
     this.energy[i] -= gasto * (1 + (p.gravida ? GEN.custoGravidez : 0) + (p.colo ? GEN.custoColo : 0));
     m.detalhe = this.focus && !this.offscreen(i) ? 1 : 0;
     this.genSentir(i, p, m, dt);
@@ -257,8 +275,8 @@ export const genMentePart = {
     if (go) {
       const idoso = this.age[i] >= elderAge(sp, 0);
       const fator = (this.age[i] < sp.maturity ? 0.8 : idoso ? 0.6 : 1) * (p.gravida || p.colo ? GEN.lento : 1) * (1 - 0.4 * Math.min(1, p.ferida)) * (v === 'fugir' ? 1.3 : 1);
-      this.walkTo(i, sp.speed * B.WALK_PACE * fator, go.x, go.y);
-      p.nec[NI.cansaco] = Math.min(1, p.nec[NI.cansaco] + 0.004 * dt * (p.colo || p.gravida ? 1.5 : 1));
+      this.walkTo(i, sp.speed * B.WALK_PACE * fator * (agua ? GEN.nadar : 1), go.x, go.y);
+      p.nec[NI.cansaco] = Math.min(1, p.nec[NI.cansaco] + 0.004 * dt * (p.colo || p.gravida ? 1.5 : 1) * (agua ? 3 : 1));
     } else this.stand(i);
     return this.energy[i];
   },
@@ -499,7 +517,7 @@ export const genMentePart = {
     for (const l of lembrados.slice(0, 3)) {
       const tags: Record<string, number> = { lembrado: 1 };
       for (const [tg, wt] of Object.entries(l.tags)) tags[tg] = wt * 0.8;
-      if (l.bem > 0.3) tags.bom = Math.min(1, l.bem / 3);
+      if (l.bem > 0.3) tags.lugarMeu = Math.min(1, l.bem / 3);
       const lx = x0 + wrapDx(l.x - x0, w);
       out.push({ id: -(30_000_000 + Math.floor(l.x) * 1000 + Math.floor(l.y)), tipo: 'lugar', x: lx, y: l.y, dist: Math.hypot(lx - x0, l.y - y0), tags, t: this.tileAt(l.x, Math.floor(l.y)), j: -1, coisa: 0, k: -1 });
     }
@@ -526,6 +544,15 @@ export const genMentePart = {
       for (const [tg, wt] of Object.entries(a.tags)) if (tg !== 'chao' && wt > (ctx[tg] ?? 0)) ctx[tg] = wt;
     }
     if (noite > 0.3) ctx.noite = noite;
+    // Onde já se viveu bem: estar ali é um fato do contexto (é dele que pode nascer o gosto de ficar e de voltar).
+    let meu = 0;
+    for (const l of p.lugares) if (l.bem > 0.3 && Math.hypot(wrapDx(l.x - x0, w), l.y - y0) <= 5) meu = Math.max(meu, Math.min(1, l.bem / 3));
+    if (meu > 0) {
+      ctx.lugarMeu = meu;
+      aqui.tags.lugarMeu = meu;
+    }
+    // O que se tem na mão também é contexto (é com o tronco na mão que a água deixa de ser parede).
+    if (p.mao) ctx[`mao:${TAG_DO_MATERIAL[p.mao.que]}`] = 1;
     if (!gente.length) ctx.sozinho = 1;
     m.ctx = ctx;
     return out;
@@ -559,7 +586,7 @@ export const genMentePart = {
         return ((tg.comivel ?? 0) > 0.15 && livre('comida')) || (!!tg.galho && livre('galho')) || ((tg.pedra ?? 0) >= 0.5 && livre('pedra'));
       }
       case 'largar':
-        return a.tipo === 'aqui' && !!mao;
+        return a.tipo === 'aqui' && !!mao && !isWater(this.map, this.tileOf(i));
       case 'carregar':
         return gente && (!!tg.bebe || (!!tg.crianca && this.age[a.j] < GEN.come)) && !p.colo && !bebe && this.age[i] >= sp.maturity * 0.6;
       case 'comer':
@@ -591,7 +618,7 @@ export const genMentePart = {
       case 'mostrar':
         return acordado && !tg.bebe && !bebe && (!!mao || p.lugares.length > 0);
       case 'dar':
-        return gente && !!mao;
+        return gente && !!mao && !isWater(this.map, this.tileOf(i));
       case 'pedir':
         return acordado && !tg.bebe && !tg.crianca;
       case 'empilhar':
@@ -626,6 +653,40 @@ export const genMentePart = {
     const p = this.genDe(i);
     m.pessoa.position = { x: this.x[i], y: this.y[i] };
     for (let k = 0; k < TRAIT_COUNT; k++) m.pessoa.setStat(`tr.${TRAITS[k]}`, this.traits[i * TRAIT_COUNT + k] / 10);
+    // Longe da tela a pessoa pensa mais devagar: um pensamento vale por um tempo, e as ideias que sobraram dele (as
+    // que ainda cabem) são feitas em ordem, sem perceber nem gerar de novo. É o mesmo modelo, só mais grosso.
+    const agora = this.year * this.yearSpan;
+    const maoAgora = p.mao?.que ?? '';
+    if (!m.detalhe && m.fila.length && agora - m.pensouEm < GEN.pensarLonge) {
+      const aqui = this.tileOf(i);
+      const resto = m.fila.filter((o) => {
+        const a = o.a;
+        if (!o.behavior || `${o.behavior.id}:${a.id}` === m.feita) return false;
+        if ((a.tipo === 'aqui' && a.t !== aqui) || (a.tipo === 'mao' && maoAgora !== m.maoNoPensar)) return false;
+        if (a.j >= 0) {
+          if (!this.alive[a.j] || this.uid[a.j] !== a.id) return false;
+          a.x = this.x[i] + wrapDx(this.x[a.j] - this.x[i], this.map.width);
+          a.y = this.y[a.j];
+        }
+        a.dist = Math.hypot(a.x - this.x[i], a.y - this.y[i]);
+        // O que mais muda em poucos segundos é o mato (alguém comeu): isso a pessoa confere de novo, o resto fica como viu.
+        if (a.tipo === 'tile' && a.tags.comivel !== undefined) {
+          const com = this.genComivel(a.t);
+          if (com > 0.05) a.tags.comivel = com;
+          else delete a.tags.comivel;
+          a.ts = undefined;
+        }
+        return this.genCabe(i, p, o.v, a, (maoAgora || null) as Material | null);
+      });
+      if (resto.length) {
+        m.fila = resto;
+        m.brain.opcoes = resto;
+        m.poupou++;
+        return;
+      }
+    }
+    m.pensouEm = agora;
+    m.maoNoPensar = maoAgora;
     const perceptos = (m.perceptos = this.genPerceber(i, p, m));
     const u = (m.u = this.genUrgencias(i, p));
     const cur = this.traits[i * TRAIT_COUNT + TRAITS.indexOf('curiosity')] / 10;
@@ -861,6 +922,7 @@ export const genMentePart = {
     }
     m.opcoes = ops.slice(0, K + 10);
     m.brain.opcoes = ops;
+    m.fila = m.detalhe ? [] : ops.filter((o) => !!o.behavior);
   },
 
   /** O corpo: um passo do ato em andamento. Vai até o alvo, fica o tempo do verbo, e o mundo diz o que aconteceu. */
@@ -999,6 +1061,7 @@ export const genMentePart = {
         reg.fim = fim;
         reg.surpresa = surpresa > 0.35;
       }
+      m.feita = ato.ctx.key;
       m.ato = null;
       m.goal = null;
       return fim;

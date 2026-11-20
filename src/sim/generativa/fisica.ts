@@ -8,7 +8,7 @@
  * Os únicos limiares daqui são físicos (tantos galhos cobrem uma pessoa). Nada aqui sabe o que é um grupo.
  */
 import type { Ecosystem } from '../ecosystem';
-import { temperatureAt, decorAt, isTree, Decor } from '../../procgen/surface';
+import { temperatureAt, decorAt, isTree, tileHash, Decor } from '../../procgen/surface';
 import { isRockyBiome } from '../../procgen/biomes';
 import { TRAIT, TRAIT_COUNT, inheritTraits } from '../../IAUS/npc/pessoa/traits';
 import { bondWith, touch } from '../../IAUS/npc/pessoa/relations';
@@ -62,7 +62,7 @@ function porTile(g: MundoGen): Map<number, Coisa> {
   return m;
 }
 
-export const novoMundoGen = (): MundoGen => ({ versao: 1, pessoas: new Map(), coisas: [], proxCoisa: 1, proxHabito: 1, colhido: new Map(), relogio: 0, conta: { nascidos: 0, mortos: 0, concepcoes: 0 } });
+export const novoMundoGen = (): MundoGen => ({ versao: 1, pessoas: new Map(), coisas: [], proxCoisa: 1, proxHabito: 1, colhido: new Map(), tirado: new Map(), relogio: 0, conta: { nascidos: 0, mortos: 0, concepcoes: 0 } });
 
 /** O sexo é um fato do corpo, tirado do uid (o motor não guarda um). */
 export const fem = (uid: number): boolean => uid % 2 === 0;
@@ -113,6 +113,7 @@ export const genFisicaPart = {
       out.madeira = 1;
       out.galho = 0.8;
       out.sombra = 0.7;
+      if (this.genTroncoCaido(t)) out.tronco = 1;
     }
     if (d === Decor.Boulder) out.pedra = 1;
     else if (isRockyBiome(map.biome[t])) out.pedra = 0.5;
@@ -255,6 +256,11 @@ export const genFisicaPart = {
         if (m === 'comida' && fertil) c.m.semente = q(c, 'semente') + perde * 0.15;
         if ((c.m[m] ?? 0) < 0.05) delete c.m[m];
       }
+      // Galho apodrece devagar: o abrigo que ninguém mantém vai sumindo (pedra e tronco ficam, como ruína).
+      if (c.fogo <= 0 && q(c, 'galho') > 0) {
+        c.m.galho = q(c, 'galho') * (1 - GEN.galhoApodrece * anos);
+        if (c.m.galho < 0.05) delete c.m.galho;
+      }
       const sem = q(c, 'semente');
       if (sem >= 0.5 && fertil) {
         c.broto += anos / GEN.brotar;
@@ -306,6 +312,21 @@ export const genFisicaPart = {
   },
 
   /** Larga o que tem na mão no monte do tile onde está (o monte passa a ter isso). */
+  /** Há um tronco caído ao pé da árvore deste tile (e ninguém o levou ainda)? */
+  genTroncoCaido(this: Ecosystem, t: number): boolean {
+    return t >= 0 && tileHash(t + 7919) < GEN.troncoCaido && isTree(decorAt(this.map, t)) && !this.gen!.tirado.has(t);
+  },
+
+  /**
+   * Quem segura um tronco boia: entra na água e anda por ela (devagar), e sai em qualquer terra onde dê pé. É a
+   * física da travessia: o motor não deixa mais ninguém pisar na água, e nada aqui diz para atravessar.
+   */
+  genFlutua(this: Ecosystem, i: number, de: number, para: number): boolean {
+    if (this.species[this.kind[i]].kind !== 'sapient' || this.village[i] >= 0) return false;
+    if (this.gen!.pessoas.get(this.uid[i])?.mao?.que !== 'tronco') return false;
+    return isWater(this.map, para) || (isWater(this.map, de) && this.canStand(this.kind[i], para));
+  },
+
   genLargar(this: Ecosystem, i: number, p: PessoaGen, em?: Coisa): Coisa | null {
     if (!p.mao) return null;
     const c = em ?? this.genMonte(this.tileOf(i), this.uid[i]);
@@ -327,6 +348,7 @@ export const genFisicaPart = {
         }
       }
       if ((a.tags.comivel ?? 0) > 0.15 && cabe('comida')) return 'comida';
+      if (this.genTroncoCaido(a.t) && cabe('tronco')) return 'tronco';
       if ((a.tags.galho ?? 0) > 0 && cabe('galho')) return 'galho';
       if ((a.tags.pedra ?? 0) >= 0.5 && cabe('pedra')) return 'pedra';
       return null;
@@ -401,6 +423,7 @@ export const genFisicaPart = {
           const n = pj.mao.q;
           pj.mao = null;
           naMao(m, n);
+          p.conta.tomou++;
           return feito(this.uid[j]);
         }
         if (a.tipo === 'carcaca') {
@@ -427,6 +450,11 @@ export const genFisicaPart = {
           if (com < 0.15) return NADA;
           this.genColher(a.t, 0.5);
           naMao('comida', 1);
+          return feito();
+        }
+        if (m === 'tronco' && this.genTroncoCaido(a.t)) {
+          if (!naMao('tronco', 1)) return NADA;
+          g.tirado.set(a.t, this.year);
           return feito();
         }
         if (m === 'galho') return naMao('galho', 2) ? feito() : NADA;
@@ -552,6 +580,7 @@ export const genFisicaPart = {
         }
         if (a.tipo === 'pessoa') {
           if (!pj) return NADA;
+          const gostava = Math.max(0, (bondWith(this.bonds, uid, this.uid[j])?.value ?? 0) / 100);
           pj.ferida = Math.min(1.2, pj.ferida + 0.2 * Math.min(2, this.genForca(i) / Math.max(0.3, this.genForca(j))));
           laco(j, i, -25);
           laco(i, j, -8);
@@ -559,8 +588,10 @@ export const genFisicaPart = {
           pj.conta.apanhou++;
           pj.nec[NI.medo] = Math.min(1, pj.nec[NI.medo] + 0.4);
           pj.dorme = false;
-          // Quem apanha larga o que carrega. Quem vê passa a gostar menos de quem bateu.
-          if (pj.mao) this.genLargar(j, pj);
+          // Bater em quem se gosta dói em quem bate, na medida do laço (é o que faz um presente aceito proteger quem deu).
+          p.nec[NI.apego] = Math.min(1, p.nec[NI.apego] + 0.5 * gostava);
+          // Quem apanha larga o que carrega (menos na água: o tronco é o que o segura). Quem vê passa a gostar menos de quem bateu.
+          if (pj.mao && !isWater(this.map, this.tileOf(j))) this.genLargar(j, pj);
           this.forEachNear(this.x[i], this.y[i], 6, (k) => {
             if (k !== i && k !== j && this.species[this.kind[k]].kind === 'sapient' && this.gen!.pessoas.has(this.uid[k])) laco(k, i, -6);
           });
@@ -625,8 +656,15 @@ export const genFisicaPart = {
         } else return NADA;
         laco(j, i, 8);
         laco(i, j, 2);
+        // Dar a quem mete medo, e ele aceitar, acalma quem deu: o desafeto antigo cede um pouco dos dois lados.
+        if ((a.tags.perigoso ?? 0) > 0) {
+          p.nec[NI.medo] = Math.max(0, p.nec[NI.medo] - 0.4 * a.tags.perigoso);
+          laco(i, j, 8);
+        }
         p.conta.deu++;
         pj.conta.recebeu++;
+        p.conta.para.unshift(this.uid[j]);
+        if (p.conta.para.length > 8) p.conta.para.length = 8;
         p.nec[NI.respeito] = Math.max(0, p.nec[NI.respeito] - 0.2);
         pj.nec[NI.respeito] = Math.max(0, pj.nec[NI.respeito] - 0.1);
         if (pj.pedido?.de === uid) pj.pedido = null;

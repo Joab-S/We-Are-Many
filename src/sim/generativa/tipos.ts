@@ -205,7 +205,7 @@ export interface PessoaGen {
   segue: number;
   linha: Registro[];
   /** Contas de fatos (quantas vezes deu, recebeu, bateu, apanhou). Só leitura para quem observa: nenhuma decisão as lê. */
-  conta: { deu: number; recebeu: number; bateu: number; apanhou: number };
+  conta: { deu: number; recebeu: number; bateu: number; apanhou: number; tomou: number; travessias: number; para: number[] };
   /** Onde passou a última noite (para medir há quanto tempo dorme no mesmo lugar: só leitura para o observador). */
   dormiuEm: { x: number; y: number; noites: number } | null;
 }
@@ -235,6 +235,8 @@ export interface MundoGen {
   proxHabito: number;
   /** O que foi colhido de cada tile e ainda não rebrotou: tile → [quanto, ano]. */
   colhido: Map<number, [number, number]>;
+  /** Troncos caídos que alguém já levou: tile → ano (o tronco não volta a cair sozinho). */
+  tirado: Map<number, number>;
   /** Relógio da física das coisas (s). */
   relogio: number;
   /** Contas do mundo (só para a sonda e o painel; nada decide por elas). */
@@ -277,6 +279,10 @@ export const GEN = {
   colheita: 3,
   /** A comida guardada estraga: fração por ano (a carne, o triplo). */
   estraga: 0.06,
+  /** Fração das árvores com um tronco caído ao pé, o quanto os galhos de um monte apodrecem por ano e o passo de quem boia agarrado a um tronco. */
+  troncoCaido: 0.04,
+  galhoApodrece: 0.03,
+  nadar: 0.5,
   /** Gravidez (anos), idade em que a criança anda sozinha e come sozinha. */
   gestacao: 0.75,
   anda: 3,

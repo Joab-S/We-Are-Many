@@ -1,5 +1,5 @@
 import type { MenteDebug } from '../observador/pessoa';
-import type { Agrupamento, Difusao, Primeira } from '../observador/retrato';
+import type { Agrupamento, Difusao, MapaDoColetivo, Primeira } from '../observador/retrato';
 import type { Lifeway } from '../biomeYield';
 import type { LiveConstant } from '../live';
 
@@ -114,7 +114,7 @@ export interface ProfileDebug {
 }
 
 export type { MenteDebug, OpcaoDebug } from '../observador/pessoa';
-export type { Agrupamento, Difusao, Primeira } from '../observador/retrato';
+export type { Agrupamento, Difusao, MapaDoColetivo, Primeira } from '../observador/retrato';
 
 export interface DebugView {
   /** Liga ou desliga a gravação das decisões, a série dos indicadores e a medição do passo (começa desligada). */
@@ -147,6 +147,8 @@ export interface DebugView {
   coletivo(): ColetivoDebug | null;
   /** Quem tem uma crença (`verbo|tag`) ou uma lente (`lente:verbo|tag`), e quando cada um passou a ter. */
   difusao(chave: string): Difusao | null;
+  /** O coletivo para desenhar sobre o mapa: agrupamentos, quem segue quem, trilhas e, com `chave`, a difusão de uma crença ou lente. */
+  mapa(chave?: string): MapaDoColetivo | null;
   /** O estado do modelo generativo em dado puro (para exportar em JSON); `uids` restringe às pessoas pedidas. */
   exportarMentes(uids?: number[]): unknown;
 }
@@ -177,5 +179,6 @@ export const EMPTY_DEBUG: DebugView = {
   mente: () => null,
   coletivo: () => null,
   difusao: () => null,
+  mapa: () => null,
   exportarMentes: () => null,
 };

@@ -1005,6 +1005,8 @@ export class SurfaceMode {
     // Debug da mente generativa: o que a pessoa fixada percebe e para onde vai (só com ?debug).
     const mente = DEBUG && this.sel.creature >= 0 ? this.engine.debug.mente(this.sel.creature) : null;
     if (mente) this.overlay.drawMente(mente);
+    const coletivo = this.debug?.mapLayer();
+    if (coletivo) this.overlay.drawColetivo(coletivo);
     view.center.x = cx;
     view.center.y = cy;
   }

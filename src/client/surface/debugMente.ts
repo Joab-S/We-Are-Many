@@ -93,7 +93,12 @@ export function collectiveTabHtml(c: ColetivoDebug | null, dif: Difusao | null):
       ${kv('Quanto se movem', meter(Math.min(1, (Number.isNaN(g.movimento) ? 0 : g.movimento) / 8), `${f(g.movimento)} tiles por ano`, 'info'))}
       ${kv('Dormem no mesmo lugar há', meter(Math.min(1, g.noites / 10), `${f(g.noites)} noites`, 'info'))}
       ${kv('Seguem a mesma pessoa', meter(g.seguem, `${Math.round(g.seguem * 100)}%`, 'info'), g.seguido ? `#${g.seguido}` : '')}
-      ${kv('Deram algo a alguém', `<b>${g.deu}×</b>`)}${kv('Bateram em alguém', `<b>${g.bateu}×</b>`)}
+      ${kv('Deram algo a alguém', `<b>${g.deu}×</b>`)}
+      ${kv('Do que deram por último, foi à mesma pessoa', meter(g.daoAoMesmo, `${Math.round(g.daoAoMesmo * 100)}%`, 'info'), g.recebe ? `#${g.recebe}` : '')}
+      ${kv('Do que deram por último, foi para fora', meter(g.daoParaFora, `${Math.round(g.daoParaFora * 100)}%`, 'info'))}
+      ${kv('Tomaram da mão de alguém', `<b>${g.tomaram}×</b>`)}${kv('Bateram em alguém', `<b>${g.bateu}×</b>`)}
+      ${kv('Desafetos', `<b>${g.desafetosFora}</b> com gente de fora, <b>${g.desafetosDentro}</b> entre si`)}
+      ${kv('Travessias de água com tronco', `<b>${g.travessias}×</b>`)}${kv('Com lasca na mão', `<b>${g.armados}</b>`)}
       ${kv('Em volta', `<b>${g.abrigos}</b> abrigos, <b>${g.fogos}</b> fogos, <b>${f(g.guardado)}</b> de comida guardada, <b>${g.plantas}</b> plantas`)}
       ${kv('Sabem', `<b>${f(g.saber)}</b>`, 'crenças aprendidas por pessoa')}
       ${g.lentes.map((l) => `<div class="wb-dim">◐ ${esc(l.texto)} (${l.quantos})</div>`).join('')}
@@ -104,6 +109,7 @@ export function collectiveTabHtml(c: ColetivoDebug | null, dif: Difusao | null):
     ? `${sec(`Difusão: ${esc(dif.nome)}`, `(${dif.quem.length} têm)`)}${dif.quem.map((q) => `<div class="wb-kv"><span>${q.primeiro ? '★ ' : ''}<button class="wb-link" data-dgo="${Math.round(q.x)},${Math.round(q.y)}">#${q.uid}</button></span><span class="wb-dim">${yearText(q.em)} · ${esc(q.origem)}${q.de ? ` de #${q.de}` : ''}${q.primeiro ? ' · a primeira pessoa' : ''}</span></div>`).join('')}`
     : '';
   return `<div class="wb-dim">${esc(c.resumo)}</div>
+    <div class="wb-dim">No mapa, com esta aba aberta: o contorno de cada agrupamento, setas de quem segue para quem é seguido, a trilha de cada pessoa e, escolhida uma crença ou lente abaixo, um ponto em quem a tem (anel na primeira pessoa; amarelo vivido, azul visto, roxo ouvido, verde herdado).</div>
     ${sec('Agrupamentos de agora', '(refeitos pela proximidade a cada leitura; o mundo não os guarda)')}
     ${grupos || '<div class="wb-empty">ninguém</div>'}
     ${sec('Primeiras vezes vistas')}${primeiras}

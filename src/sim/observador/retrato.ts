@@ -29,6 +29,20 @@ export interface Agrupamento {
   /** Vezes que alguém dali deu algo a alguém, e bateu em alguém (desde sempre, somadas). */
   deu: number;
   bateu: number;
+  /** Vezes que alguém dali tomou algo da mão de outro, e que alguém atravessou água agarrado a um tronco. */
+  tomaram: number;
+  travessias: number;
+  /** Quantos têm uma lasca na mão agora. */
+  armados: number;
+  /** Do que deram por último: a fração que foi para uma mesma pessoa (e quem), e a que foi para fora do agrupamento. */
+  daoAoMesmo: number;
+  recebe: number;
+  daoParaFora: number;
+  /** Desafetos (laço de −25 para baixo) dos dali com gente de fora e entre eles. */
+  desafetosFora: number;
+  desafetosDentro: number;
+  /** Raio do agrupamento (tiles), para desenhar. */
+  raio: number;
   /** O que há construído a até 8 tiles do centro. */
   abrigos: number;
   fogos: number;
@@ -44,13 +58,15 @@ export interface Agrupamento {
 
 interface Memoria {
   onde: Map<number, { x: number; y: number; ano: number }>;
+  /** Por onde cada um andou: pontos (x, y) amostrados no máximo uma vez por ano, os mais novos no fim. */
+  trilhas: Map<number, { pts: number[]; ano: number }>;
   primeiras: Primeira[];
   vistas: Set<string>;
 }
 const MEM = new WeakMap<Ecosystem, Memoria>();
 function mem(eco: Ecosystem): Memoria {
   let m = MEM.get(eco);
-  if (!m) MEM.set(eco, (m = { onde: new Map(), primeiras: [], vistas: new Set() }));
+  if (!m) MEM.set(eco, (m = { onde: new Map(), trilhas: new Map(), primeiras: [], vistas: new Set() }));
   return m;
 }
 
@@ -103,6 +119,15 @@ export function retrato(eco: Ecosystem, raio = 7): Agrupamento[] {
     let deu = 0;
     let bateu = 0;
     let saber = 0;
+    let tomaram = 0;
+    let travessias = 0;
+    let armados = 0;
+    let desafetosFora = 0;
+    let desafetosDentro = 0;
+    const dentro = new Set(ks.map((k) => gente[k].uid));
+    const recebeu = new Map<number, number>();
+    let dados = 0;
+    let paraFora = 0;
     const segue = new Map<number, number>();
     const lentes = new Map<string, number>();
     const habitos = new Map<string, number>();
@@ -112,13 +137,25 @@ export function retrato(eco: Ecosystem, raio = 7): Agrupamento[] {
       sy += eco.y[i];
       if (eco.age[i] < eco.species[eco.kind[i]].maturity) criancas++;
       const antes = m.onde.get(uid);
-      if (antes && eco.year > antes.ano) {
+      if (antes && eco.year > antes.ano + 0.2) {
         mov += Math.hypot(wrapDx(eco.x[i] - antes.x, w), eco.y[i] - antes.y) / (eco.year - antes.ano);
         movN++;
       }
       noites += p.dormiuEm?.noites ?? 0;
       deu += p.conta.deu;
       bateu += p.conta.bateu;
+      tomaram += p.conta.tomou ?? 0;
+      travessias += p.conta.travessias ?? 0;
+      if (p.mao?.que === 'lasca') armados++;
+      for (const quem of p.conta.para ?? []) {
+        dados++;
+        if (dentro.has(quem)) recebeu.set(quem, (recebeu.get(quem) ?? 0) + 1);
+        else paraFora++;
+      }
+      for (const b of eco.bonds.get(uid) ?? []) if (b.value <= -25) {
+        if (dentro.has(b.uid)) desafetosDentro++;
+        else desafetosFora++;
+      }
       if (p.segue) segue.set(p.segue, (segue.get(p.segue) ?? 0) + 1);
       for (const l of p.lentes) if (l.f >= 0.2) lentes.set(nomeDaLente(l), (lentes.get(nomeDaLente(l)) ?? 0) + 1);
       for (const h of p.habitos) habitos.set(nomeDoHabito(h), (habitos.get(nomeDoHabito(h)) ?? 0) + 1);
@@ -145,14 +182,29 @@ export function retrato(eco: Ecosystem, raio = 7): Agrupamento[] {
       seguido = uid;
     }
     const topo = (mp: Map<string, number>) => [...mp].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 3).map(([texto, quantos]) => ({ texto, quantos }));
-    const g: Agrupamento = { membros: ks.map((k) => gente[k].uid), x: cx, y: cy, quantos: q, criancas, movimento: movN ? mov / movN : NaN, noites: noites / q, seguem: q > 1 ? seguem / q : 0, seguido, deu, bateu, abrigos, fogos, guardado, plantas, lentes: topo(lentes), habitos: topo(habitos), saber: saber / q, texto: '' };
+    let recebe = 0;
+    let maisRecebeu = 0;
+    for (const [uid, k] of recebeu) if (k > maisRecebeu) {
+      maisRecebeu = k;
+      recebe = uid;
+    }
+    let raio = 2;
+    for (const k of ks) raio = Math.max(raio, Math.hypot(wrapDx(eco.x[gente[k].i] - cx, w), eco.y[gente[k].i] - cy) + 2);
+    const g: Agrupamento = { membros: ks.map((k) => gente[k].uid), x: cx, y: cy, quantos: q, criancas, movimento: movN ? mov / movN : NaN, noites: noites / q, seguem: q > 1 ? seguem / q : 0, seguido, deu, bateu, tomaram, travessias, armados, daoAoMesmo: dados >= 3 ? maisRecebeu / dados : 0, recebe: dados >= 3 ? recebe : 0, daoParaFora: dados ? paraFora / dados : 0, desafetosFora, desafetosDentro, raio, abrigos, fogos, guardado, plantas, lentes: topo(lentes), habitos: topo(habitos), saber: saber / q, texto: '' };
     const f = (x: number, d = 1) => (Number.isNaN(x) ? '?' : x.toFixed(d).replace('.', ','));
-    g.texto = `${q} juntos (${criancas} pequenos) em ${Math.round(cx)},${Math.round(cy)}: andam ${f(g.movimento)} tiles/ano, ${f(g.noites)} noites no mesmo lugar, ${Math.round(g.seguem * 100)}% seguem o mesmo, deram ${deu}x, bateram ${bateu}x; em volta: ${abrigos} abrigos, ${fogos} fogos, ${f(guardado)} de comida guardada, ${plantas} plantas; sabem ${f(g.saber)} coisas cada${g.lentes.length ? `; ${g.lentes.map((l) => `"${l.texto}" (${l.quantos})`).join(', ')}` : ''}${g.habitos.length ? `; hábitos: ${g.habitos.map((h) => `${h.texto} (${h.quantos})`).join(', ')}` : ''}`;
+    g.texto = `${q} juntos (${criancas} pequenos) em ${Math.round(cx)},${Math.round(cy)}: andam ${f(g.movimento)} tiles/ano, ${f(g.noites)} noites no mesmo lugar, ${Math.round(g.seguem * 100)}% seguem o mesmo, deram ${deu}x (${Math.round(g.daoAoMesmo * 100)}% à mesma pessoa, ${Math.round(g.daoParaFora * 100)}% para fora), tomaram ${tomaram}x, bateram ${bateu}x, ${desafetosFora} desafetos com gente de fora e ${desafetosDentro} entre si, ${travessias} travessias de água, ${armados} com lasca na mão; em volta: ${abrigos} abrigos, ${fogos} fogos, ${f(guardado)} de comida guardada, ${plantas} plantas; sabem ${f(g.saber)} coisas cada${g.lentes.length ? `; ${g.lentes.map((l) => `"${l.texto}" (${l.quantos})`).join(', ')}` : ''}${g.habitos.length ? `; hábitos: ${g.habitos.map((h) => `${h.texto} (${h.quantos})`).join(', ')}` : ''}`;
     out.push(g);
   }
+  amostrarTrilhas(eco, gente);
   // A leitura de agora vira o "antes" da próxima (memória do observador, não do mundo).
-  m.onde.clear();
-  for (const { i, uid } of gente) m.onde.set(uid, { x: eco.x[i], y: eco.y[i], ano: eco.year });
+  // O "antes" só anda de ano em ano: quem lê duas vezes por segundo (o painel) mede o mesmo ano, não o último instante.
+  const vivos = new Set<number>();
+  for (const { i, uid } of gente) {
+    vivos.add(uid);
+    const a = m.onde.get(uid);
+    if (!a || eco.year - a.ano >= 1) m.onde.set(uid, { x: eco.x[i], y: eco.y[i], ano: eco.year });
+  }
+  for (const uid of m.onde.keys()) if (!vivos.has(uid)) m.onde.delete(uid);
   return out.sort((a, b) => b.quantos - a.quantos || a.membros[0] - b.membros[0]);
 }
 
@@ -225,6 +277,10 @@ export function primeirasVezes(eco: Ecosystem): Primeira[] {
     if (p.conta.deu > 0) nota('dar', 'alguém deu algo a alguém', uid, eco.x[i], eco.y[i]);
     if (p.conta.bateu > 0) nota('bater', 'alguém bateu em alguém', uid, eco.x[i], eco.y[i]);
     if (p.seguidores >= 3) nota('seguido', 'três ou mais seguindo a mesma pessoa', uid, eco.x[i], eco.y[i]);
+    if ((p.conta.tomou ?? 0) > 0) nota('tomar', 'alguém tomou algo da mão de outro', uid, eco.x[i], eco.y[i]);
+    if ((p.conta.travessias ?? 0) > 0) nota('travessia', 'alguém atravessou água agarrado a um tronco', uid, eco.x[i], eco.y[i]);
+    if (p.mao?.que === 'tronco') nota('troncoNaMao', 'alguém carregando um tronco', uid, eco.x[i], eco.y[i]);
+    if (p.lugares.some((l) => l.bem >= 3)) nota('lugar', 'alguém com um lugar onde viveu bem muitas vezes', uid, eco.x[i], eco.y[i]);
   }
   return m.primeiras;
 }
@@ -277,4 +333,49 @@ export function conhecimentos(eco: Ecosystem): { chave: string; nome: string; qu
     }
   }
   return [...conta].map(([chave, x]) => ({ chave, nome: x.nome, quantos: x.n })).sort((a, b) => b.quantos - a.quantos || (a.chave < b.chave ? -1 : 1));
+}
+
+/** Guarda por onde cada um passou (um ponto por ano, os 24 últimos). Memória do observador: o mundo não sabe das trilhas. */
+function amostrarTrilhas(eco: Ecosystem, gente: { i: number; uid: number }[]): void {
+  const m = mem(eco);
+  const vivos = new Set<number>();
+  for (const { i, uid } of gente) {
+    vivos.add(uid);
+    let t = m.trilhas.get(uid);
+    if (!t) m.trilhas.set(uid, (t = { pts: [], ano: -Infinity }));
+    if (eco.year - t.ano < 1) continue;
+    t.ano = eco.year;
+    t.pts.push(eco.x[i], eco.y[i]);
+    if (t.pts.length > 48) t.pts.splice(0, t.pts.length - 48);
+  }
+  for (const uid of m.trilhas.keys()) if (!vivos.has(uid)) m.trilhas.delete(uid);
+}
+
+/** O coletivo para desenhar sobre o mapa: os agrupamentos, quem segue quem, as trilhas de cada um e, se pedida, a difusão de uma crença ou lente. */
+export interface MapaDoColetivo {
+  grupos: { x: number; y: number; raio: number; quantos: number }[];
+  segue: { x1: number; y1: number; x2: number; y2: number }[];
+  trilhas: number[][];
+  difusao: { x: number; y: number; primeiro: boolean; origem: string }[];
+}
+
+export function mapaDoColetivo(eco: Ecosystem, chave = ''): MapaDoColetivo {
+  const gente = pessoasGen(eco);
+  amostrarTrilhas(eco, gente);
+  const m = mem(eco);
+  const segue: MapaDoColetivo['segue'] = [];
+  for (const { i, p } of gente) {
+    if (!p.segue) continue;
+    const j = eco.indexOfUid(p.segue);
+    if (j >= 0 && eco.alive[j]) segue.push({ x1: eco.x[i], y1: eco.y[i], x2: eco.x[j], y2: eco.y[j] });
+  }
+  // Os agrupamentos saem do retrato; ele mexe só na memória do observador (o "antes" do movimento).
+  const grupos = retrato(eco).filter((g) => g.quantos >= 2).map((g) => ({ x: g.x, y: g.y, raio: g.raio, quantos: g.quantos }));
+  const trilhas: number[][] = [];
+  for (const { i, uid } of gente) {
+    const t = m.trilhas.get(uid);
+    if (t && t.pts.length >= 4) trilhas.push([...t.pts, eco.x[i], eco.y[i]]);
+  }
+  const dif = chave ? difusao(eco, chave).quem.map((q) => ({ x: q.x, y: q.y, primeiro: q.primeiro, origem: q.origem })) : [];
+  return { grupos, segue, trilhas, difusao: dif };
 }

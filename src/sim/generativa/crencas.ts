@@ -63,7 +63,7 @@ export function novaPessoa(ano: number): PessoaGen {
     seguidores: 0,
     segue: 0,
     linha: [],
-    conta: { deu: 0, recebeu: 0, bateu: 0, apanhou: 0 },
+    conta: { deu: 0, recebeu: 0, bateu: 0, apanhou: 0, tomou: 0, travessias: 0, para: [] },
     dormiuEm: null,
   };
 }

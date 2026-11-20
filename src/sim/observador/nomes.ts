@@ -69,12 +69,12 @@ const TAG: Record<string, string> = {
   fugidio: 'bicho que foge',
   morto: 'bicho morto',
   lembrado: 'um lugar de que lembro',
-  bom: 'um lugar onde vivi bem',
-  noite: 'a noite',
-  sozinho: 'estar sozinho',
+  lugarMeu: 'um lugar onde já vivi bem',
+  noite: 'a noite caída',
+  sozinho: 'ninguém por perto',
 };
 
-export const nomeDaTag = (t: string): string => TAG[t] ?? t;
+export const nomeDaTag = (t: string): string => (t.startsWith('mao:') ? `${TAG[t.slice(4)] ?? t.slice(4)} na mão` : (TAG[t] ?? t));
 
 /** A preposição que cada verbo pede antes da coisa ("andar até", "falar com", "fugir de"). */
 const PREP: Record<string, string> = {
@@ -154,7 +154,7 @@ export function nomeDaLente(l: Lente): string {
   const melhor = l.d.reduce((s, x) => s - x, 0) >= 0;
   const ordem = NEC.map((n, k) => ({ n, x: l.d[k] })).sort((a, b) => Math.abs(b.x) - Math.abs(a.x))[0];
   const oque = ordem && Math.abs(ordem.x) > 0.01 ? (ordem.x < 0 ? `alivia mais ${NOME_DA_NEC[ordem.n]}` : `pesa mais em ${NOME_DA_NEC[ordem.n].replace(/^a |^o /, '')}`) : melhor ? 'vale mais' : 'vale menos';
-  return `com ${nomeDaTag(l.c)} por perto, ${l.v} ${oque}`;
+  return `com ${nomeDaTag(l.c)}${l.c.startsWith('mao:') || l.c === 'noite' || l.c === 'sozinho' ? '' : ' por perto'}, ${l.v} ${oque}`;
 }
 
 /** "pegar pedra → bater pedra → cortar árvore". */

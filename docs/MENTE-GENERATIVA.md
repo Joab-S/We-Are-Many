@@ -49,6 +49,10 @@ Nenhum efeito está num comportamento. Alguns exemplos do que a física faz:
 - Bater num bicho pode matá-lo (mais com lasca e com gente junto); bater numa pessoa a fere, faz ela largar o que carrega e azeda o laço, também com quem viu.
 - Acasalar exige que o outro também queira. A gravidez dura 0,75 ano, gasta mais energia e deixa a mãe mais lenta. O bebê não anda, mama de quem cuida (a energia sai de quem cuida) e pode ser levado no colo. O filho nasce onde a mãe está, em qualquer lugar.
 - Bicho bravo ao lado de quem está sozinho e sem fogo pode morder.
+- Ao pé de algumas árvores há um tronco caído, que só pode ser levado uma vez. **Quem segura um tronco boia**: entra na água, anda por ela devagar e sai em qualquer terra onde dê pé (`genFlutua`). De mãos vazias a água continua sendo parede. Na água não dá para largar o tronco nem dá-lo a ninguém.
+- Dar a quem mete medo, e ele aceitar, acalma quem deu, e o desafeto cede dos dois lados. Bater em quem se gosta dói em quem bate, na medida do laço: é o que faz um presente aceito proteger quem deu.
+- Os galhos de um monte apodrecem devagar (3% ao ano). O abrigo que ninguém mantém vai sumindo; pedra e tronco ficam, como ruína.
+- Estar onde já se viveu bem é um fato do contexto (`lugarMeu`), e o que se tem na mão também (`mao:tronco`). É deles que pode nascer o gosto de ficar e de voltar, ou a travessia.
 
 Não há nenhum limiar social. Os únicos limiares são do corpo (tantos galhos cobrem uma pessoa).
 
@@ -85,41 +89,59 @@ O painel não usa nenhuma palavra de categoria, como recomendado na proposta.
 | --- | --- |
 | Ficha da pessoa | O que faz agora, por que (as necessidades que o ato atende e de onde veio a crença), as outras ideias, o que sente, quantas coisas sabe, lentes e hábitos |
 | Painel F3, aba **Mente** | As opções geradas agora com a nota e uma barra por consideração e por necessidade, lentes e encadeamento à parte, as cortadas esmaecidas e quanto faltou para as outras; necessidades com a urgência; lentes e hábitos com origem e data; linha do tempo do esperado contra o real, com as surpresas; a tabela de crenças com origem; o que percebe; os lugares de que lembra. Botões: avançar 1 pensamento, guardar para comparar duas pessoas lado a lado, exportar em JSON (a pessoa ou todos) |
-| Painel F3, aba **Coletivo** | O mundo numa linha; os agrupamentos de agora com as medidas (quanto se movem, noites no mesmo lugar, quantos seguem a mesma pessoa, quanto deram e bateram, abrigos, fogos, comida guardada e plantas em volta, lentes e hábitos mais comuns); as primeiras vezes vistas; o que se sabe, e a difusão de cada crença ou lente (quem tem, quando aprendeu, de quem, a primeira pessoa marcada) |
+| Painel F3, aba **Coletivo** | O mundo numa linha; os agrupamentos de agora com as medidas (quanto se movem, noites no mesmo lugar, quantos seguem a mesma pessoa, quanto deram e quanto disso foi para a mesma pessoa ou para fora, quanto tomaram e bateram, desafetos com gente de fora e entre si, travessias de água, quantos têm lasca na mão, abrigos, fogos, comida guardada e plantas em volta, lentes e hábitos mais comuns); as primeiras vezes vistas; o que se sabe, e a difusão de cada crença ou lente (quem tem, quando aprendeu, de quem, a primeira pessoa marcada) |
+| No mundo, com a aba Coletivo aberta | O contorno de cada agrupamento de agora com quantos são, uma seta de quem segue para quem é seguido, a trilha de cada pessoa nos últimos anos e, escolhida uma crença ou lente, um ponto em quem a tem (anel na primeira pessoa, cor pela origem) |
 | No mundo | Com uma pessoa fixada: o raio de percepção, um ponto em cada coisa percebida (com as tags, de perto) e a linha até o alvo na cor da necessidade atendida |
 
-Tudo passa pela fachada (`engine.debug.mente`, `coletivo`, `difusao`, `exportarMentes`), como dado puro.
+Tudo passa pela fachada (`engine.debug.mente`, `coletivo`, `difusao`, `mapa`, `exportarMentes`), como dado puro.
+
+## Longe da tela
+
+O mesmo modelo roda em qualquer distância. Longe (fora da vista da câmera, ou sem câmera, como nos testes) ele é mais grosso em três coisas:
+
+- **Pensa mais devagar.** Um pensamento vale por 2,5 s: as ideias que sobraram dele, e que ainda cabem, são feitas em ordem, sem perceber nem gerar de novo (`fila` em `genPensar`). Só o mato é conferido outra vez, porque é o que mais muda em poucos segundos. Na sonda, a fila poupou pouco mais da metade dos pensamentos.
+- **Percebe mais grosso.** O terreno é olhado de dois em dois tiles, e entram no máximo 3 pessoas além dos seus.
+- **Leva menos opções ao IAUS.** 5 em vez de 8.
+
+Nada do mundo de vilas roda no mundo generativo, perto ou longe: não há Decisor anual, fundação, colônia, reino, guerra, caravana nem barco. `mundo.test.ts` roda 20 anos (8 com a câmera em cima de alguém e 12 sem) e exige que nenhum evento desses seja emitido.
 
 ## O que a sonda mostrou
 
-Três sementes (42, 7 e 3), 40 pessoas no começo, 160 anos, na Terra dos testes (a semente 7 também por 320 anos):
+Três sementes (42, 7 e 3), 40 pessoas no começo, 200 anos, na Terra dos testes, sem câmera (tudo no detalhe de longe):
 
-- A população não explode nem some. No ano 160 havia 94, 185 e 146 pessoas. A semente 7 chega a uns 180 no ano 160 e fica entre 180 e 200 até o ano 320: a fome mata quando o lugar aperta (99 de 514 mortes), e a maioria morre de velhice.
-- Os caminhos diferem por semente. No ano 160, as sementes tinham 4, 4 e 7 montes que abrigam alguém, e 38, 80 e 53 plantas de semente deixada na terra. Só na semente 3 havia fogo aceso.
-- Sem ninguém escrever, apareceram em tempos variados: alguém dando algo a alguém (ano 10 na semente 7), planta nascida de semente largada (anos 25 a 37), fogo (ano 36, na semente 3), o primeiro monte que cobre alguém (entre os anos 80 e 120 na semente 7) e o hábito "andar até água → beber água".
+| Semente | Pessoas no ano 100 | Pessoas no ano 200 | Montes que abrigam | Plantas de semente largada | ms por passo |
+| --- | --- | --- | --- | --- | --- |
+| 42 | 62 | 49 | 2 | 27 | 6,6 |
+| 7 | 102 | 125 | 0 | 38 | 8,8 |
+| 3 | 94 | 94 | 0 | 34 | 8,3 |
+
+- A população não explode nem some. A maioria morre de velhice; a fome mata de 17 a 28 pessoas em 200 anos.
+- Sem ninguém escrever, apareceram em tempos variados: um lugar onde alguém viveu bem muitas vezes (anos 7 a 12), alguém dando algo a alguém (anos 12 a 23), planta nascida de semente largada (ano 18, na 42), alguém tomando algo da mão de outro (anos 18 a 36), alguém carregando um tronco (anos 6 a 31), uma árvore derrubada com lasca (ano 32, na 42) e **uma travessia de água agarrado a um tronco** (na semente 3).
+- Os abrigos agora são poucos, porque os galhos apodrecem: sem manutenção, o monte deixa de cobrir.
+- Não apareceu chefia nem tributo: ninguém seguia ninguém na hora da leitura, e do que as pessoas deram por último, no máximo um terço foi para a mesma pessoa.
 - Nenhuma vila surge por regra (`eco.villages` fica vazio).
 
 Esses números são observação, não meta: nenhum teste exige um resultado com nome.
 
-**Desempenho.** O mundo sem gente custa de 4 a 6 ms por passo nessa Terra. Cada pessoa generativa acrescenta de 0,04 a 0,06 ms por passo (um pensamento custa perto de 0,3 ms e acontece a cada ato, a cada 1 a 3 s). Com 94 pessoas o passo ficou em 8,8 ms; com 185, em 12,5 ms. É mais caro por pessoa que o modo agregado e pede mais trabalho antes de milhares de pessoas.
+**Desempenho.** O mundo sem gente custa de 4 a 6 ms por passo nessa Terra. Com 49 a 125 pessoas no detalhe de longe o passo ficou entre 6,6 e 8,8 ms, ou cerca de 0,03 ms por pessoa por passo. Antes da fila eram de 0,04 a 0,06 ms. Perto da tela cada pessoa pensa a cada ato e custa mais (um pensamento custa perto de 0,3 ms).
 
 ## O que ficou de fora
 
-A proposta tem nove fases, cada uma num PR. Este trabalho cobre o modelo inteiro no mundo novo, mas não desmonta o mundo antigo.
+A proposta tem nove fases. No **mundo generativo** as nove estão cobertas pelo modelo. O que não foi feito é apagar o mundo de vilas, que continua sendo o padrão do jogo.
 
 | Fase | Situação |
 | --- | --- |
 | 1. Ver antes de mudar | Parcial. O debug novo foi feito para a mente generativa. A mente de hoje continua com a ficha que já tinha |
-| 2. Física de tags e verbos | Feita, no mundo generativo |
-| 3. Gerador e instinto | Feito. Vale para quem não mora num lugar no mundo generativo. O pacote 45 (andarilho) é do PR #57, que não está na `development`: nada foi trocado nele |
+| 2. Física de tags e verbos | Feita |
+| 3. Gerador e instinto | Feito. Vale para todos no mundo generativo. O pacote 45 (andarilho) é do PR #57, que não está na `development`: nada foi trocado nele |
 | 4. Aprender | Feito: experiência, imitação, conversa e herança |
 | 5. Nascer fora da vila e começar sem vilas | Feito, atrás da opção |
 | 6. Hábitos e lentes | Feito. As lentes ainda são poucas (menos de uma por pessoa) e algumas são coincidência de poucas amostras, que o tempo desfaz |
-| 7. Assentamento sem estado de vila | Parcial. No mundo generativo não há estado de vila: há montes, abrigos, comida guardada e plantas. A máquina de vila do mundo antigo (celeiro, casas, ofícios) e os pacotes 35 a 44 **não** foram desmontados |
-| 8. Longe da tela | Parcial. O modelo generativo roda em qualquer distância, com menos detalhe longe. O Decisor anual, `founding.ts`, `colonies.ts` e `polity.ts` continuam movendo o mundo antigo |
-| 9. Estruturas grandes | Só a física de base: dar, pedir, tomar, bater, seguir e o fato "seguido por muitos". Não há barco nem travessia (o tronco existe, mas não flutua), e não foi observada chefia nem tributo |
+| 7. Bandos, migração e assentamento sem estado de vila | Feito no mundo generativo: não há estado de vila nem de bando. Há montes, abrigos que apodrecem sem manutenção, comida guardada, plantas e lugares onde se viveu bem. Os agrupamentos, as trilhas e quem segue quem só existem no observador |
+| 8. Longe da tela | Feito no mundo generativo: o mesmo modelo, mais grosso, e nenhuma regra de fundação, colônia ou reino roda nele |
+| 9. Estruturas grandes | A física está feita e testada (dar, pedir, tomar, bater, apaziguar, seguir, "seguido por muitos", tronco que boia), e o retrato tem as medidas. Do que podia surgir, a sonda viu travessia, tomar e derrubar árvore com lasca. **Não viu chefia nem tributo** em 200 anos com 50 a 125 pessoas |
 
-Do debug pedido, faltam o grafo de quem segue quem desenhado no mapa, as trilhas de migração e a difusão pintada no mapa (hoje é uma lista com "ir até").
+**O mundo de vilas não foi apagado.** As fases 7 e 8 pedem, no fim, desmontar a máquina de vila (celeiro, casas, ofícios, os pacotes 35 a 44) e tirar o Decisor anual, `founding.ts`, `colonies.ts` e `polity.ts`. Isso só faz sentido de uma vez (a vila sem as regras fica parada), e hoje significaria trocar um jogo com cidades, reinos, guerra e comércio por um em que, depois de 200 anos, há algumas dezenas de pessoas, plantas e um ou outro abrigo. A própria proposta condiciona a saída das regras a o modelo novo cobrir o que elas faziam, e ele ainda não cobre. Apagar também derruba a maior parte dos 700 testes, a calibração e as janelas de assentamento e de reinos. Fica como decisão de produto, a tomar quando o mundo generativo produzir estruturas grandes.
 
 Outras limitações conhecidas:
 

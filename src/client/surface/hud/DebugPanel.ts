@@ -1,3 +1,4 @@
+import type { MapaDoColetivo } from '../../../sim/api/debug';
 import { collectiveTabHtml, mindTabHtml } from '../debugMente';
 import { GENERATOR_VERSION } from '../../../procgen/surface';
 import type { EngineCommand } from '../../../sim/api/commands';
@@ -93,6 +94,8 @@ export class DebugPanel extends HudComponent {
   /** Aba Mente: a pessoa guardada para comparar (uid). Aba Coletivo: a crença ou lente cuja difusão se vê. */
   private compare = -1;
   private diffusion = '';
+  /** A camada do coletivo no mapa, refeita no ritmo do painel (não a cada quadro). */
+  private layer: { tick: number; chave: string; data: MapaDoColetivo | null } | null = null;
 
   constructor(
     root: HTMLElement,
@@ -155,6 +158,15 @@ export class DebugPanel extends HudComponent {
   }
 
   /** Refaz no próximo quadro, mesmo que o HTML pareça igual (clique no painel). */
+  /** Com a aba Coletivo aberta: o que desenhar sobre o mapa (agrupamentos, quem segue quem, trilhas e a difusão escolhida). */
+  mapLayer(): MapaDoColetivo | null {
+    if (!this.open || this.tab !== 'collective') return null;
+    const tick = this.host.driver.tick;
+    const l = this.layer;
+    if (!l || l.chave !== this.diffusion || Math.abs(tick - l.tick) >= 2) this.layer = { tick, chave: this.diffusion, data: this.host.engine.debug.mapa(this.diffusion) };
+    return this.layer!.data;
+  }
+
   private refresh(): void {
     this.body.reset();
     this.invalidate();

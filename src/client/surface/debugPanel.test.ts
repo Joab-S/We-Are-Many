@@ -188,6 +188,7 @@ function fakeDebug(): DebugView {
     mente: () => null,
     coletivo: () => null,
     difusao: () => null,
+    mapa: () => null,
     exportarMentes: () => null,
   };
 }

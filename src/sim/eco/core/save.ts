@@ -14,6 +14,15 @@ export const savePart = {
   /** Depois de carregar um save de antes das ações presenciais: os vetores novos nascem zerados, do tamanho dos demais. */
   fixAfterLoad(this: Ecosystem): void {
     const n = this.x.length;
+    // Mundo generativo de antes da travessia: o que entrou depois nasce vazio.
+    if (this.gen) {
+      this.gen.tirado ??= new Map();
+      for (const p of this.gen.pessoas.values()) {
+        p.conta.tomou ??= 0;
+        p.conta.travessias ??= 0;
+        p.conta.para ??= [];
+      }
+    }
     // Índice uid -> índice: refeito dos vetores (em saves antigos, `uidIndex` era um cache anual, com o ano em `uidYear`).
     this.uidIndex.clear();
     for (let k = 0; k < this.count; k++) if (this.alive[k]) this.uidIndex.set(this.uid[k], k);

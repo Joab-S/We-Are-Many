@@ -723,7 +723,7 @@ export class Ecosystem {
       const tile = Math.min(map.height - 1, Math.max(0, Math.floor(ny))) * w + (((Math.floor(nx) % w) + w) % w);
       const here = this.tileOf(i);
       if (this.detour[i] > 0) this.detour[i] -= dt;
-      if (ny >= 0 && ny < map.height && this.canStep(this.kind[i], here, tile)) {
+      if (ny >= 0 && ny < map.height && (this.canStep(this.kind[i], here, tile) || (this.gen !== null && this.genFlutua(i, here, tile)))) {
         this.x[i] = ((nx % w) + w) % w;
         this.y[i] = ny;
         if (this.stuck[i] > 0) this.stuck[i] = Math.max(0, this.stuck[i] - dt * 0.5);
