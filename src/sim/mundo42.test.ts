@@ -97,8 +97,10 @@ describe('arquitetura num mundo de 200 anos (semente 42)', () => {
     }
     // Era nova: casas antigas continuam de pé e vão sendo trocadas aos poucos.
     // Lugar com canteiro livre: obra parada por falta de lenha não diz nada sobre a troca de estilo.
-    const idle = live.filter((o) => o.houses.every((h) => !((h.labor ?? 0) > 0)));
-    const v = (idle.length ? idle : live).sort((a, b) => b.houses.length - a.houses.length)[0];
+    // Entre esses, um com casas bastante para ver a troca aos poucos (o maior, se nenhum parado tiver).
+    const homes = (o: (typeof live)[number]) => o.houses.filter((h) => h.kind === 'house').length;
+    const idle = live.filter((o) => o.houses.every((h) => !((h.labor ?? 0) > 0)) && homes(o) > 2);
+    const v = (idle.length ? idle : live).sort((a, b) => homes(b) - homes(a))[0];
     v.tech = Math.floor(v.tech) + 1.01;
     v.stock.wood = v.stock.stone = v.stock.brick = 200;
     const old = () => v.houses.filter((h) => h.kind === 'house' && (h.era ?? 99) < Math.floor(v.tech)).length;

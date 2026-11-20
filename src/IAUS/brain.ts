@@ -20,7 +20,7 @@ import { ContextInfo, Decision } from './context';
 import { ContextType, DurationType, SelectionMode } from './enums';
 import { BehaviorHistory } from './history';
 import type { ImapManager } from './imap';
-import { Rng, defaultRng, distance } from './math';
+import { Rng, clamp01, defaultRng, distance } from './math';
 import { AbilityPackage, BehaviorPackage } from './packs';
 
 // ---------------------------------------------------------------------------
@@ -34,6 +34,14 @@ export interface BrainSeed {
   description?: string;
   behaviorPackIds: number[];
   abilityPackIds: number[];
+}
+
+/** Uma consideração explicada: o fator na nota (compensado), a entrada normalizada (x) e o valor da curva em x. */
+export interface ExplainedFactor {
+  name: string;
+  score: number;
+  x: number;
+  curve: number;
 }
 
 export class BrainLibrary {
@@ -403,18 +411,28 @@ export class Brain {
    * As considerações de uma decisão, uma a uma (já compensadas), e a nota final, sem corte antecipado e sem
    * mexer em nada: para a ficha explicar o porquê de uma escolha.
    */
-  explain(d: Decision): { score: number; factors: { name: string; score: number }[] } {
+  explain(d: Decision): { score: number; momentum: number; factors: ExplainedFactor[] } {
     const ctx = d.context;
     const b = ctx.behavior;
     const momentum = this.currentKey === d.key && b.duration === DurationType.Continuous ? b.momentum : 1;
     let score = b.weight * momentum;
-    const factors: { name: string; score: number }[] = [];
+    const factors: ExplainedFactor[] = [];
     for (const c of b.considerations) {
-      const s = this.compensate(c.getScore(ctx), b.considerations.length);
-      factors.push({ name: c.name, score: s });
+      // O mesmo caminho de `getScore`, guardando cada passo: a entrada normalizada e a curva antes da compensação.
+      const x = c.getNormalizedInput(ctx);
+      const curve = clamp01(c.curve.evaluate(x));
+      const s = this.compensate(curve, b.considerations.length);
+      factors.push({ name: c.name, score: s, x, curve });
       score *= s;
     }
-    return { score, factors };
+    return { score, momentum, factors };
+  }
+
+  /** A forma da curva de resposta de uma consideração, em `n` + 1 pontos de x = 0 a 1 (para desenhar). */
+  static curveShape(c: { curve: { evaluate(x: number): number } }, n = 20): number[] {
+    const out: number[] = [];
+    for (let k = 0; k <= n; k++) out.push(clamp01(c.curve.evaluate(k / n)));
+    return out;
   }
 
   /** Executa uma decisão escolhida por fora (a mesma porta do ciclo de pensamento). */

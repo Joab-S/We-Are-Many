@@ -141,8 +141,10 @@ export const peopleDecidePart = {
         break;
       }
       case 'sapient': {
-        // Sozinho (solto pelo jogador): procura um assentamento do seu povo ou funda um.
-        const lone = this.village[i] < 0 ? this.loner(i, dt) : undefined;
+        // Sozinho (solto pelo jogador): procura um assentamento do seu povo ou funda um. Perto da tela, tem mente
+        // própria (o andarilho, `lonerStep`): procurar o povo é uma das ações dela.
+        const alone = this.village[i] < 0 && this.lonerMinded(i);
+        const lone = this.village[i] < 0 && !alone ? this.loner(i, dt) : undefined;
         const v = this.village[i] >= 0 ? this.villages[this.village[i]] : null;
         const era = Math.floor(v?.tech ?? 0);
         const veg = map.vegetation[tile];
@@ -166,7 +168,7 @@ export const peopleDecidePart = {
         const minded = !!pre && !pre.scout && !pre.march;
         // Na tela, a pessoa vive no ritmo da mente (MIND.pace): tudo o que mexe na energia dela (o gasto, o frio, o
         // que belisca no mato) corre `pace` vezes mais devagar, e cada refeição vale `pace` porções.
-        if (minded) e = this.energy[i] + (e - this.energy[i]) / MIND.pace;
+        if (minded || alone) e = this.energy[i] + (e - this.energy[i]) / MIND.pace;
         // Quem tem fome come o peixe que os barcos trouxeram.
         if (v && !minded && v.food >= 1 && e < 0.6) {
           v.food -= 1;
@@ -180,6 +182,15 @@ export const peopleDecidePart = {
         let bias: { x: number; y: number } | undefined = lone;
         // Com uma ordem presencial, anda reto até o alvo (sem o vaivém do passeio) e fica parado trabalhando.
         let direct = false;
+        if (alone) {
+          this.energy[i] = e;
+          const go = this.lonerStep(i, dt);
+          e = this.energy[i];
+          if (go) this.walkTo(i, sp.speed * B.WALK_PACE * (elder ? 0.55 : 1), go.x, go.y);
+          else this.stand(i);
+          if (this.stuck[i] >= B.RAFT_STUCK && this.role[i] !== CHILD && this.tryRaft(i)) return;
+          break;
+        }
         if (v && minded) {
           if (working && this.role[i] <= ROLE.miner && this.rnd() < 0.3) this.discover(i, v);
           this.energy[i] = e;

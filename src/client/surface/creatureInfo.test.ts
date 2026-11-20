@@ -74,7 +74,8 @@ describe('dados da ficha da criatura', () => {
       found++;
       expect(d.note.score).toBeGreaterThan(0);
       expect(d.note.factors.length).toBeGreaterThan(0);
-      for (const o of d.note.others) expect(o.score).toBeLessThanOrEqual(d.note.score! + 0.2);
+      // O sorteio escolhe entre as notas a até 15% da melhor: uma rival pode passar da escolhida, mas não do corte.
+      for (const o of d.note.others) expect(o.score * 0.85).toBeLessThanOrEqual(d.note.score! + 0.2);
     }
     expect(found).toBeGreaterThan(0);
   });

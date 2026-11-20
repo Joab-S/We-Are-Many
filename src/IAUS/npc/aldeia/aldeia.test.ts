@@ -27,8 +27,12 @@ function mente(sente: Record<string, number>, alvos: Alvo[], seed: number = CERE
       },
     },
   });
-  const base = { fome: 0, cansaco: 0, solidao: 0, fe: 0, carga: 0, cheio: 0, espacoLenha: 1, semCasa: 0, semComida: 0, alarme: 0, enterro: 0 };
-  for (const [k, v] of Object.entries({ ...base, ...sente })) p.setStat(k, v);
+  const base = { fome: 0, cansaco: 0, solidao: 0, fe: 0, carga: 0, cheio: 0, espacoLenha: 1, semCasa: 0, semComida: 0, alarme: 0, enterro: 0, dia: 1, noite: 0, tarde: 0 };
+  // O corpo junta o sono (cansaço e noite) e a vontade de conversar (solidão e fim de tarde): aqui, sem hora do dia.
+  const st: Record<string, number> = { ...base, ...sente };
+  st.sono ??= st.cansaco;
+  st.conversa ??= st.solidao;
+  for (const [k, v] of Object.entries(st)) p.setStat(k, v);
   let vistos = alvos.map((a) => new AiEntity({ id: a.id, name: a.type, type: a.type, position: { x: a.x, y: 0 }, stats: a.stats ?? {} }));
   const brain = Brain.fromSeed(seed, p, w, { selection: { mode: SelectionMode.Best }, perceive: () => vistos });
   return {
@@ -94,10 +98,21 @@ describe('mente da aldeia (IAUS, ações atômicas)', () => {
     expect(mente({ fome: 0.6 }, [celeiro, casa, praca]).escolha()).toBe('Comer em casa');
   });
 
+  it('o dia muda a rotina: de noite vai dormir, no fim da tarde larga a roça para conversar, e cansa de repetir', () => {
+    const casa: Alvo = { id: -4, type: WOT.casa, x: 3, stats: { comida: 1 } };
+    const amigo: Alvo = { id: 9, type: WOT.pessoa, x: 4, stats: { laco: 1, livre: 1 } };
+    expect(mente({}, [roca, casa]).escolha()).toBe('Colher a roça');
+    expect(mente({ dia: 0, noite: 1, sono: 0.6 }, [roca, casa]).escolha()).toBe('Dormir em casa');
+    expect(mente({ dia: 0.15, tarde: 1, conversa: 0.9 }, [roca, casa, amigo]).escolha()).toBe('Conversar com alguém');
+    // A árvore ganha da roça; com a rotina de cortar lenha cheia, a roça passa na frente.
+    expect(mente({}, [roca, arvore]).escolha()).toBe('Derrubar uma árvore');
+    expect(mente({ 'rotina.CortarLenha': 1 }, [roca, arvore]).escolha()).toBe('Colher a roça');
+  });
+
   it('a criança brinca na praça com gente e procura os pais quando sente falta', () => {
     const praca: Alvo = { id: -5, type: WOT.praca, x: 5, stats: { gente: 1 } };
     const pai: Alvo = { id: 7, type: WOT.pessoa, x: 8, stats: { parente: 1, laco: 1, livre: 1 } };
-    expect(mente({}, [praca, pai], CEREBRO_DA_ALDEIA.crianca).escolha()).toBe('Brincar na praça');
+    expect(['Brincar na praça', 'Brincar de esconde-esconde']).toContain(mente({}, [praca, pai], CEREBRO_DA_ALDEIA.crianca).escolha());
     expect(mente({ solidao: 1 }, [{ ...praca, stats: { gente: 0 } }, pai], CEREBRO_DA_ALDEIA.crianca).escolha()).toBe('Ficar perto dos pais');
   });
 });

@@ -125,14 +125,7 @@ export const foundingPart = {
       const dy = this.y[guide] - this.y[i];
       return dx * dx + dy * dy > 2.25 ? { x: dx, y: dy } : undefined;
     }
-    const found = (tx: number, ty: number) => {
-      const v = this.foundVillage(s, tx, ty, 0);
-      this.join(i, v);
-      for (const j of mates) if (this.alive[j] && this.village[j] < 0) this.join(j, v);
-      const ruin = v.ruinOf !== undefined ? this.villages[v.ruinOf] : null;
-      const who = `${v.population} ${name}s que andavam sozinhos`;
-      this.note(ruin ? `${who} fundaram ${v.name} sobre as ruínas de ${ruin.name}` : `${who} se juntaram e fundaram ${v.name}`, 'povo', v, { major: true });
-    };
+    const found = (tx: number, ty: number) => this.lonerFound(i, tx, ty, mates);
     // Ruínas por perto: vai até a antiga praça e recomeça ali.
     const ruin = this.ruinNear(this.x[i], this.y[i], 30, s);
     if (ruin) {
@@ -151,6 +144,28 @@ export const foundingPart = {
     }
     // Sem lugar bom à vista (no meio do deserto, por exemplo): anda para onde é mais verde.
     return this.betterSite(i) ?? this.greener(i, 25);
+  },
+
+  /** Os solitários do povo de `i` juntos dele (a até LONER_MEET tiles), sem ele. */
+  lonerMates(this: Ecosystem, i: number): number[] {
+    const mates: number[] = [];
+    this.forEachNear(this.x[i], this.y[i], B.LONER_MEET, (j) => {
+      if (j !== i && this.kind[j] === this.kind[i] && this.village[j] < 0) mates.push(j);
+    });
+    return mates;
+  },
+
+  /** `i` e os solitários juntos dele (`mates`) fundam um lugar no tile (tx, ty) e entram nele. */
+  lonerFound(this: Ecosystem, i: number, tx: number, ty: number, mates: number[]): Village {
+    const s = this.kind[i];
+    const name = this.species[s].name.toLowerCase();
+    const v = this.foundVillage(s, tx, ty, 0);
+    this.join(i, v);
+    for (const j of mates) if (this.alive[j] && this.village[j] < 0) this.join(j, v);
+    const ruin = v.ruinOf !== undefined ? this.villages[v.ruinOf] : null;
+    const who = `${v.population} ${name}s que andavam sozinhos`;
+    this.note(ruin ? `${who} fundaram ${v.name} sobre as ruínas de ${ruin.name}` : `${who} se juntaram e fundaram ${v.name}`, 'povo', v, { major: true });
+    return v;
   },
 
   /**

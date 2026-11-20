@@ -13,6 +13,7 @@ import { NatureCache, NATURE_NEAR_Z, NATURE_PX_PER_TILE, NATURE_SPRITES, TALL } 
 import { ACT } from '../../sim/eco/constants';
 import { EARTH_ID } from '../../sim/species';
 import type { Viewport } from './Viewport';
+import type { EngineView } from '../../sim/api/engine';
 import { AVENUE } from '../../sim/architecture';
 
 /** Onde desenhar a criatura `i` (x, linha): a posição interpolada entre dois passos, ou a atual. */
@@ -30,6 +31,8 @@ export interface NatureView {
   cache: NatureCache;
   /** Criatura que a câmera segue (-1 se nenhuma): a árvore na frente dela fica meio transparente de perto. */
   focus: number;
+  /** O mundo pela fachada do motor: o tamanho do mapa, a estação e quem está vivo. */
+  world: EngineView;
 }
 
 /** Zoom a partir do qual a árvore na frente de quem a câmera segue fica meio transparente. */
@@ -372,7 +375,7 @@ export class SpriteCollector {
       visible(view.center.x - halfW, view.center.x + halfW, row - halfH, row + halfH, creature);
     } else for (let i = 0; i < eco.count; i++) creature(i);
     this.deaths(eco, view, layer, z, small, now);
-    const ghost = nature && z >= NATURE_NEAR_Z ? this.nature(eco, view, layer, z, pos, nature) : false;
+    const ghost = nature && z >= NATURE_NEAR_Z ? this.nature(view, layer, z, pos, nature) : false;
     layer.sortFrom(sorted);
     // Quem a câmera segue, escondido atrás de árvores: as árvores ficaram em xadrez e ele aparece por cima.
     if (ghost && nature) this.creature(eco, layer, nature.focus, X(pos.x(nature.focus)), Y(pos.y(nature.focus)), z, false, now);
@@ -386,13 +389,14 @@ export class SpriteCollector {
    * câmera segue alguém escondido atrás de uma árvore, bem de perto, essa
    * árvore fica meio transparente (em xadrez).
    */
-  private nature(eco: Ecosystem, view: Viewport, layer: SpriteLayer, z: number, pos: CreaturePositions, nv: NatureView): boolean {
-    const mw = eco.map.width;
-    const mh = eco.map.height;
+  private nature(view: Viewport, layer: SpriteLayer, z: number, pos: CreaturePositions, nv: NatureView): boolean {
+    const world = nv.world;
+    const mw = world.map.width;
+    const mh = world.map.height;
     const px = z / NATURE_PX_PER_TILE;
     const w = view.width;
     const h = view.height;
-    const season = eco.season();
+    const season = world.season();
     // As árvores sobem até 3 tiles acima da base: as de baixo da tela ainda aparecem.
     const cx = view.center.x;
     const row = view.toRow(view.center.y);
@@ -401,7 +405,7 @@ export class SpriteCollector {
     const r0 = Math.max(0, Math.floor(row - h / 2 / z) - 1);
     const r1 = Math.min(mh - 1, Math.ceil(row + h / 2 / z) + 3);
     // Quem a câmera segue: o retângulo do corpo, para achar a árvore que o esconde.
-    const f = nv.focus >= 0 && z >= GHOST_Z && eco.alive[nv.focus] ? nv.focus : -1;
+    const f = nv.focus >= 0 && z >= GHOST_Z && world.alive[nv.focus] ? nv.focus : -1;
     const fx = f >= 0 ? view.screenX(pos.x(f), z) : 0;
     const fy = f >= 0 ? view.glY(pos.y(f), z) - z * 0.5 : 0;
     const pixels = nv.pixels;
