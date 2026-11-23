@@ -155,6 +155,14 @@ export const playerPart = {
     if (this.species[s].kind === 'sapient') {
       const tile = Math.floor(y) * w + (((Math.floor(x) % w) + w) % w);
       if (!this.habitable(s, tile)) return 0;
+      // Mundo generativo: quem chega não funda nada por regra; fica ali, só com o instinto, e decide sozinho.
+      if (this.gen) {
+        for (let k = 0; k < Math.max(2, amount); k++) {
+          if (this.spawn(s, (((x + (this.rnd() - 0.5) * 3) % w) + w) % w, y + (this.rnd() - 0.5) * 3, -1, this.species[s].maturity + this.rnd() * 10) >= 0) born++;
+        }
+        this.note(`Você trouxe ${this.species[s].name.toLowerCase()}s, que ficaram por ali`, 'jogador', { x, y });
+        return born;
+      }
       const other = this.settlementAt(x, y);
       if (other || !this.canFound(Math.floor(x), Math.floor(y))) {
         this.hint = `Muito perto de ${other?.name ?? 'outro assentamento'}: escolha um lugar fora da área`;

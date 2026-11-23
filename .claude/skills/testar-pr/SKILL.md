@@ -43,6 +43,7 @@ Vale para qualquer IA de código (Claude Code, Codex, Cursor e as outras): cada 
 |---|---|---|
 | `src/client/**` | `npm run test:rapido` e `npx playwright test -g "WebGL"` | Olhar as capturas (abaixo) |
 | `src/sim`, `src/IAUS`, `src/procgen` | `npx vitest run <pasta ou arquivo>` | Impressão digital (abaixo) |
+| `src/sim/generativa`, `src/sim/observador` | `npx vitest run src/sim/generativa src/sim/observador` | A sonda (`npx vitest run --config vitest.calib.config.ts src/sim/generativa/sonda.calib.ts --reporter=default`): olhe se a população não explode nem some e se nenhuma vila surge. E a impressão digital, que não pode mudar (o mundo de vilas não usa esse código) |
 | `src/save` | `npx vitest run src/save` | `npx playwright test save`, que recarrega no navegador um save da versão anterior. Ao subir `SAVE_VERSION`, mantenha esse caso funcionando |
 | `tests/jogo` | `npx playwright test -g "<parte do título>"` | Provar que o teste falha (abaixo) |
 | Só documentação | Nada | Nada |
@@ -83,6 +84,7 @@ Com `npm run dev`, acrescente ao endereço. Os parâmetros combinam entre si, co
 | `?cena=terra-cidade` | Simula a Terra até surgir uma cidade (cerca de 40 s) e abre em cima dela, parada |
 | `?soft` | Força o renderizador por software, o mesmo de quem não tem WebGL |
 | `?debug` | Liga o painel F3, as taxas nos painéis e as alças do console |
+| `?mente=generativa` | Um planeta novo começa com pessoas espalhadas, só com o instinto, sem vila (a mente generativa, `docs/MENTE-GENERATIVA.md`). Com `?debug`, o F3 ganha as abas Mente e Coletivo |
 
 Com `?debug`, no console:
 

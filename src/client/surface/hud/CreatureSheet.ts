@@ -1,3 +1,5 @@
+import type { MenteDebug } from '../../../sim/api/debug';
+import { fichaGenerativaHtml } from '../debugMente';
 import type { DayNote, Ecosystem, MindLive, NoteFactor, NoteTarget } from '../../../sim/ecosystem';
 import { ROLE_NAMES, ROLES } from '../../../sim/roles';
 import { aptitudeOf, bestCraft, TECH_BY_ID } from '../../../sim/progress';
@@ -311,7 +313,7 @@ export class CreatureSheet extends HudComponent {
     private readonly el: HTMLElement,
     private readonly sel: Selection,
     private readonly icons: IconCache,
-    private readonly host: { say(text: string): void },
+    private readonly host: { say(text: string): void; mente?(i: number): MenteDebug | null },
   ) {
     super(250);
     installPixelArt();
@@ -744,6 +746,11 @@ export class CreatureSheet extends HudComponent {
   private personJourney(eco: Ecosystem, i: number): string {
     const v = homeOf(eco, i);
     const name = personFullName(eco, i).first;
+    if (!v) {
+      // Mundo generativo: a pessoa não tem lista de comportamentos; a ficha mostra o que ela gerou e escolheu agora.
+      const mente = this.host.mente?.(i);
+      if (mente) return `<div class="cs-now">${pixelIcon('play')}<span>Agora: <b>${esc(mente.agora || 'pensando no que fazer')}</b></span></div>${fichaGenerativaHtml(mente)}`;
+    }
     const r = doing(eco, i);
     // Sem lugar e longe da tela: só a regra de procurar o povo. Perto da tela, o andarilho tem mente e a ficha mostra
     // a decisão como a de qualquer um.

@@ -1,3 +1,4 @@
+import { semearEspalhados } from '../generativa/semear';
 import type { SurfaceMap } from '../../procgen/surface';
 import { restoreEcosystem, snapshotEcosystem, type EcosystemSnapshot } from '../../save/snapshot';
 import { applyTuned, B } from '../live';
@@ -233,6 +234,11 @@ export interface EngineOptions {
   yearSpan?: number;
   /** Linhas para a crônica de um mundo novo (o que aconteceu antes de ele existir). */
   notes?: readonly string[];
+  /**
+   * Mundo generativo: quantas pessoas soltar num mundo novo, espalhadas e só com o instinto (src/sim/generativa).
+   * Sem isto, o mundo é o de sempre (as pessoas chegam pela mão do jogador e fundam vilas).
+   */
+  generativa?: number;
 }
 
 /** O Ecosystem por trás de cada motor (ver `ecosystemOf`). */
@@ -480,7 +486,9 @@ export function createEngine(map: SurfaceMap, opts: EngineOptions): Engine {
   let eco = opts.eco ?? new Ecosystem(map, opts.seed);
   if (!opts.eco) {
     for (const sp of opts.species ?? []) eco.addSpecies(sp);
+    if (opts.generativa) eco.genLigar();
     if (opts.populate ?? !!opts.species?.length) eco.populate();
+    if (opts.generativa) semearEspalhados(eco, opts.seed, opts.generativa);
     eco.drainEvents();
     for (const text of opts.notes ?? []) eco.note(text, 'natureza');
   }

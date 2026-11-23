@@ -209,6 +209,11 @@ export class Brain {
       : 0;
   }
 
+  /** Muda o intervalo entre pensamentos (quem está longe da tela pensa mais devagar com o mesmo cérebro). */
+  setThinkInterval(seconds: number): void {
+    this.opt.thinkInterval = seconds;
+  }
+
   /** Força pensar no próximo update (ex.: evento "granada!", "levei dano"). */
   interrupt(): void {
     this.nextThinkTime = 0;

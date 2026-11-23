@@ -477,6 +477,20 @@ function nomads(eco: Ecosystem): boolean {
   if (!kinds.length) return false;
   const { s } = kinds[Math.floor(eco.random() * kinds.length)];
   const map = eco.map;
+  // Mundo generativo: quem chega de longe chega como gente, sem aldeia pronta: uns poucos, juntos, só com o instinto.
+  if (eco.gen) {
+    for (let k = 0; k < 200; k++) {
+      const t = Math.floor(eco.random() * map.width * map.height);
+      if (!eco.habitable(s, t) || map.vegetation[t] < 0.3) continue;
+      const n = 4 + Math.floor(eco.random() * 5);
+      let vieram = 0;
+      for (let q = 0; q < n; q++) if (eco.spawn(s, (t % map.width) + 0.5 + (eco.random() - 0.5) * 6, Math.floor(t / map.width) + 0.5 + (eco.random() - 0.5) * 6, -1, eco.species[s].maturity + eco.random() * 12) >= 0) vieram++;
+      if (!vieram) continue;
+      eco.note(`Gente de terras distantes chegou: ${vieram} ${eco.species[s].name.toLowerCase()}s, sem nada além do corpo`, 'povo', { x: t % map.width, y: Math.floor(t / map.width) });
+      return true;
+    }
+    return false;
+  }
   const live = eco.villages.filter((v) => !v.abandoned);
   const tech = live.length ? Math.min(...live.map((v) => v.tech)) * 0.7 : 0;
   // Longe dos outros povos, o melhor de N lugares sorteados, pela nota e pelo veto de toda fundação (com a técnica deles).

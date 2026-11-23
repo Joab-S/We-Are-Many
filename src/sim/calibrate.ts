@@ -4,6 +4,7 @@
  * Usado pelos testes (poucas sementes) e por `npm run calibrar` (muitas).
  */
 
+import { semearEspalhados } from './generativa/semear';
 import { generateSurface, temperatureAt, type PlanetParams, type SurfaceMap } from '../procgen/surface';
 import { B } from './live';
 import { Ecosystem, isLand, YEAR_SECONDS, type Village } from './ecosystem';
@@ -157,11 +158,19 @@ export function seedWorld(seed: number, radius = 0.4): { eco: Ecosystem; map: Re
 }
 
 /** O mesmo em qualquer planeta com povo inteligente; num planeta seco, sem vegetação boa, vale a terra que houver. */
-export function seedPlanet(params: PlanetParams, seed: number, species = nativeSpecies(params)): { eco: Ecosystem; map: ReturnType<typeof generateSurface>; placed: number } {
+export function seedPlanet(
+  params: PlanetParams,
+  seed: number,
+  species = nativeSpecies(params),
+  options: { espalhados?: number } = {},
+): { eco: Ecosystem; map: ReturnType<typeof generateSurface>; placed: number } {
   const map = generateSurface(params);
   const eco = new Ecosystem(map, seed);
   for (const sp of species) eco.addSpecies(sp);
+  if (options.espalhados) eco.genLigar();
   eco.populate();
+  // Mundo generativo (a opção da transição): pessoas espalhadas só com o instinto, e nenhuma vila semeada.
+  if (options.espalhados) return { eco, map, placed: semearEspalhados(eco, seed, options.espalhados) };
   const s = eco.species.findIndex((sp) => sp.kind === 'sapient');
   // Aldeias semeadas com um gerador próprio, para não mexer nos sorteios do mundo.
   let a = (seed * 2654435761) >>> 0;

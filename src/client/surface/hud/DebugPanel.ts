@@ -1,3 +1,5 @@
+import type { MapaDoColetivo } from '../../../sim/api/debug';
+import { collectiveTabHtml, mindTabHtml } from '../debugMente';
 import { GENERATOR_VERSION } from '../../../procgen/surface';
 import type { EngineCommand } from '../../../sim/api/commands';
 import type { Engine } from '../../../sim/api/engine';
@@ -89,6 +91,11 @@ export class DebugPanel extends HudComponent {
   private filter = '';
   /** A impressão digital mostrada na aba Tempo, com o passo e o tamanho do log de quando foi tirada. */
   private hash: { tick: number; log: number; value: string } | null = null;
+  /** Aba Mente: a pessoa guardada para comparar (uid). Aba Coletivo: a crença ou lente cuja difusão se vê. */
+  private compare = -1;
+  private diffusion = '';
+  /** A camada do coletivo no mapa, refeita no ritmo do painel (não a cada quadro). */
+  private layer: { tick: number; chave: string; data: MapaDoColetivo | null } | null = null;
 
   constructor(
     root: HTMLElement,
@@ -151,6 +158,15 @@ export class DebugPanel extends HudComponent {
   }
 
   /** Refaz no próximo quadro, mesmo que o HTML pareça igual (clique no painel). */
+  /** Com a aba Coletivo aberta: o que desenhar sobre o mapa (agrupamentos, quem segue quem, trilhas e a difusão escolhida). */
+  mapLayer(): MapaDoColetivo | null {
+    if (!this.open || this.tab !== 'collective') return null;
+    const tick = this.host.driver.tick;
+    const l = this.layer;
+    if (!l || l.chave !== this.diffusion || Math.abs(tick - l.tick) >= 2) this.layer = { tick, chave: this.diffusion, data: this.host.engine.debug.mapa(this.diffusion) };
+    return this.layer!.data;
+  }
+
   private refresh(): void {
     this.body.reset();
     this.invalidate();
@@ -210,6 +226,14 @@ export class DebugPanel extends HudComponent {
         const decisions = debug.decisions(family !== undefined ? { family, limit: 12 } : { limit: 25 });
         return familyTabHtml({ person, focus: this.focus, decisions, view, recording: debug.recording });
       }
+      case 'mind': {
+        const i = this.host.creature();
+        const m = i >= 0 ? debug.mente(i) : null;
+        const outra = this.compare >= 0 ? debug.mente(view.findUid(this.compare)) : null;
+        return mindTabHtml(m, outra, debug.coletivo() !== null);
+      }
+      case 'collective':
+        return collectiveTabHtml(debug.coletivo(), this.diffusion ? debug.difusao(this.diffusion) : null);
       case 'events':
         return eventsHtml(this.events.newest(), { kinds: this.kinds, onlyPlace: this.onlyPlace }, this.host.place(), view, this.events.total);
       case 'perf':
@@ -286,6 +310,15 @@ export class DebugPanel extends HudComponent {
       const steps = host.advance(Number(step.dataset.dstep));
       this.lastAdvance = { steps, ms: host.driver.stats.stepMs };
     }
+    const comp = at('[data-dmcomp]');
+    if (comp) this.compare = Number(comp.dataset.dmcomp);
+    const dif = at('[data-ddif]');
+    if (dif) {
+      this.diffusion = dif.dataset.ddif!;
+      this.tab = 'collective';
+    }
+    const exp = at('[data-dmexport]');
+    if (exp) void this.exportMinds(exp.dataset.dmexport ? [Number(exp.dataset.dmexport)] : undefined);
     if (at('[data-drec]')) host.engine.debug.setRecording(!host.engine.debug.recording);
     if (at('[data-dcopy]')) void this.copyCase();
     const ev = at('[data-devent]');
@@ -326,6 +359,18 @@ export class DebugPanel extends HudComponent {
       this.showCase(json);
     }
     this.refresh();
+  }
+
+  /** Exporta o estado do modelo generativo (crenças, lentes, decisões) em JSON: para a área de transferência ou, sem ela, para a caixa de texto. */
+  private async exportMinds(uids?: number[]): Promise<void> {
+    const json = JSON.stringify(this.host.engine.debug.exportarMentes(uids));
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('sem área de transferência');
+      await navigator.clipboard.writeText(json);
+      this.hideCase();
+    } catch {
+      this.showCase(json);
+    }
   }
 
   private showCase(json: string): void {

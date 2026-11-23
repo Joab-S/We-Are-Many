@@ -141,6 +141,13 @@ export const peopleDecidePart = {
         break;
       }
       case 'sapient': {
+        // Mundo generativo: quem não mora num lugar pensa pelo modelo generativo (src/sim/generativa). Não há regra
+        // de juntar, fundar nem de ter filho: tudo é ato da pessoa, com o efeito no mundo.
+        if (this.gen && this.village[i] < 0) {
+          e = this.genStep(i, e, dt);
+          if (!this.alive[i]) return;
+          break;
+        }
         // Sozinho (solto pelo jogador): procura um assentamento do seu povo ou funda um. Perto da tela, tem mente
         // própria (o andarilho, `lonerStep`): procurar o povo é uma das ações dela.
         const alone = this.village[i] < 0 && this.lonerMinded(i);
@@ -323,7 +330,9 @@ export const peopleDecidePart = {
     const partner = sp.kind === 'sapient' ? partnerOf(this.bonds, this.uid[i]) : 0;
     const couple = sp.kind !== 'sapient' ? 1 : partner ? SOCIAL.coupleBirth : SOCIAL.singleBirth;
     const content = (needs ? (0.5 + 0.5 * welfare(needs)) * fed : 1) * couple;
-    if (fertile && this.energy[i] > 0.65 && happens(this.rnd, b.birthRate * this.fertility(s, era) * content, dt)) {
+    // No mundo generativo, ter filho é um ato da pessoa (acasalar), não uma taxa: a regra abaixo não vale para ela.
+    const generativa = !!this.gen && sp.kind === 'sapient' && v < 0;
+    if (!generativa && fertile && this.energy[i] > 0.65 && happens(this.rnd, b.birthRate * this.fertility(s, era) * content, dt)) {
       // Precisa de um parceiro adulto por perto (do mesmo assentamento, para os inteligentes).
       // Bichos acham o parceiro num raio maior (o cheiro e o chamado vão longe).
       let crowd = 0;

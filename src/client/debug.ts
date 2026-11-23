@@ -17,3 +17,11 @@ declare global {
     debugEngineWorker?: (years: number) => Promise<{ worker: string; direct: string; ms: number; yearsSeen: number }>;
   }
 }
+
+/**
+ * `?mente=generativa`: um planeta novo começa com pessoas espalhadas, só com o instinto, pensando pelo modelo
+ * generativo (src/sim/generativa), sem vila nenhuma. Sem isto, o mundo é o de sempre.
+ */
+export const GENERATIVA = typeof location !== 'undefined' && new URLSearchParams(location.search).get('mente') === 'generativa';
+/** Quantas pessoas um planeta novo recebe no mundo generativo. */
+export const GENERATIVA_GENTE = 60;

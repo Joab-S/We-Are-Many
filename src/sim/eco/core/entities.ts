@@ -167,7 +167,8 @@ export const entitiesPart = {
           this.spawnAtTile(s, near >= 0 && this.habitable(s, near) ? near : tile, -1, this.rnd() * sp.maxAge * 0.6);
         }
       }
-      if (sp.kind === 'sapient') {
+      // No mundo generativo ninguém nasce numa aldeia pronta (src/sim/generativa/semear.ts).
+      if (sp.kind === 'sapient' && !this.gen) {
         // Aldeias iniciais: o melhor de N tiles verdes sorteados, pela nota e pelo veto de toda fundação (`chooseSite`).
         const villages = Math.max(2, Math.min(6, Math.round(green / 60000)));
         for (let v = 0; v < villages; v++) {
