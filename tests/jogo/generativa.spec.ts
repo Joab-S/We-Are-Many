@@ -35,6 +35,13 @@ test('?mente=generativa: gente espalhada, nenhuma vila, e o painel explica a dec
   await page.waitForFunction(() => (window.surface as unknown as Alca).eco.year > 0.8, null, { timeout: 60_000 });
   expect(await page.evaluate(() => (window.surface as unknown as Alca).eco.villages.length)).toBe(0);
 
+  // A ficha da pessoa, na aba da mente: mostra o que ela gerou (a ficha generativa), não a decisão do andarilho da aldeia.
+  const ficha = page.locator('[data-sheet]');
+  await expect(ficha).toBeVisible();
+  await ficha.locator('[data-ctab="journey"]').click();
+  await expect(ficha).toContainText('além do instinto');
+  await expect(ficha).not.toContainText('O que decidiu');
+
   await page.keyboard.press('F3');
   await page.click('[data-dtab="mind"]');
   const painel = page.locator('.wb-debugp');
