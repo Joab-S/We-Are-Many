@@ -505,7 +505,7 @@ export const genMentePart = {
       out.push({ id: this.uid[bravo], tipo: 'animal', x: x0 + wrapDx(this.x[bravo] - x0, w), y: this.y[bravo], dist: bravoD, tags: { animal: 1, perigoso: prox, carne: 0.6 }, t: -1, j: bravo, coisa: 0, k: -1 });
     }
     presas.sort((a, b) => a.d - b.d || a.j - b.j);
-    for (const g of presas.slice(0, 2)) out.push({ id: this.uid[g.j], tipo: 'animal', x: x0 + g.dx, y: y0 + g.dy, dist: g.d, tags: { animal: 1, carne: 0.8, fugidio: 1 }, t: -1, j: g.j, coisa: 0, k: -1 });
+    for (const g of presas.slice(0, 2)) out.push({ id: this.uid[g.j], tipo: 'animal', x: x0 + g.dx, y: y0 + g.dy, dist: g.d, tags: this.genTagsDoBicho(g.j), t: -1, j: g.j, coisa: 0, k: -1 });
     const ck = this.carcassNear(x0, y0, vista);
     if (ck >= 0) {
       const cc = this.carcasses[ck];
@@ -544,6 +544,9 @@ export const genMentePart = {
       for (const [tg, wt] of Object.entries(a.tags)) if (tg !== 'chao' && wt > (ctx[tg] ?? 0)) ctx[tg] = wt;
     }
     if (noite > 0.3) ctx.noite = noite;
+    // O inverno se vê (o mato seco, o frio): é um fato do contexto, de que podem nascer lentes como qualquer outro.
+    const inverno = this.genInverno(t0);
+    if (inverno > 0.3) ctx.inverno = inverno;
     // Onde já se viveu bem: estar ali é um fato do contexto (é dele que pode nascer o gosto de ficar e de voltar).
     let meu = 0;
     for (const l of p.lugares) if (l.bem > 0.3 && Math.hypot(wrapDx(l.x - x0, w), l.y - y0) <= 5) meu = Math.max(meu, Math.min(1, l.bem / 3));

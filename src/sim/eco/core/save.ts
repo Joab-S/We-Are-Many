@@ -17,6 +17,9 @@ export const savePart = {
     // Mundo generativo de antes da travessia: o que entrou depois nasce vazio.
     if (this.gen) {
       this.gen.tirado ??= new Map();
+      this.gen.conta.abates ??= 0;
+      this.gen.conta.abatesGrandes ??= 0;
+      this.gen.conta.abatesJuntos ??= 0;
       for (const p of this.gen.pessoas.values()) {
         p.conta.tomou ??= 0;
         p.conta.travessias ??= 0;

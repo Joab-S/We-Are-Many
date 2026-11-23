@@ -10,7 +10,7 @@
  */
 import type { Ecosystem } from '../ecosystem';
 import { wrapDx } from '../settlement';
-import type { Coisa, PessoaGen } from '../generativa/tipos';
+import { GEN, type Coisa, type PessoaGen } from '../generativa/tipos';
 import { nomeDaLente, nomeDoAto, nomeDoHabito } from './nomes';
 
 export interface Agrupamento {
@@ -237,7 +237,11 @@ export function resumoDoMundo(eco: Ecosystem): string {
   }
   const q = Math.max(1, gente.length);
   const f = (x: number) => x.toFixed(1).replace('.', ',');
-  return `gente ${gente.length} (${criancas} pequenos, ${gravidas} grávidas), nascidos ${g.conta.nascidos}, mortos ${g.conta.mortos}; montes ${g.coisas.length}, abrigos ${abrigos}, fogos ${fogos}, guardado ${f(guardado)}, plantas ${plantas}; por pessoa: ${f(saber / q)} crenças aprendidas, ${f(lentes / q)} lentes, ${f(habitos / q)} hábitos`;
+  // A estação do ciclo da pessoa (o inverno do sul é o verão do norte).
+  const fase = ((eco.year * eco.yearSpan) / GEN.estacao) % 1;
+  const estacao = fase < 0.125 || fase >= 0.875 ? 'verão no norte' : fase < 0.375 ? 'outono no norte' : fase < 0.625 ? 'inverno no norte' : 'primavera no norte';
+  const caca = g.conta.abates ? `; bichos abatidos ${g.conta.abates} (${g.conta.abatesGrandes ?? 0} grandes, ${g.conta.abatesJuntos ?? 0} com outros batendo junto)` : '';
+  return `${estacao}; gente ${gente.length} (${criancas} pequenos, ${gravidas} grávidas), nascidos ${g.conta.nascidos}, mortos ${g.conta.mortos}${caca}; montes ${g.coisas.length}, abrigos ${abrigos}, fogos ${fogos}, guardado ${f(guardado)}, plantas ${plantas}; por pessoa: ${f(saber / q)} crenças aprendidas, ${f(lentes / q)} lentes, ${f(habitos / q)} hábitos`;
 }
 
 export interface Primeira {
