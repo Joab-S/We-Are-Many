@@ -277,9 +277,10 @@ Quem mora num lugar perto da câmera tem um cérebro próprio, com estes pacotes
 
 | Cérebro | Pacotes |
 |---|---|
-| Aldeão | Necessidades na aldeia, Trabalho na aldeia, Convívio na aldeia |
-| Criança da aldeia | Necessidades na aldeia, Convívio na aldeia, Infância na aldeia |
-| Idoso da aldeia | Necessidades na aldeia, Convívio na aldeia |
+| Aldeão | Necessidades na aldeia, Trabalho na aldeia, Convívio na aldeia, Ócio na aldeia, Gente da aldeia, Família na aldeia, Lugares da aldeia, Ofício e passatempos |
+| Criança da aldeia | Necessidades na aldeia, Convívio na aldeia, Infância na aldeia, Brincadeiras |
+| Idoso da aldeia | Necessidades na aldeia, Convívio na aldeia, Ócio na aldeia, Gente da aldeia, Família na aldeia, Lugares da aldeia |
+| Andarilho (sem lugar) | Vida sem lugar |
 
 ### 35. Necessidades na aldeia
 
@@ -289,9 +290,9 @@ Comer, dormir e correr para o abrigo, cada um com um lugar e um fim.
 |---|---|---|---|---|---|---|
 | 3501 | **Comer no celeiro**<br>Com fome, vai ao celeiro e come até ficar satisfeito (se houver comida). | Comer | alvo: celeiro | contínuo | 4 | fome · tem comida · perto |
 | 3502 | **Comer em casa**<br>Com fome, come em casa da comida da família (que vem do celeiro do lugar). | Comer | alvo: casa | contínuo | 4 | fome · tem comida · perto |
-| 3503 | **Procurar comida no mato**<br>Com fome e o celeiro vazio, colhe o que acha no mato perto. | Coletar | eu | contínuo | 4 | fome · celeiro vazio |
-| 3504 | **Dormir em casa**<br>Cansado, vai para casa e dorme até descansar; o preguiçoso deita antes. | Dormir | alvo: casa | contínuo | 4 | cansaço · disposição · perto |
-| 3505 | **Dormir ao relento**<br>Sem casa, dorme onde está quando o cansaço aperta. | Dormir | eu | contínuo | 4 | cansaço · sem casa |
+| 3503 | **Procurar comida no mato**<br>Com fome e o celeiro vazio, colhe o que acha no mato perto. | Coletar | eu | contínuo | 4 | fome · celeiro vazio · de dia |
+| 3504 | **Dormir em casa**<br>Cansado, vai para casa e dorme até descansar; o preguiçoso deita antes. | Dormir | alvo: casa | contínuo | 4 | sono · disposição · perto |
+| 3505 | **Dormir ao relento**<br>Sem casa, dorme onde está quando o cansaço aperta. | Dormir | eu | contínuo | 4 | sono · sem casa |
 | 3506 | **Correr para o abrigo**<br>O alarme tocou: quem não luta (ou tem medo) corre para a praça. | Abrigar | alvo: praca | contínuo | 5 | alarme · medo |
 
 ### 36. Trabalho na aldeia
@@ -300,15 +301,15 @@ O que o lugar precisa, visto por quem trabalha: cada tarefa é uma ação com al
 
 | Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
 |---|---|---|---|---|---|---|
-| 3601 | **Trabalhar no posto do ofício**<br>Vai ao posto do ofício (roça, mina, porto, oficina) e trabalha um turno; o que sai fica no pátio ou na mão. | Trabalhar | alvo: posto | contínuo | 3 | falta · diligente · mãos livres · alimentado · descansado · perto |
-| 3602 | **Colher a roça**<br>Na safra, colhe a roça madura; o agricultor sempre, os outros quando falta comida. | Colher | alvo: roca | contínuo | 3 | safra · ofício · falta · mãos livres · alimentado · descansado · perto |
-| 3603 | **Pegar a carga do pátio**<br>Há carga parada no pátio: pega uma para levar ao celeiro, mais se faz falta lá. | PegarCarga | alvo: carga | contínuo | 3 | carga cheia · falta · diligente · mãos livres · alimentado · descansado · perto |
+| 3601 | **Trabalhar no posto do ofício**<br>Vai ao posto do ofício (roça, mina, porto, oficina) e trabalha um turno; o que sai fica no pátio ou na mão. | Trabalhar | alvo: posto | contínuo | 3 | falta · diligente · mãos livres · alimentado · descansado · perto · de dia · variar |
+| 3602 | **Colher a roça**<br>Na safra, colhe a roça madura; o agricultor sempre, os outros quando falta comida. | Colher | alvo: roca | contínuo | 3 | safra · ofício · falta · mãos livres · alimentado · descansado · perto · de dia · variar |
+| 3603 | **Pegar a carga do pátio**<br>Há carga parada no pátio: pega uma para levar ao celeiro, mais se faz falta lá. | PegarCarga | alvo: carga | contínuo | 3 | carga cheia · falta · diligente · mãos livres · alimentado · descansado · perto · de dia · variar |
 | 3604 | **Levar a carga ao celeiro**<br>Com a carga na mão, leva ao celeiro. | Entregar | alvo: celeiro | contínuo | 3.5 | carga · mão cheia · perto |
-| 3605 | **Bater na obra**<br>Trabalha na obra aberta: o construtor sempre; os outros no mutirão (obra grande ou sem construtor). | Construir | alvo: obra | contínuo | 3 | ofício · vaga · urgente · diligente · mãos livres · alimentado · descansado · perto |
-| 3606 | **Derrubar uma árvore**<br>O lenhador escolhe uma árvore livre, derruba e sai com a madeira na mão. | CortarLenha | alvo: arvore | contínuo | 3 | falta · cabe no armazém · cabe na mão · alimentado · descansado · perto |
-| 3607 | **Caçar**<br>O caçador persegue um bicho onde a caça sobra; a carne vai na mão para o celeiro. | Cacar | alvo: animal | contínuo | 3 | ofício · caça sobrando · mãos livres · alimentado · descansado · perto |
+| 3605 | **Bater na obra**<br>Trabalha na obra aberta: o construtor sempre; os outros no mutirão (obra grande ou sem construtor). | Construir | alvo: obra | contínuo | 3 | ofício · vaga · urgente · diligente · mãos livres · alimentado · descansado · perto · de dia · variar |
+| 3606 | **Derrubar uma árvore**<br>O lenhador escolhe uma árvore livre, derruba e sai com a madeira na mão. | CortarLenha | alvo: arvore | contínuo | 3 | falta · cabe no armazém · cabe na mão · alimentado · descansado · perto · de dia · variar |
+| 3607 | **Caçar**<br>O caçador persegue um bicho onde a caça sobra; a carne vai na mão para o celeiro. | Cacar | alvo: animal | contínuo | 3 | ofício · caça sobrando · mãos livres · alimentado · descansado · perto · de dia · variar |
 | 3608 | **Defender o lugar**<br>O alarme tocou: o corajoso pega a lança e vai ao portão. | Defender | alvo: portao | contínuo | 5 | alarme · coragem |
-| 3609 | **Patrulhar**<br>Guarda e soldado rondam o portão quando não há outra coisa a fazer. | Patrulhar | alvo: portao | contínuo | 2 | ofício · alimentado · descansado · perto |
+| 3609 | **Patrulhar**<br>Guarda e soldado rondam o portão quando não há outra coisa a fazer. | Patrulhar | alvo: portao | contínuo | 2 | ofício · alimentado · descansado · perto · de dia · variar |
 
 ### 37. Convívio na aldeia
 
@@ -316,13 +317,13 @@ Conversar, rezar, a festa, o enterro, a caravana e ficar em casa.
 
 | Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
 |---|---|---|---|---|---|---|
-| 3701 | **Conversar com alguém**<br>Sozinho há tempo, procura alguém de quem gosta que esteja livre por perto. | Conversar | alvo: pessoa | contínuo | 2.5 | solidão · sociável · laço · livre · perto |
-| 3702 | **Ir à praça encontrar gente**<br>Sozinho há tempo, vai à praça, mais se há gente lá. | Passear | alvo: praca | contínuo | 2.5 | solidão · sociável · gente · perto |
+| 3701 | **Conversar com alguém**<br>Sozinho há tempo, procura alguém de quem gosta que esteja livre por perto. | Conversar | alvo: pessoa | contínuo | 2.1 | variar · vontade de conversar · sociável · laço · livre · perto |
+| 3702 | **Ir à praça encontrar gente**<br>Sozinho há tempo, vai à praça, mais se há gente lá. | Passear | alvo: praca | contínuo | 2.1 | variar · vontade de conversar · sociável · gente · perto |
 | 3703 | **Rezar no templo**<br>A fé chama: vai ao templo, mais cedo o devoto. | Rezar | alvo: templo | contínuo | 2.5 | fé · devoto · perto |
 | 3704 | **Ir à festa**<br>Há festa na praça e dá tempo de chegar: o sociável vai, quem está com fome come antes. | Festejar | alvo: praca | contínuo | 3 | festa · sociável · alimentado |
 | 3705 | **Ir ao enterro**<br>Morreu alguém da família: vai ao enterro. | Rezar | alvo: evento | contínuo | 3.5 | enterro |
 | 3706 | **Ver a caravana**<br>Chegou uma caravana à praça: o curioso vai ver. | Passear | alvo: praca | contínuo | 2 | caravana · curioso · alimentado · descansado |
-| 3707 | **Ficar em casa**<br>Nada pede a pessoa: fica em casa (o caseiro mais). | IrParaCasa | alvo: casa | contínuo | 1 | à toa · caseiro · perto |
+| 3707 | **Ficar em casa**<br>Nada pede a pessoa: fica em casa (o caseiro mais). | IrParaCasa | alvo: casa | contínuo | 1 | à toa · caseiro · variar · perto |
 
 ### 38. Infância na aldeia
 
@@ -330,8 +331,174 @@ Brincar na praça e ficar perto dos pais.
 
 | Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
 |---|---|---|---|---|---|---|
-| 3801 | **Brincar na praça**<br>Brinca na praça com as outras crianças. | Brincar | alvo: praca | contínuo | 2 | vontade de brincar · gente · alimentado · descansado · perto |
+| 3801 | **Brincar na praça**<br>Brinca na praça com as outras crianças. | Brincar | alvo: praca | contínuo | 2 | vontade de brincar · gente · alimentado · descansado · de dia · variar · perto |
 | 3802 | **Ficar perto dos pais**<br>Sente falta dos pais e vai para perto deles. | Seguir | alvo: pessoa | contínuo | 2 | pai ou mãe · solidão · perto |
+
+### 39. Ócio na aldeia
+
+Sentar, olhar o movimento, andar à toa, cochilar, cuidar das próprias coisas.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 3901 | **Sentar na porta de casa**<br>No fim da tarde, senta na porta de casa e vê a rua. | FicarParado | alvo: casa | contínuo | 2 | folga · fim de tarde · caseiro · perto · variar |
+| 3902 | **Cochilar à sombra**<br>Um pouco cansado no meio do dia, o preguiçoso tira um cochilo onde está. | FicarParado | eu | contínuo | 1.8 | cansaço · de dia · preguiça · mãos livres · variar |
+| 3903 | **Recuperar o fôlego**<br>Cansado no meio de uma tarefa, para um instante e respira. | FicarParado | eu | contínuo | 1.6 | cansaço · de dia · paciente · variar |
+| 3904 | **Olhar o movimento na praça**<br>Vai à praça só para ver quem passa. | Passear | alvo: praca | contínuo | 1.8 | folga · acordado · gente · curioso · alimentado · descansado · mãos livres · perto · variar |
+| 3905 | **Andar à toa pela aldeia**<br>Sem nada a fazer, dá uma volta pelas casas. | Vagar | eu | contínuo | 1.4 | folga · acordado · inquieto · alimentado · descansado · mãos livres · variar |
+| 3906 | **Explorar os arredores**<br>O curioso vai ver um canto da aldeia que não conhece bem. | Explorar | eu | contínuo | 1.5 | de dia · curioso · alimentado · descansado · mãos livres · variar |
+| 3907 | **Aquecer-se no fogo de casa**<br>À noitinha, antes de dormir, fica perto do fogo de casa. | Aquecer | alvo: casa | contínuo | 1.9 | anoitecer · caseiro · perto · variar |
+| 3908 | **Lavar o rosto no poço**<br>Cansado e com calor, refresca o rosto no poço da praça. | Beber | alvo: praca | contínuo | 1.6 | cansaço · de dia · mãos livres · perto · variar |
+| 3909 | **Contemplar o céu**<br>De noite, sem sono, o curioso ou o devoto fica olhando as estrelas. | FicarParado | eu | contínuo | 1.5 | à noite · sem sono · curioso · devoto · variar |
+| 3910 | **Arrumar a casa**<br>Põe a casa em ordem de manhã cedo ou no fim da tarde. | FicarParado | alvo: casa | contínuo | 1.6 | folga · acordado · caseiro · diligente · perto · variar |
+| 3911 | **Remendar a roupa**<br>No fim da tarde, remenda a roupa sentado em casa. | FicarParado | alvo: casa | contínuo | 1.5 | folga · fim de tarde · jeitoso · perto · variar |
+| 3912 | **Beliscar algo no celeiro**<br>Com um pouco de fome, passa no celeiro e come um bocado. | Comer | alvo: celeiro | contínuo | 1.9 | fome leve · tem comida · guloso · perto · variar |
+| 3913 | **Ficar sozinho pensando**<br>O reservado se afasta um pouco para pensar na vida. | FicarParado | eu | contínuo | 1.4 | folga · acordado · sem falta de gente · reservado · variar |
+| 3914 | **Tomar sol na praça**<br>Num momento parado do dia, senta ao sol na praça. | FicarParado | alvo: praca | contínuo | 1.4 | de dia · cansaço · preguiça · perto · variar |
+
+### 40. Gente da aldeia
+
+Cumprimentar, conversar, fofocar, brigar, fazer as pazes, consolar, ajudar.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 4001 | **Cumprimentar um conhecido**<br>Passa por alguém que conhece e para um instante para cumprimentar. | Conversar | alvo: pessoa | contínuo | 1.5 | acordado · laço · livre · sociável · perto · variar |
+| 4002 | **Conversar com um amigo**<br>Encontra um amigo livre e conversa um pouco. | Conversar | alvo: pessoa | contínuo | 2.5 | folga · acordado · vontade de conversar · amigo · livre · perto · variar |
+| 4003 | **Fofocar com um vizinho**<br>No fim da tarde, troca as novidades da aldeia com alguém de quem gosta. | Conversar | alvo: pessoa | contínuo | 2.2 | folga · fim de tarde · laço · adulto · livre · sociável · perto · variar |
+| 4004 | **Contar uma piada**<br>O carismático conta uma piada a quem está por perto. | Conversar | alvo: pessoa | contínuo | 1.9 | folga · acordado · livre · carismático · laço · perto · variar |
+| 4005 | **Desabafar com o parceiro**<br>Com o peito apertado, conta tudo ao parceiro. | Conversar | alvo: pessoa | contínuo | 2.8 | vontade de conversar · acordado · parceiro · livre · perto · variar |
+| 4006 | **Namorar**<br>No fim da tarde, passa um tempo com o parceiro. | Cortejar | alvo: pessoa | contínuo | 2.5 | folga · fim de tarde · parceiro · livre · alimentado · descansado · perto · variar |
+| 4007 | **Cortejar alguém**<br>De quem gosta muito e ainda não é seu par, chega perto e puxa conversa. | Cortejar | alvo: pessoa | contínuo | 2 | folga · acordado · gosta muito · adulto · não é parente · não é par · ousado · perto · variar |
+| 4008 | **Discutir com um rival**<br>Topa com um rival e a discussão começa. | Discutir | alvo: pessoa | contínuo | 2 | acordado · rival · briguento · perto · variar |
+| 4009 | **Implicar com alguém**<br>O briguento implica com quem não gosta. | Discutir | alvo: pessoa | contínuo | 1.5 | acordado · não gosta · adulto · briguento · perto · variar |
+| 4010 | **Fazer as pazes**<br>O bondoso procura o rival para acabar com a briga. | Conversar | alvo: pessoa | contínuo | 1.9 | folga · acordado · rival · bondoso · leal · perto · variar |
+| 4011 | **Consolar quem está sozinho**<br>Vê alguém triste e sozinho e vai fazer companhia. | Cuidar | alvo: pessoa | contínuo | 2.2 | acordado · sozinho · bondoso · livre · perto · variar |
+| 4012 | **Pegar comida para quem está fraco**<br>Vê alguém fraco de fome (ou o filho pediu): o bondoso vai ao celeiro e pega comida na mão. | PegarCarga | alvo: celeiro | contínuo | 2.6 | alguém com fome · mãos livres · tem comida · bondoso · perto · variar |
+| 4013 | **Dar comida a quem está fraco**<br>Com comida na mão, leva a quem está fraco de fome e dá. | Doar | alvo: pessoa | contínuo | 3.8 | fraco · comida na mão · perto · variar |
+| 4014 | **Ajudar um cansado**<br>Vê alguém exausto e dá uma mão para ele descansar. | Cuidar | alvo: pessoa | contínuo | 1.8 | acordado · cansado · bondoso · alimentado · descansado · perto · variar |
+| 4015 | **Trocar ideias com um colega**<br>Conversa sobre o ofício com alguém do mesmo ofício. | Conversar | alvo: pessoa | contínuo | 1.9 | folga · acordado · colega · livre · curioso · perto · variar |
+| 4016 | **Pedir conselho a um idoso**<br>Com uma dúvida da vida, vai ouvir um idoso. | Conversar | alvo: pessoa | contínuo | 1.8 | folga · acordado · idoso · paciente · laço · perto · variar |
+| 4017 | **Brincar com uma criança**<br>O bondoso brinca um pouco com uma criança da aldeia. | Brincar | alvo: pessoa | contínuo | 1.8 | folga · acordado · criança · bondoso · alimentado · descansado · perto · variar |
+| 4018 | **Acompanhar um amigo**<br>Vai junto com um amigo aonde ele estiver indo. | Seguir | alvo: pessoa | contínuo | 1.6 | folga · acordado · vontade de conversar · amigo · apegado · perto · variar |
+| 4019 | **Apresentar-se a alguém**<br>O curioso puxa conversa com alguém da aldeia que mal conhece. | Conversar | alvo: pessoa | contínuo | 1.6 | folga · acordado · mal conhece · livre · curioso · sociável · perto · variar |
+| 4020 | **Rir com os amigos**<br>No fim da tarde, ri das histórias do dia com um amigo. | Conversar | alvo: pessoa | contínuo | 2.2 | folga · fim de tarde · amigo · livre · perto · variar |
+| 4021 | **Ouvir quem precisa**<br>O paciente ouve alguém que precisa falar. | Conversar | alvo: pessoa | contínuo | 1.8 | acordado · sozinho · paciente · livre · perto · variar |
+| 4022 | **Elogiar o trabalho de alguém**<br>Passa por alguém trabalhando e elogia o que ele faz. | Conversar | alvo: pessoa | contínuo | 1.4 | acordado · trabalhando · adulto · gentil · carismático · perto · variar |
+| 4023 | **Reclamar da vida**<br>Cansado ou com fome, reclama com um amigo. | Conversar | alvo: pessoa | contínuo | 1.6 | acordado · a vida pesa · amigo · livre · perto · variar |
+| 4024 | **Apostar com alguém**<br>O ganancioso aposta qualquer coisa com um conhecido. | Conversar | alvo: pessoa | contínuo | 1.4 | folga · acordado · adulto · livre · ganancioso · laço · perto · variar |
+| 4025 | **Desafiar para uma luta de brincadeira**<br>O forte desafia um conhecido para uma luta de mentira. | Treinar | alvo: pessoa | contínuo | 1.4 | folga · fim de tarde · adulto · livre · forte · corajoso · perto · variar |
+| 4026 | **Contar as novidades**<br>Quem soube de algo corre para contar a um conhecido. | Conversar | alvo: pessoa | contínuo | 1.5 | acordado · laço · livre · falante · curioso · perto · variar |
+| 4027 | **Fazer a pausa com um colega**<br>No meio do dia, para um pouco e conversa com alguém do mesmo ofício. | Conversar | alvo: pessoa | contínuo | 1.8 | de dia · um pouco cansado · colega · livre · perto · variar |
+
+### 41. Família na aldeia
+
+Filhos, pais, parceiro e quem precisa de cuidado.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 4101 | **Abraçar o filho**<br>Vê o filho e para para um abraço. | Cuidar | alvo: pessoa | contínuo | 1.9 | acordado · filho · carinhoso · perto · variar |
+| 4102 | **Cuidar do filho pequeno**<br>Fica de olho no filho pequeno. | Cuidar | alvo: pessoa | contínuo | 2.4 | folga · acordado · filho · criança · familiar · perto · variar |
+| 4103 | **Ensinar o filho**<br>Mostra ao filho como se faz o que ele faz. | Ensinar | alvo: pessoa | contínuo | 2 | folga · acordado · filho · paciente · alimentado · descansado · perto · variar |
+| 4104 | **Visitar os pais**<br>Vai ver o pai ou a mãe. | Seguir | alvo: pessoa | contínuo | 2.1 | folga · acordado · pai ou mãe · apegado · perto · variar |
+| 4105 | **Cuidar de um idoso da família**<br>Ajuda um idoso da família no que ele precisar. | Cuidar | alvo: pessoa | contínuo | 2.1 | acordado · idoso · família · bondoso · perto · variar |
+| 4106 | **Cuidar de um doente**<br>Alguém está fraco: senta do lado e cuida dele. | Cuidar | alvo: pessoa | contínuo | 2.4 | fraco · bondoso · laço · perto · variar |
+| 4107 | **Jantar com a família**<br>No fim da tarde, come em casa com a família. | Comer | alvo: casa | contínuo | 2.5 | folga · fim de tarde · apetite · tem comida · familiar · perto · variar |
+| 4108 | **Contar o dia ao parceiro**<br>No fim da tarde, conta ao parceiro como foi o dia. | Conversar | alvo: pessoa | contínuo | 2.4 | folga · fim de tarde · parceiro · livre · perto · variar |
+| 4109 | **Pôr as crianças para dormir**<br>À noitinha, leva o filho pequeno para a cama. | Cuidar | alvo: pessoa | contínuo | 2.5 | anoitecer · filho · criança · perto · variar |
+| 4110 | **Ralhar com o filho**<br>O impaciente dá uma bronca no filho. | Discutir | alvo: pessoa | contínuo | 1.4 | acordado · filho · impaciente · bravo · perto · variar |
+| 4111 | **Preparar a comida da família**<br>No fim da tarde, prepara a comida em casa. | FicarParado | alvo: casa | contínuo | 2 | folga · fim de tarde · tem comida · familiar · perto · variar |
+| 4112 | **Fazer um brinquedo**<br>O jeitoso talha um brinquedo para as crianças de casa. | FicarParado | alvo: casa | contínuo | 1.4 | folga · acordado · jeitoso · familiar · perto · variar |
+| 4113 | **Lembrar os mortos da família**<br>Reza em casa pelos parentes que já morreram. | Rezar | alvo: casa | contínuo | 1.6 | folga · acordado · fé · familiar · perto · variar |
+| 4114 | **Cuidar do parceiro cansado**<br>O parceiro está exausto: ajuda para ele descansar. | Cuidar | alvo: pessoa | contínuo | 2 | acordado · parceiro · cansado · perto · variar |
+| 4115 | **Contar histórias às crianças**<br>No fim da tarde, conta histórias antigas às crianças. | Ensinar | alvo: pessoa | contínuo | 2 | folga · fim de tarde · criança · falante · paciente · perto · variar |
+
+### 42. Lugares da aldeia
+
+Templo, praça, poço, celeiro e obra, fora do trabalho.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 4201 | **Rezar em casa**<br>Com vontade de rezar e sem templo perto, reza em casa. | Rezar | alvo: casa | contínuo | 2 | acordado · fé · devoto · perto · variar |
+| 4202 | **Acender uma vela no templo**<br>O devoto passa no templo e acende uma vela. | Rezar | alvo: templo | contínuo | 2 | acordado · fé · devoto · perto · variar |
+| 4203 | **Agradecer pelo dia**<br>No fim da tarde, agradece no templo pelo dia que passou. | Rezar | alvo: templo | contínuo | 1.9 | folga · fim de tarde · devoto · perto · variar |
+| 4204 | **Pedir proteção no templo**<br>O medroso vai ao templo pedir proteção. | Rezar | alvo: templo | contínuo | 1.8 | acordado · fé · medroso · perto · variar |
+| 4205 | **Sentar perto do templo**<br>Senta à porta do templo em silêncio. | FicarParado | alvo: templo | contínuo | 1.5 | folga · acordado · devoto · paciente · perto · variar |
+| 4206 | **Ouvir o sacerdote**<br>Fica à porta do templo ouvindo o que se fala lá dentro. | Rezar | alvo: templo | contínuo | 1.5 | folga · acordado · fé · curioso · perto · variar |
+| 4207 | **Passear pela praça ao entardecer**<br>No fim da tarde, dá uma volta pela praça. | Passear | alvo: praca | contínuo | 2.2 | folga · fim de tarde · sociável · alimentado · descansado · perto · variar |
+| 4208 | **Ver as crianças brincando**<br>Fica na praça olhando as crianças brincarem. | FicarParado | alvo: praca | contínuo | 1.6 | folga · acordado · gente · familiar · perto · variar |
+| 4209 | **Conferir o celeiro**<br>O preocupado vai ver quanto ainda tem no celeiro. | Passear | alvo: celeiro | contínuo | 1.2 | acordado · celeiro baixo · ambicioso · ganancioso · perto · variar |
+| 4210 | **Varrer a praça**<br>O prestativo varre a praça num momento livre. | FicarParado | alvo: praca | contínuo | 1.4 | folga · acordado · prestativo · diligente · perto · variar |
+| 4211 | **Admirar a obra nova**<br>Vai ver como anda a obra que estão levantando. | Passear | alvo: obra | contínuo | 1.4 | folga · acordado · curioso · perto · variar |
+| 4212 | **Ver a roça crescer**<br>Passa pela roça só para ver como está a plantação. | Passear | alvo: roca | contínuo | 1.2 | folga · acordado · safra · paciente · perto · variar |
+| 4213 | **Buscar água no poço**<br>Leva água do poço da praça para casa. | Beber | alvo: praca | contínuo | 1.6 | de dia · familiar · mãos livres · perto · variar |
+| 4214 | **Dançar na praça**<br>Com gente na praça no fim da tarde, o animado dança. | Festejar | alvo: praca | contínuo | 2 | folga · fim de tarde · gente · sociável · alimentado · descansado · perto · variar |
+| 4215 | **Cantar na praça**<br>O carismático canta para quem estiver na praça. | Festejar | alvo: praca | contínuo | 1.8 | folga · fim de tarde · gente · carismático · perto · variar |
+| 4216 | **Mostrar o que fez**<br>O ambicioso leva à praça algo que fez para os outros verem. | Passear | alvo: praca | contínuo | 1.4 | folga · acordado · gente · ambicioso · perto · variar |
+| 4217 | **Esperar alguém na praça**<br>Com vontade de companhia, espera na praça alguém aparecer. | FicarParado | alvo: praca | contínuo | 1.6 | folga · acordado · vontade de conversar · perto · variar |
+| 4218 | **Ver se chegou comida**<br>Com fome e o celeiro baixo, vai ver se chegou alguma carga. | Passear | alvo: celeiro | contínuo | 1.5 | fome · celeiro baixo · perto · variar |
+| 4219 | **Vigiar o portão à noite**<br>O corajoso fica um pouco no portão olhando a escuridão. | Patrulhar | alvo: portao | contínuo | 1.4 | à noite · sem sono · corajoso · perto · variar |
+| 4220 | **Sentar no banco da praça**<br>Cansado no fim da tarde, senta na praça antes de ir para casa. | FicarParado | alvo: praca | contínuo | 1.8 | folga · fim de tarde · cansaço · perto · variar |
+
+### 43. Ofício e passatempos
+
+Cuidar das ferramentas, treinar, aprender com um colega, talhar e tecer.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 4301 | **Afiar as ferramentas**<br>No fim da tarde, afia as ferramentas para o dia seguinte. | FicarParado | alvo: casa | contínuo | 1.6 | folga · fim de tarde · diligente · perto · variar |
+| 4302 | **Consertar a casa**<br>Remenda uma parede ou o telhado de casa. | Construir | alvo: casa | contínuo | 1.5 | folga · acordado · diligente · jeitoso · alimentado · descansado · perto · variar |
+| 4303 | **Treinar com a lança**<br>O corajoso treina com a lança na praça. | Treinar | alvo: praca | contínuo | 1.5 | folga · acordado · corajoso · forte · alimentado · descansado · perto · variar |
+| 4304 | **Praticar o ofício em casa**<br>O ambicioso pratica o ofício em casa para ficar melhor. | Produzir | alvo: casa | contínuo | 1.6 | folga · fim de tarde · ambicioso · alimentado · descansado · perto · variar |
+| 4305 | **Ajudar um colega no trabalho**<br>Vê um colega trabalhando e dá uma mão. | Cuidar | alvo: pessoa | contínuo | 1.6 | de dia · colega · trabalhando · prestativo · alimentado · descansado · perto · variar |
+| 4306 | **Aprender com um colega**<br>Fica olhando um colega mais experiente trabalhar. | Aprender | alvo: pessoa | contínuo | 1.5 | de dia · colega · curioso · ambicioso · perto · variar |
+| 4307 | **Planejar o dia seguinte**<br>Antes de dormir, o ambicioso pensa no que fazer amanhã. | FicarParado | alvo: casa | contínuo | 1.5 | anoitecer · ambicioso · perto · variar |
+| 4308 | **Talhar madeira**<br>O jeitoso talha um pedaço de madeira à toa. | FicarParado | eu | contínuo | 1.5 | folga · acordado · jeitoso · mãos livres · variar |
+| 4309 | **Tecer um cesto**<br>O paciente tece um cesto sentado em casa. | FicarParado | alvo: casa | contínuo | 1.5 | folga · fim de tarde · paciente · jeitoso · perto · variar |
+| 4310 | **Juntar gravetos**<br>Junta gravetos pela aldeia para o fogo de casa. | Coletar | eu | contínuo | 1.4 | de dia · diligente · familiar · mãos livres · alimentado · descansado · variar |
+| 4311 | **Colher ervas**<br>O curioso procura ervas de chá e de remédio. | Coletar | eu | contínuo | 1.4 | de dia · curioso · paciente · mãos livres · alimentado · descansado · variar |
+| 4312 | **Ler o tempo no céu**<br>Olha as nuvens no fim da tarde para saber como será amanhã. | FicarParado | eu | contínuo | 1.2 | folga · fim de tarde · curioso · paciente · variar |
+| 4313 | **Contar o que tem guardado**<br>O ganancioso confere em casa o que tem guardado. | FicarParado | alvo: casa | contínuo | 1.2 | folga · acordado · ganancioso · perto · variar |
+| 4314 | **Mostrar o ofício a um curioso**<br>Mostra a um conhecido livre como se faz o que ele faz. | Ensinar | alvo: pessoa | contínuo | 1.4 | folga · acordado · adulto · livre · carismático · laço · perto · variar |
+| 4315 | **Fazer força**<br>O forte carrega pedras ou faz força para não perder o braço. | Treinar | eu | contínuo | 1.2 | folga · acordado · forte · alimentado · descansado · mãos livres · variar |
+
+### 44. Brincadeiras
+
+Correr, esconder, imitar os adultos, ouvir histórias e fazer travessuras.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 4401 | **Correr pela aldeia**<br>Sai correndo entre as casas. | Vagar | eu | contínuo | 2 | de dia · agitado · alimentado · descansado · variar |
+| 4402 | **Brincar de esconde-esconde**<br>Com outras crianças na praça, brinca de se esconder. | Brincar | alvo: praca | contínuo | 2.4 | de dia · gente · sociável · alimentado · descansado · perto · variar |
+| 4403 | **Brincar com um amigo**<br>Chama outra criança de quem gosta para brincar. | Brincar | alvo: pessoa | contínuo | 2.5 | de dia · criança · laço · livre · alimentado · descansado · perto · variar |
+| 4404 | **Imitar o trabalho dos adultos**<br>Finge que capina ou que martela, como os grandes. | Brincar | eu | contínuo | 1.8 | de dia · curioso · alimentado · descansado · variar |
+| 4405 | **Ouvir uma história de um idoso**<br>Senta perto de um idoso para ouvir histórias. | Aprender | alvo: pessoa | contínuo | 2.1 | folga · acordado · idoso · curioso · perto · variar |
+| 4406 | **Seguir os pais no trabalho**<br>Vai atrás do pai ou da mãe para ver o trabalho. | Seguir | alvo: pessoa | contínuo | 1.9 | de dia · pai ou mãe · apegado · perto · variar |
+| 4407 | **Brigar com outra criança**<br>A criança brava briga com outra por qualquer coisa. | Discutir | alvo: pessoa | contínuo | 1.4 | acordado · criança · não gosta · brava · perto · variar |
+| 4408 | **Fazer travessura**<br>Sai pela aldeia aprontando alguma. | Vagar | eu | contínuo | 1.4 | de dia · levada · curiosa · alimentado · descansado · variar |
+| 4409 | **Pedir comida aos pais**<br>Com fome, vai até o pai ou a mãe e pede comida (quem vai ao celeiro buscar são eles). | Conversar | alvo: pessoa | contínuo | 2.2 | fome · pai ou mãe · celeiro tem · perto · variar |
+| 4410 | **Cochilar depois de brincar**<br>Cansada de brincar, tira um cochilo em casa. | Dormir | alvo: casa | contínuo | 2 | cansaço · de dia · perto · variar |
+
+### 45. Vida sem lugar
+
+Quem anda sozinho: comer do mato, dormir ao relento, fazer fogo e procurar o seu povo.
+
+| Id | Comportamento | Tipo | Contexto | Duração | Peso | Considerações |
+|---|---|---|---|---|---|---|
+| 4501 | **Ir para o lugar do seu povo**<br>Sabe onde vive o seu povo: anda até lá e, ao chegar, passa a morar ali. | JuntarSe | alvo: assentamento | contínuo | 2.4 | de dia · vontade de gente · alimentado · descansado · perto · variar |
+| 4502 | **Ir ao encontro de outro andarilho**<br>Sem lugar do povo por perto, vai até outro que anda sozinho: juntos podem fundar um lugar. | Seguir | alvo: pessoa | contínuo | 2.2 | não sabe onde ir · longe dele · de dia · vontade de gente · perto · variar |
+| 4503 | **Procurar um bom lugar para viver**<br>Anda até um lugar melhor para viver por perto: verde, com água, ou as ruínas de um lugar antigo. | Explorar | alvo: sitio | contínuo | 1.8 | não sabe onde ir · aqui não serve · de dia · alimentado · descansado · perto · variar |
+| 4504 | **Fundar um lugar com o grupo**<br>Com outros andarilhos juntos e num lugar bom, fundam ali um lugar para viver. | Fundar | eu | contínuo | 3 | não sabe onde ir · em grupo · lugar bom · de dia · variar |
+| 4505 | **Colher frutos no mato**<br>Com fome e sem celeiro, procura frutos e raízes no mato mais verde por perto. | Coletar | alvo: arbusto | contínuo | 2.6 | fome · verde · perto · variar |
+| 4506 | **Beber água no rio**<br>Vai até a beira da água beber e se lavar (e acha alguma coisa para comer na margem). | Beber | alvo: agua | contínuo | 1.5 | de dia · calor e cansaço · perto · variar |
+| 4507 | **Dormir ao relento**<br>Com sono, deita onde está e dorme até descansar (de noite, até o dia nascer). | Dormir | eu | contínuo | 3 | sono · variar |
+| 4508 | **Acender uma fogueira**<br>Ao escurecer, junta gravetos e acende um fogo para passar a noite. | Aquecer | eu | contínuo | 1.9 | anoitecer · jeitoso · variar |
+| 4509 | **Descansar à sombra**<br>Cansado da caminhada, senta à sombra um pouco. | FicarParado | eu | contínuo | 1.7 | cansaço · de dia · variar |
+| 4510 | **Explorar os arredores**<br>Vai ver o que tem ali perto: um vale, uma mata, um rastro. | Explorar | eu | contínuo | 1.4 | de dia · curioso · alimentado · descansado · variar |
+| 4511 | **Subir num alto para olhar longe**<br>Sem saber onde está o seu povo, sobe num lugar alto e olha o horizonte. | Explorar | eu | contínuo | 1.5 | de dia · não sabe onde ir · paciente · alimentado · descansado · variar |
+| 4512 | **Rezar sozinho**<br>A fé pede: ajoelha onde está e reza. | Rezar | eu | contínuo | 1.6 | acordado · fé · devoto · variar |
+| 4513 | **Contemplar as estrelas**<br>De noite, sem sono, fica olhando o céu. | FicarParado | eu | contínuo | 1.2 | à noite · sem sono · curioso · variar |
+| 4514 | **Conversar com outro andarilho**<br>Encontra outro que anda sozinho e conversa um pouco. | Conversar | alvo: pessoa | contínuo | 2.2 | acordado · vontade de conversar · perto · variar |
+| 4515 | **Talhar uma ferramenta**<br>O jeitoso lasca uma pedra ou talha um pau para ter com que se virar. | Produzir | eu | contínuo | 1.2 | de dia · jeitoso · alimentado · descansado · variar |
+| 4516 | **Cantar para si mesmo**<br>No fim da tarde, canta baixinho para espantar a solidão. | Festejar | eu | contínuo | 1.1 | fim de tarde · carismático · sociável · variar |
 
 ## O mundo agregado
 
@@ -445,4 +612,4 @@ Mundo agregado: cada família compara ficar, migrar para um lugar conhecido e fu
 | PerceberTag | Passa a crer que o alvo tem uma tag (ou as tags de ofício que o alvo mostra). (Tagging System) |
 | EsquecerTag | Deixa de crer numa tag do alvo. (Tagging System) |
 
-Total: 135 comportamentos em 24 pacotes e 16 pacotes de habilidade.
+Total: 252 comportamentos em 31 pacotes e 16 pacotes de habilidade.

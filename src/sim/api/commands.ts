@@ -435,6 +435,9 @@ export function applyCommand(eco: Ecosystem, map: SurfaceMap, cmd: EngineCommand
       // Cópia: o comando fica no log e não pode virar o mesmo objeto que o motor guarda.
       eco.focus = cmd.focus ? { x: cmd.focus.x, y: cmd.focus.y, r: cmd.focus.r } : null;
       eco.pinned = cmd.pinned;
+      // Sem foco, o passo não revê mais quem está na tela: os lugares vistos por último seguiriam no modo completo, com
+      // mentes que o retrato não leva (recomeçam ao restaurar), e o mundo posto em dia sairia diferente do replay direto.
+      if (!cmd.focus && eco.watched.size) eco.watch([]);
       return { ok: true };
   }
 }

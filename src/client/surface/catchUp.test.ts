@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { generateSurface, GENERATOR_VERSION } from '../../procgen/surface';
 import { CATCH_UP_YEARS, lostYears, type Runner } from '../../sim/api/catchUp';
-import type { EngineCommand } from '../../sim/api/commands';
+import { viewCommand, type EngineCommand } from '../../sim/api/commands';
 import { createEngine, ecosystemOf, type Engine } from '../../sim/api/engine';
 import type { EngineEvent } from '../../sim/api/events';
-import { replayCase } from '../../sim/api/replay';
+import { replayCase, type ReplayCase } from '../../sim/api/replay';
 import { runSnapshot } from '../../sim/api/runSnapshot';
 import { earthParams } from '../../sim/calibrate';
 import { worldFingerprint } from '../../sim/fingerprint';
@@ -139,15 +139,39 @@ describe('pôr em dia', () => {
     expect(a).toBe(b);
   });
 
+  /** Uma visita ao mundo: o relógio e o log passam de uma para a outra, como no jogo. */
+  const visit = (engine: Engine, record: CommandRecord<EngineCommand>) => {
+    const d = new SimDriver<EngineCommand, EngineEvent>(engine, (cmd) => engine.apply(cmd), { wrapWidth: engine.view.map.width, record });
+    d.setSpeed(0);
+    return d;
+  };
+
+  /** O caso que a aba Tempo copia, já em JSON e de volta: é o que o replay recebe de fora do jogo. */
+  const copied = (engine: Engine, record: CommandRecord<EngineCommand>, step: number) =>
+    JSON.parse(
+      caseJson(
+        debugCase({
+          fingerprint: engine.debug.fingerprint(),
+          seed: SEED,
+          year: engine.view.year,
+          tick: record.tick,
+          step,
+          yearSpan: REAL_YEAR_SECONDS,
+          planet: PLANET,
+          attempt: 0,
+          notes: [],
+          generator: GENERATOR_VERSION,
+          fresh: record.fromStart,
+          log: record.log,
+          logLimit: LOG_LIMIT,
+        }),
+      ),
+    ) as ReplayCase;
+
   it('o caso copiado depois de pôr em dia refaz o mesmo mundo', async () => {
     const first = newEngine();
     const record: CommandRecord<EngineCommand> = { tick: 0, log: [], fromStart: true };
-    const visit = (engine: Engine) => {
-      const d = new SimDriver<EngineCommand, EngineEvent>(engine, (cmd) => engine.apply(cmd), { wrapWidth: engine.view.map.width, record });
-      d.setSpeed(0);
-      return d;
-    };
-    const d1 = visit(first);
+    const d1 = visit(first, record);
     d1.stepBy(2 * STEPS_PER_YEAR);
 
     const state = stateOf(first, 4);
@@ -156,27 +180,45 @@ describe('pôr em dia', () => {
     expect(record.tick).toBe(6 * STEPS_PER_YEAR);
 
     const second = createEngine(r.map, { seed: SEED, eco: r.eco, yearSpan: REAL_YEAR_SECONDS });
-    const d2 = visit(second);
+    const d2 = visit(second, record);
     d2.stepBy(STEPS_PER_YEAR);
     expect(record.tick).toBe(7 * STEPS_PER_YEAR);
 
-    const json = caseJson(
-      debugCase({
-        fingerprint: second.debug.fingerprint(),
-        seed: SEED,
-        year: second.view.year,
-        tick: record.tick,
-        step: d2.h,
-        yearSpan: REAL_YEAR_SECONDS,
-        planet: PLANET,
-        attempt: 0,
-        notes: [],
-        generator: GENERATOR_VERSION,
-        fresh: record.fromStart,
-        log: record.log,
-        logLimit: LOG_LIMIT,
-      }),
-    );
-    expect(replayCase(JSON.parse(json))).toMatchObject({ tick: record.tick, same: true });
+    expect(replayCase(copied(second, record, d2.h))).toMatchObject({ tick: record.tick, same: true });
+  });
+
+  it('um passo com a vista aberta, sair, pôr em dia, voltar e dois passos: o caso copiado refaz o mesmo mundo', async () => {
+    const first = newEngine();
+    const map = first.view.map;
+    // A vista do jogo ao abrir: o mapa inteiro na tela.
+    const whole = viewCommand(map.width / 2, map.height / 2, map.width / 2, -1);
+    const record: CommandRecord<EngineCommand> = { tick: 0, log: [], fromStart: true };
+    const d1 = visit(first, record);
+    d1.enqueue(whole);
+    d1.stepBy(1);
+    // O passo com a vista pôs lugares no modo completo: as mentes deles ficam fora do retrato que vai ao Worker.
+    const before = ecosystemOf(first);
+    expect(before.watched.size).toBeGreaterThan(0);
+
+    const state = stateOf(first, 2);
+    state.replays.set(PLANET.id, record);
+    const r = (await catchUpPlanet(state, PLANET.id, { run: direct, seed: SEED }))!;
+    // Quem saiu não deixa lugar nenhum no modo completo: o mundo que roda fora é o mesmo com ou sem retrato.
+    expect(before.watched.size).toBe(0);
+    expect(record.tick).toBe(1 + 2 * STEPS_PER_YEAR);
+
+    const second = createEngine(r.map, { seed: SEED, eco: r.eco, yearSpan: REAL_YEAR_SECONDS });
+    const d2 = visit(second, record);
+    d2.enqueue(whole);
+    d2.stepBy(2);
+    expect(record.log.map((e) => [e.tick, e.cmd.kind])).toEqual([
+      [0, 'view'],
+      [1, 'view'],
+      [record.tick - 2, 'caughtUp'],
+      [record.tick - 2, 'view'],
+    ]);
+
+    const caso = copied(second, record, d2.h);
+    expect(replayCase(caso)).toMatchObject({ tick: record.tick, fingerprint: caso.fingerprint, same: true });
   });
 });
