@@ -10,7 +10,7 @@
  */
 import type { Ecosystem } from '../ecosystem';
 import { wrapDx } from '../settlement';
-import type { Coisa, PessoaGen } from '../generativa/tipos';
+import { GEN, type Coisa, type PessoaGen } from '../generativa/tipos';
 import { nomeDaLente, nomeDoAto, nomeDoHabito } from './nomes';
 
 export interface Agrupamento {
@@ -208,10 +208,38 @@ export function retrato(eco: Ecosystem, raio = 7): Agrupamento[] {
   return out.sort((a, b) => b.quantos - a.quantos || a.membros[0] - b.membros[0]);
 }
 
-/** O mundo generativo numa linha (para a sonda e o topo do painel). */
-export function resumoDoMundo(eco: Ecosystem): string {
+/** O mundo generativo em números, para o painel do jogador e o resumo: só contagem, sem rótulo. */
+export interface NumerosDoMundo {
+  /** Do ciclo da pessoa: o hemisfério norte está no verão, outono, inverno ou primavera (o sul, no oposto). */
+  estacao: 'verão' | 'outono' | 'inverno' | 'primavera';
+  gente: number;
+  criancas: number;
+  gravidas: number;
+  nascidos: number;
+  mortos: number;
+  abates: number;
+  abatesGrandes: number;
+  abatesJuntos: number;
+  montes: number;
+  abrigos: number;
+  fogos: number;
+  guardado: number;
+  plantas: number;
+  /** Por pessoa: crenças aprendidas (fora o instinto, com confiança), lentes e hábitos. */
+  saber: number;
+  lentes: number;
+  habitos: number;
+}
+
+/** A estação do norte no ciclo da pessoa (o sul tem a oposta). */
+export function estacaoDoNorte(eco: Ecosystem): NumerosDoMundo['estacao'] {
+  const fase = ((eco.year * eco.yearSpan) / GEN.estacao) % 1;
+  return fase < 0.125 || fase >= 0.875 ? 'verão' : fase < 0.375 ? 'outono' : fase < 0.625 ? 'inverno' : 'primavera';
+}
+
+export function numerosDoMundo(eco: Ecosystem): NumerosDoMundo | null {
   const g = eco.gen;
-  if (!g) return 'mundo sem o modelo generativo';
+  if (!g) return null;
   const gente = pessoasGen(eco);
   let criancas = 0;
   let saber = 0;
@@ -236,8 +264,34 @@ export function resumoDoMundo(eco: Ecosystem): string {
     if (c.planta >= 1 || c.broto > 0) plantas++;
   }
   const q = Math.max(1, gente.length);
+  return {
+    estacao: estacaoDoNorte(eco),
+    gente: gente.length,
+    criancas,
+    gravidas,
+    nascidos: g.conta.nascidos,
+    mortos: g.conta.mortos,
+    abates: g.conta.abates ?? 0,
+    abatesGrandes: g.conta.abatesGrandes ?? 0,
+    abatesJuntos: g.conta.abatesJuntos ?? 0,
+    montes: g.coisas.length,
+    abrigos,
+    fogos,
+    guardado,
+    plantas,
+    saber: saber / q,
+    lentes: lentes / q,
+    habitos: habitos / q,
+  };
+}
+
+/** O mundo generativo numa linha (para a sonda e o topo do painel). */
+export function resumoDoMundo(eco: Ecosystem): string {
+  const n = numerosDoMundo(eco);
+  if (!n) return 'mundo sem o modelo generativo';
   const f = (x: number) => x.toFixed(1).replace('.', ',');
-  return `gente ${gente.length} (${criancas} pequenos, ${gravidas} grávidas), nascidos ${g.conta.nascidos}, mortos ${g.conta.mortos}; montes ${g.coisas.length}, abrigos ${abrigos}, fogos ${fogos}, guardado ${f(guardado)}, plantas ${plantas}; por pessoa: ${f(saber / q)} crenças aprendidas, ${f(lentes / q)} lentes, ${f(habitos / q)} hábitos`;
+  const caca = n.abates ? `; bichos abatidos ${n.abates} (${n.abatesGrandes} grandes, ${n.abatesJuntos} com outros batendo junto)` : '';
+  return `${n.estacao} no norte; gente ${n.gente} (${n.criancas} pequenos, ${n.gravidas} grávidas), nascidos ${n.nascidos}, mortos ${n.mortos}${caca}; montes ${n.montes}, abrigos ${n.abrigos}, fogos ${n.fogos}, guardado ${f(n.guardado)}, plantas ${n.plantas}; por pessoa: ${f(n.saber)} crenças aprendidas, ${f(n.lentes)} lentes, ${f(n.habitos)} hábitos`;
 }
 
 export interface Primeira {

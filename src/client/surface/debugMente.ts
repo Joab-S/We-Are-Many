@@ -61,7 +61,7 @@ function resumoHtml(m: MenteDebug, titulo: string): string {
 
 /** A aba Mente: a pessoa fixada na ficha, por dentro. `outra` é a pessoa guardada para comparar. */
 export function mindTabHtml(m: MenteDebug | null, outra: MenteDebug | null, generativo: boolean): string {
-  if (!generativo) return emptyState('Este mundo não usa a mente generativa', 'Abra o jogo com ?mente=generativa&debug num planeta novo: as pessoas começam espalhadas, só com o instinto.');
+  if (!generativo) return emptyState('Este mundo não usa a mente generativa', 'Comece um mundo novo com a mente generativa (botão Mundo novo) e desça num planeta: as pessoas começam espalhadas, só com o instinto.');
   if (!m) return emptyState('Nenhuma pessoa fixada', 'Clique numa pessoa do mundo generativo para fixar a ficha dela: aqui aparecem as opções que ela gerou agora, o que ela sente, o que acredita e de onde veio cada ideia.');
   const melhor = Math.max(0, ...m.opcoes.map((o) => o.nota));
   const corpo = [m.corpo.mao ? `na mão: ${m.corpo.mao}` : '', m.corpo.gravida ? 'grávida' : '', m.corpo.colo ? `com #${m.corpo.colo} no colo` : '', m.corpo.filhos ? `${m.corpo.filhos} filhos pequenos` : '', m.corpo.segue ? `seguindo #${m.corpo.segue}` : '', m.corpo.seguidores ? `${m.corpo.seguidores} a seguem` : '', m.corpo.ferida > 0.05 ? `ferida ${num(m.corpo.ferida)}` : ''].filter(Boolean).join(' · ');
@@ -87,7 +87,7 @@ export function mindTabHtml(m: MenteDebug | null, outra: MenteDebug | null, gene
 
 /** A aba Coletivo: o retrato sem rótulo, as primeiras vezes e a difusão de uma crença ou lente. */
 export function collectiveTabHtml(c: ColetivoDebug | null, dif: Difusao | null): string {
-  if (!c) return emptyState('Este mundo não usa a mente generativa', 'Abra o jogo com ?mente=generativa&debug num planeta novo.');
+  if (!c) return emptyState('Este mundo não usa a mente generativa', 'Comece um mundo novo com a mente generativa (botão Mundo novo) e desça num planeta.');
   const f = (x: number, d = 1) => (Number.isNaN(x) ? '?' : x.toFixed(d).replace('.', ','));
   const grupos = c.grupos.slice(0, 12).map((g) => `<details class="wb-dopt"><summary><div class="wb-kv"><span><button class="wb-link" data-dgo="${Math.round(g.x)},${Math.round(g.y)}">${Math.round(g.x)},${Math.round(g.y)}</button> <b>${g.quantos}</b> juntos (${g.criancas} pequenos)</span><span class="wb-dim">andam ${f(g.movimento)}/ano · ${f(g.noites)} noites no lugar · ${Math.round(g.seguem * 100)}% seguem o mesmo</span></div></summary>
       ${kv('Quanto se movem', meter(Math.min(1, (Number.isNaN(g.movimento) ? 0 : g.movimento) / 8), `${f(g.movimento)} tiles por ano`, 'info'))}
@@ -117,7 +117,21 @@ export function collectiveTabHtml(c: ColetivoDebug | null, dif: Difusao | null):
     ${difusao}`;
 }
 
-/** O bloco da ficha da pessoa (aba da decisão) no mundo generativo: o que faz, por quê, e o que mais pensou. */
+/** A distância em tiles, curta: "aqui", "a 3 tiles". */
+const longe = (d: number) => (d < 1.2 ? 'aqui' : `a ${Math.round(d)} ${Math.round(d) === 1 ? 'tile' : 'tiles'}`);
+/** O tipo do alvo de uma ideia em palavras (o nome da ideia já diz a coisa; isto diz onde ela está). */
+const ALVO: Record<string, string> = { tile: 'ali no chão', pessoa: 'uma pessoa', animal: 'um bicho', carcaca: 'um bicho morto', coisa: 'um monte', lugar: 'um lugar lembrado', mao: 'na mão', aqui: 'ali mesmo' };
+const onde = (o: OpcaoDebug) => (o.alvo === 'mao' || o.alvo === 'aqui' ? cap(ALVO[o.alvo]) : `${cap(ALVO[o.alvo] ?? o.alvo)}, ${longe(o.dist)}`);
+/** O quanto uma crença muda alguma sensação (0 = não muda nada). */
+const peso = (c: MenteDebug['crencas'][number]) => c.e.reduce((r, x) => Math.max(r, Math.abs(x)), 0);
+/** Como uma decisão acabou, para a lista das últimas. */
+const FIM: Record<string, string> = { feito: 'deu certo', falhou: 'não deu', trocou: 'largou no meio', '': 'fazendo' };
+
+/**
+ * A aba Mente da ficha no mundo generativo, para o jogador: o que faz e por quê, o que sente, as outras ideias que
+ * teve (com o alvo e a distância), o que aprendeu e de quem, e como acabaram as últimas tentativas. Tudo do mesmo
+ * dado que o painel F3 mostra com a conta inteira.
+ */
 export function fichaGenerativaHtml(m: MenteDebug): string {
   const melhor = Math.max(1e-6, ...m.opcoes.map((o) => o.nota));
   const escolhida = m.opcoes.find((o) => o.escolhida);
@@ -127,10 +141,29 @@ export function fichaGenerativaHtml(m: MenteDebug): string {
   const porque = escolhida
     ? `<p class="cs-say">Acredita que isso alivia ${motivo.length ? esc(motivo.join(' e ')) : 'o que sente'}${escolhida.cadeia ? `, e que depois dá para ${esc(escolhida.cadeia)}` : ''}.${veio ? ` Sabe disso por: ${esc(veio.origem)}.` : ' Nunca fez: quer ver o que acontece.'}</p>`
     : '<p class="cs-say">Está pensando no que fazer.</p>';
+  const alvo = escolhida ? `<p class="cs-fine">${esc(onde(escolhida))}${escolhida.habito ? ' · por costume' : ''}</p>` : '';
   const outras = m.opcoes.filter((o) => !o.escolhida && !o.cortada).slice(0, 4);
   const piores = m.necessidades.filter((n) => n.valor >= 0.3).sort((a, b) => b.valor - a.valor).slice(0, 5);
-  return `<div class="cs-pick"><div class="cs-pick-head"><b>${esc(cap(m.agora || 'Parada'))}</b>${escolhida ? barra(escolhida.nota / melhor) : ''}</div>${porque}</div>
+  const aprendidas = m.crencas.filter((c) => c.tipo !== 'instinto');
+  // Primeiro o que muda alguma coisa, pelo tanto que muda vezes a confiança; o que ela testou e não mudou nada fica na conta.
+  const uteis = aprendidas.filter((c) => peso(c) >= 0.05).sort((a, b) => peso(b) * b.confianca - peso(a) * a.confianca);
+  const sabe = uteis
+    .slice(0, 6)
+    .map((c) => `<li><span><b>${esc(cap(c.nome))}</b><em>${esc(c.efeito)} · ${esc(c.origem)}${c.vezes > 1 ? ` · ${c.vezes} vezes` : ''}</em></span>${barra(c.confianca)}</li>`)
+    .join('');
+  const lentes = m.lentes.slice(0, 3).map((l) => `<li><span><b>◐ ${esc(cap(l.texto))}</b><em>${esc(l.origem)}</em></span>${barra(l.forca)}</li>`).join('');
+  const costumes = m.habitos.slice(0, 3).map((h) => `<li><span><b>↻ ${esc(cap(h.texto))}</b><em>${esc(h.efeito)} · ${h.vezes} vezes</em></span></li>`).join('');
+  const ultimas = m.linha
+    .slice(-5)
+    .reverse()
+    .map((r) => `<li class="${r.fim === 'feito' ? 'good' : r.fim === 'falhou' ? 'bad' : ''}"><span><b>${esc(cap(r.nome))}</b><em>${FIM[r.fim] ?? r.fim}${r.surpresa ? ' · surpreendeu' : ''}</em></span></li>`)
+    .join('');
+  return `<div class="cs-pick"><div class="cs-pick-head"><b>${esc(cap(m.agora || 'Parada'))}</b>${escolhida ? barra(escolhida.nota / melhor) : ''}</div>${porque}${alvo}</div>
     ${piores.length ? `<p class="cs-fine">Sente: ${piores.map((n) => `${esc(n.nome.replace(/^a |^o /, ''))} ${Math.round(n.valor * 100)}%`).join(' · ')}</p>` : ''}
-    ${outras.map((o) => `<div class="cs-alt"><div class="cs-alt-head"><b>${esc(cap(o.nome))}</b>${barra(o.nota / melhor)}</div></div>`).join('')}
-    <p class="cs-fine">Sabe ${m.crencas.filter((c) => c.tipo !== 'instinto').length} coisas além do instinto${m.lentes.length ? `, e vê o mundo por ${m.lentes.length} lente${m.lentes.length > 1 ? 's' : ''}: ${esc(m.lentes.slice(0, 2).map((l) => l.texto).join('; '))}` : ''}${m.habitos.length ? `. Costumes: ${esc(m.habitos.map((h) => h.texto).join('; '))}` : ''}. Com ?debug, a aba Mente do painel (F3) mostra a conta inteira.</p>`;
+    ${outras.length ? `<div class="cs-sec"><span>Também pensou em</span></div>` : ''}
+    ${outras.map((o) => `<div class="cs-alt"><div class="cs-alt-head"><b>${esc(cap(o.nome))}</b>${barra(o.nota / melhor)}</div><p class="cs-fine">${esc(onde(o))}</p></div>`).join('')}
+    <div class="cs-sec"><span>O que aprendeu</span></div>
+    <p class="cs-fine">Sabe ${aprendidas.length} coisas além do instinto (${uteis.length} que mudam algo; o resto testou e viu que não muda nada)${m.lentes.length ? ` e vê o mundo por ${m.lentes.length} ${m.lentes.length > 1 ? 'lentes' : 'lente'}` : ''}${m.habitos.length ? `, com ${m.habitos.length} ${m.habitos.length > 1 ? 'costumes' : 'costume'}` : ''}. A barra é a confiança.</p>
+    ${sabe || lentes || costumes ? `<ul class="cs-learn">${lentes}${costumes}${sabe}</ul>` : ''}
+    ${ultimas ? `<div class="cs-sec"><span>Últimas tentativas</span></div><ul class="cs-learn">${ultimas}</ul>` : ''}`;
 }

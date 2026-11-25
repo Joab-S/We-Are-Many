@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { loadManifest, loadNames } from '../universe/loader';
-import { DEBUG } from './debug';
+import { DEBUG, GENERATIVA } from './debug';
 import { AdaptiveResolution } from './quality';
 import { SoftRenderer, webglAvailable, type GameRenderer } from './renderer';
 import { seedFor } from '../core/rng';
@@ -213,7 +213,7 @@ async function autosave(view?: ViewSnapshot): Promise<boolean> {
   }
 }
 
-function newState(manifest: GameState['manifest'], names: GameState['names']): GameState {
+function newState(manifest: GameState['manifest'], names: GameState['names'], mente?: GameState['mente']): GameState {
   const state: GameState = {
     manifest,
     names,
@@ -232,6 +232,8 @@ function newState(manifest: GameState['manifest'], names: GameState['names']): G
     knownSpecies: new Map(nativeSpecies(planetParams(SOL_PLANETS[2])).map((sp) => [sp.id, sp])),
     nav: createNavState(),
     probes: createProbeState(),
+    // `?mente=generativa` vale como ter escolhido a mente generativa no mundo novo.
+    ...(mente === 'generativa' || GENERATIVA ? { mente: 'generativa' as const } : {}),
   };
   const m = new THREE.Matrix4().lookAt(state.shipPos, new THREE.Vector3(), new THREE.Vector3(0, 0, 1));
   state.shipQuat.setFromRotationMatrix(m);
@@ -281,10 +283,11 @@ async function boot(): Promise<void> {
       } else ui.toast(r.status === 'empty' ? 'Ainda não há save.' : `Save não carregado: ${r.reason}`);
     },
     newWorld: async () => {
-      if (!confirm('Começar um mundo novo? O progresso salvo será apagado.')) return;
+      const choice = await ui.chooseNewWorld();
+      if (!choice) return;
       await saves.clear();
-      startFrom(newState(manifest, names), { mode: 'space' });
-      ui.toast('Mundo novo.');
+      startFrom(newState(manifest, names, choice === 'generativa' ? 'generativa' : undefined), { mode: 'space' });
+      ui.toast(choice === 'generativa' ? 'Mundo novo, com a mente generativa.' : 'Mundo novo.');
     },
   });
   if (notice) ui.toast(notice);

@@ -8,7 +8,8 @@
  * Os únicos limiares daqui são físicos (tantos galhos cobrem uma pessoa). Nada aqui sabe o que é um grupo.
  */
 import type { Ecosystem } from '../ecosystem';
-import { temperatureAt, decorAt, isTree, tileHash, Decor } from '../../procgen/surface';
+import { temperatureAt, decorAt, isTree, tileHash, Decor, seasonStrength, type SurfaceMap } from '../../procgen/surface';
+import { ecologyOf } from '../fauna';
 import { isRockyBiome } from '../../procgen/biomes';
 import { TRAIT, TRAIT_COUNT, inheritTraits } from '../../IAUS/npc/pessoa/traits';
 import { bondWith, touch } from '../../IAUS/npc/pessoa/relations';
@@ -62,12 +63,23 @@ function porTile(g: MundoGen): Map<number, Coisa> {
   return m;
 }
 
-export const novoMundoGen = (): MundoGen => ({ versao: 1, pessoas: new Map(), coisas: [], proxCoisa: 1, proxHabito: 1, colhido: new Map(), tirado: new Map(), relogio: 0, conta: { nascidos: 0, mortos: 0, concepcoes: 0 } });
+export const novoMundoGen = (): MundoGen => ({ versao: 1, pessoas: new Map(), coisas: [], proxCoisa: 1, proxHabito: 1, colhido: new Map(), tirado: new Map(), relogio: 0, conta: { nascidos: 0, mortos: 0, concepcoes: 0, abates: 0, abatesGrandes: 0, abatesJuntos: 0 } });
 
 /** O sexo é um fato do corpo, tirado do uid (o motor não guarda um). */
 export const fem = (uid: number): boolean => uid % 2 === 0;
 
 const q = (c: Coisa, m: Material): number => c.m[m] ?? 0;
+
+/** A força das estações no planeta (inclinação do eixo e luz recebida), guardada por mapa. */
+const FORCA_DA_ESTACAO = new WeakMap<SurfaceMap, number>();
+function forcaDaEstacao(map: SurfaceMap): number {
+  let f = FORCA_DA_ESTACAO.get(map);
+  if (f === undefined) FORCA_DA_ESTACAO.set(map, (f = Math.max(0, Math.min(1.5, seasonStrength(map.params)))));
+  return f;
+}
+
+/** O quanto o que se tem na mão soma ao golpe (a lasca já entra na força do corpo). */
+const ARMA: Partial<Record<Material, number>> = { pedra: 1.2, lasca: 1.3 };
 
 export const genFisicaPart = {
   /** A parte generativa da pessoa `i`, criada (só com o instinto) na primeira vez. */
@@ -92,7 +104,35 @@ export const genFisicaPart = {
       }
     }
     const fruta = isTree(decorAt(this.map, t)) ? 0.2 : 0;
-    return Math.max(0, Math.min(1, veg * 1.1 + fruta) * (1 - Math.min(1, falta)));
+    return Math.max(0, Math.min(1, Math.min(1, veg * 1.1 + fruta) * (1 - Math.min(1, falta)) * (1 + 2 * GEN.invernoComida * this.genVerao(t))));
+  },
+
+  /**
+   * O quanto é inverno no tile agora (0 a 1): a fase do ciclo de estações da pessoa (`GEN.estacao`, separado do
+   * ano do mundo) vezes a força da estação ali, que cresce com a latitude e com a inclinação do planeta. O sul
+   * tem o inverno na metade oposta do ciclo. No trópico a estação quase não se sente.
+   */
+  genInverno(this: Ecosystem, t: number): number {
+    return this.genAmplitude(t) / 2 - this.genVerao(t);
+  },
+
+  /**
+   * O desvio da estação no tile (de −amp/2 no fundo do inverno a +amp/2 no auge do verão). A média do ciclo é
+   * zero: o verão dá a mais o que o inverno tira, então o mato do ano não muda, só a época dele.
+   */
+  genVerao(this: Ecosystem, t: number): number {
+    const amp = this.genAmplitude(t);
+    if (amp <= 0) return 0;
+    const map = this.map;
+    const fase = (this.year * this.yearSpan) / GEN.estacao + (Math.floor(t / map.width) >= map.height / 2 ? 0.5 : 0);
+    return (amp * Math.cos(2 * Math.PI * fase)) / 2;
+  },
+
+  /** A força da estação no tile (0 a 1): cresce com a latitude e com a inclinação do planeta. */
+  genAmplitude(this: Ecosystem, t: number): number {
+    const map = this.map;
+    const lat = Math.abs((2 * (Math.floor(t / map.width) + 0.5)) / map.height - 1);
+    return Math.min(1, (0.1 + 0.9 * lat) * forcaDaEstacao(map));
   },
 
   /** Tira do tile uma fração do que ele dá (o mato colhido demora a rebrotar). */
@@ -189,6 +229,53 @@ export const genFisicaPart = {
     return adulto * velho * (1 + 0.03 * this.traits[i * TRAIT_COUNT + TRAIT.strength]) * (1 - 0.5 * (p?.ferida ?? 0)) * (p?.mao?.que === 'lasca' ? 1.4 : 1);
   },
 
+  /**
+   * Um golpe de `i` no bicho `j`: a força de quem bate, mais a de quem bate no mesmo bicho junto (e um pouco a de
+   * quem só está ali, cercando), contra o corpo dele, que resiste pela massa. Um coelho cai com qualquer golpe que
+   * acerta; um bisão quase não cai de um só, e um mamute pede muita gente. Nada aqui sabe o que é uma caçada.
+   */
+  genGolpe(this: Ecosystem, i: number, j: number, bravo: boolean): { chance: number; juntos: number; perto: number; massa: number } {
+    const g = this.gen!;
+    const arma = (k: number) => ARMA[g.pessoas.get(this.uid[k])?.mao?.que as Material] ?? 1;
+    let forca = this.genForca(i) * arma(i);
+    let juntos = 0;
+    let perto = 0;
+    const alvo = this.uid[j];
+    this.forEachNear(this.x[j], this.y[j], 3, (k) => {
+      if (k === i || this.species[this.kind[k]].kind !== 'sapient' || !g.pessoas.has(this.uid[k])) return;
+      const op = this.genMenteDe(k)?.ato?.op;
+      if (op?.v === 'bater' && op.a.id === alvo) {
+        juntos++;
+        forca += this.genForca(k) * arma(k);
+      } else if (this.age[k] >= this.species[this.kind[k]].maturity) {
+        perto++;
+        forca += 0.25 * this.genForca(k);
+      }
+    });
+    const massa = ecologyOf(this.species[this.kind[j]]).mass;
+    const resiste = Math.pow(Math.max(0.5, massa) / GEN.massaRef, GEN.resiste) * (bravo ? 2 : 1);
+    return { chance: 1 - Math.exp((-GEN.golpe * forca) / resiste), juntos, perto, massa };
+  },
+
+  /** O que se vê num bicho de pasto: carne (mais quanto maior), o tamanho, se é dos que fogem e se já há gente batendo nele. */
+  genTagsDoBicho(this: Ecosystem, j: number): Record<string, number> {
+    const e = ecologyOf(this.species[this.kind[j]]);
+    const out: Record<string, number> = { animal: 1, carne: Math.min(1, 0.4 + 0.2 * Math.log10(Math.max(1, e.mass))) };
+    const grande = Math.log10(e.mass / GEN.massaRef) / 1.5;
+    if (grande > 0.05) out.grande = Math.min(1, grande);
+    if (e.fear >= 0.5) out.fugidio = e.fear;
+    // Gente batendo nele agora: um fato que se vê de longe (é o que deixa alguém notar que dá para ir junto).
+    let batendo = 0;
+    const alvo = this.uid[j];
+    this.forEachNear(this.x[j], this.y[j], 3, (k) => {
+      if (this.species[this.kind[k]].kind !== 'sapient') return;
+      const op = this.genMenteDe(k)?.ato?.op;
+      if (op?.v === 'bater' && op.a.id === alvo) batendo++;
+    });
+    if (batendo) out.acuado = Math.min(1, batendo / 3);
+    return out;
+  },
+
   /** O que `i` vê em outra pessoa `j`: fatos, nunca papéis. */
   genTagsDaPessoa(this: Ecosystem, i: number, j: number): Record<string, number> {
     const sp = this.species[this.kind[j]];
@@ -247,10 +334,12 @@ export const genFisicaPart = {
       const c = g.coisas[k];
       if (c.fogo > 0) c.fogo = Math.max(0, c.fogo - s);
       const fertil = this.map.vegetation[c.t] > 0.2 && isLand(this.map, c.t);
+      // No frio do inverno a comida guardada dura mais e a semente espera a terra esquentar.
+      const inverno = this.genInverno(c.t);
       for (const m of ['comida', 'carne'] as const) {
         const n = q(c, m);
         if (n <= 0) continue;
-        const perde = Math.min(n, n * GEN.estraga * (m === 'carne' ? 3 : 1) * anos + 0.002 * s);
+        const perde = Math.min(n, (n * GEN.estraga * (m === 'carne' ? 3 : 1) * anos + 0.002 * s) * (1 - GEN.invernoEstraga * inverno));
         c.m[m] = n - perde;
         // A fruta que apodrece na terra boa deixa semente (pouca): quem volta ali acha planta.
         if (m === 'comida' && fertil) c.m.semente = q(c, 'semente') + perde * 0.15;
@@ -263,7 +352,7 @@ export const genFisicaPart = {
       }
       const sem = q(c, 'semente');
       if (sem >= 0.5 && fertil) {
-        c.broto += anos / GEN.brotar;
+        c.broto += (anos / GEN.brotar) * (1 - inverno);
         if (c.broto >= 1) {
           c.planta += sem * GEN.colheita;
           delete c.m.semente;
@@ -565,17 +654,19 @@ export const genFisicaPart = {
         if (a.tipo === 'animal') {
           if (!viva) return NADA;
           const bravo = (a.tags.perigoso ?? 0) > 0;
-          let ajuda = 0;
-          this.forEachNear(this.x[i], this.y[i], 4, (k) => {
-            if (k !== i && this.species[this.kind[k]].kind === 'sapient') ajuda++;
-          });
-          const chance = (bravo ? 0.05 : 0.18) + 0.12 * this.genForca(i) + (p.mao?.que === 'lasca' ? 0.2 : p.mao?.que === 'pedra' ? 0.08 : 0) + 0.1 * Math.min(3, ajuda);
-          if (rnd() < chance) {
+          const golpe = this.genGolpe(i, j, bravo);
+          if (rnd() < golpe.chance) {
             this.leaveCarcass(j);
             this.kill(j, true, 'predador');
+            g.conta.abates++;
+            if (golpe.massa >= GEN.grande) g.conta.abatesGrandes++;
+            if (golpe.juntos > 0) g.conta.abatesJuntos++;
             return feito();
           }
-          if (bravo && rnd() < 0.5 / (1 + ajuda)) p.ferida = Math.min(1.2, p.ferida + 0.3);
+          // O golpe que falha: o bicho bravo morde, e o bicho grande revida (com chifre, casco e peso), mais em quem está só.
+          const outros = golpe.juntos + 0.5 * golpe.perto;
+          if (bravo && rnd() < 0.5 / (1 + outros)) p.ferida = Math.min(1.2, p.ferida + 0.3);
+          else if (golpe.massa >= GEN.grande && rnd() < (GEN.revide * Math.min(1, 0.5 + Math.log10(golpe.massa / GEN.grande))) / (1 + outros)) p.ferida = Math.min(1.2, p.ferida + 0.25);
           return NADA;
         }
         if (a.tipo === 'pessoa') {
@@ -770,7 +861,7 @@ export const genFisicaPart = {
 
   /** Temperatura sentida no tile (K): o clima, a noite, o fogo e o abrigo de onde se está. */
   genTemperatura(this: Ecosystem, t: number, noite: number): number {
-    let temp = temperatureAt(this.map, t) - 7 * noite;
+    let temp = temperatureAt(this.map, t) - 7 * noite + 2 * GEN.invernoFrio * this.genVerao(t);
     const c = this.genCoisaEm(t);
     if (c) temp += (c.fogo > 0 ? 9 : 0) + 6 * this.genAbrigo(c) * (noite > 0.3 || temp < 283 ? 1 : 0);
     return temp;

@@ -67,10 +67,13 @@ const TAG: Record<string, string> = {
   naMao: 'o que tenho na mão',
   animal: 'bicho',
   fugidio: 'bicho que foge',
+  grande: 'bicho grande',
+  acuado: 'bicho com gente batendo nele',
   morto: 'bicho morto',
   lembrado: 'um lugar de que lembro',
   lugarMeu: 'um lugar onde já vivi bem',
   noite: 'a noite caída',
+  inverno: 'o inverno',
   sozinho: 'ninguém por perto',
 };
 

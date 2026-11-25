@@ -3,7 +3,7 @@
  * aprendeu, o que construiu). Não é teste de aceite: nenhum resultado com nome é esperado aqui.
  *
  *   npx vitest run --config vitest.calib.config.ts src/sim/generativa/sonda.calib.ts
- *   SEEDS=1,2,3 ANOS=120 GENTE=40 ...
+ *   SEEDS=1,2,3 ANOS=120 GENTE=40 ANO=12 ...
  */
 import { it } from 'vitest';
 import { earthParams, seedPlanet } from '../calibrate';
@@ -15,10 +15,13 @@ declare const process: { env: Record<string, string | undefined> };
 const seeds = (process.env.SEEDS ?? '42,7,3').split(',').map(Number);
 const anos = Number(process.env.ANOS ?? 80);
 const quantos = Number(process.env.GENTE ?? 40);
+/** Segundos de um ano. O jogo usa 12 (REAL_YEAR_SECONDS, src/client/surface/tools.ts); os testes do motor, 6. */
+const ano = process.env.ANO ? Number(process.env.ANO) : 12;
 
 it('sonda do mundo generativo', () => {
   for (const seed of seeds) {
     const { eco, placed } = seedPlanet(earthParams(0.4), seed, undefined, { espalhados: quantos });
+    eco.yearSpan = ano;
     const t0 = performance.now();
     const linhas: string[] = [];
     const causas: Record<string, number> = {};

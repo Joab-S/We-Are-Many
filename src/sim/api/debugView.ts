@@ -1,5 +1,5 @@
-import { exportarMundo, menteDebug, type MenteDebug } from '../observador/pessoa';
-import { conhecimentos, difusao, mapaDoColetivo, primeirasVezes, resumoDoMundo, retrato, type Difusao, type MapaDoColetivo } from '../observador/retrato';
+import { agoraDe, exportarMundo, menteDebug, type MenteDebug } from '../observador/pessoa';
+import { conhecimentos, difusao, mapaDoColetivo, numerosDoMundo, primeirasVezes, resumoDoMundo, retrato, type Difusao, type MapaDoColetivo, type NumerosDoMundo } from '../observador/retrato';
 import type { ColetivoDebug } from './debug';
 import { B } from '../live';
 import type { SurfaceMap } from '../../procgen/surface';
@@ -326,9 +326,20 @@ export class EngineDebug implements DebugView {
     return i >= 0 && i < this.eco.count ? menteDebug(this.eco, i) : null;
   }
 
+  agora(i: number): string | null {
+    return i >= 0 && i < this.eco.count ? agoraDe(this.eco, i) : null;
+  }
+
   coletivo(): ColetivoDebug | null {
     if (!this.eco.gen) return null;
     return { resumo: resumoDoMundo(this.eco), grupos: retrato(this.eco), primeiras: primeirasVezes(this.eco).slice(), sabem: conhecimentos(this.eco) };
+  }
+
+  mundoGen(): NumerosDoMundo | null {
+    if (!this.eco.gen) return null;
+    // O observador anota as primeiras vezes quando olha: o painel do jogador olha sempre, então elas saem na hora.
+    primeirasVezes(this.eco);
+    return numerosDoMundo(this.eco);
   }
 
   difusao(chave: string): Difusao | null {

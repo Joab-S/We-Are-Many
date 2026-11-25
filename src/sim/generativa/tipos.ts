@@ -240,7 +240,7 @@ export interface MundoGen {
   /** Relógio da física das coisas (s). */
   relogio: number;
   /** Contas do mundo (só para a sonda e o painel; nada decide por elas). */
-  conta: { nascidos: number; mortos: number; concepcoes: number };
+  conta: { nascidos: number; mortos: number; concepcoes: number; abates: number; abatesGrandes: number; abatesJuntos: number };
 }
 
 /** Os números da física e do aprendizado. */
@@ -264,6 +264,26 @@ export const GEN = {
   sentido: 300,
   respeito: 220,
   desejo: 15,
+  /**
+   * Estações no relógio da pessoa (s): um ciclo inteiro de verão a verão, separado do ano do mundo (que dura menos
+   * que uma refeição). Onde a estação é forte (amplitude 1), o mato dá até `invernoComida` a menos no fundo do
+   * inverno e o mesmo a mais no auge do verão, e a temperatura varia `invernoFrio` K para cada lado: a média do
+   * ciclo não muda, só a época. No frio a comida guardada estraga até `invernoEstraga` mais devagar e a semente não brota.
+   */
+  estacao: 120,
+  invernoComida: 0.5,
+  invernoFrio: 6,
+  invernoEstraga: 0.7,
+  /**
+   * Caça: quanto o bicho resiste é (massa / `massaRef`)^`resiste`; a chance de derrubá-lo num golpe é
+   * 1 − e^(−`golpe` × força / resistência), com a força somada de quem bate junto. Bicho a partir de `grande` kg
+   * revida quando o golpe falha, mais contra quem está só.
+   */
+  massaRef: 60,
+  resiste: 0.8,
+  golpe: 0.3,
+  grande: 150,
+  revide: 0.35,
   /** O que um bocado do mato dá de energia (vezes o quanto há para comer) e em quantos anos o tile rebrota. */
   bocado: 0.3,
   rebrota: 18,

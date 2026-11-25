@@ -248,6 +248,13 @@
 .cs-tie.friend .cs-tb1 i { background: #62c24c; }
 .cs-tie.rival .cs-tb1 i { background: #e8503c; }
 .cs-tie.none { grid-template-columns: 28px 1fr; }
+.cs-learn { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cs-learn li { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; min-height: 34px; padding: 3px 10px; border-bottom: 2px dotted var(--cs-pa3); font-size: 14px; line-height: 1.25; }
+.cs-learn li > span { display: flex; flex-direction: column; min-width: 0; }
+.cs-learn li b { color: var(--cs-ink); font-weight: 700; }
+.cs-learn li em { font-style: normal; font-size: 12px; font-weight: 500; color: var(--cs-dim); }
+.cs-learn li.good { box-shadow: inset 4px 0 0 #4fa84a; }
+.cs-learn li.bad { box-shadow: inset 4px 0 0 #c8442f; }
 .cs-diary, .cs-time { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
 .cs-diary li { display: grid; grid-template-columns: 28px 1fr; gap: 8px; align-items: center; min-height: 38px; padding: 4px 10px; border-bottom: 2px dotted var(--cs-pa3); font-size: 15px; line-height: 1.3; }
 .cs-diary li > i { display: inline-flex; }

@@ -52,4 +52,10 @@ export interface GameState {
   nav: NavState;
   /** Sondas, missões de extração e porão da nave. */
   probes: ProbeState;
+  /**
+   * Como pensam as pessoas dos planetas que ainda não foram visitados, escolhido ao começar o mundo novo:
+   * `generativa` é o modelo de src/sim/generativa (gente espalhada, só com o instinto, sem vila); sem ele, o mundo de vilas.
+   * Um planeta já visitado guarda o mundo que tem.
+   */
+  mente?: 'generativa';
 }

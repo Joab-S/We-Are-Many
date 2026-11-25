@@ -1,5 +1,5 @@
 import type { MenteDebug } from '../observador/pessoa';
-import type { Agrupamento, Difusao, MapaDoColetivo, Primeira } from '../observador/retrato';
+import type { Agrupamento, Difusao, MapaDoColetivo, NumerosDoMundo, Primeira } from '../observador/retrato';
 import type { Lifeway } from '../biomeYield';
 import type { LiveConstant } from '../live';
 
@@ -114,7 +114,7 @@ export interface ProfileDebug {
 }
 
 export type { MenteDebug, OpcaoDebug } from '../observador/pessoa';
-export type { Agrupamento, Difusao, MapaDoColetivo, Primeira } from '../observador/retrato';
+export type { Agrupamento, Difusao, MapaDoColetivo, NumerosDoMundo, Primeira } from '../observador/retrato';
 
 export interface DebugView {
   /** Liga ou desliga a gravação das decisões, a série dos indicadores e a medição do passo (começa desligada). */
@@ -143,8 +143,12 @@ export interface DebugView {
    * pensa pelo modelo generativo.
    */
   mente(i: number): MenteDebug | null;
+  /** Só o que a pessoa do modelo generativo faz agora, em palavras (leve, para cada quadro). Null fora dele; '' parada. */
+  agora(i: number): string | null;
   /** O coletivo do mundo generativo, sem rótulo: os agrupamentos de agora com as suas medidas, as primeiras vezes e o que se sabe. Null fora dele. */
   coletivo(): ColetivoDebug | null;
+  /** O mundo generativo em números (leve, para o painel do jogador a cada poucos quadros). Null fora dele. */
+  mundoGen(): NumerosDoMundo | null;
   /** Quem tem uma crença (`verbo|tag`) ou uma lente (`lente:verbo|tag`), e quando cada um passou a ter. */
   difusao(chave: string): Difusao | null;
   /** O coletivo para desenhar sobre o mapa: agrupamentos, quem segue quem, trilhas e, com `chave`, a difusão de uma crença ou lente. */
@@ -177,7 +181,9 @@ export const EMPTY_DEBUG: DebugView = {
   fingerprint: () => '',
   constants: () => [],
   mente: () => null,
+  agora: () => null,
   coletivo: () => null,
+  mundoGen: () => null,
   difusao: () => null,
   mapa: () => null,
   exportarMentes: () => null,

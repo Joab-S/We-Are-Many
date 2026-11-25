@@ -5,6 +5,8 @@ import { SPEEDS } from '../SimDriver';
 import { REAL_YEAR_SECONDS } from '../tools';
 import { HtmlSlot, HudComponent } from './component';
 import type { SurfaceSettings } from './Windows';
+import type { NumerosDoMundo } from '../../../sim/api/debug';
+import { painelGen, relogioGen } from '../humanidade';
 
 /** Quanto falta para a próxima era no assentamento mais avançado. */
 function progressLine(live: { tech: number }[]): string {
@@ -29,6 +31,9 @@ export class SidePanel extends HudComponent {
   private lifePct = 0;
   private statsVersion = -1;
   private statsAt = -Infinity;
+  /** Os números do mundo generativo, relidos no máximo uma vez por segundo (varrem a gente e as coisas). */
+  private gen: NumerosDoMundo | null = null;
+  private genAt = -Infinity;
 
   constructor(
     root: HTMLElement,
@@ -36,6 +41,8 @@ export class SidePanel extends HudComponent {
     private readonly speed: () => number,
     /** Contador de mudanças do mapa (sobe a cada tile repintado). */
     private readonly mapVersion: () => number,
+    /** O mundo generativo em números, pela fachada do motor (null num mundo de vilas). */
+    private readonly mundoGen: () => NumerosDoMundo | null = () => null,
   ) {
     super(150);
     this.clock = new HtmlSlot(root.querySelector<HTMLElement>('[data-clock]')!);
@@ -52,7 +59,13 @@ export class SidePanel extends HudComponent {
   protected update(eco: Ecosystem, now: number): void {
     const live = eco.villages.filter((v) => !v.abandoned);
     const kingdoms = live.filter((v) => v.kingdom === v.id).length;
-    const era = live.length ? ERAS[Math.floor(Math.max(...live.map((v) => v.tech)))] : 'Sem civilização';
+    if (now - this.genAt >= 1000) {
+      this.genAt = now;
+      this.gen = this.mundoGen();
+    }
+    const gen = this.gen;
+    // No mundo generativo não há era de vila: o relógio mostra a estação, e o painel, a gente toda.
+    const era = gen ? relogioGen(gen) : live.length ? ERAS[Math.floor(Math.max(...live.map((v) => v.tech)))] : 'Sem civilização';
     const alive = eco.species
       .map((sp, s) => ({ sp, s, n: eco.population[s] }))
       .filter((r) => r.n > 0)
@@ -65,14 +78,14 @@ export class SidePanel extends HudComponent {
     const events = eco.chronicle.filter((e) => this.settings.showMinor || e.major).slice(0, 6);
     const speed = this.speed();
     this.clock.set(`
-      <div class="wb-clock-text"><b>${era}</b><span>${yearLabel(eco.year, eco.map.params)}${progressLine(live)}</span></div>
+      <div class="wb-clock-text"><b>${era}</b><span>${yearLabel(eco.year, eco.map.params)}${gen ? ` · ${gen.gente} pessoas` : progressLine(live)}</span></div>
       <div class="wb-speed">${SPEEDS.map((v, k) => `<button data-speed="${k}" class="${k === speed ? 'on' : ''}" title="${v === 0 ? 'Pausa (Espaço)' : `Velocidade ${v}x (${k + 1})`}">${v === 0 ? svgIcon('pause') : `${v}x`}</button>`).join('')}</div>`);
     this.panel.set(`
       <div class="wb-section">População</div>
       ${rows || '<div class="wb-empty">Nenhuma espécie. Leve uma pela aba Vida.</div>'}
       ${more}
-      <div class="wb-section">Povos</div>
-      <div class="wb-pop">Assentamentos<b>${live.length}</b></div>
+      ${gen ? painelGen(gen) : `<div class="wb-section">Povos</div>
+      <div class="wb-pop">Assentamentos<b>${live.length}</b></div>`}
       ${kingdoms ? `<button class="wb-goto" data-open="kingdoms">Reinos e povos<b>${kingdoms}</b></button>` : ''}
       ${eco.alliances.size ? `<div class="wb-pop">Alianças<b>${eco.alliances.size}</b></div>` : ''}
       ${eco.wars.map((war) => `<button class="wb-goto bad" data-village="${war.target}" title="${WAR_MOTIVES[war.motive]}">⚔ ${eco.villages[war.a].name} × ${eco.villages[war.b].name} · ${WAR_MOTIVES[war.motive]}<b>${war.losses[0] + war.losses[1]}†</b></button>`).join('')}
