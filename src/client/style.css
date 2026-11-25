@@ -285,4 +285,12 @@ kbd { display: inline-block; min-width: 20px; text-align: center; border: 1px so
 .save-bar:hover { opacity: 1; }
 .save-bar button { font: inherit; font-size: 12px; color: #e8eef8; background: rgba(20, 28, 44, 0.92); border: 1px solid #3a4f7a; border-radius: 6px; padding: 3px 8px; cursor: pointer; }
 .save-bar button:hover { background: rgba(40, 60, 100, 0.95); }
+.new-world { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(4, 8, 16, 0.6); }
+.new-world-box { width: min(420px, 100%); display: flex; flex-direction: column; gap: 8px; color: #e8eef8; background: rgba(16, 22, 36, 0.97); border: 1px solid #3a4f7a; border-radius: 10px; padding: 16px; font-size: 13px; }
+.new-world-box h2 { margin: 0; font-size: 16px; }
+.new-world-box p { margin: 0 0 4px; color: #b8c4d8; }
+.new-world-box button { font: inherit; text-align: left; color: inherit; background: rgba(28, 40, 64, 0.95); border: 1px solid #3a4f7a; border-radius: 8px; padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.new-world-box button:hover, .new-world-box button:focus-visible { background: rgba(44, 66, 108, 0.98); outline: none; border-color: #6f8fd0; }
+.new-world-box button span { color: #b8c4d8; font-size: 12px; }
+.new-world-box .new-world-cancel { align-self: flex-end; padding: 4px 12px; }
 .save-toast { font-size: 12px; color: #e8eef8; background: rgba(20, 28, 44, 0.92); border: 1px solid #3a4f7a; border-radius: 6px; padding: 3px 8px; }

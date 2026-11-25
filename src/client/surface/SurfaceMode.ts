@@ -228,7 +228,7 @@ export class SurfaceMode {
     const natives = saved ? [] : nativeSpecies(this.params, map.life?.attempt ?? 0);
     if (DEBUG && !saved) for (const line of map.life?.notes ?? []) console.info(line);
     for (const sp of natives) state.knownSpecies.set(sp.id, sp);
-    this.engine = createEngine(map, saved ? { seed, eco: saved, yearSpan: REAL_YEAR_SECONDS } : { seed, species: natives, yearSpan: REAL_YEAR_SECONDS, notes: map.life?.notes, generativa: GENERATIVA ? GENERATIVA_GENTE : undefined });
+    this.engine = createEngine(map, saved ? { seed, eco: saved, yearSpan: REAL_YEAR_SECONDS } : { seed, species: natives, yearSpan: REAL_YEAR_SECONDS, notes: map.life?.notes, generativa: state.mente === 'generativa' || GENERATIVA ? GENERATIVA_GENTE : undefined });
     const eco = ecosystemOf(this.engine);
     if (!saved) state.ecosystems.set(this.params.id, eco);
     this.eco = eco;
@@ -482,7 +482,7 @@ export class SurfaceMode {
           else this.sel.setHighlight(null);
         }),
     });
-    this.sheet = new CreatureSheet(q('[data-sheet]'), this.sel, this.icons, { say: (t) => this.toast.say(t), mente: (i) => this.engine.debug.mente(i) });
+    this.sheet = new CreatureSheet(q('[data-sheet]'), this.sel, this.icons, { say: (t) => this.toast.say(t), mente: (i) => this.engine.debug.mente(i), agora: (i) => this.engine.debug.agora(i) });
     this.info = new InfoCard(q('[data-i]'), view, this.sel, this.weather, this.sites, this.sheet);
     this.panel = new SidePanel(root, this.settings, () => this.driver.speed, () => this.raster.version);
     this.minimap = new Minimap(q<HTMLCanvasElement>('[data-mini]'), view, () => this.raster.canvas());

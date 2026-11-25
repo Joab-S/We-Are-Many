@@ -173,7 +173,12 @@ export const queriesPart = {
       if (threat && moving) return 'fugindo de um tubarão';
       return moving ? 'nadando' : 'descansando';
     }
-    if (vi < 0) return moving ? 'andando sem rumo' : 'descansando no mato';
+    if (vi < 0) {
+      // O andarilho perto da tela tem mente (#57): o que ele decidiu fazer, e não só que anda.
+      const d = this.dayOf(i);
+      if (d.note) return d.task;
+      return moving ? 'andando sem rumo' : 'descansando no mato';
+    }
     const v = this.villages[vi];
     if (this.expedition.has(i)) return 'em campanha de guerra';
     // No modo completo (lugar perto da tela ou aberto na ficha), o que a pessoa faz é a jornada que venceu na

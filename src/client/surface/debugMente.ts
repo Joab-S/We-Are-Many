@@ -61,7 +61,7 @@ function resumoHtml(m: MenteDebug, titulo: string): string {
 
 /** A aba Mente: a pessoa fixada na ficha, por dentro. `outra` é a pessoa guardada para comparar. */
 export function mindTabHtml(m: MenteDebug | null, outra: MenteDebug | null, generativo: boolean): string {
-  if (!generativo) return emptyState('Este mundo não usa a mente generativa', 'Abra o jogo com ?mente=generativa&debug num planeta novo: as pessoas começam espalhadas, só com o instinto.');
+  if (!generativo) return emptyState('Este mundo não usa a mente generativa', 'Comece um mundo novo com a mente generativa (botão Mundo novo) e desça num planeta: as pessoas começam espalhadas, só com o instinto.');
   if (!m) return emptyState('Nenhuma pessoa fixada', 'Clique numa pessoa do mundo generativo para fixar a ficha dela: aqui aparecem as opções que ela gerou agora, o que ela sente, o que acredita e de onde veio cada ideia.');
   const melhor = Math.max(0, ...m.opcoes.map((o) => o.nota));
   const corpo = [m.corpo.mao ? `na mão: ${m.corpo.mao}` : '', m.corpo.gravida ? 'grávida' : '', m.corpo.colo ? `com #${m.corpo.colo} no colo` : '', m.corpo.filhos ? `${m.corpo.filhos} filhos pequenos` : '', m.corpo.segue ? `seguindo #${m.corpo.segue}` : '', m.corpo.seguidores ? `${m.corpo.seguidores} a seguem` : '', m.corpo.ferida > 0.05 ? `ferida ${num(m.corpo.ferida)}` : ''].filter(Boolean).join(' · ');
@@ -87,7 +87,7 @@ export function mindTabHtml(m: MenteDebug | null, outra: MenteDebug | null, gene
 
 /** A aba Coletivo: o retrato sem rótulo, as primeiras vezes e a difusão de uma crença ou lente. */
 export function collectiveTabHtml(c: ColetivoDebug | null, dif: Difusao | null): string {
-  if (!c) return emptyState('Este mundo não usa a mente generativa', 'Abra o jogo com ?mente=generativa&debug num planeta novo.');
+  if (!c) return emptyState('Este mundo não usa a mente generativa', 'Comece um mundo novo com a mente generativa (botão Mundo novo) e desça num planeta.');
   const f = (x: number, d = 1) => (Number.isNaN(x) ? '?' : x.toFixed(d).replace('.', ','));
   const grupos = c.grupos.slice(0, 12).map((g) => `<details class="wb-dopt"><summary><div class="wb-kv"><span><button class="wb-link" data-dgo="${Math.round(g.x)},${Math.round(g.y)}">${Math.round(g.x)},${Math.round(g.y)}</button> <b>${g.quantos}</b> juntos (${g.criancas} pequenos)</span><span class="wb-dim">andam ${f(g.movimento)}/ano · ${f(g.noites)} noites no lugar · ${Math.round(g.seguem * 100)}% seguem o mesmo</span></div></summary>
       ${kv('Quanto se movem', meter(Math.min(1, (Number.isNaN(g.movimento) ? 0 : g.movimento) / 8), `${f(g.movimento)} tiles por ano`, 'info'))}

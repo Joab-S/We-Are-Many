@@ -63,6 +63,16 @@ const origem = (eco: Ecosystem) => (uid: number) => {
 };
 
 /** A mente da pessoa `i` para o debug, ou null se ela não pensa pelo modelo generativo. */
+/**
+ * Só o que a pessoa do modelo generativo faz agora, em palavras (a ficha e a prévia do mouse, a cada quadro, sem a
+ * conta inteira de `menteDebug`). Null se ela não pensa pelo modelo generativo; '' se está parada, pensando.
+ */
+export function agoraDe(eco: Ecosystem, i: number): string | null {
+  if (!eco.gen || !eco.alive[i] || !eco.gen.pessoas.has(eco.uid[i])) return null;
+  const ato = eco.genMenteDe(i)?.ato;
+  return ato ? (ato.op.habito ? nomeDoHabito(ato.op.habito) : nomeDoAto(ato.op.chave)) : '';
+}
+
 export function menteDebug(eco: Ecosystem, i: number): MenteDebug | null {
   const p: PessoaGen | undefined = eco.gen?.pessoas.get(eco.uid[i]);
   if (!eco.gen || !p || !eco.alive[i]) return null;
@@ -119,7 +129,7 @@ export function menteDebug(eco: Ecosystem, i: number): MenteDebug | null {
     x: eco.x[i],
     y: eco.y[i],
     idade: eco.age[i],
-    agora: ato ? (ato.op.habito ? nomeDoHabito(ato.op.habito) : nomeDoAto(ato.op.chave)) : '',
+    agora: agoraDe(eco, i) ?? '',
     necessidades: NEC.map((n, k) => ({ nome: NOME_DA_NEC[n], valor: p.nec[k], urgencia: u[k] })),
     corpo: { mao: p.mao ? `${p.mao.que} (${p.mao.q.toFixed(0)})` : '', gravida: p.gravida > 0, colo: p.colo, ferida: p.ferida, desejo: p.desejo, seguidores: p.seguidores, segue: p.segue, filhos: p.filhos.length },
     opcoes,

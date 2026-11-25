@@ -26,6 +26,7 @@ export function snapshotGame(state: GameState, view: ViewSnapshot, seeds: (plane
     knownSpecies: state.knownSpecies,
     nav: state.nav,
     probes: state.probes,
+    ...(state.mente ? { mente: state.mente } : {}),
     view,
   };
 }
@@ -53,6 +54,7 @@ export function restoreGame(raw: unknown, base: Pick<GameState, 'manifest' | 'na
     nav: { ...d.nav, signals: d.nav.signals ?? [], worlds: d.nav.worlds ?? {} },
     // Save de antes do porão de criaturas.
     probes: { ...d.probes, specimens: d.probes.specimens ?? {} },
+    ...(d.mente === 'generativa' ? { mente: 'generativa' as const } : {}),
   };
   return { state, view: d.view, savedAt: d.savedAt };
 }

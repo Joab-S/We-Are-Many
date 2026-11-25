@@ -218,10 +218,15 @@ const row = (label: string, value: string, ic = '') => `<div class="cs-row"><spa
 const tile = (ic: string, value: string, label: string, t = '') => `<span class="cs-tile ${t}" title="${esc(label)}"><i>${ic}</i><span><b>${value}</b><em>${label}</em></span></span>`;
 const section = (title: string) => `<div class="cs-sec"><span>${title}</span></div>`;
 const empty = (text: string) => `<div class="cs-empty">${text}</div>`;
-const now = (eco: Ecosystem, i: number) => `<div class="cs-now">${pixelIcon('play')}<span>Agora: <b>${esc(eco.activityOf(i))}</b></span></div>`;
+/**
+ * O que a pessoa faz agora em palavras. No mundo generativo vem da mente dela (`gen`: o que ela gerou e escolheu,
+ * '' quando está pensando); o motor, sem o observador, só saberia dizer que ela anda.
+ */
+const activity = (eco: Ecosystem, i: number, gen?: string | null) => (gen == null ? eco.activityOf(i) : gen || 'pensando no que fazer');
+const now = (eco: Ecosystem, i: number, gen?: string | null) => `<div class="cs-now">${pixelIcon('play')}<span>Agora: <b>${esc(activity(eco, i, gen))}</b></span></div>`;
 /** A linha do pensamento na prévia do mouse: a ação de agora e o motivo principal (ou só a ação, fora da aldeia). */
-function thought(eco: Ecosystem, i: number): string {
-  if (!homeOf(eco, i)) return now(eco, i);
+function thought(eco: Ecosystem, i: number, gen?: string | null): string {
+  if (!homeOf(eco, i)) return now(eco, i, gen);
   const { d, act } = doing(eco, i);
   const top = d.note?.factors?.find((f) => f.value >= 0.5);
   const why = top ? FACTOR[top.name]?.pro ?? top.name : '';
@@ -313,7 +318,7 @@ export class CreatureSheet extends HudComponent {
     private readonly el: HTMLElement,
     private readonly sel: Selection,
     private readonly icons: IconCache,
-    private readonly host: { say(text: string): void; mente?(i: number): MenteDebug | null },
+    private readonly host: { say(text: string): void; mente?(i: number): MenteDebug | null; agora?(i: number): string | null },
   ) {
     super(250);
     installPixelArt();
@@ -452,6 +457,11 @@ export class CreatureSheet extends HudComponent {
   }
 
   /** Retrato em pixel art: o sprite que anda no mapa, na cor do lugar e da espécie. */
+  /** O que a pessoa do mundo generativo faz agora (null fora dele). */
+  agora(i: number): string | null {
+    return this.host.agora?.(i) ?? null;
+  }
+
   portrait(eco: Ecosystem, i: number): string {
     const sp = eco.species[eco.kind[i]];
     if (!isPerson(eco, i)) return this.icons.icon(spriteOf(sp), sp.color);
@@ -572,7 +582,7 @@ export class CreatureSheet extends HudComponent {
     ].join('');
     const teaching = v?.pendingTech?.uid === eco.uid[i] ? v.pendingTech : null;
     return `
-      ${this.mindPeek(eco, i) || now(eco, i)}
+      ${this.mindPeek(eco, i) || now(eco, i, this.agora(i))}
       <div class="cs-tiles">${tiles}</div>
       ${this.placeCard(eco, i)}
       <div class="cs-rows">
@@ -1090,7 +1100,7 @@ export function previewHtml(eco: Ecosystem, i: number, sheet: CreatureSheet): st
   return pixelize(`<div class="cs-prev">
       <div class="cs-prev-head"><div class="cs-portrait">${sheet.portrait(eco, i)}</div><div class="cs-name" style="--title:${titleColor(isPerson(eco, i) ? (homeOf(eco, i)?.color ?? sp.color) : sp.color)}"><b>${esc(name)}</b><span>${esc(sub)}</span></div></div>
       <div class="cs-vitals">${bars}</div>
-      ${thought(eco, i)}
+      ${thought(eco, i, sheet.agora(i))}
       <div class="cs-prev-foot"><span>${place}</span>${marks ? `<span class="cs-marks inline">${marks}</span>` : ''}</div>
       <div class="cs-hint">Clique para abrir a ficha</div>
     </div>`);

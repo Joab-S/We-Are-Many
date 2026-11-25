@@ -35,7 +35,7 @@ describe('debug da mente generativa', () => {
     for (const o of pontuadas) expect(o.fatores.map((f) => f.nome)).toEqual(expect.arrayContaining(['benefício', 'confiança', 'custo', 'risco']));
     const html = mindTabHtml(m, null, true);
     for (const parte of ['Por quê: as opções geradas agora', 'Considerações do IAUS', 'Necessidades', 'Linha do tempo', 'Crenças', 'de nascença', 'Exportar esta pessoa']) expect(html).toContain(parte);
-    expect(mindTabHtml(null, null, false)).toContain('?mente=generativa');
+    expect(mindTabHtml(null, null, false)).toContain('Mundo novo');
   });
 
   it('a ficha da pessoa mostra o que ela faz agora sem falar em assentamento', () => {

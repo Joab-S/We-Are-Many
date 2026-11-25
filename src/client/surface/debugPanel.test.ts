@@ -186,6 +186,7 @@ function fakeDebug(): DebugView {
     fingerprint: () => 'abcd1234',
     constants: () => [],
     mente: () => null,
+    agora: () => null,
     coletivo: () => null,
     difusao: () => null,
     mapa: () => null,

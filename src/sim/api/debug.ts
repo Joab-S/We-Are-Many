@@ -143,6 +143,8 @@ export interface DebugView {
    * pensa pelo modelo generativo.
    */
   mente(i: number): MenteDebug | null;
+  /** Só o que a pessoa do modelo generativo faz agora, em palavras (leve, para cada quadro). Null fora dele; '' parada. */
+  agora(i: number): string | null;
   /** O coletivo do mundo generativo, sem rótulo: os agrupamentos de agora com as suas medidas, as primeiras vezes e o que se sabe. Null fora dele. */
   coletivo(): ColetivoDebug | null;
   /** Quem tem uma crença (`verbo|tag`) ou uma lente (`lente:verbo|tag`), e quando cada um passou a ter. */
@@ -177,6 +179,7 @@ export const EMPTY_DEBUG: DebugView = {
   fingerprint: () => '',
   constants: () => [],
   mente: () => null,
+  agora: () => null,
   coletivo: () => null,
   difusao: () => null,
   mapa: () => null,

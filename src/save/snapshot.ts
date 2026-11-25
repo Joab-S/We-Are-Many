@@ -63,6 +63,8 @@ export interface SaveData {
   /** Quando cada planeta foi visto pela última vez. Save de antes disso: nenhum perdeu nada. */
   leftAt?: Map<string, number>;
   probes: ProbeState;
+  /** A mente escolhida no mundo novo (`GameState.mente`). Save de antes disso: o mundo de vilas. */
+  mente?: 'generativa';
   view: ViewSnapshot;
 }
 

@@ -1,4 +1,4 @@
-import { exportarMundo, menteDebug, type MenteDebug } from '../observador/pessoa';
+import { agoraDe, exportarMundo, menteDebug, type MenteDebug } from '../observador/pessoa';
 import { conhecimentos, difusao, mapaDoColetivo, primeirasVezes, resumoDoMundo, retrato, type Difusao, type MapaDoColetivo } from '../observador/retrato';
 import type { ColetivoDebug } from './debug';
 import { B } from '../live';
@@ -324,6 +324,10 @@ export class EngineDebug implements DebugView {
 
   mente(i: number): MenteDebug | null {
     return i >= 0 && i < this.eco.count ? menteDebug(this.eco, i) : null;
+  }
+
+  agora(i: number): string | null {
+    return i >= 0 && i < this.eco.count ? agoraDe(this.eco, i) : null;
   }
 
   coletivo(): ColetivoDebug | null {
