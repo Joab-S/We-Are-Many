@@ -184,9 +184,10 @@ const years = (n: number) => `${Math.floor(n)} ${Math.floor(n) === 1 ? 'ano' : '
  * Ofício ou fase em uma etiqueta curta: "⛏️ Minerador", "👑 Líder idoso", "👴 Idoso" (quem parou de trabalhar),
  * "🧒 Criança" ou "Adulto · sem profissão" (quem vive solto).
  */
-function jobLabel(life: ReturnType<typeof lifeOf>): string {
+function jobLabel(life: ReturnType<typeof lifeOf>, gen = false): string {
   if (life.stage === 'child') return '🧒 Criança';
-  if (!life.role) return `${life.stageName} · sem profissão`;
+  // No mundo generativo não há ofício para faltar: só a fase da vida.
+  if (!life.role) return gen ? life.stageName : `${life.stageName} · sem profissão`;
   if (life.stage === 'elder' && life.label === 'Idoso') return '👴 Idoso';
   return `${ROLE_ICONS[life.role]} ${life.label}`;
 }
@@ -439,7 +440,7 @@ export class CreatureSheet extends HudComponent {
     const out: SheetTab[] = ['overview', 'journey', 'status', 'personality'];
     const fam = eco.familyOf(i);
     const t = eco.tiesOf(i);
-    if (fam.parent >= 0 || fam.children.length || t.partner >= 0 || t.friends.length || t.rivals.length) out.push('family');
+    if (fam.parent >= 0 || fam.children.length || t.partner >= 0 || t.friends.length || t.rivals.length || this.agora(i) !== null) out.push('family');
     if (eco.diary.get(eco.uid[i])?.length) out.push('diary');
     out.push('history');
     if (equipmentOf(eco, i).length) out.push('gear');
@@ -502,7 +503,7 @@ export class CreatureSheet extends HudComponent {
   private headHtml(eco: Ecosystem, i: number): string {
     const sp = eco.species[eco.kind[i]];
     let sub: string;
-    if (isPerson(eco, i)) sub = `${sp.name} · ${jobLabel(lifeOf(eco, i))}`;
+    if (isPerson(eco, i)) sub = `${sp.name} · ${jobLabel(lifeOf(eco, i), this.agora(i) !== null)}`;
     else {
       const a = animalOf(eco, i);
       sub = `${cap(a.stage)} · ${years(a.age)}`;
@@ -518,6 +519,14 @@ export class CreatureSheet extends HudComponent {
   // ---- Pessoas -----------------------------------------------------------------------------------
 
   private personTab(eco: Ecosystem, i: number): string {
+    // Mundo generativo: a pessoa não tem lugar, ofício nem rotina; as abas mostram o que ela sente, sabe e com quem anda.
+    const m = this.genMind(eco, i);
+    if (m) {
+      if (this.tab === 'overview') return this.genOverview(eco, i, m);
+      if (this.tab === 'status') return this.genStatus(m);
+      if (this.tab === 'family') return this.genFamily(eco, i, m);
+      if (this.tab === 'history') return this.genHistory(eco, i, m);
+    }
     switch (this.tab) {
       case 'status':
         return this.personStatus(eco, i);
@@ -610,6 +619,111 @@ export class CreatureSheet extends HudComponent {
   private teaching(t: { id: string; progress: number }): string {
     const name = TECH_BY_ID[t.id]?.name ?? t.id;
     return `<div class="cs-teach"><i class="cs-teach-ic">${pixelIcon('scroll')}</i><span><b>Ensinando ${esc(name)}</b><em>Transmite o que descobriu ao lugar</em></span>${meter('Progresso', t.progress, pct(t.progress), 'good')}</div>`;
+  }
+
+  /** A mente generativa de quem vive solto no mundo generativo (null fora dele ou para quem mora num lugar). */
+  private genMind(eco: Ecosystem, i: number): MenteDebug | null {
+    return homeOf(eco, i) ? null : (this.host.mente?.(i) ?? null);
+  }
+
+  /** Resumo no mundo generativo: o que faz (atalho para a mente), o corpo, com quem anda e onde dorme. */
+  private genOverview(eco: Ecosystem, i: number, m: MenteDebug): string {
+    const life = lifeOf(eco, i);
+    const stage = life.stage === 'child' ? 'Criança' : life.stage === 'elder' ? 'Idoso' : 'Adulto';
+    const gosta = m.lacos.filter((l) => l.valor > 15).length;
+    const desafetos = m.lacos.filter((l) => l.valor < -15).length;
+    const sabe = m.crencas.filter((c) => c.tipo !== 'instinto').length;
+    const sente = m.necessidades.filter((n) => n.valor >= 0.3).sort((a, b) => b.valor - a.valor).slice(0, 3);
+    const peek = `<button class="cs-peek" data-ctab="journey" title="Ver o que pensa: Mente">${pixelIcon('thought')}<span><em>Agora</em><b>${esc(cap(m.agora || 'pensando no que fazer'))}</b><small>${esc(sente.length ? `Sente ${sente.map((n) => `${n.nome.replace(/^a |^o /, '')} ${pct(n.valor)}`).join(' · ')}` : 'Nada aperta agora')}</small></span><i class="cs-go">${pixelIcon('chevron')}</i></button>`;
+    const tiles = [
+      tile(pixelIcon('cake'), `${Math.floor(m.idade)}`, 'Idade em anos'),
+      tile(pixelIcon(life.stage === 'child' ? 'child' : life.stage === 'elder' ? 'elder' : 'person'), stage, 'Fase da vida'),
+      tile(pixelIcon('child'), `${m.filhos.length}`, 'Filhos pequenos'),
+      tile(pixelIcon('smile'), `${gosta}`, 'Gosta de'),
+      tile(pixelIcon('angry'), `${desafetos}`, 'Desafetos', desafetos ? 'bad' : ''),
+      tile(pixelIcon('group'), `${m.corpo.seguidores}`, 'A seguem'),
+      tile(pixelIcon('bag'), esc(cap(m.corpo.mao.replace(/ \(\d+\)$/, '')) || 'Nada'), 'Na mão'),
+      tile(pixelIcon('scroll'), `${sabe}`, 'Coisas que aprendeu'),
+    ].join('');
+    const dorme = m.noites >= 2 ? `Dorme no mesmo lugar há ${m.noites} noites` : 'Ainda não dorme sempre no mesmo lugar';
+    return `
+      ${peek}
+      <div class="cs-tiles">${tiles}</div>
+      <div class="cs-place none"><i>${pixelIcon('tent')}</i><span><b>Onde dorme</b><em>${dorme}${m.seguida ? ` · segue ${this.who(eco, m.seguida.i)}` : ''}</em></span></div>
+      <div class="cs-rows">
+        ${row('Família', esc(personFullName(eco, i).family), pixelIcon('flag'))}
+        ${row('Espécie', 'Humano', pixelIcon('dna'))}
+      </div>`;
+  }
+
+  /** Condição no mundo generativo: as 13 sensações da pessoa, da mais forte à mais fraca, e o estado do corpo. */
+  private genStatus(m: MenteDebug): string {
+    const ICON: Record<string, string> = { fome: 'meat', sede: 'leaf', sono: 'rest', cansaço: 'hourglass', frio: 'shield', calor: 'sparkle', dor: 'heart', medo: 'warn', solidão: 'chat', tédio: 'eye', apego: 'heart', 'falta de respeito': 'crown', 'falta de sentido': 'candle' };
+    const bars = m.necessidades
+      .map((n) => ({ ...n, nome: n.nome.replace(/^a |^o /, '') }))
+      .sort((a, b) => b.valor - a.valor)
+      .map((n) => need(cap(n.nome), n.valor, pixelIcon(ICON[n.nome] ?? 'thought'), `${cap(n.nome)}: ${pct(n.valor)}${n.urgencia >= 0.02 ? `, urgência ${num(n.urgencia)}` : ''}`))
+      .join('');
+    const corpo = [
+      m.corpo.ferida > 0.05 ? row('Ferida', `<span class="bad">${pct(m.corpo.ferida)}</span>`, pixelIcon('heart')) : '',
+      m.corpo.gravida ? row('Grávida', 'Sim', pixelIcon('child')) : '',
+      m.corpo.colo ? row('Carrega no colo', 'Um filho', pixelIcon('child')) : '',
+      row('Na mão', esc(m.corpo.mao || 'nada'), pixelIcon('bag')),
+      m.corpo.desejo >= 0.3 ? row('Vontade de par', pct(m.corpo.desejo), pixelIcon('heart')) : '',
+    ].join('');
+    return `
+      ${section('O que sente')}
+      <div class="cs-bars">${bars}</div>
+      <div class="cs-note">Cada sensação sobe sozinha com o tempo ou com o que acontece (frio no inverno, medo perto de bicho bravo) e cai com o que a pessoa faz. Ninguém diz o que fazer com elas: ela escolhe pelo que acredita que alivia.</div>
+      ${section('Corpo')}
+      <div class="cs-rows">${corpo}</div>`;
+  }
+
+  /** Família e laços no mundo generativo: o outro pai, os filhos pequenos, quem segue e os laços pelo que viveram juntos. */
+  private genFamily(eco: Ecosystem, i: number, m: MenteDebug): string {
+    const fam = personFullName(eco, i);
+    const laco = (l: MenteDebug['lacos'][number]) => {
+      const kind = l.valor > 15 ? 'friend' : l.valor < -15 ? 'rival' : '';
+      const label = l.valor > 15 ? 'Gosta' : l.valor < -15 ? 'Desafeto' : 'Conhece';
+      return `<div class="cs-tie ${kind}"><i>${l.valor > 15 ? '🤝' : l.valor < -15 ? '😠' : '👤'}</i>${this.who(eco, l.i)}<em>${label}</em><span class="cs-tb1" title="Força do laço: ${Math.round(l.valor)}"><i style="width:${Math.min(100, Math.abs(l.valor)).toFixed(0)}%"></i></span></div>`;
+    };
+    const fortes = m.lacos.filter((l) => Math.abs(l.valor) > 15);
+    const fracos = m.lacos.length - fortes.length;
+    return `
+      ${section(`Família ${esc(fam.family)}`)}
+      <div class="cs-rows">
+        ${row('Filhos pequenos', m.filhos.length ? m.filhos.map((f) => this.who(eco, f.i)).join(', ') : '<span class="cs-dim">Nenhum</span>', '👶')}
+        ${m.par ? row('Teve filho com', this.who(eco, m.par.i), '💞') : ''}
+        ${row('Segue', m.seguida ? this.who(eco, m.seguida.i) : '<span class="cs-dim">Ninguém</span>', '🧭')}
+        ${row('A seguem', `${m.corpo.seguidores}`, '👥')}
+      </div>
+      ${section('Laços')}
+      ${fortes.slice(0, 10).map(laco).join('') || '<div class="cs-tie none"><i>🤝</i><span class="cs-dim">Nenhum laço forte ainda</span></div>'}
+      ${fracos > 0 ? `<div class="cs-dim cs-more">e conhece mais ${fracos} ${fracos === 1 ? 'pessoa' : 'pessoas'}</div>` : ''}
+      <div class="cs-note">O laço cresce com o que viveram juntos (dar comida, dormir perto, cuidar) e cai com o que fizeram de ruim (bater, tomar da mão). Não há casamento nem amizade declarada: só o que aconteceu.</div>`;
+  }
+
+  /** História de vida no mundo generativo: quando e de quem aprendeu cada coisa, além dos marcos de sempre. */
+  private genHistory(eco: Ecosystem, i: number, m: MenteDebug): string {
+    const ev: { ano: number; icon: string; text: string }[] = [];
+    // Só o que muda alguma coisa vira marco; o que ela testou e não mudou nada entra na conta do fim.
+    let testou = 0;
+    for (const c of m.crencas) {
+      if (c.tipo === 'instinto') continue;
+      if (c.e.some((x) => Math.abs(x) >= 0.05)) ev.push({ ano: c.em, icon: '💡', text: `Aprendeu: ${cap(c.nome)} (${c.origem})` });
+      else testou++;
+    }
+    for (const l of m.lentes) ev.push({ ano: l.em, icon: '◐', text: `Passou a ver: ${cap(l.texto)} (${l.origem})` });
+    for (const h of m.habitos) ev.push({ ano: h.em, icon: '↻', text: `Pegou o costume: ${cap(h.texto)}` });
+    ev.sort((a, b) => b.ano - a.ano);
+    const marcos = historyOf(eco, i);
+    return `${section('O que aprendeu, do mais novo')}<ol class="cs-time">${ev
+      .slice(0, 30)
+      .map((e) => `<li><b>Ano ${Math.floor(e.ano)}</b><i>${e.icon}</i><span>${esc(e.text)}</span></li>`)
+      .join('') || '<li><b>—</b><i>💡</i><span>Ainda só sabe o que nasceu sabendo.</span></li>'}</ol>
+      ${ev.length > 30 ? `<div class="cs-dim cs-more">e mais ${ev.length - 30} coisas antes</div>` : ''}
+      ${testou ? `<div class="cs-note">Também testou ${testou} ${testou === 1 ? 'coisa' : 'coisas'} que não mudaram nada (comer galho, beber sombra…). Saber que não adianta também é aprender: ela para de tentar.</div>` : ''}
+      ${section('Marcos')}<ol class="cs-time">${marcos.map((e) => `<li><b>${e.year !== null ? `Ano ${e.year}` : '—'}</b><i>${e.icon}</i><span>${esc(e.text)}</span></li>`).join('')}</ol>`;
   }
 
   /** Condição: o que o corpo e a rotina pedem agora (as necessidades do dia) e os estados com texto. */
@@ -1088,8 +1202,9 @@ export function previewHtml(eco: Ecosystem, i: number, sheet: CreatureSheet): st
     const life = lifeOf(eco, i);
     const home = homeOf(eco, i);
     name = `${n.first} ${n.family}`;
-    sub = `${sp.name} · ${jobLabel(life)} · ${years(eco.age[i])}`;
-    place = home ? `🏠 ${eco.tierName(home)} ${esc(home.name)}${home.kingdom !== home.id ? ` · ${esc(eco.polityName(home))}` : ''}` : '⛺ Sem assentamento';
+    const gen = sheet.agora(i) !== null;
+    sub = `${sp.name} · ${jobLabel(life, gen)} · ${years(eco.age[i])}`;
+    place = home ? `🏠 ${eco.tierName(home)} ${esc(home.name)}${home.kingdom !== home.id ? ` · ${esc(eco.polityName(home))}` : ''}` : gen ? '⛺ Vive solto' : '⛺ Sem assentamento';
   } else {
     const a = animalOf(eco, i);
     name = sp.name;

@@ -4,6 +4,7 @@ import { earthParams } from '../../sim/calibrate';
 import { nativeSpecies } from '../../sim/species';
 import { generateSurface } from '../../procgen/surface';
 import { collectiveTabHtml, fichaGenerativaHtml, mindTabHtml } from './debugMente';
+import { humanidadeHtml, painelGen, relogioGen } from './humanidade';
 
 /** Um mundo generativo pequeno, pela fachada do motor (como o cliente o vê), com a câmera em cima de alguém. */
 function mundo() {
@@ -52,6 +53,26 @@ describe('debug da mente generativa', () => {
     expect(html).toContain('Agrupamentos de agora');
     expect(html).toContain('Primeiras vezes vistas');
     expect(html.replace(/<[^>]+>/g, ' ')).not.toMatch(/\b(aldeia|vila|reino|tribo|bando|nômades?|cidade|chefe|líder|império)\b/i);
+  });
+
+  it('o jogador vê a humanidade (relógio, painel e janela) medida, sem nome de categoria', () => {
+    const n = engine.debug.mundoGen()!;
+    const c = engine.debug.coletivo()!;
+    expect(n.gente).toBeGreaterThan(0);
+    expect(relogioGen(n)).toMatch(/no norte$/);
+    const html = [painelGen(n), humanidadeHtml(c, n)].join(' ');
+    expect(html).toContain('Agrupamentos de agora');
+    expect(html).toContain(`${n.gente}`);
+    expect(html.replace(/<[^>]+>/g, ' ')).not.toMatch(/\b(aldeia|vila|reino|tribo|bando|nômades?|cidade|chefe|líder|império|assentamentos?)\b/i);
+    // Num mundo de vilas, nada disso existe.
+    const vilas = createEngine(generateSurface(earthParams(0.25)), { seed: 21, species: nativeSpecies(earthParams(0.25)) });
+    expect(vilas.debug.mundoGen()).toBeNull();
+  });
+
+  it('a ficha dá à pessoa os laços pelo que viveu e os parentes pelo índice de agora', () => {
+    for (const l of m.lacos) expect(engine.view.uid[l.i]).toBe(l.uid);
+    for (const f of m.filhos) expect(engine.view.uid[f.i]).toBe(f.uid);
+    if (m.seguida) expect(engine.view.uid[m.seguida.i]).toBe(m.seguida.uid);
   });
 
   it('o estado exportado é dado puro (sobrevive ao JSON)', () => {

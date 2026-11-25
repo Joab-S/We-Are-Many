@@ -44,6 +44,20 @@ export interface MenteDebug {
   agora: string;
   necessidades: { nome: string; valor: number; urgencia: number }[];
   corpo: { mao: string; gravida: boolean; colo: number; ferida: number; desejo: number; seguidores: number; segue: number; filhos: number };
+  /**
+   * Os laços dela com gente viva, o mais forte (para os dois lados) primeiro: de −100 a 100. Acima de 15 ela vê a
+   * pessoa como alguém de quem gosta, abaixo de −15 como desafeto (as mesmas marcas que ela percebe). `i` é o índice
+   * de agora, para a ficha abrir a outra pessoa.
+   */
+  lacos: { uid: number; i: number; valor: number }[];
+  /** Na mãe: o pai do filho que ela espera, ou do último (null se nenhum ou se já morreu). */
+  par: { uid: number; i: number } | null;
+  /** Quem ela segue agora (null se ninguém). */
+  seguida: { uid: number; i: number } | null;
+  /** Os filhos que ainda não são adultos. */
+  filhos: { uid: number; i: number }[];
+  /** Noites seguidas dormindo no mesmo lugar. */
+  noites: number;
   opcoes: OpcaoDebug[];
   crencas: { chave: string; nome: string; efeito: string; e: number[]; confianca: number; origem: string; tipo: string; de: number; em: number; vezes: number; depois: string[] }[];
   lentes: { chave: string; texto: string; forca: number; origem: string; em: number; de: number }[];
@@ -78,6 +92,10 @@ export function menteDebug(eco: Ecosystem, i: number): MenteDebug | null {
   if (!eco.gen || !p || !eco.alive[i]) return null;
   const m = eco.genMenteDe(i);
   const quem = origem(eco);
+  const vivo = (uid: number) => {
+    const j = uid ? eco.indexOfUid(uid) : -1;
+    return j >= 0 ? { uid, i: j } : null;
+  };
   const cur = m?.brain.currentDecision ?? null;
   const notas = new Map<string, { nota: number; fatores: { nome: string; valor: number }[] }>();
   if (m) for (const d of m.brain.decisions) {
@@ -132,6 +150,15 @@ export function menteDebug(eco: Ecosystem, i: number): MenteDebug | null {
     agora: agoraDe(eco, i) ?? '',
     necessidades: NEC.map((n, k) => ({ nome: NOME_DA_NEC[n], valor: p.nec[k], urgencia: u[k] })),
     corpo: { mao: p.mao ? `${p.mao.que} (${p.mao.q.toFixed(0)})` : '', gravida: p.gravida > 0, colo: p.colo, ferida: p.ferida, desejo: p.desejo, seguidores: p.seguidores, segue: p.segue, filhos: p.filhos.length },
+    lacos: (eco.bonds.get(eco.uid[i]) ?? [])
+      .map((b) => ({ uid: b.uid, i: eco.indexOfUid(b.uid), valor: b.value }))
+      .filter((b) => b.valor !== 0 && b.i >= 0)
+      .sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor) || a.uid - b.uid)
+      .slice(0, 24),
+    par: vivo(p.par),
+    seguida: vivo(p.segue),
+    filhos: p.filhos.map(vivo).filter((f): f is { uid: number; i: number } => f !== null),
+    noites: p.dormiuEm?.noites ?? 0,
     opcoes,
     crencas: Object.entries(p.crencas)
       .map(([chave, c]) => ({ chave, nome: nomeDaCrenca(chave, c), efeito: nomeDoEfeito(c.e), e: c.e.slice(), confianca: c.c, origem: nomeDaOrigem(c.o, quem), tipo: c.o.tipo, de: c.o.de, em: c.o.em, vezes: c.n, depois: Object.entries(c.g ?? {}).filter(([, w]) => w >= 0.3).map(([k]) => (k.startsWith('mao:') ? `fica com ${nomeDaTag(k.slice(4))} na mão` : `passa a ver ${nomeDaTag(k.slice(4))}`)) }))

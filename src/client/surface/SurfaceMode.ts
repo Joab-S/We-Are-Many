@@ -395,6 +395,8 @@ export class SurfaceMode {
 
   private buildUi(): void {
     const key = keyLabel;
+    // No mundo generativo a janela de assentamentos é a Humanidade (a gente toda, sem vila).
+    const generativo = this.engine.debug.mundoGen() !== null;
     this.root.innerHTML = `
       <canvas class="wb-terr" data-terr></canvas>
       <div class="wb-labels" data-l></div>
@@ -404,7 +406,7 @@ export class SurfaceMode {
         <div class="wb-stats" data-s></div>
         <div class="wb-clock" data-clock></div>
         <div class="wb-menu">
-          ${WINDOWS.map(([id, label]) => `<button class="wb-back wb-ib" data-w="${id}" title="${plain(label)}">${svgIcon(WINDOW_ICONS[id])}</button>`).join('')}
+          ${WINDOWS.map(([id, label]) => `<button class="wb-back wb-ib" data-w="${id}" title="${generativo && id === 'settlements' ? 'Humanidade' : plain(label)}">${svgIcon(generativo && id === 'settlements' ? 'users' : WINDOW_ICONS[id])}</button>`).join('')}
           <button class="wb-back wb-ib" data-a="help" title="Controles (H)">${svgIcon('help')}</button>
         </div>
       </div>
@@ -458,7 +460,7 @@ export class SurfaceMode {
     const view = this.view;
     const redraw = () => (this.dirty = true);
     this.toast = new Toast(q('[data-toast]'));
-    this.windows = new Windows(root, this.icons, this.settings, this.state.knownSpecies, this.params.id, this.state.probes);
+    this.windows = new Windows(root, this.icons, this.settings, this.state.knownSpecies, this.params.id, this.state.probes, { coletivo: () => this.engine.debug.coletivo(), mundoGen: () => this.engine.debug.mundoGen() });
     this.vwin = new SettlementView(root, this.icons);
     // Consumidores da fila de eventos do motor (Observer): avisos dos acontecimentos, a janela do assentamento e as
     // setas das colônias e das famílias que se mudam.
@@ -484,7 +486,7 @@ export class SurfaceMode {
     });
     this.sheet = new CreatureSheet(q('[data-sheet]'), this.sel, this.icons, { say: (t) => this.toast.say(t), mente: (i) => this.engine.debug.mente(i), agora: (i) => this.engine.debug.agora(i) });
     this.info = new InfoCard(q('[data-i]'), view, this.sel, this.weather, this.sites, this.sheet);
-    this.panel = new SidePanel(root, this.settings, () => this.driver.speed, () => this.raster.version);
+    this.panel = new SidePanel(root, this.settings, () => this.driver.speed, () => this.raster.version, () => this.engine.debug.mundoGen());
     this.minimap = new Minimap(q<HTMLCanvasElement>('[data-mini]'), view, () => this.raster.canvas());
     this.labels = new Labels(q('[data-l]'));
     this.overlay = new MapOverlay(q<HTMLCanvasElement>('[data-terr]'), eco, view, this.sel, this.settings, this.weather, this.fx, this.sites, this.trails);

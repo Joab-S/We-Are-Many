@@ -187,6 +187,7 @@ function fakeDebug(): DebugView {
     constants: () => [],
     mente: () => null,
     agora: () => null,
+    mundoGen: () => null,
     coletivo: () => null,
     difusao: () => null,
     mapa: () => null,

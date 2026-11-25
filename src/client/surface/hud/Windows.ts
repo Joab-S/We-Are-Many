@@ -16,6 +16,8 @@ import { SPEEDS } from '../SimDriver';
 import { HtmlSlot, HudComponent } from './component';
 import { legendsHtml } from './legends';
 import type { IconCache } from './icons';
+import type { ColetivoDebug, NumerosDoMundo } from '../../../sim/api/debug';
+import { humanidadeHtml } from '../humanidade';
 
 /** Opções de exibição da superfície (janela Mundo e atalhos). */
 export interface SurfaceSettings {
@@ -49,6 +51,8 @@ export class Windows extends HudComponent {
     private readonly known: Map<string, Species>,
     private readonly planetId: string,
     private readonly hold: Pick<ProbeState, 'specimens'>,
+    /** No mundo generativo, a janela de assentamentos vira a Humanidade (pela fachada do motor; null num mundo de vilas). */
+    private readonly gen: { coletivo(): ColetivoDebug | null; mundoGen(): NumerosDoMundo | null } = { coletivo: () => null, mundoGen: () => null },
   ) {
     super(600);
     this.body = new HtmlSlot(root.querySelector<HTMLElement>('[data-win-body]')!);
@@ -83,6 +87,14 @@ export class Windows extends HudComponent {
 
   protected update(eco: Ecosystem): void {
     if (!this.win) return;
+    if (this.win === 'settlements') {
+      const n = this.gen.mundoGen();
+      const c = n && this.gen.coletivo();
+      if (n && c) {
+        if (this.body.set(humanidadeHtml(c, n))) this.root.querySelector<HTMLElement>('[data-win-title]')!.textContent = 'Humanidade';
+        return;
+      }
+    }
     const title = WINDOWS.find(([id]) => id === this.win)![1];
     const body =
       this.win === 'chronicle'

@@ -38,7 +38,7 @@ test('?mente=generativa: gente espalhada, nenhuma vila, e o painel explica a dec
   // A ficha da pessoa, na aba da mente: mostra o que ela gerou (a ficha generativa), não a decisão do andarilho da aldeia.
   const ficha = page.locator('[data-sheet]');
   await expect(ficha).toBeVisible();
-  await ficha.locator('[data-ctab="journey"]').click();
+  await ficha.locator('[data-ctab="journey"].cs-tab').click();
   await expect(ficha).toContainText('além do instinto');
   await expect(ficha).not.toContainText('O que decidiu');
 
@@ -103,7 +103,23 @@ test('Mundo novo com a mente generativa, no WebGL, e o save guarda a escolha', a
   });
   const ficha = page.locator('[data-sheet]');
   await expect(ficha).toBeVisible();
-  await expect(ficha.locator('.cs-now').first()).not.toContainText('andando sem rumo');
+  await expect(ficha.locator('.cs-peek')).toContainText('Agora');
+  await expect(ficha).not.toContainText('andando sem rumo');
+  await expect(ficha).not.toContainText('sem profissão');
+  // As abas da pessoa generativa mostram o que ela sente e os laços pelo que viveu, não a rotina e o ofício da vila.
+  await ficha.locator('[data-ctab="status"].cs-tab').click();
+  await expect(ficha).toContainText('O que sente');
+  await expect(ficha).not.toContainText('Quem vive solto não segue a rotina');
+  await ficha.locator('[data-ctab="journey"].cs-tab').click();
+  await expect(ficha).toContainText('O que aprendeu');
+  await page.keyboard.press('Escape');
+
+  // A gente toda, para o jogador: o relógio dá a estação, o painel a humanidade, e a janela os agrupamentos.
+  await expect(page.locator('[data-clock]')).toContainText('no norte');
+  await expect(page.locator('[data-p]')).toContainText('Humanidade');
+  await page.locator('[data-p] [data-open="settlements"]').click();
+  await expect(page.locator('[data-win]')).toContainText('Agrupamentos de agora');
+  await page.locator('[data-w="settlements"]').click();
 
   // Voltar ao espaço grava (pelo botão: com a ficha aberta, o Esc fecha a ficha); recarregar sem parâmetro nenhum de
   // mente traz a escolha e a Terra generativa.
